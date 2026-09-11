@@ -245,6 +245,19 @@ test "Process.spawn returns Integer pid" {
     try std.testing.expectEqual(true, result.toBool());
 }
 
+test "Process.spawn supports chdir" {
+    const result = try evalCode(
+        \\reader, writer = IO.pipe
+        \\pid = Process.spawn("/bin/pwd", {out: writer, chdir: "/tmp"})
+        \\writer.close
+        \\Process.wait(pid)
+        \\[reader.read.strip, $?.success?]
+    );
+    const values = result.toArrayObject().elements.items;
+    try std.testing.expectEqualStrings("/tmp", values[0].toStringObject().str);
+    try std.testing.expect(values[1].toBool());
+}
+
 test "IO.popen uses ENV PATH for executable lookup" {
     if (builtin.os.tag == .windows) return;
 

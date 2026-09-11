@@ -279,7 +279,8 @@ export fn rb_str_new(ptr: [*c]const u8, len: c_long) VALUE {
         rb_raise(rb_eArgError, "negative string size (or size too big)");
         return 0;
     }
-    const s: []const u8 = if (ptr != null) ptr[0..@intCast(len)] else &.{};
+    if (ptr == null) return allocMutableString(vm, @intCast(len));
+    const s: []const u8 = ptr[0..@intCast(len)];
     const val = vm.newString(s, false) catch return 0;
     return val.raw;
 }
@@ -406,17 +407,26 @@ export fn rb_str_freeze(str_raw: VALUE) VALUE {
 }
 
 export fn rb_string_value_cstr(ptr: *VALUE) ?[*]u8 {
-    const val = Value{ .raw = ptr.* };
+    var val = Value{ .raw = ptr.* };
     if (!val.isString()) {
         const vm = getVM();
         var empty_args = [_]Value{};
         const str_val = vm.callMethodByName(val, "to_s", &empty_args, null) catch return null;
         if (!str_val.isString()) return null;
         ptr.* = str_val.raw;
-        const coerced = Value{ .raw = ptr.* };
-        return @constCast(coerced.toStringObject().str.ptr);
+        val = str_val;
     }
-    return @constCast(val.toStringObject().str.ptr);
+    const vm = getVM();
+    const string = val.toStringObject();
+    if (std.mem.indexOfScalar(u8, string.str, 0) != null) {
+        rb_raise(rb_eArgError, "string contains null byte");
+        return null;
+    }
+    const terminated = vm.gc_allocator_atomic.alloc(u8, string.str.len + 1) catch return null;
+    @memcpy(terminated[0..string.str.len], string.str);
+    terminated[string.str.len] = 0;
+    string.str = terminated[0..string.str.len];
+    return terminated.ptr;
 }
 
 export fn rb_string_value_ptr(ptr: *VALUE) ?[*]u8 {
@@ -794,6 +804,7 @@ export fn rb_type(obj_raw: VALUE) c_int {
         .module => 0x03,
         .match_data => 0x0d,
         .rational => 0x0f,
+        .typed_data => 0x0c,
         else => 0x01,
     };
 }
@@ -982,7 +993,17 @@ export fn rb_define_private_method(klass_raw: VALUE, name_ptr: [*c]const u8, fun
 export fn rb_raise(exc_raw: VALUE, fmt: [*c]const u8, ...) void {
     const vm = getVM();
     const msg_raw = if (fmt != null) std.mem.span(fmt) else "";
-    _ = vm.raiseExceptionFmt(@ptrFromInt(exc_raw), "{s}", .{msg_raw}) catch {};
+    var rendered: ?[]const u8 = null;
+    if (std.mem.indexOf(u8, msg_raw, "%V")) |marker| {
+        var ap = @cVaStart();
+        defer @cVaEnd(&ap);
+        const arg = Value{ .raw = @cVaArg(&ap, VALUE) };
+        if (arg.isString()) {
+            rendered = std.fmt.allocPrint(vm.allocator, "{s}{s}{s}", .{ msg_raw[0..marker], arg.toStringObject().str, msg_raw[marker + 2 ..] }) catch null;
+        }
+    }
+    defer if (rendered) |message| vm.allocator.free(message);
+    _ = vm.raiseExceptionFmt(@ptrFromInt(exc_raw), "{s}", .{rendered orelse msg_raw}) catch {};
     if (vm.cext_jmp_buf) |buf| {
         siglongjmp(buf, 1);
     }
@@ -1276,14 +1297,32 @@ export fn Check_Type(obj_raw: VALUE, t: c_int) void {
 
 // ─── TypedData ──────────────────────────────────────────────────────────────
 
+const CTypedDataFunctions = extern struct {
+    dmark: ?*const fn (*anyopaque) callconv(.c) void,
+    dfree: ?*const fn (*anyopaque) callconv(.c) void,
+    dsize: ?*const fn (*const anyopaque) callconv(.c) usize,
+    dcompact: ?*anyopaque,
+    handle_weak_references: ?*anyopaque,
+    reserved: [7]?*anyopaque,
+};
+
+const CTypedDataType = extern struct {
+    wrap_struct_name: ?[*:0]const u8,
+    function: CTypedDataFunctions,
+    parent: ?*const anyopaque,
+    data: ?*anyopaque,
+    flags: VALUE,
+};
+
 export fn TypedData_Wrap_Struct(klass_raw: VALUE, ty: ?*const anyopaque, data: ?*anyopaque) VALUE {
     const vm = getVM();
-    _ = ty;
-    const klass: *value.ClassObject = @ptrFromInt(klass_raw);
-    const obj = vm.newInstance(klass) catch return 0;
-    if (data) |d| {
-        vm.setInstanceVariable(obj, "@data", Value.integer(@as(i64, @intCast(@intFromPtr(d))))) catch {};
-    }
+    const klass: *value.ClassObject = if (klass_raw == 0) vm.object_class else @ptrFromInt(klass_raw);
+    const data_ptr = data orelse return 0;
+    const callbacks: value.TypedDataCallbacks = if (ty) |raw_type| blk: {
+        const data_type: *const CTypedDataType = @ptrCast(@alignCast(raw_type));
+        break :blk .{ .dfree = data_type.function.dfree, .dmark = data_type.function.dmark };
+    } else .{};
+    const obj = vm.newTypedData(klass, data_ptr, ty, callbacks) catch return 0;
     return obj.raw;
 }
 
@@ -1292,14 +1331,21 @@ export fn rb_data_typed_object_alloc(klass_raw: VALUE, ty: ?*const anyopaque) VA
     return TypedData_Wrap_Struct(klass_raw, null, null);
 }
 
+export fn rb_data_typed_object_zalloc(klass_raw: VALUE, size: usize, ty: ?*const anyopaque) VALUE {
+    const data = xcalloc(1, size) orelse return 0;
+    return TypedData_Wrap_Struct(klass_raw, ty, data);
+}
+
+export fn rb_typeddata_is_kind_of(obj_raw: VALUE, ty: ?*const anyopaque) c_int {
+    return if (Check_TypedStruct(obj_raw, ty) != null) 1 else 0;
+}
+
 export fn Check_TypedStruct(obj_raw: VALUE, ty: ?*const anyopaque) ?*anyopaque {
-    _ = ty;
-    const vm = getVM();
-    const data_val = vm.getInstanceVariable(Value{ .raw = obj_raw }, "@data") catch return null;
-    if (data_val.isInteger()) {
-        return @ptrFromInt(@as(usize, @intCast(data_val.toInteger())));
-    }
-    return null;
+    const val = Value{ .raw = obj_raw };
+    if (!val.isTypedData()) return null;
+    const typed = val.toTypedDataObject();
+    if (ty != null and typed.data_type != ty) return null;
+    return typed.data;
 }
 
 // ─── Yield ─────────────────────────────────────────────────────────────────
@@ -1722,6 +1768,29 @@ export fn rb_convert_type(obj_raw: VALUE, t: c_int, tname: [*c]const u8, method:
     return result.raw;
 }
 
+export fn rb_check_convert_type(obj_raw: VALUE, t: c_int, tname: [*c]const u8, method: [*c]const u8) VALUE {
+    _ = tname;
+    const val = Value{ .raw = obj_raw };
+    if (rb_type(obj_raw) == t) return obj_raw;
+    const vm = getVM();
+    const result = vm.checkCallMethodByName(val, std.mem.span(method), false, &.{}, null) catch return 0;
+    if (result) |converted| {
+        if (converted.isNil() or rb_type(converted.raw) != t) return Value.NIL.raw;
+        return converted.raw;
+    }
+    return Value.NIL.raw;
+}
+
+export fn rb_check_string_type(obj_raw: VALUE) VALUE {
+    return rb_check_convert_type(obj_raw, 5, "String", "to_str");
+}
+
+export fn rb_to_int(obj_raw: VALUE) VALUE {
+    const val = Value{ .raw = obj_raw };
+    if (val.isInteger() or val.isBigInteger()) return obj_raw;
+    return rb_funcall(obj_raw, rb_intern("to_int"), 0);
+}
+
 export fn rb_obj_hide(obj_raw: VALUE) VALUE {
     return obj_raw;
 }
@@ -1813,13 +1882,7 @@ export fn rb_check_arity(argc: c_int, min: c_int, max: c_int) void {
 }
 
 export fn rb_check_typeddata(obj_raw: VALUE, data_type: ?*const anyopaque) ?*anyopaque {
-    _ = data_type;
-    const vm = getVM();
-    const data_val = vm.getInstanceVariable(Value{ .raw = obj_raw }, "@data") catch return null;
-    if (data_val.isInteger()) {
-        return @ptrFromInt(@as(usize, @intCast(data_val.toInteger())));
-    }
-    return null;
+    return Check_TypedStruct(obj_raw, data_type);
 }
 
 // ─── GC ──────────────────────────────────────────────────────────────────────
@@ -1984,6 +2047,22 @@ export fn rb_num_coerce_cmp(x_raw: VALUE, y_raw: VALUE, cmp_id: VALUE) VALUE {
     return result.raw;
 }
 
+fn rbNumCoerceCall(x_raw: VALUE, y_raw: VALUE, func_id: VALUE) VALUE {
+    const coerced = rb_funcall(x_raw, rb_intern("coerce"), 1, y_raw);
+    const pair = Value{ .raw = coerced };
+    if (!pair.isArray() or pair.toArrayObject().elements.items.len != 2) return 0;
+    const items = pair.toArrayObject().elements.items;
+    return rb_funcall(items[0].raw, func_id, 1, items[1].raw);
+}
+
+export fn rb_num_coerce_bin(x_raw: VALUE, y_raw: VALUE, func_id: VALUE) VALUE {
+    return rbNumCoerceCall(x_raw, y_raw, func_id);
+}
+
+export fn rb_num_coerce_relop(x_raw: VALUE, y_raw: VALUE, func_id: VALUE) VALUE {
+    return rbNumCoerceCall(x_raw, y_raw, func_id);
+}
+
 // ─── Rational ────────────────────────────────────────────────────────────────
 
 export fn rb_rational_new(num_raw: VALUE, den_raw: VALUE) VALUE {
@@ -2017,6 +2096,83 @@ export fn rb_rational_den(rat_raw: VALUE) VALUE {
 
 export fn rb_rational_new2(num_raw: VALUE, den_raw: VALUE) VALUE {
     return rb_rational_new(num_raw, den_raw);
+}
+
+export fn rb_assoc_new(car_raw: VALUE, cdr_raw: VALUE) VALUE {
+    return rb_ary_new3(2, car_raw, cdr_raw);
+}
+
+export fn rb_exc_new3(klass_raw: VALUE, str_raw: VALUE) VALUE {
+    return rb_exc_new_str(klass_raw, str_raw);
+}
+
+export fn rb_str_resize(str_raw: VALUE, len: c_long) VALUE {
+    if (len < 0) return 0;
+    const val = Value{ .raw = str_raw };
+    if (!val.isString()) return 0;
+    const vm = getVM();
+    const obj = val.toStringObject();
+    const new_len: usize = @intCast(len);
+    const bytes = vm.gc_allocator_atomic.alloc(u8, new_len) catch return 0;
+    const copied = @min(obj.str.len, new_len);
+    @memcpy(bytes[0..copied], obj.str[0..copied]);
+    @memset(bytes[copied..], 0);
+    obj.str = bytes;
+    return str_raw;
+}
+
+export fn rb_hash_lookup2(hash_raw: VALUE, key_raw: VALUE, default_raw: VALUE) VALUE {
+    const found = rb_hash_aref(hash_raw, key_raw);
+    if (found == Value.NIL.raw) return default_raw;
+    return found;
+}
+
+export fn rb_absint_size(val_raw: VALUE, nlz_bits_ret: ?*c_int) usize {
+    if (nlz_bits_ret) |out| out.* = 0;
+    const rendered = rb_big2str(val_raw, 16);
+    const val = Value{ .raw = rendered };
+    if (!val.isString()) return 0;
+    return (val.toStringObject().str.len + 1) / 2;
+}
+
+export fn rb_big_cmp(x_raw: VALUE, y_raw: VALUE) c_int {
+    const result = rb_funcall(x_raw, rb_intern("<=>"), 1, y_raw);
+    return @intCast(NUM2LONG(result));
+}
+
+export fn rb_big2str(x_raw: VALUE, base: c_int) VALUE {
+    return rb_funcall(x_raw, rb_intern("to_s"), 1, INT2NUM(base));
+}
+
+export fn rb_define_global_function(name_ptr: [*c]const u8, func: ?*anyopaque, argc: c_int) void {
+    rb_define_module_function(rb_mKernel, name_ptr, func, argc);
+}
+
+export fn rb_undef_alloc_func(klass_raw: VALUE) void {
+    const klass: *value.ClassObject = @ptrFromInt(klass_raw);
+    klass.allocation_policy = .unavailable;
+}
+
+export fn rb_thread_current() VALUE {
+    const vm = getVM();
+    const thread = vm.current_thread orelse vm.main_thread orelse return Value.NIL.raw;
+    return Value.fromObject(&thread.object).raw;
+}
+
+export fn rb_thread_local_aref(thread_raw: VALUE, key: VALUE) VALUE {
+    return rb_funcall(thread_raw, rb_intern("[]"), 1, key);
+}
+
+export fn rb_thread_local_aset(thread_raw: VALUE, key: VALUE, val_raw: VALUE) VALUE {
+    return rb_funcall(thread_raw, rb_intern("[]="), 2, key, val_raw);
+}
+
+export fn rb_bug(fmt: [*c]const u8, ...) void {
+    rb_raise(rb_eRuntimeError, if (fmt != null) fmt else "rb_bug");
+}
+
+export fn rb_fatal(fmt: [*c]const u8, ...) void {
+    rb_raise(rb_eRuntimeError, if (fmt != null) fmt else "fatal");
 }
 
 // ─── Backref ─────────────────────────────────────────────────────────────────

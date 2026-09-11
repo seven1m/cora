@@ -238,7 +238,7 @@ fn setSslStateOnReceiver(vm: *VM, receiver: Value, state: ?*NativeSslSocket) VME
                 }
             }.destroy,
         };
-        const obj = try vm.newTypedData(vm.object_class, @ptrCast(ptr), callbacks);
+        const obj = try vm.newTypedData(vm.object_class, @ptrCast(ptr), null, callbacks);
         try vm.setInstanceVariable(receiver, "@__ssl_native", obj);
     } else {
         try vm.setInstanceVariable(receiver, "@__ssl_native", Value.nil());
@@ -701,7 +701,7 @@ pub fn builtinOpenSSLDigestAllocate(vm: *VM, receiver: Value, args: []Value, _: 
             }
         }.free,
     };
-    return vm.newTypedData(class_obj, @ptrCast(ctx), callbacks);
+    return vm.newTypedData(class_obj, @ptrCast(ctx), null, callbacks);
 }
 
 pub fn builtinOpenSSLDigestInitialize(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {

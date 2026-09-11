@@ -401,7 +401,8 @@ pub fn builtinProcessSpawn(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!
                 const arr = val.toArrayObject().elements.items;
                 if (arr.len == 2 and arr[0].isSymbol() and arr[1].isSymbol() and
                     std.mem.eql(u8, arr[0].toSymbolObject().name, "child") and
-                    std.mem.eql(u8, arr[1].toSymbolObject().name, "out")) {
+                    std.mem.eql(u8, arr[1].toSymbolObject().name, "out"))
+                {
                     source_fd = 1;
                 }
             }
@@ -519,6 +520,7 @@ pub fn builtinProcessSpawn(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!
         if (chdir_path) |cp| {
             const cp_z = @as([*:0]u8, @ptrCast(std.c.malloc(cp.len + 1) orelse std.c._exit(127)));
             @memcpy(cp_z, cp);
+            cp_z[cp.len] = 0;
             _ = std.c.chdir(cp_z);
             std.c.free(cp_z);
         }

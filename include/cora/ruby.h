@@ -17,6 +17,7 @@ extern "C" {
 #endif
 
 typedef uint64_t VALUE;
+typedef intptr_t SIGNED_VALUE;
 typedef unsigned long ID;
 typedef struct { int _; } rb_encoding;
 
@@ -50,6 +51,10 @@ typedef struct { int _; } rb_encoding;
 #define RB_FLONUM_P(obj) 0
 #define RB_STATIC_SYM_P(obj) (TYPE(obj) == T_SYMBOL)
 #define RB_SYMBOL_P(obj) (TYPE(obj) == T_SYMBOL)
+#define SYMBOL_P(obj) RB_SYMBOL_P(obj)
+#define RB_FLOAT_TYPE_P(obj) (TYPE(obj) == T_FLOAT)
+#define RBIGNUM_NEGATIVE_P(obj) (rb_big_cmp((obj), INT2FIX(0)) < 0)
+#define rb_special_const_p(obj) RB_SPECIAL_CONST_P(obj)
 #define RB_BUILTIN_TYPE(obj) TYPE(obj)
 #define RBASIC_CLASS(obj) rb_class_of(obj)
 #define RB_OBJ_FROZEN_RAW(obj) rb_obj_frozen_p(obj)
@@ -193,8 +198,12 @@ VALUE rb_enc_str_asciicompat_p(VALUE str);
 double rb_cstr_to_dbl(const char *str, int badcheck);
 
 #define NUM2SIZET(v) ((size_t)NUM2LONG(v))
+#define NUM2SSIZET(v) ((ssize_t)NUM2LONG(v))
+#define SSIZET2NUM(v) LONG2NUM((long)(v))
+#define NUM2ULONG(v) ((unsigned long)NUM2LONG(v))
+#define NUM2USHORT(v) ((unsigned short)NUM2LONG(v))
 #define PRI_SIZE_PREFIX "l"
-#define PRIsVALUE "s"
+#define PRIsVALUE "V"
 
 /* array macros */
 VALUE rb_ary_entry(VALUE ary, long offset);
@@ -214,6 +223,7 @@ const VALUE *rb_ary_const_ptr(VALUE ary);
 
 #define RUBY_EXTERN extern
 #define ISDIGIT(c) isdigit(c)
+#define ISSPACE(c) isspace(c)
 #define ISLOWER(c) islower(c)
 #define ISUPPER(c) isupper(c)
 #define TOUPPER(c) toupper(c)
@@ -243,8 +253,16 @@ int rb_type(VALUE obj);
 #define RHASH_SIZE(obj) rb_hash_size(obj)
 #define RSTRUCT_GET(obj, idx) rb_struct_get(obj, idx)
 
-#define SIZEOF_LONG (sizeof(long))
+#define SIZEOF_VALUE 8
+#define SIZEOF_LONG 8
+#define SIZEOF_LONG_LONG 8
+#define PRIuSIZE "zu"
+#define PRIdSIZE "zd"
+#define PRIdVALUE "ld"
 #define DECIMAL_SIZE_OF_BITS(b) (((b) * 643 + 2136) / 2137)
+
+#define PUREFUNC(x) x
+#define NORETURN(x) x __attribute__((noreturn))
 
 double rb_float_value(VALUE v);
 #define RFLOAT_VALUE(v) rb_float_value(v)
@@ -278,7 +296,7 @@ typedef struct rb_data_type_struct {
     VALUE flags;
 } rb_data_type_t;
 
-#define RUBY_TYPED_DEFAULT_FREE NULL
+#define RUBY_TYPED_DEFAULT_FREE ruby_xfree
 #define RUBY_DEFAULT_FREE RUBY_TYPED_DEFAULT_FREE
 #define RUBY_TYPED_NEVER_FREE   ((void (*)(void *))(-1))
 #define RUBY_TYPED_FREE_IMMEDIATELY  0
@@ -288,6 +306,8 @@ typedef struct rb_data_type_struct {
 
 VALUE TypedData_Wrap_Struct(VALUE klass, const rb_data_type_t *type, void *data);
 VALUE rb_data_typed_object_alloc(VALUE klass, const rb_data_type_t *type);
+VALUE rb_data_typed_object_zalloc(VALUE klass, size_t size, const rb_data_type_t *type);
+int rb_typeddata_is_kind_of(VALUE obj, const rb_data_type_t *type);
 void *Check_TypedStruct(VALUE obj, const rb_data_type_t *type);
 #define TypedData_Make_Struct(klass, type_name, type, data) \
     ((data) = (type_name *)calloc(1, sizeof(type_name)), \
@@ -480,6 +500,9 @@ VALUE rb_ary_new2(long len);
 VALUE rb_inspect(VALUE obj);
 VALUE rb_class_name(VALUE klass);
 VALUE rb_convert_type(VALUE obj, int type, const char *tname, const char *method);
+VALUE rb_check_convert_type(VALUE obj, int type, const char *tname, const char *method);
+VALUE rb_check_string_type(VALUE obj);
+VALUE rb_to_int(VALUE obj);
 VALUE rb_obj_hide(VALUE obj);
 int   rb_proc_arity(VALUE proc);
 VALUE rb_errinfo(void);
@@ -517,11 +540,30 @@ long  rb_memhash(const void *ptr, long len);
 static inline int rb_long2int(long n) { return (int)n; }
 
 VALUE rb_num_coerce_cmp(VALUE x, VALUE y, ID cmp);
+VALUE rb_num_coerce_bin(VALUE x, VALUE y, ID func);
+VALUE rb_num_coerce_relop(VALUE x, VALUE y, ID func);
 VALUE rb_rational_new(VALUE num, VALUE den);
 VALUE rb_rational_new1(VALUE num);
 VALUE rb_rational_num(VALUE rat);
 VALUE rb_rational_den(VALUE rat);
 VALUE rb_rational_new2(VALUE num, VALUE den);
+#define rb_Rational(num, den) rb_rational_new((num), (den))
+#define rb_Rational1(num) rb_rational_new1((num))
+
+VALUE rb_assoc_new(VALUE car, VALUE cdr);
+VALUE rb_exc_new3(VALUE klass, VALUE str);
+VALUE rb_str_resize(VALUE str, long len);
+VALUE rb_hash_lookup2(VALUE hash, VALUE key, VALUE def);
+size_t rb_absint_size(VALUE val, int *nlz_bits_ret);
+int rb_big_cmp(VALUE x, VALUE y);
+VALUE rb_big2str(VALUE x, int base);
+void rb_define_global_function(const char *name, void *func, int argc);
+void rb_undef_alloc_func(VALUE klass);
+VALUE rb_thread_current(void);
+VALUE rb_thread_local_aref(VALUE thread, ID key);
+VALUE rb_thread_local_aset(VALUE thread, ID key, VALUE value);
+void rb_bug(const char *fmt, ...);
+void rb_fatal(const char *fmt, ...);
 
 VALUE rb_backref_get(void);
 void  rb_backref_set(VALUE val);

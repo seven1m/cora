@@ -10191,6 +10191,7 @@ pub const VM = struct {
         self: *VM,
         class_obj: *ClassObject,
         data: *anyopaque,
+        data_type: ?*const anyopaque,
         callbacks: value.TypedDataCallbacks,
     ) VMError!Value {
         const obj = self.gc_allocator.create(value.TypedDataObject) catch return error.Fatal;
@@ -10203,6 +10204,7 @@ pub const VM = struct {
                 .instance_variables = null,
             },
             .data = data,
+            .data_type = data_type,
             .callbacks = callbacks,
         };
         if (callbacks.dfree != null) {

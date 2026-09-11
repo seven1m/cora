@@ -105,6 +105,35 @@ cext_str_new_length(VALUE self, VALUE length)
     return rb_str_new("abc", NUM2LONG(length));
 }
 
+typedef struct {
+    int value;
+} cora_cext_data;
+
+static const rb_data_type_t cora_cext_data_type = {
+    .wrap_struct_name = "CoraCExtData",
+    .function = {
+        .dfree = RUBY_DEFAULT_FREE,
+    },
+};
+
+static VALUE
+cext_typed_data_round_trip(VALUE self)
+{
+    (void)self;
+    VALUE object = rb_data_typed_object_zalloc(rb_cObject, sizeof(cora_cext_data), &cora_cext_data_type);
+    cora_cext_data *data;
+    TypedData_Get_Struct(object, cora_cext_data, &cora_cext_data_type, data);
+    data->value = 42;
+    return rb_assoc_new(INT2NUM(TYPE(object)), INT2NUM(data->value));
+}
+
+static VALUE
+cext_string_value_cstr_length(VALUE self, VALUE string)
+{
+    (void)self;
+    return SIZET2NUM(strlen(StringValueCStr(string)));
+}
+
 void Init_fixture(void)
 {
     VALUE mCoraCExt = rb_define_module("CoraCExt");
@@ -119,6 +148,8 @@ void Init_fixture(void)
     rb_define_module_function(mCoraCExt, "yield_break_then_value", cext_yield_break_then_value, 1);
     rb_define_module_function(mCoraCExt, "yield_next_then_call_to_s", cext_yield_next_then_call_to_s, 1);
     rb_define_module_function(mCoraCExt, "str_new_length", cext_str_new_length, 1);
+    rb_define_module_function(mCoraCExt, "typed_data_round_trip", cext_typed_data_round_trip, 0);
+    rb_define_module_function(mCoraCExt, "string_value_cstr_length", cext_string_value_cstr_length, 1);
 
     rb_define_method(rb_cString, "cora_cext_test", cora_cext_test, 0);
     rb_define_method(rb_cString, "cext_yield", cext_simple_yield, 1);

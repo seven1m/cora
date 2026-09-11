@@ -253,3 +253,23 @@ test "C extension NUM2LONG rejects out-of-range integers" {
     try std.testing.expect(elems[0].toBool());
     try std.testing.expectEqualStrings("bignum too big to convert into 'long'", elems[1].toStringObject().str);
 }
+
+test "C extension typed data preserves type and payload" {
+    const result = try evalCode(
+        \\$LOAD_PATH << "build/cext"
+        \\require "fixture.so"
+        \\CoraCExt.typed_data_round_trip
+    );
+    const values = result.toArrayObject().elements.items;
+    try std.testing.expectEqual(@as(i64, 0x0c), values[0].toInteger());
+    try std.testing.expectEqual(@as(i64, 42), values[1].toInteger());
+}
+
+test "C extension StringValueCStr provides a trailing null byte" {
+    const result = try evalCode(
+        \\$LOAD_PATH << "build/cext"
+        \\require "fixture.so"
+        \\CoraCExt.string_value_cstr_length("hello")
+    );
+    try std.testing.expectEqual(@as(i64, 5), result.toInteger());
+}
