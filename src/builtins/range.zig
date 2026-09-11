@@ -81,6 +81,9 @@ pub fn register(vm: *VM) !void {
     const max_sym = try vm.intern("max");
     try vm.range_class.module.methods.put(max_sym, value.MethodEntry.builtin(&builtinRangeMax, .{ .variadic = 0 }));
 
+    const min_sym = try vm.intern("min");
+    try vm.range_class.module.methods.put(min_sym, value.MethodEntry.builtin(&builtinRangeMin, .{ .variadic = 0 }));
+
     const last_sym = try vm.intern("last");
     try vm.range_class.module.methods.put(last_sym, value.MethodEntry.builtin(&builtinRangeLast, .{ .variadic = 0 }));
 }
@@ -1044,6 +1047,104 @@ pub fn builtinRangeMax(vm: *VM, receiver: Value, args: []Value, block: ?Block) V
         out.elements.append(vm.gc_allocator, item) catch return error.Fatal;
     }
     return Value.fromObject(&out.object);
+}
+
+/// MRI `range_min`: without arguments or a block returns the begin element
+/// (nil for empty ranges); with an integer argument returns the first `n`
+/// elements; with a block delegates comparison to `Array#min` over the
+/// elements (block plus integer sorts with the block and takes the first
+/// `n`). Unlike `max`, exclusive ends never affect the minimum, so no
+/// endpoint-type checks are needed for the argument-less form.
+pub fn builtinRangeMin(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
+    try vm.requireArgCountRange(args, 0, 1);
+
+    if (!receiver.isRange()) {
+        return vm.raiseExceptionFmt(vm.type_error_class, "receiver is not a Range", .{});
+    }
+
+    const range_obj = receiver.toRangeObject();
+    const beg = range_obj.begin;
+    const end_v = range_obj.end;
+
+    if (beg.isNil()) {
+        if (block != null) {
+            return vm.raiseExceptionFmt(vm.range_error_class, "cannot get the minimum of beginless range with custom comparison method", .{});
+        }
+        return vm.raiseExceptionFmt(vm.range_error_class, "cannot get the minimum of beginless range", .{});
+    }
+
+    if (block) |blk| {
+        // MRI `range_min` with a block compares each element against the
+        // running minimum pairwise, calling `>` then `<` on the block's
+        // return value (unlike `Array#min`, which uses `<=>`).
+        var empty_args = [_]Value{};
+        const array_val = try builtinRangeToA(vm, receiver, empty_args[0..], null);
+        const items = array_val.toArrayObject().elements.items;
+        if (args.len == 0) {
+            if (items.len == 0) return Value.nil();
+            var min = items[0];
+            var zero = [_]Value{Value.integer(0)};
+            for (items[1..]) |item| {
+                var pair = [_]Value{ item, min };
+                const yielded = try vm.yieldToBlock(blk, &pair);
+                const greater = try vm.callMethodByName(yielded, ">", zero[0..], null);
+                if (greater.isTruthy()) continue;
+                const less = try vm.callMethodByName(yielded, "<", zero[0..], null);
+                if (less.isTruthy()) min = item;
+            }
+            return min;
+        }
+        const count = try args[0].coerceToI64ViaToInt(
+            vm,
+            "no implicit conversion into Integer",
+            "no implicit conversion into Integer",
+            "bignum too big to convert into `long`",
+        );
+        if (count < 0) {
+            return vm.raiseExceptionFmt(vm.argument_error_class, "negative array size", .{});
+        }
+        const sorted = try vm.callMethodByName(array_val, "sort", empty_args[0..], blk);
+        const sorted_items = sorted.toArrayObject().elements.items;
+        const limit: usize = @min(@as(usize, @intCast(count)), sorted_items.len);
+        const out = try vm.createArray();
+        for (sorted_items[0..limit]) |item| {
+            out.elements.append(vm.gc_allocator, item) catch return error.Fatal;
+        }
+        return Value.fromObject(&out.object);
+    }
+
+    if (args.len == 0) {
+        if (!end_v.isNil()) {
+            const cmp = try rLess(vm, beg, end_v);
+            if (cmp == r_less_stop) return beg;
+            if (cmp > 0) return Value.nil();
+            if (cmp == 0 and range_obj.exclude_end) return Value.nil();
+        }
+        return beg;
+    }
+
+    const count = try args[0].coerceToI64ViaToInt(
+        vm,
+        "no implicit conversion into Integer",
+        "no implicit conversion into Integer",
+        "bignum too big to convert into `long`",
+    );
+    if (count < 0) {
+        return vm.raiseExceptionFmt(vm.argument_error_class, "negative array size", .{});
+    }
+    if (count == 0) {
+        return Value.fromObject(&(try vm.createArray()).object);
+    }
+    const array_obj = try vm.createArray();
+    try walkRangeElements(
+        vm,
+        beg,
+        end_v,
+        range_obj.exclude_end,
+        AppendLimitedVisitor{ .vm = vm, .array = array_obj, .limit = @intCast(count) },
+        visitAppendLimited,
+    );
+    return Value.fromObject(&array_obj.object);
 }
 
 fn succStringBytes(vm: *VM, str_val: Value) VMError![]const u8 {

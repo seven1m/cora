@@ -1792,7 +1792,7 @@ Source baseline: ../ruby_spec compared to local spec/
  - [x] core/range/last_spec.rb
 - [ ] core/range/max_spec.rb
 - [x] core/range/member_spec.rb
-- [ ] core/range/min_spec.rb
+- [x] core/range/min_spec.rb
 - [ ] core/range/minmax_spec.rb
 - [x] core/range/new_spec.rb
 - [x] core/range/overlap_spec.rb
