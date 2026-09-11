@@ -77,18 +77,6 @@ test "Range to_a endless raises" {
     try std.testing.expect(std.mem.indexOf(u8, result.stderr, "cannot convert endless range to an array (RangeError)") != null);
 }
 
-test "Range to_a beginless raises" {
-    var stdout_buf: [8192]u8 = undefined;
-    var stderr_buf: [8192]u8 = undefined;
-
-    const result = evalCodeWithOutput(
-        \\(..3).to_a
-    , &stdout_buf, &stderr_buf);
-
-    try std.testing.expect(result.err != null);
-    try std.testing.expect(std.mem.indexOf(u8, result.stderr, "cannot convert beginless range to an array (RangeError)") != null);
-}
-
 test "Range inspect" {
     const inclusive = try evalCode("(1..3).inspect");
     try std.testing.expect(inclusive.isString());

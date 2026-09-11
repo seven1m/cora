@@ -239,6 +239,44 @@ fn rLess(vm: *VM, a: Value, b: Value) VMError!i64 {
     return vm.raiseExceptionFmt(vm.argument_error_class, "comparison of {s} with {s} failed", .{ vm.className(a), vm.className(b) });
 }
 
+/// Single-character ASCII path increments the character byte directly rather
+/// than calling `succ` (for example, `"Z".succ == "AA"`, but `"A".."z"`
+/// continues from `"Z"` to `"["`).
+fn walkSingleAsciiStringLikeRange(
+    vm: *VM,
+    begin_val: Value,
+    end_val: Value,
+    exclude_end: bool,
+    ctx: anytype,
+    comptime visit: fn (@TypeOf(ctx), Value) VMError!WalkControl,
+) VMError!bool {
+    const symbols = begin_val.isSymbol() and end_val.isSymbol();
+    const strings = begin_val.isString() and end_val.isString();
+    if (!symbols and !strings) return false;
+
+    const begin_bytes = if (symbols) begin_val.toSymbolObject().name else begin_val.toStringObject().str;
+    const end_bytes = if (symbols) end_val.toSymbolObject().name else end_val.toStringObject().str;
+    if (begin_bytes.len != 1 or end_bytes.len != 1 or begin_bytes[0] >= 0x80 or end_bytes[0] >= 0x80) return false;
+
+    var current = begin_bytes[0];
+    const end = end_bytes[0];
+    if (current > end or (exclude_end and current == end)) return true;
+
+    const encoding = if (symbols) begin_val.toSymbolObject().encoding else begin_val.toStringObject().encoding;
+    while (true) {
+        var bytes = [1]u8{current};
+        const element = if (symbols)
+            Value.fromObject(&(try vm.internWithEncoding(&bytes, encoding)).object)
+        else
+            try vm.newStringWithEncoding(&bytes, false, encoding);
+        const control = try visit(ctx, element);
+        if (control == .stop) return true;
+        if ((!exclude_end and current == end) or current == std.math.maxInt(u8)) return true;
+        current += 1;
+        if (exclude_end and current == end) return true;
+    }
+}
+
 /// Low-level Range element walker following MRI `range_each` /
 /// `range_each_func` semantics: visits successive elements from `begin_val`
 /// up to and including `end_val` (or up to but excluding it when
@@ -256,6 +294,8 @@ fn walkRangeElements(
     if (begin_val.isNil()) {
         return vm.raiseExceptionFmt(vm.type_error_class, "can't iterate from NilClass", .{});
     }
+
+    if (try walkSingleAsciiStringLikeRange(vm, begin_val, end_val, exclude_end, ctx, visit)) return;
 
     if (begin_val.isInteger() and (end_val.isNil() or end_val.isInteger())) {
         var current = begin_val.toInteger();
@@ -349,10 +389,6 @@ pub fn builtinRangeToA(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMErr
     }
 
     const range_obj = receiver.toRangeObject();
-
-    if (range_obj.begin.isNil()) {
-        return vm.raiseExceptionFmt(vm.range_error_class, "cannot convert beginless range to an array", .{});
-    }
 
     if (range_obj.end.isNil()) {
         return vm.raiseExceptionFmt(vm.range_error_class, "cannot convert endless range to an array", .{});
