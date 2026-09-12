@@ -637,7 +637,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/exception/exit_value_spec.rb
 - [ ] core/exception/frozen_error_spec.rb
 - [ ] core/exception/full_message_spec.rb
-- [ ] core/exception/hierarchy_spec.rb
+- [x] core/exception/hierarchy_spec.rb
 - [ ] core/exception/inspect_spec.rb
 - [ ] core/exception/interrupt_spec.rb
 - [ ] core/exception/io_error_spec.rb

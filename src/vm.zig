@@ -594,6 +594,10 @@ pub const VM = struct {
 
     // Exception classes
     exception_class: *value.ClassObject,
+    no_memory_error_class: *value.ClassObject,
+    script_error_class: *value.ClassObject,
+    security_error_class: *value.ClassObject,
+    system_stack_error_class: *value.ClassObject,
     system_exit_class: *value.ClassObject,
     signal_exception_class: *value.ClassObject,
     interrupt_class: *value.ClassObject,
@@ -816,6 +820,10 @@ pub const VM = struct {
             .thread_rescued_exceptions = std.AutoHashMap(*value.ThreadObject, std.ArrayList(*value.ExceptionObject)).init(allocator),
             .thread_preempt_quantum_ops = DEFAULT_THREAD_PREEMPT_QUANTUM_OPS,
             .exception_class = undefined,
+            .no_memory_error_class = undefined,
+            .script_error_class = undefined,
+            .security_error_class = undefined,
+            .system_stack_error_class = undefined,
             .system_exit_class = undefined,
             .signal_exception_class = undefined,
             .interrupt_class = undefined,
@@ -1150,6 +1158,22 @@ pub const VM = struct {
         const exception_class_val = try self.newClass(exception_name_sym, self.object_class);
         self.exception_class = exception_class_val.toClassObject();
 
+        const no_memory_error_name_sym = try self.intern("NoMemoryError");
+        const no_memory_error_class_val = try self.newClass(no_memory_error_name_sym, self.exception_class);
+        self.no_memory_error_class = no_memory_error_class_val.toClassObject();
+
+        const script_error_name_sym = try self.intern("ScriptError");
+        const script_error_class_val = try self.newClass(script_error_name_sym, self.exception_class);
+        self.script_error_class = script_error_class_val.toClassObject();
+
+        const security_error_name_sym = try self.intern("SecurityError");
+        const security_error_class_val = try self.newClass(security_error_name_sym, self.exception_class);
+        self.security_error_class = security_error_class_val.toClassObject();
+
+        const system_stack_error_name_sym = try self.intern("SystemStackError");
+        const system_stack_error_class_val = try self.newClass(system_stack_error_name_sym, self.exception_class);
+        self.system_stack_error_class = system_stack_error_class_val.toClassObject();
+
         const system_exit_name_sym = try self.intern("SystemExit");
         const system_exit_class_val = try self.newClass(system_exit_name_sym, self.exception_class);
         self.system_exit_class = system_exit_class_val.toClassObject();
@@ -1175,11 +1199,11 @@ pub const VM = struct {
         self.runtime_error_class = runtime_error_class_val.toClassObject();
 
         const syntax_error_name_sym = try self.intern("SyntaxError");
-        const syntax_error_class_val = try self.newClass(syntax_error_name_sym, self.standard_error_class);
+        const syntax_error_class_val = try self.newClass(syntax_error_name_sym, self.script_error_class);
         self.syntax_error_class = syntax_error_class_val.toClassObject();
 
         const not_implemented_error_name_sym = try self.intern("NotImplementedError");
-        const not_implemented_error_class_val = try self.newClass(not_implemented_error_name_sym, self.standard_error_class);
+        const not_implemented_error_class_val = try self.newClass(not_implemented_error_name_sym, self.script_error_class);
         self.not_implemented_error_class = not_implemented_error_class_val.toClassObject();
 
         const frozen_error_name_sym = try self.intern("FrozenError");
@@ -1234,12 +1258,8 @@ pub const VM = struct {
         const thread_kill_class_val = try self.newClass(thread_kill_name_sym, self.exception_class);
         self.thread_kill_exception_class = thread_kill_class_val.toClassObject();
 
-        const closed_queue_error_name_sym = try self.intern("ClosedQueueError");
-        const closed_queue_error_class_val = try self.newClass(closed_queue_error_name_sym, self.standard_error_class);
-        self.closed_queue_error_class = closed_queue_error_class_val.toClassObject();
-
         const load_error_name_sym = try self.intern("LoadError");
-        const load_error_class_val = try self.newClass(load_error_name_sym, self.standard_error_class);
+        const load_error_class_val = try self.newClass(load_error_name_sym, self.script_error_class);
         self.load_error_class = load_error_class_val.toClassObject();
 
         const encoding_error_name_sym = try self.intern("EncodingError");
@@ -1286,6 +1306,10 @@ pub const VM = struct {
         const stop_iteration_name_sym = try self.intern("StopIteration");
         const stop_iteration_class_val = try self.newClass(stop_iteration_name_sym, self.index_error_class);
         self.stop_iteration_class = stop_iteration_class_val.toClassObject();
+
+        const closed_queue_error_name_sym = try self.intern("ClosedQueueError");
+        const closed_queue_error_class_val = try self.newClass(closed_queue_error_name_sym, self.stop_iteration_class);
+        self.closed_queue_error_class = closed_queue_error_class_val.toClassObject();
 
         const enoent_name_sym = try self.intern("ENOENT");
         const enoent_class_val = try self.newClass(enoent_name_sym, self.system_call_error_class);
@@ -1526,6 +1550,10 @@ pub const VM = struct {
         const set_name_sym = try self.intern("Set");
         try self.registerAutoload(&self.object_class.module, set_name_sym, "set");
         self.object_class.module.constants.put(exception_name_sym, .{ .value = exception_class_val }) catch return error.Fatal;
+        self.object_class.module.constants.put(no_memory_error_name_sym, .{ .value = no_memory_error_class_val }) catch return error.Fatal;
+        self.object_class.module.constants.put(script_error_name_sym, .{ .value = script_error_class_val }) catch return error.Fatal;
+        self.object_class.module.constants.put(security_error_name_sym, .{ .value = security_error_class_val }) catch return error.Fatal;
+        self.object_class.module.constants.put(system_stack_error_name_sym, .{ .value = system_stack_error_class_val }) catch return error.Fatal;
         self.object_class.module.constants.put(system_exit_name_sym, .{ .value = system_exit_class_val }) catch return error.Fatal;
         self.object_class.module.constants.put(signal_exception_name_sym, .{ .value = signal_exception_class_val }) catch return error.Fatal;
         self.object_class.module.constants.put(interrupt_name_sym, .{ .value = interrupt_class_val }) catch return error.Fatal;
@@ -11489,7 +11517,7 @@ pub const VM = struct {
                 return std.mem.span(strerror(errno_number));
             }
         }
-        return class_obj.module.name.name;
+        return if (class_obj.module.classpath) |classpath| classpath.str else class_obj.module.name.name;
     }
 
     pub fn raiseErrnoFmt(self: *VM, errno_code: std.posix.E, comptime fmt: []const u8, args: anytype) VMError {

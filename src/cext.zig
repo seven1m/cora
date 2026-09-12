@@ -140,11 +140,9 @@ pub fn setupGlobals(vm: *VM) void {
     rb_eTypeError = rb_cTypeError;
     rb_eNameError = rb_cNameError;
     rb_eNoMethodError = rb_cNoMethodError;
-    // NoMemoryError, ScriptError, fatal, SystemStackError, FloatDomainError
-    // not separately defined on VM, map to closest parent
-    rb_eNoMemError = Value.fromObject(&vm.standard_error_class.module.object).raw;
+    rb_eNoMemError = Value.fromObject(&vm.no_memory_error_class.module.object).raw;
     rb_eNoMemoryError = rb_eNoMemError;
-    rb_eScriptError = Value.fromObject(&vm.standard_error_class.module.object).raw;
+    rb_eScriptError = Value.fromObject(&vm.script_error_class.module.object).raw;
     rb_eSyntaxError = Value.fromObject(&vm.syntax_error_class.module.object).raw;
     rb_eLoadError = Value.fromObject(&vm.load_error_class.module.object).raw;
     rb_eNotImpError = Value.fromObject(&vm.not_implemented_error_class.module.object).raw;
@@ -154,9 +152,9 @@ pub fn setupGlobals(vm: *VM) void {
     rb_eInterrupt = Value.fromObject(&vm.interrupt_class.module.object).raw;
     rb_eSystemExit = Value.fromObject(&vm.system_exit_class.module.object).raw;
     rb_eLocalJumpError = Value.fromObject(&vm.local_jump_error_class.module.object).raw;
-    rb_eSysStackError = Value.fromObject(&vm.system_call_error_class.module.object).raw;
+    rb_eSysStackError = Value.fromObject(&vm.system_stack_error_class.module.object).raw;
     rb_eRangeError = Value.fromObject(&vm.range_error_class.module.object).raw;
-    rb_eFloatDomainError = Value.fromObject(&vm.range_error_class.module.object).raw;
+    rb_eFloatDomainError = Value.fromObject(&vm.float_domain_error_class.module.object).raw;
     rb_eZeroDivError = Value.fromObject(&vm.zero_division_error_class.module.object).raw;
     rb_eFrozenError = Value.fromObject(&vm.frozen_error_class.module.object).raw;
     rb_eThreadError = Value.fromObject(&vm.thread_error_class.module.object).raw;
