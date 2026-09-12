@@ -114,6 +114,8 @@ pub fn register(vm: *VM) !void {
     try enumerable_val.toModuleObject().methods.put(min_sym, value.MethodEntry.builtin(&builtinEnumerableMin, .{ .variadic = 0 }));
     const uniq_sym = try vm.intern("uniq");
     try enumerable_val.toModuleObject().methods.put(uniq_sym, value.MethodEntry.builtin(&builtinEnumerableUniq, .{ .exact = 0 }));
+    const to_h_sym = try vm.intern("to_h");
+    try enumerable_val.toModuleObject().methods.put(to_h_sym, value.MethodEntry.builtin(&builtinEnumerableToH, .{ .variadic = 0 }));
 }
 
 fn builtinEnumerableToSet(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
@@ -1654,4 +1656,48 @@ fn builtinEnumerableTally(vm: *VM, receiver: Value, args: []Value, _: ?Block) VM
     }
 
     return counts_value;
+}
+
+fn enumerableToHashPair(vm: *VM, source: Value) VMError!struct { key: Value, value: Value } {
+    const pair_value = switch (try vm.probeToAry(source)) {
+        .array => |array_value| array_value,
+        .missing, .nil_result => {
+            return vm.raiseExceptionFmt(
+                vm.type_error_class,
+                "wrong element type {s} (expected array)",
+                .{vm.className(source)},
+            );
+        },
+    };
+
+    const pair = pair_value.toArrayObject().elements.items;
+    if (pair.len != 2) {
+        return vm.raiseExceptionFmt(
+            vm.argument_error_class,
+            "element has wrong array length (expected 2, was {d})",
+            .{pair.len},
+        );
+    }
+
+    return .{ .key = pair[0], .value = pair[1] };
+}
+
+fn builtinEnumerableToH(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
+    const hash = try vm.createHash();
+    const enum_value = try vm.createMethodEnumerator(receiver, try vm.intern("each"), args);
+
+    if (block) |blk| {
+        while (try enumerableNextValues(vm, enum_value)) |next_values| {
+            const yielded = try vm.yieldToBlock(blk, next_values.elements.items);
+            const pair = try enumerableToHashPair(vm, yielded);
+            try vm.hashSetEntry(hash, pair.key, pair.value);
+        }
+    } else {
+        while (try enumerableNextElement(vm, enum_value)) |element| {
+            const pair = try enumerableToHashPair(vm, element);
+            try vm.hashSetEntry(hash, pair.key, pair.value);
+        }
+    }
+
+    return Value.fromObject(&hash.object);
 }
