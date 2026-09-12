@@ -468,7 +468,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/enumerable/min_spec.rb
 - [ ] core/enumerable/minmax_by_spec.rb
 - [ ] core/enumerable/minmax_spec.rb
-- [ ] core/enumerable/none_spec.rb
+- [x] core/enumerable/none_spec.rb
 - [ ] core/enumerable/one_spec.rb
 - [ ] core/enumerable/partition_spec.rb
 - [x] core/enumerable/reduce_spec.rb

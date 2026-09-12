@@ -28,6 +28,8 @@ pub fn register(vm: *VM) !void {
     try enumerable_val.toModuleObject().methods.put(filter_sym, value.MethodEntry.builtin(&builtinEnumerableSelect, .{ .exact = 0 }));
     const any_sym = try vm.intern("any?");
     try enumerable_val.toModuleObject().methods.put(any_sym, value.MethodEntry.builtin(&builtinEnumerableAny, .{ .variadic = 0 }));
+    const none_sym = try vm.intern("none?");
+    try enumerable_val.toModuleObject().methods.put(none_sym, value.MethodEntry.builtin(&builtinEnumerableNone, .{ .variadic = 0 }));
     const all_sym = try vm.intern("all?");
     try enumerable_val.toModuleObject().methods.put(all_sym, value.MethodEntry.builtin(&builtinEnumerableAll, .{ .variadic = 0 }));
     const filter_map_sym = try vm.intern("filter_map");
@@ -256,6 +258,11 @@ fn builtinEnumerableAny(vm: *VM, receiver: Value, args: []Value, block: ?Block) 
         if (element.isTruthy()) return Value.boolean(true);
     }
     return Value.boolean(false);
+}
+
+fn builtinEnumerableNone(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
+    const result = try builtinEnumerableAny(vm, receiver, args, block);
+    return Value.boolean(!result.toBool());
 }
 
 fn builtinEnumerableAll(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
