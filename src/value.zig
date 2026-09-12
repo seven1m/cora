@@ -56,6 +56,7 @@ pub const ObjectTypeTag = enum(u8) {
     condition_variable,
     queue,
     time,
+    date,
     method,
     unbound_method,
     weak_map,
@@ -476,6 +477,40 @@ pub const TimeObject = struct {
     zone: ?Value = null,
 };
 
+pub const DateKind = enum(u8) {
+    date,
+    datetime,
+};
+
+pub const DateObject = struct {
+    object: Object,
+    // Julian day number identifying the chronological day.
+    chronological_day: Value,
+    // Fraction of a day in local civil time, normalized to [0, 1).
+    sub_day_fraction: Value,
+    // Fixed UTC offset expressed as a fraction of one day.
+    utc_offset: Value,
+    // Julian day at which the calendar changes from Julian to Gregorian.
+    calendar_start: Value,
+    kind: DateKind,
+};
+
+fn dateComponentHash(component: Value) u64 {
+    if (!component.isRational()) return component.hash();
+    const rational = component.toRationalObject();
+    var denominator_hash = rational.denominator.hash();
+    return std.hash.Wyhash.hash(rational.numerator.hash(), std.mem.asBytes(&denominator_hash));
+}
+
+fn dateComponentEql(lhs: Value, rhs: Value) bool {
+    if (lhs.isRational() != rhs.isRational()) return false;
+    if (!lhs.isRational()) return lhs.eql(rhs);
+    const lhs_rational = lhs.toRationalObject();
+    const rhs_rational = rhs.toRationalObject();
+    return lhs_rational.numerator.eql(rhs_rational.numerator) and
+        lhs_rational.denominator.eql(rhs_rational.denominator);
+}
+
 pub const IoObject = struct {
     object: Object,
     fd: i32,
@@ -758,6 +793,10 @@ pub const Value = struct {
         return self.isObject() and self.objectTypeTag() == .time;
     }
 
+    pub inline fn isDate(self: Value) bool {
+        return self.isObject() and self.objectTypeTag() == .date;
+    }
+
     pub inline fn isMethodObject(self: Value) bool {
         return self.isObject() and self.objectTypeTag() == .method;
     }
@@ -881,6 +920,10 @@ pub const Value = struct {
     }
 
     pub inline fn toTimeObject(self: Value) *TimeObject {
+        return @ptrFromInt(self.raw);
+    }
+
+    pub inline fn toDateObject(self: Value) *DateObject {
         return @ptrFromInt(self.raw);
     }
 
@@ -1161,6 +1204,18 @@ pub const Value = struct {
                 .queue => try writer.print("#<Thread::{s}:0x{x}>", .{ self.getObjectPointer().?.class.?.module.name.name, self.raw }),
                 .weak_map => try writer.print("#<WeakMap:0x{x}>", .{self.raw}),
                 .time => try writer.print("#<Time:0x{x}>", .{self.raw}),
+                .date => {
+                    const date = self.toDateObject();
+                    try writer.print("#<{s}: day=", .{@tagName(date.kind)});
+                    try date.chronological_day.format(writer);
+                    try writer.print(" fraction=", .{});
+                    try date.sub_day_fraction.format(writer);
+                    try writer.print(" offset=", .{});
+                    try date.utc_offset.format(writer);
+                    try writer.print(" start=", .{});
+                    try date.calendar_start.format(writer);
+                    try writer.print(">", .{});
+                },
                 .method => try writer.print("#<Method:0x{x}>", .{self.raw}),
                 .unbound_method => try writer.print("#<UnboundMethod:0x{x}>", .{self.raw}),
                 .typed_data => try writer.print("#<Object:0x{x}>", .{self.raw}),
@@ -1207,6 +1262,18 @@ pub const Value = struct {
                 var denominator_hash = rational.denominator.hash();
                 break :blk std.hash.Wyhash.hash(rational.numerator.hash(), std.mem.asBytes(&denominator_hash));
             },
+            .date => blk: {
+                const date = self.toDateObject();
+                var combined_hash = dateComponentHash(date.chronological_day);
+                var part = dateComponentHash(date.sub_day_fraction);
+                combined_hash = std.hash.Wyhash.hash(combined_hash, std.mem.asBytes(&part));
+                part = dateComponentHash(date.utc_offset);
+                combined_hash = std.hash.Wyhash.hash(combined_hash, std.mem.asBytes(&part));
+                part = dateComponentHash(date.calendar_start);
+                combined_hash = std.hash.Wyhash.hash(combined_hash, std.mem.asBytes(&part));
+                const kind: u8 = @intFromEnum(date.kind);
+                break :blk std.hash.Wyhash.hash(combined_hash, std.mem.asBytes(&kind));
+            },
             else => self.raw,
         };
     }
@@ -1240,6 +1307,15 @@ pub const Value = struct {
                     const rhs_rational = rhs.toRationalObject();
                     break :blk lhs_rational.numerator.eql(rhs_rational.numerator) and
                         lhs_rational.denominator.eql(rhs_rational.denominator);
+                },
+                .date => blk: {
+                    const lhs = self.toDateObject();
+                    const rhs = other.toDateObject();
+                    break :blk lhs.kind == rhs.kind and
+                        dateComponentEql(lhs.chronological_day, rhs.chronological_day) and
+                        dateComponentEql(lhs.sub_day_fraction, rhs.sub_day_fraction) and
+                        dateComponentEql(lhs.utc_offset, rhs.utc_offset) and
+                        dateComponentEql(lhs.calendar_start, rhs.calendar_start);
                 },
                 else => self.hash() == other.hash(),
             };

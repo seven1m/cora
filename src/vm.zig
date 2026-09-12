@@ -10639,6 +10639,27 @@ pub const VM = struct {
         return Value.fromObject(&time_obj.object);
     }
 
+    pub fn newDate(
+        self: *VM,
+        class_obj: *ClassObject,
+        chronological_day: Value,
+        sub_day_fraction: Value,
+        utc_offset: Value,
+        calendar_start: Value,
+        kind: value.DateKind,
+    ) VMError!Value {
+        const date_obj = self.gc_allocator.create(value.DateObject) catch return error.Fatal;
+        date_obj.* = .{
+            .object = .{ .type_tag = .date, .flags = 0, .class = class_obj, .singleton_class = null, .instance_variables = null },
+            .chronological_day = chronological_day,
+            .sub_day_fraction = sub_day_fraction,
+            .utc_offset = utc_offset,
+            .calendar_start = calendar_start,
+            .kind = kind,
+        };
+        return Value.fromObject(&date_obj.object);
+    }
+
     pub fn newTimeWithOffset(self: *VM, class_obj: *ClassObject, timew: Value, utc_offset_nanos: i64) VMError!Value {
         const time_obj = self.gc_allocator.create(value.TimeObject) catch return error.Fatal;
         time_obj.* = .{
@@ -11169,6 +11190,7 @@ pub const VM = struct {
             .queue => arg.isQueue(),
             .weak_map => arg.isWeakMap(),
             .time => arg.isTime(),
+            .date => arg.isDate(),
             .method => arg.isMethodObject(),
             .unbound_method => arg.isUnboundMethodObject(),
             .typed_data => arg.isTypedData(),

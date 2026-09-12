@@ -19,6 +19,7 @@ const singleton_test = @import("singleton_test.zig");
 const strscan_test = @import("strscan_test.zig");
 const tempfile_test = @import("tempfile_test.zig");
 const time_test = @import("time_test.zig");
+const date_test = @import("date_test.zig");
 const timeout_test = @import("timeout_test.zig");
 const tmpdir_test = @import("tmpdir_test.zig");
 const uri_test = @import("uri_test.zig");
@@ -122,6 +123,7 @@ comptime {
     _ = strscan_test;
     _ = tempfile_test;
     _ = time_test;
+    _ = date_test;
     _ = timeout_test;
     _ = tmpdir_test;
     _ = uri_test;
