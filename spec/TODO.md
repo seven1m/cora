@@ -487,7 +487,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] core/enumerable/to_a_spec.rb
 - [ ] core/enumerable/to_h_spec.rb
 - [x] core/enumerable/to_set_spec.rb
-- [ ] core/enumerable/uniq_spec.rb
+- [x] core/enumerable/uniq_spec.rb
 - [x] core/enumerable/zip_spec.rb
 
 ### core/enumerator/arithmetic_sequence

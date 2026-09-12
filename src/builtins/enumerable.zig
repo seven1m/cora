@@ -112,6 +112,8 @@ pub fn register(vm: *VM) !void {
     try enumerable_val.toModuleObject().methods.put(max_sym, value.MethodEntry.builtin(&builtinEnumerableMax, .{ .variadic = 0 }));
     const min_sym = try vm.intern("min");
     try enumerable_val.toModuleObject().methods.put(min_sym, value.MethodEntry.builtin(&builtinEnumerableMin, .{ .variadic = 0 }));
+    const uniq_sym = try vm.intern("uniq");
+    try enumerable_val.toModuleObject().methods.put(uniq_sym, value.MethodEntry.builtin(&builtinEnumerableUniq, .{ .exact = 0 }));
 }
 
 fn builtinEnumerableToSet(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
@@ -1601,6 +1603,27 @@ fn builtinEnumerableMin(vm: *VM, receiver: Value, args: []Value, block: ?Block) 
         }
     }
     return min;
+}
+
+fn builtinEnumerableUniq(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+
+    const enum_value = try vm.createMethodEnumerator(receiver, try vm.intern("each"), &.{});
+    const out = try vm.createArray();
+    const seen = try vm.createHash();
+
+    while (try enumerableNextElement(vm, enum_value)) |element| {
+        const key = if (block) |blk| blk: {
+            const yield_args = [_]Value{element};
+            break :blk try vm.yieldToBlock(blk, &yield_args);
+        } else element;
+        if ((try vm.hashFindEntryIndex(seen, key)) != null) continue;
+
+        try vm.hashSetEntry(seen, key, Value.boolean(true));
+        out.elements.append(vm.gc_allocator, element) catch return error.Fatal;
+    }
+
+    return Value.fromObject(&out.object);
 }
 
 fn builtinEnumerableTally(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
