@@ -104,6 +104,8 @@ pub fn register(vm: *VM) !void {
     try enumerable_val.toModuleObject().methods.put(each_entry_sym, value.MethodEntry.builtin(&builtinEnumerableEachEntry, .{ .variadic = 0 }));
     const zip_sym = try vm.intern("zip");
     try enumerable_val.toModuleObject().methods.put(zip_sym, value.MethodEntry.builtin(&builtinEnumerableZip, .{ .variadic = 0 }));
+    const minmax_sym = try vm.intern("minmax");
+    try enumerable_val.toModuleObject().methods.put(minmax_sym, value.MethodEntry.builtin(&builtinEnumerableMinMax, .{ .exact = 0 }));
 }
 
 fn builtinEnumerableToSet(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
@@ -1088,6 +1090,110 @@ fn builtinEnumerableMinMaxBy(vm: *VM, receiver: Value, args: []Value, block: ?Bl
     const out = try vm.createArray();
     out.elements.append(vm.gc_allocator, min_value orelse Value.nil()) catch return error.Fatal;
     out.elements.append(vm.gc_allocator, max_value orelse Value.nil()) catch return error.Fatal;
+    return Value.fromObject(&out.object);
+}
+
+fn enumerableValueLessThan(vm: *VM, lhs: Value, rhs: Value) VMError!bool {
+    if (lhs.isInteger() and rhs.isInteger()) return lhs.toInteger() < rhs.toInteger();
+    if (lhs.isSymbol() and rhs.isSymbol()) {
+        return std.mem.order(u8, lhs.toSymbolObject().name, rhs.toSymbolObject().name) == .lt;
+    }
+    if (lhs.isString() and rhs.isString()) {
+        return std.mem.order(u8, lhs.toStringObject().str, rhs.toStringObject().str) == .lt;
+    }
+
+    var cmp_args = [_]Value{rhs};
+    const cmp = try vm.callMethodByName(lhs, "<=>", cmp_args[0..], null);
+    if (cmp.isInteger()) return cmp.toInteger() < 0;
+    if (cmp.isFloat()) return cmp.toFloatObject().val < 0.0;
+
+    return vm.raiseExceptionFmt(
+        vm.argument_error_class,
+        "comparison of {s} with {s} failed",
+        .{ vm.className(lhs), vm.className(rhs) },
+    );
+}
+
+fn enumerableBlockResultSign(vm: *VM, cmp_value: Value) VMError!i8 {
+    if (cmp_value.isNil()) {
+        return vm.raiseExceptionFmt(
+            vm.argument_error_class,
+            "comparison of {s} with {s} failed",
+            .{ vm.className(cmp_value), "0" },
+        );
+    }
+    if (cmp_value.isInteger()) {
+        const n = cmp_value.toInteger();
+        return if (n < 0) -1 else if (n > 0) 1 else 0;
+    }
+    if (cmp_value.isFloat()) {
+        const n = cmp_value.toFloatObject().val;
+        return if (n < 0) -1 else if (n > 0) 1 else 0;
+    }
+    if (cmp_value.isBigInteger()) {
+        const n = cmp_value.toBigIntegerObject().value.toFloat(f64, .nearest_even)[0];
+        return if (n < 0) -1 else if (n > 0) 1 else 0;
+    }
+
+    var zero_arg = [_]Value{Value.integer(0)};
+    const cmp = try vm.callMethodByName(cmp_value, "<=>", zero_arg[0..], null);
+    if (cmp.isInteger()) {
+        const n = cmp.toInteger();
+        return if (n < 0) -1 else if (n > 0) 1 else 0;
+    }
+    if (cmp.isFloat()) {
+        const n = cmp.toFloatObject().val;
+        return if (n < 0) -1 else if (n > 0) 1 else 0;
+    }
+    if (cmp.isBigInteger()) {
+        const n = cmp.toBigIntegerObject().value.toFloat(f64, .nearest_even)[0];
+        return if (n < 0) -1 else if (n > 0) 1 else 0;
+    }
+
+    return vm.raiseExceptionFmt(
+        vm.argument_error_class,
+        "comparison of {s} with 0 failed",
+        .{vm.className(cmp_value)},
+    );
+}
+
+fn builtinEnumerableMinMax(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    const enum_value = try vm.createMethodEnumerator(receiver, try vm.intern("each"), &.{});
+
+    const first = (try enumerableNextElement(vm, enum_value)) orelse {
+        const out = try vm.createArray();
+        out.elements.append(vm.gc_allocator, Value.nil()) catch return error.Fatal;
+        out.elements.append(vm.gc_allocator, Value.nil()) catch return error.Fatal;
+        return Value.fromObject(&out.object);
+    };
+
+    var min = first;
+    var max = first;
+
+    if (block) |blk| {
+        while (try enumerableNextElement(vm, enum_value)) |item| {
+            {
+                const yield_args = [_]Value{ item, min };
+                const yielded = try vm.yieldToBlock(blk, &yield_args);
+                if ((try enumerableBlockResultSign(vm, yielded)) < 0) min = item;
+            }
+            {
+                const yield_args = [_]Value{ item, max };
+                const yielded = try vm.yieldToBlock(blk, &yield_args);
+                if ((try enumerableBlockResultSign(vm, yielded)) > 0) max = item;
+            }
+        }
+    } else {
+        while (try enumerableNextElement(vm, enum_value)) |item| {
+            if (try enumerableValueLessThan(vm, item, min)) min = item;
+            if (try enumerableValueLessThan(vm, max, item)) max = item;
+        }
+    }
+
+    const out = try vm.createArray();
+    out.elements.append(vm.gc_allocator, min) catch return error.Fatal;
+    out.elements.append(vm.gc_allocator, max) catch return error.Fatal;
     return Value.fromObject(&out.object);
 }
 
