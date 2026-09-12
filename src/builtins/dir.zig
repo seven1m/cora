@@ -24,12 +24,23 @@ const GlobKeywords = struct {
     sort: bool = true,
 };
 
+const GlobMatch = struct {
+    path: []u8,
+    encoding: enc.Encoding,
+};
+
+const GlobPattern = struct {
+    bytes: []const u8,
+    encoding: enc.Encoding,
+};
+
 const GlobContext = struct {
     vm: *VM,
-    matches: *std.ArrayList([]u8),
+    matches: *std.ArrayList(GlobMatch),
     flags: GlobFlags,
     base_abs: []const u8,
     return_relative: bool,
+    pattern_encoding: enc.Encoding = .{ .utf8 = .{} },
 };
 
 fn passwdDir(passwd: *const std.c.passwd) ?[]const u8 {
@@ -108,7 +119,7 @@ pub fn register(vm: *VM) !void {
     try dir_singleton.module.methods.put(glob_sym, value.MethodEntry.builtin(&builtinDirGlob, .{ .variadic = 1 }));
 
     const bracket_sym = try vm.intern("[]");
-    try dir_singleton.module.methods.put(bracket_sym, value.MethodEntry.builtin(&builtinDirGlob, .{ .variadic = 0 }));
+    try dir_singleton.module.methods.put(bracket_sym, value.MethodEntry.builtin(&builtinDirBracket, .{ .variadic = 0 }));
 
     const entries_sym = try vm.intern("entries");
     try dir_singleton.module.methods.put(entries_sym, value.MethodEntry.builtin(&builtinDirEntries, .{ .variadic = 0 }));
@@ -639,7 +650,7 @@ fn appendMatch(ctx: *GlobContext, rel_path: []const u8, absolute: bool, append_s
         ctx.vm.allocator.free(out);
         out = with_slash;
     }
-    ctx.matches.append(ctx.vm.allocator, out) catch return error.Fatal;
+    ctx.matches.append(ctx.vm.allocator, .{ .path = out, .encoding = ctx.pattern_encoding }) catch return error.Fatal;
 }
 
 fn collectRecursiveDirs(ctx: *GlobContext, dir_abs: []const u8, rel_prefix: []const u8, segments: []const []const u8, next_idx: usize, directory_only: bool) VMError!void {
@@ -795,7 +806,7 @@ fn parseGlobKeywords(vm: *VM) VMError!GlobKeywords {
     return keywords;
 }
 
-fn coerceGlobPattern(vm: *VM, arg: Value) VMError![]const u8 {
+fn coerceGlobPattern(vm: *VM, arg: Value) VMError!GlobPattern {
     const maybe_candidate = try vm.checkCallMethodByName(arg, "to_path", false, &[_]Value{}, null);
     const candidate = maybe_candidate orelse arg;
     const pattern_value = try candidate.coerceToStringValue(vm, "no implicit conversion into String");
@@ -803,7 +814,7 @@ fn coerceGlobPattern(vm: *VM, arg: Value) VMError![]const u8 {
     if (!pattern_string.encoding.isAsciiCompatible()) {
         return vm.raiseEncodingCompatibilityError(.{ .utf8 = .{} }, pattern_string.encoding);
     }
-    return pattern_string.str;
+    return .{ .bytes = pattern_string.str, .encoding = pattern_string.encoding };
 }
 
 fn buildGlobResult(vm: *VM, matches: *ArrayObject, block: ?Block) VMError!Value {
@@ -816,8 +827,37 @@ fn buildGlobResult(vm: *VM, matches: *ArrayObject, block: ?Block) VMError!Value 
     return Value.fromObject(&matches.object);
 }
 
+fn sortMatches(matches: []GlobMatch) void {
+    std.sort.block(GlobMatch, matches, {}, struct {
+        fn lessThan(_: void, lhs: GlobMatch, rhs: GlobMatch) bool {
+            return std.mem.order(u8, lhs.path, rhs.path) == .lt;
+        }
+    }.lessThan);
+}
+
+fn appendPatternMatches(ctx: *GlobContext, pattern: GlobPattern, sort: bool, out: *std.ArrayList(GlobMatch)) VMError!void {
+    const saved_encoding = ctx.pattern_encoding;
+    ctx.pattern_encoding = pattern.encoding;
+    defer ctx.pattern_encoding = saved_encoding;
+    var expanded = expandBracesAlloc(ctx.vm.allocator, pattern.bytes, ctx.flags.noescape) catch return error.Fatal;
+    defer {
+        for (expanded.items) |item| ctx.vm.allocator.free(item);
+        expanded.deinit(ctx.vm.allocator);
+    }
+    for (expanded.items) |expanded_pattern| {
+        var tmp: std.ArrayList(GlobMatch) = .empty;
+        defer tmp.deinit(ctx.vm.allocator);
+        const saved_matches = ctx.matches;
+        ctx.matches = &tmp;
+        try processPattern(ctx, expanded_pattern);
+        ctx.matches = saved_matches;
+        if (sort) sortMatches(tmp.items);
+        out.appendSlice(ctx.vm.allocator, tmp.items) catch return error.Fatal;
+    }
+}
+
 pub fn builtinDirGlob(vm: *VM, _: Value, args: []Value, block: ?Block) VMError!Value {
-    try vm.requireArgCountRange(args, 0, 2);
+    try vm.requireArgCountRange(args, 1, 2);
     if (builtin.os.tag == .windows) {
         return vm.raiseExceptionFmt(vm.not_implemented_error_class, "Dir.glob is not implemented on Windows", .{});
     }
@@ -836,9 +876,9 @@ pub fn builtinDirGlob(vm: *VM, _: Value, args: []Value, block: ?Block) VMError!V
         try currentWorkingDir(vm);
     defer vm.allocator.free(base_abs);
 
-    var raw_matches: std.ArrayList([]u8) = .empty;
+    var raw_matches: std.ArrayList(GlobMatch) = .empty;
     defer {
-        for (raw_matches.items) |entry| vm.allocator.free(entry);
+        for (raw_matches.items) |entry| vm.allocator.free(entry.path);
         raw_matches.deinit(vm.allocator);
     }
 
@@ -853,38 +893,55 @@ pub fn builtinDirGlob(vm: *VM, _: Value, args: []Value, block: ?Block) VMError!V
     if (args[0].isArray()) {
         for (args[0].toArrayObject().elements.items) |pattern_val| {
             const pattern = try coerceGlobPattern(vm, pattern_val);
-            var expanded = expandBracesAlloc(vm.allocator, pattern, flags.noescape) catch return error.Fatal;
-            defer {
-                for (expanded.items) |item| vm.allocator.free(item);
-                expanded.deinit(vm.allocator);
-            }
-            for (expanded.items) |expanded_pattern| {
-                try processPattern(&ctx, expanded_pattern);
-            }
+            try appendPatternMatches(&ctx, pattern, keywords.sort, &raw_matches);
         }
     } else {
         const pattern = try coerceGlobPattern(vm, args[0]);
-        var expanded = expandBracesAlloc(vm.allocator, pattern, flags.noescape) catch return error.Fatal;
-        defer {
-            for (expanded.items) |item| vm.allocator.free(item);
-            expanded.deinit(vm.allocator);
-        }
-        for (expanded.items) |expanded_pattern| {
-            try processPattern(&ctx, expanded_pattern);
-        }
-    }
-
-    if (keywords.sort) {
-        std.sort.block([]u8, raw_matches.items, {}, struct {
-            fn lessThan(_: void, lhs: []u8, rhs: []u8) bool {
-                return std.mem.order(u8, lhs, rhs) == .lt;
-            }
-        }.lessThan);
+        try appendPatternMatches(&ctx, pattern, keywords.sort, &raw_matches);
     }
 
     const result = try vm.createArray();
     for (raw_matches.items) |entry| {
-        result.elements.append(vm.gc_allocator, try vm.newString(entry, false)) catch return error.Fatal;
+        result.elements.append(vm.gc_allocator, try vm.newStringWithEncoding(entry.path, false, entry.encoding)) catch return error.Fatal;
     }
     return buildGlobResult(vm, result, block);
+}
+
+pub fn builtinDirBracket(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+    if (builtin.os.tag == .windows) {
+        return vm.raiseExceptionFmt(vm.not_implemented_error_class, "Dir.[] is not implemented on Windows", .{});
+    }
+
+    const keywords = try parseGlobKeywords(vm);
+
+    const base_abs = if (keywords.base) |base|
+        absolutePathAlloc(vm, base) catch return error.Fatal
+    else
+        try currentWorkingDir(vm);
+    defer vm.allocator.free(base_abs);
+
+    var raw_matches: std.ArrayList(GlobMatch) = .empty;
+    defer {
+        for (raw_matches.items) |entry| vm.allocator.free(entry.path);
+        raw_matches.deinit(vm.allocator);
+    }
+
+    var ctx = GlobContext{
+        .vm = vm,
+        .matches = &raw_matches,
+        .flags = .{},
+        .base_abs = base_abs,
+        .return_relative = true,
+    };
+
+    for (args) |pattern_val| {
+        const pattern = try coerceGlobPattern(vm, pattern_val);
+        try appendPatternMatches(&ctx, pattern, keywords.sort, &raw_matches);
+    }
+
+    const result = try vm.createArray();
+    for (raw_matches.items) |entry| {
+        result.elements.append(vm.gc_allocator, try vm.newStringWithEncoding(entry.path, false, entry.encoding)) catch return error.Fatal;
+    }
+    return Value.fromObject(&result.object);
 }

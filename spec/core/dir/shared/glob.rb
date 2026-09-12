@@ -275,17 +275,13 @@ describe :dir_glob, shared: true do
   end
 
   it "respects the order of {} expressions, expanding left most first" do
-    CORAFIXME "Dir.glob brace expansion order does not yet match MRI", exception: SpecExpectationNotMetError do
-      files = Dir.send(@method, "brace/a{.js,.html}{.erb,.rjs}")
-      files.should == %w!brace/a.js.rjs brace/a.html.erb!
-    end
+    files = Dir.send(@method, "brace/a{.js,.html}{.erb,.rjs}")
+    files.should == %w!brace/a.js.rjs brace/a.html.erb!
   end
 
   it "respects the optional nested {} expressions" do
-    CORAFIXME "Dir.glob nested brace expansion order does not yet match MRI", exception: SpecExpectationNotMetError do
-      files = Dir.send(@method, "brace/a{.{js,html},}{.{erb,rjs},}")
-      files.should == %w!brace/a.js.rjs brace/a.js brace/a.html.erb brace/a.erb brace/a!
-    end
+    files = Dir.send(@method, "brace/a{.{js,html},}{.{erb,rjs},}")
+    files.should == %w!brace/a.js.rjs brace/a.js brace/a.html.erb brace/a.erb brace/a!
   end
 
   it "matches special characters by escaping with a backslash with '\\<character>'" do
