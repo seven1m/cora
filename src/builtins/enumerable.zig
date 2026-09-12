@@ -106,6 +106,8 @@ pub fn register(vm: *VM) !void {
     try enumerable_val.toModuleObject().methods.put(zip_sym, value.MethodEntry.builtin(&builtinEnumerableZip, .{ .variadic = 0 }));
     const minmax_sym = try vm.intern("minmax");
     try enumerable_val.toModuleObject().methods.put(minmax_sym, value.MethodEntry.builtin(&builtinEnumerableMinMax, .{ .exact = 0 }));
+    const tally_sym = try vm.intern("tally");
+    try enumerable_val.toModuleObject().methods.put(tally_sym, value.MethodEntry.builtin(&builtinEnumerableTally, .{ .variadic = 0 }));
 }
 
 fn builtinEnumerableToSet(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
@@ -1495,4 +1497,34 @@ fn enumerableZipSourceNext(vm: *VM, src: *EnumerableZipSource, index: usize) VME
         return err;
     };
     return collapseYieldValues(next.toArrayObject());
+}
+
+fn builtinEnumerableTally(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCountRange(args, 0, 1);
+
+    const counts = if (args.len == 1) blk: {
+        break :blk (try vm.coerceToHashValue(args[0])).toHashObject();
+    } else try vm.createHash();
+
+    const counts_value = Value.fromObject(&counts.object);
+    try vm.guardNotFrozen(counts_value);
+
+    const enum_value = try vm.createMethodEnumerator(receiver, try vm.intern("each"), &.{});
+    while (try enumerableNextElement(vm, enum_value)) |element| {
+        if (try vm.hashGetEntry(counts, element)) |entry| {
+            const current = entry.value;
+            if (!current.isInteger()) {
+                return vm.raiseExceptionFmt(
+                    vm.type_error_class,
+                    "wrong argument type {s} (expected Integer)",
+                    .{vm.className(current)},
+                );
+            }
+            try vm.hashSetEntry(counts, element, Value.integer(current.toInteger() + 1));
+        } else {
+            try vm.hashSetEntry(counts, element, Value.integer(1));
+        }
+    }
+
+    return counts_value;
 }
