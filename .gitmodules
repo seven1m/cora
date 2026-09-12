@@ -73,3 +73,6 @@
 [submodule "ext/weakref"]
 	path = ext/weakref
 	url = https://github.com/ruby/weakref
+[submodule "ext/ipaddr"]
+	path = ext/ipaddr
+	url = https://github.com/ruby/ipaddr

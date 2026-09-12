@@ -22,6 +22,7 @@ const runtime_ext_dirs = [_][]const u8{
     "delegate",
     "erb",
     "forwardable",
+    "ipaddr",
     "logger",
     "open3",
     "optparse",

@@ -7,6 +7,7 @@ fn defaultGemLibPath(comptime name: []const u8, comptime version: []const u8) []
 pub const repo_load_paths = [_][]const u8{
     "lib/stdlib",
     "ext/rubygems/lib",
+    "ext/ipaddr/lib",
     "ext/logger/lib",
     "ext/delegate/lib",
     "ext/forwardable/lib",
