@@ -108,6 +108,8 @@ pub fn register(vm: *VM) !void {
     try enumerable_val.toModuleObject().methods.put(minmax_sym, value.MethodEntry.builtin(&builtinEnumerableMinMax, .{ .exact = 0 }));
     const tally_sym = try vm.intern("tally");
     try enumerable_val.toModuleObject().methods.put(tally_sym, value.MethodEntry.builtin(&builtinEnumerableTally, .{ .variadic = 0 }));
+    const max_sym = try vm.intern("max");
+    try enumerable_val.toModuleObject().methods.put(max_sym, value.MethodEntry.builtin(&builtinEnumerableMax, .{ .variadic = 0 }));
 }
 
 fn builtinEnumerableToSet(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
@@ -1497,6 +1499,56 @@ fn enumerableZipSourceNext(vm: *VM, src: *EnumerableZipSource, index: usize) VME
         return err;
     };
     return collapseYieldValues(next.toArrayObject());
+}
+
+fn builtinEnumerableMax(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
+    try vm.requireArgCountRange(args, 0, 1);
+
+    if (args.len == 1 and !args[0].isNil()) {
+        const n = try args[0].coerceToI64ViaToInt(
+            vm,
+            "no implicit conversion into Integer",
+            "no implicit conversion into Integer",
+            "bignum too big to convert into `long`",
+        );
+        if (n < 0) {
+            return vm.raiseExceptionFmt(vm.argument_error_class, "negative array size", .{});
+        }
+
+        const enum_value = try vm.createMethodEnumerator(receiver, try vm.intern("each"), &.{});
+        const all = try vm.createArray();
+        while (try enumerableNextElement(vm, enum_value)) |element| {
+            all.elements.append(vm.gc_allocator, element) catch return error.Fatal;
+        }
+        const all_value = Value.fromObject(&all.object);
+        const sorted = try vm.callMethodByName(all_value, "sort", &.{}, block);
+
+        const items = sorted.toArrayObject().elements.items;
+        const count: usize = @min(@as(usize, @intCast(n)), items.len);
+        const out = try vm.createArray();
+        var i: usize = 0;
+        while (i < count) : (i += 1) {
+            out.elements.append(vm.gc_allocator, items[items.len - 1 - i]) catch return error.Fatal;
+        }
+        return Value.fromObject(&out.object);
+    }
+
+    const enum_value = try vm.createMethodEnumerator(receiver, try vm.intern("each"), &.{});
+    const first = (try enumerableNextElement(vm, enum_value)) orelse return Value.nil();
+
+    var max = first;
+    if (block) |blk| {
+        while (try enumerableNextElement(vm, enum_value)) |item| {
+            const yield_args = [_]Value{ item, max };
+            const yielded = try vm.yieldToBlock(blk, &yield_args);
+            if ((try enumerableBlockResultSign(vm, yielded)) > 0) max = item;
+        }
+    } else {
+        while (try enumerableNextElement(vm, enum_value)) |item| {
+            if (try enumerableValueLessThan(vm, max, item)) max = item;
+        }
+    }
+    return max;
 }
 
 fn builtinEnumerableTally(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
