@@ -461,7 +461,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] core/enumerable/inject_spec.rb
 - [ ] core/enumerable/lazy_spec.rb
 - [x] core/enumerable/map_spec.rb
-- [ ] core/enumerable/max_by_spec.rb
+- [x] core/enumerable/max_by_spec.rb
 - [ ] core/enumerable/max_spec.rb
 - [x] core/enumerable/member_spec.rb
 - [x] core/enumerable/min_by_spec.rb

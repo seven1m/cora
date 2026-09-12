@@ -877,9 +877,24 @@ fn builtinEnumerableSum(vm: *VM, receiver: Value, args: []Value, block: ?Block) 
 }
 
 fn builtinEnumerableMaxBy(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
-    try vm.requireArgCount(args, 0);
+    try vm.requireArgCountRange(args, 0, 1);
+
+    const n_arg = if (args.len == 1 and !args[0].isNil()) args[0] else null;
+
+    if (n_arg) |n| {
+        if (!n.isInteger() or n.toInteger() < 0) {
+            return vm.raiseExceptionFmt(vm.argument_error_class, "negative array size (or size too big)", .{});
+        }
+    }
+
     const blk = block orelse {
         const method_name = try vm.intern("max_by");
+        if (n_arg) |n| {
+            if (try vm.checkCallMethodByName(receiver, "size", false, &.{}, null)) |size| {
+                return vm.createMethodEnumeratorWithSize(receiver, method_name, &.{n}, size);
+            }
+            return vm.createMethodEnumerator(receiver, method_name, &.{n});
+        }
         if (try vm.checkCallMethodByName(receiver, "size", false, &.{}, null)) |size| {
             return vm.createMethodEnumeratorWithSize(receiver, method_name, &.{}, size);
         }
@@ -887,6 +902,39 @@ fn builtinEnumerableMaxBy(vm: *VM, receiver: Value, args: []Value, block: ?Block
     };
 
     const enum_value = try vm.createMethodEnumerator(receiver, try vm.intern("each"), &.{});
+
+    if (n_arg) |n| {
+        const n_i64 = n.toInteger();
+        if (n_i64 == 0) return Value.fromObject(&(try vm.createArray()).object);
+
+        const decorated = try vm.createArray();
+        var index: i64 = 0;
+
+        while (try enumerableNextElement(vm, enum_value)) |element| {
+            const result = try vm.yieldToBlock(blk, &.{element});
+
+            const entry = try vm.createArray();
+            entry.elements.append(vm.gc_allocator, result) catch return error.Fatal;
+            entry.elements.append(vm.gc_allocator, Value.integer(index)) catch return error.Fatal;
+            entry.elements.append(vm.gc_allocator, element) catch return error.Fatal;
+            decorated.elements.append(vm.gc_allocator, Value.fromObject(&entry.object)) catch return error.Fatal;
+            index += 1;
+        }
+
+        const sorted = try vm.callMethodByName(Value.fromObject(&decorated.object), "sort", &.{}, null);
+
+        const sorted_items = sorted.toArrayObject().elements.items;
+        const len = sorted_items.len;
+        const count: usize = @min(@as(usize, @intCast(n_i64)), len);
+        const out = try vm.createArray();
+        var i: usize = 0;
+        while (i < count) : (i += 1) {
+            const tuple = sorted_items[len - 1 - i].toArrayObject().elements.items;
+            out.elements.append(vm.gc_allocator, tuple[2]) catch return error.Fatal;
+        }
+        return Value.fromObject(&out.object);
+    }
+
     var best_value: ?Value = null;
     var best_key: Value = Value.nil();
 
