@@ -19,6 +19,9 @@ pub fn register(vm: *VM) !void {
     const bracket_set_sym = try vm.intern("[]=");
     try weak_map_class.module.methods.put(bracket_set_sym, value.MethodEntry.builtin(&builtinWeakMapBracketSet, .{ .exact = 2 }));
 
+    const key_p_sym = try vm.intern("key?");
+    try weak_map_class.module.methods.put(key_p_sym, value.MethodEntry.builtin(&builtinWeakMapKeyP, .{ .exact = 1 }));
+
     const values_sym = try vm.intern("values");
     try weak_map_class.module.methods.put(values_sym, value.MethodEntry.builtin(&builtinWeakMapValues, .{ .exact = 0 }));
 }
@@ -60,6 +63,13 @@ fn builtinWeakMapBracketSet(vm: *VM, receiver: Value, args: []Value, block: ?Blo
         wm.values.append(vm.gc_allocator, val) catch return error.Fatal;
     }
     return val;
+}
+
+fn builtinWeakMapKeyP(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
+    _ = vm;
+    _ = block;
+    const wm = receiver.toWeakMapObject();
+    return Value.boolean(weakMapIndex(wm, args[0]) != null);
 }
 
 fn builtinWeakMapValues(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {

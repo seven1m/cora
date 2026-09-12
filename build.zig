@@ -37,6 +37,7 @@ const runtime_ext_dirs = [_][]const u8{
     "tinycc",
     "tmpdir",
     "uri",
+    "weakref",
     "yaml",
 };
 

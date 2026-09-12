@@ -100,6 +100,7 @@ const language_super_test = @import("language/super_test.zig");
 const language_splat_call_test = @import("language/splat_call_test.zig");
 const language_xstring_test = @import("language/xstring_test.zig");
 const language_visibility_test = @import("language/visibility_test.zig");
+const weakref_test = @import("weakref_test.zig");
 
 comptime {
     _ = value_test;
@@ -127,6 +128,7 @@ comptime {
     _ = timeout_test;
     _ = tmpdir_test;
     _ = uri_test;
+    _ = weakref_test;
     _ = yaml_test;
     _ = zlib_test;
     _ = core_class_test;

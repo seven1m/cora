@@ -174,6 +174,7 @@ the top of the relevant file, in the same directory with a name like
 | `ext/tmpdir/*` | Yukihiro Matsumoto and Ruby contributors | Ruby license / 2-clause BSD |
 | `ext/shellwords/*` | Akinori MUSHA and Ruby contributors | Ruby license / 2-clause BSD |
 | `ext/uri/*` | Yukihiro Matsumoto and Ruby contributors | Ruby license / 2-clause BSD |
+| `ext/weakref/*` | Yukihiro Matsumoto and Ruby contributors | Ruby license / 2-clause BSD |
 | `ext/webrick/*` | Yukihiro Matsumoto and Ruby contributors | Ruby license / 2-clause BSD |
 | `ext/yaml/*` | Aaron Patterson, SHIBATA Hiroshi, and Ruby contributors | Ruby license / 2-clause BSD |
 

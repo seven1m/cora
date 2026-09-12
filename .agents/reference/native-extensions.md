@@ -11,7 +11,7 @@ are built and tested.
   `ext/logger`, `ext/time`, `ext/optparse`, `ext/uri`, `ext/delegate`,
   `ext/tmpdir`, `ext/tempfile`, `ext/cgi`, `ext/erb`, `ext/forwardable`,
   `ext/timeout`, `ext/singleton`, `ext/open3`, `ext/shellwords`, `ext/yaml`,
-  `ext/psych`, `ext/strscan`, `ext/csv`, `ext/json`).
+  `ext/weakref`, `ext/psych`, `ext/strscan`, `ext/csv`, `ext/json`).
 - `lib/stdlib/` - pure-Ruby standard library code vendored outside the gem
   layout (`fileutils.rb`, `securerandom.rb`, `monitor.rb`, `pathname.rb`,
   `openssl.rb`, `zlib.rb`, `stringio.rb`, `date.rb`, `set.rb`, `digest.rb`,
