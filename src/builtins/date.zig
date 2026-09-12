@@ -30,6 +30,7 @@ pub fn register(vm: *VM) !void {
     try datetime_singleton.module.methods.put(try vm.intern("new"), datetime_civil_entry);
     try datetime_singleton.module.methods.put(try vm.intern("civil"), datetime_civil_entry);
     try datetime_singleton.module.methods.put(try vm.intern("jd"), value.MethodEntry.builtin(&builtinDateTimeJd, .{ .variadic = 0 }));
+    try datetime_singleton.module.methods.put(try vm.intern("now"), value.MethodEntry.builtin(&builtinDateTimeNow, .{ .exact = 0 }));
 
     for ([_]*value.ClassObject{ date_class, datetime_class }) |class| {
         try class.module.methods.put(try vm.intern("inspect"), value.MethodEntry.builtin(&builtinDateInspect, .{ .exact = 0 }));
@@ -95,6 +96,14 @@ pub fn register(vm: *VM) !void {
     try datetime_class.module.methods.put(try vm.intern("sec_fraction"), second_fraction_entry);
     try datetime_class.module.methods.put(try vm.intern("offset"), value.MethodEntry.builtin(&builtinDateTimeOffset, .{ .exact = 0 }));
     try datetime_class.module.methods.put(try vm.intern("start"), value.MethodEntry.builtin(&builtinDateStart, .{ .exact = 0 }));
+    try datetime_class.module.methods.put(try vm.intern("+"), value.MethodEntry.builtin(&builtinDateTimeAdd, .{ .exact = 1 }));
+    try datetime_class.module.methods.put(try vm.intern("-"), value.MethodEntry.builtin(&builtinDateTimeSubtract, .{ .exact = 1 }));
+    try datetime_class.module.methods.put(try vm.intern("new_offset"), value.MethodEntry.builtin(&builtinDateTimeNewOffset, .{ .variadic = 0 }));
+    try datetime_class.module.methods.put(try vm.intern("to_date"), value.MethodEntry.builtin(&builtinDateTimeToDate, .{ .exact = 0 }));
+    try datetime_class.module.methods.put(try vm.intern("to_datetime"), value.MethodEntry.builtin(&builtinDateTimeToDateTime, .{ .exact = 0 }));
+    try datetime_class.module.methods.put(try vm.intern("to_time"), value.MethodEntry.builtin(&builtinDateTimeToTime, .{ .exact = 0 }));
+
+    try vm.time_class.module.methods.put(try vm.intern("to_datetime"), value.MethodEntry.builtin(&builtinTimeToDateTime, .{ .exact = 0 }));
 }
 
 const Civil = struct {
@@ -217,6 +226,41 @@ fn numberToF64(value_arg: Value) ?f64 {
     return null;
 }
 
+fn parseOffsetString(bytes: []const u8) ?i64 {
+    if (bytes.len != 6 or (bytes[0] != '+' and bytes[0] != '-') or bytes[3] != ':') return null;
+    if (!std.ascii.isDigit(bytes[1]) or !std.ascii.isDigit(bytes[2]) or !std.ascii.isDigit(bytes[4]) or !std.ascii.isDigit(bytes[5])) return null;
+    const hours = @as(i64, bytes[1] - '0') * 10 + (bytes[2] - '0');
+    const minutes = @as(i64, bytes[4] - '0') * 10 + (bytes[5] - '0');
+    if (hours > 23 or minutes > 59) return null;
+    const seconds = hours * 3600 + minutes * 60;
+    return if (bytes[0] == '-') -seconds else seconds;
+}
+
+fn normalizeOffset(vm: *VM, offset_arg: Value) VMError!Value {
+    if (offset_arg.isString()) {
+        const seconds = parseOffsetString(offset_arg.toStringObject().str) orelse return vm.raiseExceptionFmt(vm.argument_error_class, "invalid offset", .{});
+        return vm.newRational(seconds, 86_400);
+    }
+    if (numberToF64(offset_arg) == null) return vm.raiseExceptionFmt(vm.argument_error_class, "invalid offset", .{});
+    if (offset_arg.isFloat()) return vm.callMethodByName(offset_arg, "to_r", &.{}, null);
+    return offset_arg;
+}
+
+fn exactNumeric(vm: *VM, number: Value) VMError!Value {
+    return if (number.isFloat()) vm.callMethodByName(number, "to_r", &.{}, null) else number;
+}
+
+fn callNumeric(vm: *VM, receiver: Value, method: []const u8, argument: Value) VMError!Value {
+    var normalized_receiver = receiver;
+    var normalized_argument = argument;
+    if ((receiver.isFloat() and argument.isRational()) or (receiver.isRational() and argument.isFloat())) {
+        normalized_receiver = try vm.newFloat(numberToF64(receiver).?);
+        normalized_argument = try vm.newFloat(numberToF64(argument).?);
+    }
+    var args = [_]Value{normalized_argument};
+    return vm.callMethodByName(normalized_receiver, method, &args, null);
+}
+
 fn dateTimeFraction(vm: *VM, hour: i64, minute: i64, second: Value) VMError!Value {
     const whole_seconds = hour * 3600 + minute * 60;
     if (second.isInteger()) return vm.newRational(whole_seconds + second.toInteger(), 86_400);
@@ -244,7 +288,7 @@ fn builtinDateTimeCivil(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMEr
     var minute = if (args.len >= 5) try dateIntegerArg(vm, args[4]) else 0;
     const second = if (args.len >= 6) args[5] else Value.integer(0);
     const second_number = numberToF64(second) orelse return vm.raiseExceptionFmt(vm.argument_error_class, "invalid date", .{});
-    const offset = if (args.len >= 7) args[6] else try vm.newRational(0, 1);
+    const offset = if (args.len >= 7) try normalizeOffset(vm, args[6]) else try vm.newRational(0, 1);
     const offset_number = numberToF64(offset) orelse return vm.raiseExceptionFmt(vm.argument_error_class, "invalid offset", .{});
     const start = if (args.len >= 8) try dateIntegerArg(vm, args[7]) else 2_299_161;
 
@@ -257,11 +301,12 @@ fn builtinDateTimeCivil(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMEr
         day_adjust = 1;
     } else if (hour < 0) hour += 24;
     if (minute < 0) minute += 60;
-    const normalized_second = if (second_number < 0) blk: {
+    var normalized_second = if (second_number < 0) blk: {
         minute -= 1;
         var add_args = [_]Value{Value.integer(60)};
         break :blk try vm.callMethodByName(second, "+", &add_args, null);
     } else second;
+    normalized_second = try exactNumeric(vm, normalized_second);
     if (minute < 0) {
         minute += 60;
         hour -= 1;
@@ -275,6 +320,96 @@ fn builtinDateTimeCivil(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMEr
     const jd = (civilToJd(civil.year, civil.month, civil.day, start) orelse return vm.raiseExceptionFmt(vm.argument_error_class, "invalid date", .{})) + day_adjust;
     const fraction = try dateTimeFraction(vm, hour, minute, normalized_second);
     return vm.newDate(receiver.toClassObject(), Value.integer(jd), fraction, offset, Value.integer(start), .datetime);
+}
+
+fn dateTimeAbsoluteDay(vm: *VM, date: *value.DateObject) VMError!Value {
+    const with_fraction = try callNumeric(vm, date.chronological_day, "+", date.sub_day_fraction);
+    return callNumeric(vm, with_fraction, "-", date.utc_offset);
+}
+
+fn dateTimeFromAbsoluteDay(vm: *VM, class: *value.ClassObject, absolute_day: Value, offset: Value, start: Value) VMError!Value {
+    const local_day = try callNumeric(vm, absolute_day, "+", offset);
+    const floor = try vm.callMethodByName(local_day, "floor", &.{}, null);
+    const fraction = try callNumeric(vm, local_day, "-", floor);
+    return vm.newDate(class, floor, fraction, offset, start, .datetime);
+}
+
+fn builtinDateTimeAdd(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    if (numberToF64(args[0]) == null) return vm.raiseExceptionFmt(vm.type_error_class, "expected numeric", .{});
+    const date = receiver.toDateObject();
+    const absolute = try dateTimeAbsoluteDay(vm, date);
+    return dateTimeFromAbsoluteDay(vm, date.object.class.?, try callNumeric(vm, absolute, "+", try exactNumeric(vm, args[0])), date.utc_offset, date.calendar_start);
+}
+
+fn builtinDateTimeSubtract(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    const date = receiver.toDateObject();
+    const absolute = try dateTimeAbsoluteDay(vm, date);
+    if (args[0].isDate()) return callNumeric(vm, absolute, "-", try dateTimeAbsoluteDay(vm, args[0].toDateObject()));
+    if (numberToF64(args[0]) == null) return vm.raiseExceptionFmt(vm.type_error_class, "expected numeric", .{});
+    return dateTimeFromAbsoluteDay(vm, date.object.class.?, try callNumeric(vm, absolute, "-", try exactNumeric(vm, args[0])), date.utc_offset, date.calendar_start);
+}
+
+fn builtinDateTimeNewOffset(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCountRange(args, 0, 1);
+    const offset = if (args.len == 1) try normalizeOffset(vm, args[0]) else try vm.newRational(0, 1);
+    const date = receiver.toDateObject();
+    return dateTimeFromAbsoluteDay(vm, date.object.class.?, try dateTimeAbsoluteDay(vm, date), offset, date.calendar_start);
+}
+
+fn builtinDateTimeToDate(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    const date_class_value = (try vm.resolveConstantPath("Date")) orelse return error.Fatal;
+    const date = receiver.toDateObject();
+    const zero = try vm.newRational(0, 1);
+    return vm.newDate(date_class_value.toClassObject(), date.chronological_day, zero, zero, date.calendar_start, .date);
+}
+
+fn builtinDateTimeToDateTime(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    return receiver;
+}
+
+fn offsetNanoseconds(offset: Value) i64 {
+    return @intFromFloat(numberToF64(offset).? * 86_400.0 * 1_000_000_000.0);
+}
+
+fn builtinDateTimeToTime(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    const date = receiver.toDateObject();
+    var epoch_days = try callNumeric(vm, try dateTimeAbsoluteDay(vm, date), "-", Value.integer(2_440_588));
+    epoch_days = try callNumeric(vm, epoch_days, "*", Value.integer(86_400_000_000_000));
+    if (epoch_days.isFloat()) epoch_days = try vm.callMethodByName(epoch_days, "to_r", &.{}, null);
+    return vm.newTimeWithOffset(vm.time_class, epoch_days, offsetNanoseconds(date.utc_offset));
+}
+
+fn builtinTimeToDateTime(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    const time = receiver.toTimeObject();
+    var local_nanos = time.timew;
+    if (time.utc_offset_nanos != 0) local_nanos = try callNumeric(vm, local_nanos, "+", Value.integer(time.utc_offset_nanos));
+    const nanos_per_day = Value.integer(86_400_000_000_000);
+    const day_value = if (local_nanos.isInteger() or local_nanos.isBigInteger())
+        try vm.newRationalValues(local_nanos, nanos_per_day)
+    else if (local_nanos.isRational()) blk: {
+        const rational = local_nanos.toRationalObject();
+        break :blk try vm.newRationalValues(rational.numerator, try vm.mulIntegerValues(rational.denominator, nanos_per_day));
+    } else try callNumeric(vm, local_nanos, "/", nanos_per_day);
+    const days = try vm.callMethodByName(day_value, "floor", &.{}, null);
+    const fraction = try callNumeric(vm, day_value, "-", days);
+    const jd = try vm.addIntegerValues(days, Value.integer(2_440_588));
+    const offset = try vm.newRational(time.utc_offset_nanos, 86_400_000_000_000);
+    const datetime_value = (try vm.resolveConstantPath("DateTime")) orelse return error.Fatal;
+    return vm.newDate(datetime_value.toClassObject(), jd, fraction, offset, Value.integer(2_299_161), .datetime);
+}
+
+fn builtinDateTimeNow(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    const time_value = try vm.callMethodByName(Value.fromObject(&vm.time_class.module.object), "now", &.{}, null);
+    const datetime = try builtinTimeToDateTime(vm, time_value, &.{}, null);
+    datetime.toDateObject().object.class = receiver.toClassObject();
+    return datetime;
 }
 
 fn builtinDateTimeJd(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {

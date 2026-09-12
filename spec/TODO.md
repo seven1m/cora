@@ -2854,7 +2854,7 @@ Source baseline: ../ruby_spec compared to local spec/
 
 ### library/datetime
 - [ ] library/datetime/_strptime_spec.rb
-- [ ] library/datetime/add_spec.rb
+- [x] library/datetime/add_spec.rb
 - [x] library/datetime/civil_spec.rb
 - [ ] library/datetime/commercial_spec.rb
 - [ ] library/datetime/deconstruct_keys_spec.rb
@@ -2865,7 +2865,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] library/datetime/jisx0301_spec.rb
 - [x] library/datetime/min_spec.rb
 - [x] library/datetime/minute_spec.rb
-- [ ] library/datetime/new_offset_spec.rb
+- [x] library/datetime/new_offset_spec.rb
 - [x] library/datetime/new_spec.rb
 - [ ] library/datetime/now_spec.rb
 - [x] library/datetime/offset_spec.rb
@@ -2880,16 +2880,16 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] library/datetime/second_spec.rb
 - [ ] library/datetime/strftime_spec.rb
 - [ ] library/datetime/strptime_spec.rb
-- [ ] library/datetime/subtract_spec.rb
+- [x] library/datetime/subtract_spec.rb
 
 ### library/datetime/time
-- [ ] library/datetime/time/to_datetime_spec.rb
+- [x] library/datetime/time/to_datetime_spec.rb
 
 ### library/datetime
-- [ ] library/datetime/to_date_spec.rb
-- [ ] library/datetime/to_datetime_spec.rb
+- [x] library/datetime/to_date_spec.rb
+- [x] library/datetime/to_datetime_spec.rb
 - [ ] library/datetime/to_s_spec.rb
-- [ ] library/datetime/to_time_spec.rb
+- [x] library/datetime/to_time_spec.rb
 - [ ] library/datetime/xmlschema_spec.rb
 - [x] library/datetime/yday_spec.rb
 - [x] library/datetime/zone_spec.rb
