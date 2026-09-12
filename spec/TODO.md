@@ -482,7 +482,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] core/enumerable/sort_spec.rb
 - [-] core/enumerable/sum_spec.rb
 - [x] core/enumerable/take_spec.rb
-- [ ] core/enumerable/take_while_spec.rb
+- [x] core/enumerable/take_while_spec.rb
 - [ ] core/enumerable/tally_spec.rb
 - [x] core/enumerable/to_a_spec.rb
 - [ ] core/enumerable/to_h_spec.rb
