@@ -444,7 +444,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/enumerable/each_cons_spec.rb
 - [ ] core/enumerable/each_entry_spec.rb
 - [x] core/enumerable/each_slice_spec.rb
-- [ ] core/enumerable/each_with_index_spec.rb
+ - [x] core/enumerable/each_with_index_spec.rb
 - [x] core/enumerable/each_with_object_spec.rb
 - [x] core/enumerable/entries_spec.rb
 - [x] core/enumerable/filter_map_spec.rb

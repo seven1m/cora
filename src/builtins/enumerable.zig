@@ -84,6 +84,8 @@ pub fn register(vm: *VM) !void {
     try enumerable_val.toModuleObject().methods.put(reject_sym, value.MethodEntry.builtin(&builtinEnumerableReject, .{ .exact = 0 }));
     const find_index_sym = try vm.intern("find_index");
     try enumerable_val.toModuleObject().methods.put(find_index_sym, value.MethodEntry.builtin(&builtinEnumerableFindIndex, .{ .variadic = 0 }));
+    const each_with_index_sym = try vm.intern("each_with_index");
+    try enumerable_val.toModuleObject().methods.put(each_with_index_sym, value.MethodEntry.builtin(&builtinEnumerableEachWithIndex, .{ .variadic = 0 }));
 }
 
 fn builtinEnumerableToSet(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
@@ -977,6 +979,26 @@ fn builtinEnumerableSort(vm: *VM, receiver: Value, args: []Value, block: ?Block)
     try vm.requireArgCount(args, 0);
     const ary = try vm.callMethodByName(receiver, "to_a", &.{}, null);
     return vm.callMethodByName(ary, "sort", &.{}, block);
+}
+
+fn builtinEnumerableEachWithIndex(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
+    const blk = block orelse {
+        const method_name = try vm.intern("each_with_index");
+        if (try vm.checkCallMethodByName(receiver, "size", false, &.{}, null)) |size| {
+            return vm.createMethodEnumeratorWithSize(receiver, method_name, args, size);
+        }
+        return vm.createMethodEnumerator(receiver, method_name, args);
+    };
+
+    const enum_value = try vm.createMethodEnumerator(receiver, try vm.intern("each"), args);
+    var index: i64 = 0;
+    while (try enumerableNextElement(vm, enum_value)) |element| {
+        const yield_args = [_]Value{ element, Value.integer(index) };
+        _ = try vm.yieldToBlock(blk, &yield_args);
+        index += 1;
+    }
+
+    return receiver;
 }
 
 fn builtinEnumerableSortBy(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
