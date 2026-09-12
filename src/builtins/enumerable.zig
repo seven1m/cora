@@ -86,6 +86,8 @@ pub fn register(vm: *VM) !void {
     try enumerable_val.toModuleObject().methods.put(find_index_sym, value.MethodEntry.builtin(&builtinEnumerableFindIndex, .{ .variadic = 0 }));
     const each_with_index_sym = try vm.intern("each_with_index");
     try enumerable_val.toModuleObject().methods.put(each_with_index_sym, value.MethodEntry.builtin(&builtinEnumerableEachWithIndex, .{ .variadic = 0 }));
+    const first_sym = try vm.intern("first");
+    try enumerable_val.toModuleObject().methods.put(first_sym, value.MethodEntry.builtin(&builtinEnumerableFirst, .{ .variadic = 0 }));
 }
 
 fn builtinEnumerableToSet(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
@@ -999,6 +1001,35 @@ fn builtinEnumerableEachWithIndex(vm: *VM, receiver: Value, args: []Value, block
     }
 
     return receiver;
+}
+
+fn builtinEnumerableFirst(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCountRange(args, 0, 1);
+
+    if (args.len == 0) {
+        const enum_value = try vm.createMethodEnumerator(receiver, try vm.intern("each"), &.{});
+        return (try enumerableNextElement(vm, enum_value)) orelse Value.nil();
+    }
+
+    const count = try args[0].coerceToI64ViaToInt(
+        vm,
+        "no implicit conversion into Integer",
+        "no implicit conversion into Integer",
+        "bignum too big to convert into `long`",
+    );
+    if (count < 0) {
+        return vm.raiseExceptionFmt(vm.argument_error_class, "negative array size", .{});
+    }
+
+    const enum_value = try vm.createMethodEnumerator(receiver, try vm.intern("each"), &.{});
+    const out = try vm.createArray();
+    var taken: i64 = 0;
+    while (taken < count) {
+        const element = (try enumerableNextElement(vm, enum_value)) orelse break;
+        out.elements.append(vm.gc_allocator, element) catch return error.Fatal;
+        taken += 1;
+    }
+    return Value.fromObject(&out.object);
 }
 
 fn builtinEnumerableSortBy(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {

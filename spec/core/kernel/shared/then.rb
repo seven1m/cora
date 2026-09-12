@@ -15,8 +15,6 @@ describe :kernel_then, shared: true do
     enum.should be_an_instance_of Enumerator
     enum.size.should equal 1
     enum.peek.should equal object
-    CORAFIXME "Enumerator#first not implemented", exception: NoMethodError, message: /undefined method 'first'/ do
-      enum.first.should equal object
-    end
+    enum.first.should equal object
   end
 end
