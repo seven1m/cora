@@ -76,6 +76,8 @@ pub fn register(vm: *VM) !void {
     try enumerable_val.toModuleObject().methods.put(to_set_sym, value.MethodEntry.builtin(&builtinEnumerableToSet, .{ .variadic = 0 }));
     const compact_sym = try vm.intern("compact");
     try enumerable_val.toModuleObject().methods.put(compact_sym, value.MethodEntry.builtin(&builtinEnumerableCompact, .{ .exact = 0 }));
+    const partition_sym = try vm.intern("partition");
+    try enumerable_val.toModuleObject().methods.put(partition_sym, value.MethodEntry.builtin(&builtinEnumerablePartition, .{ .exact = 0 }));
 }
 
 fn builtinEnumerableToSet(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
@@ -199,6 +201,43 @@ fn builtinEnumerableSelect(vm: *VM, receiver: Value, args: []Value, block: ?Bloc
         }
     }
 
+    return Value.fromObject(&out.object);
+}
+
+fn builtinEnumerablePartition(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    const blk = block orelse {
+        const method_name = try vm.intern("partition");
+        if (try vm.checkCallMethodByName(receiver, "size", false, &.{}, null)) |size| {
+            return vm.createMethodEnumeratorWithSize(receiver, method_name, &.{}, size);
+        }
+        return vm.createMethodEnumerator(receiver, method_name, &.{});
+    };
+
+    const enum_value = try vm.createMethodEnumerator(receiver, try vm.intern("each"), &.{});
+    const truthy_out = try vm.createArray();
+    const falsy_out = try vm.createArray();
+
+    while (true) {
+        const next_values = vm.callMethodByName(enum_value, "next_values", &.{}, null) catch |err| {
+            if (err == error.Unwind and vm.pendingException() != null and vm.pendingException().?.object.class == vm.stop_iteration_class) {
+                vm.setPendingException(null);
+                break;
+            }
+            return err;
+        };
+        const result = try enumerableYieldCollapsed(vm, blk, next_values.toArrayObject());
+        const element = collapseYieldValues(next_values.toArrayObject());
+        if (result.isTruthy()) {
+            truthy_out.elements.append(vm.gc_allocator, element) catch return error.Fatal;
+        } else {
+            falsy_out.elements.append(vm.gc_allocator, element) catch return error.Fatal;
+        }
+    }
+
+    const out = try vm.createArray();
+    out.elements.append(vm.gc_allocator, Value.fromObject(&truthy_out.object)) catch return error.Fatal;
+    out.elements.append(vm.gc_allocator, Value.fromObject(&falsy_out.object)) catch return error.Fatal;
     return Value.fromObject(&out.object);
 }
 
