@@ -96,6 +96,8 @@ pub fn register(vm: *VM) !void {
     try enumerable_val.toModuleObject().methods.put(take_while_sym, value.MethodEntry.builtin(&builtinEnumerableTakeWhile, .{ .exact = 0 }));
     const drop_while_sym = try vm.intern("drop_while");
     try enumerable_val.toModuleObject().methods.put(drop_while_sym, value.MethodEntry.builtin(&builtinEnumerableDropWhile, .{ .exact = 0 }));
+    const reverse_each_sym = try vm.intern("reverse_each");
+    try enumerable_val.toModuleObject().methods.put(reverse_each_sym, value.MethodEntry.builtin(&builtinEnumerableReverseEach, .{ .variadic = 0 }));
 }
 
 fn builtinEnumerableToSet(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
@@ -1163,4 +1165,25 @@ fn builtinEnumerableSortBy(vm: *VM, receiver: Value, args: []Value, block: ?Bloc
         out.elements.append(vm.gc_allocator, tuple[2]) catch return error.Fatal;
     }
     return Value.fromObject(&out.object);
+}
+
+fn builtinEnumerableReverseEach(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
+    const blk = block orelse {
+        const method_name = try vm.intern("reverse_each");
+        if (try vm.checkCallMethodByName(receiver, "size", false, &.{}, null)) |size| {
+            return vm.createMethodEnumeratorWithSize(receiver, method_name, args, size);
+        }
+        return vm.createMethodEnumerator(receiver, method_name, args);
+    };
+
+    const ary = try vm.callMethodByName(receiver, "to_a", args, null);
+    const items = ary.toArrayObject().elements.items;
+    var i: usize = items.len;
+    while (i > 0) {
+        i -= 1;
+        const yield_args = [_]Value{items[i]};
+        _ = try vm.yieldToBlock(blk, &yield_args);
+    }
+
+    return receiver;
 }
