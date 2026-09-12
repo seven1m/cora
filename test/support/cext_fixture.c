@@ -134,6 +134,28 @@ cext_string_value_cstr_length(VALUE self, VALUE string)
     return SIZET2NUM(strlen(StringValueCStr(string)));
 }
 
+static VALUE
+cext_class_of(VALUE self, VALUE object)
+{
+    (void)self;
+    return CLASS_OF(object);
+}
+
+static VALUE
+cext_obj_class(VALUE self, VALUE object)
+{
+    (void)self;
+    return rb_obj_class(object);
+}
+
+static VALUE
+cext_undef_class_new(VALUE self, VALUE klass)
+{
+    (void)self;
+    rb_undef_method(CLASS_OF(klass), "new");
+    return Qnil;
+}
+
 void Init_fixture(void)
 {
     VALUE mCoraCExt = rb_define_module("CoraCExt");
@@ -150,6 +172,9 @@ void Init_fixture(void)
     rb_define_module_function(mCoraCExt, "str_new_length", cext_str_new_length, 1);
     rb_define_module_function(mCoraCExt, "typed_data_round_trip", cext_typed_data_round_trip, 0);
     rb_define_module_function(mCoraCExt, "string_value_cstr_length", cext_string_value_cstr_length, 1);
+    rb_define_module_function(mCoraCExt, "class_of", cext_class_of, 1);
+    rb_define_module_function(mCoraCExt, "obj_class", cext_obj_class, 1);
+    rb_define_module_function(mCoraCExt, "undef_class_new", cext_undef_class_new, 1);
 
     rb_define_method(rb_cString, "cora_cext_test", cora_cext_test, 0);
     rb_define_method(rb_cString, "cext_yield", cext_simple_yield, 1);

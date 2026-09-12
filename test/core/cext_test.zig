@@ -21,6 +21,39 @@ test "C extension method works on arbitrary receiver" {
     try std.testing.expectEqual(true, result.toBool());
 }
 
+test "C extension CLASS_OF returns singleton class without changing rb_obj_class" {
+    const result = try evalCode(
+        \\$LOAD_PATH << "build/cext"
+        \\require "fixture.so"
+        \\klass = Class.new
+        \\[
+        \\  CoraCExt.class_of(klass).equal?(klass.singleton_class),
+        \\  CoraCExt.obj_class(klass).equal?(Class),
+        \\]
+    );
+    for (result.toArrayObject().elements.items) |element| {
+        try std.testing.expect(element.toBool());
+    }
+}
+
+test "C extension can undefine new on one class singleton" {
+    const result = try evalCode(
+        \\$LOAD_PATH << "build/cext"
+        \\require "fixture.so"
+        \\klass = Class.new
+        \\CoraCExt.undef_class_new(klass)
+        \\[
+        \\  klass.respond_to?(:new),
+        \\  Class.respond_to?(:new),
+        \\  Object.new.class.equal?(Object),
+        \\]
+    );
+    const elements = result.toArrayObject().elements.items;
+    try std.testing.expect(!elements[0].toBool());
+    try std.testing.expect(elements[1].toBool());
+    try std.testing.expect(elements[2].toBool());
+}
+
 test "C extension rb_funcall without block" {
     const result = try evalCode(
         \\$LOAD_PATH << "build/cext"

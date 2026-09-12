@@ -785,7 +785,12 @@ export fn rb_respond_to(obj_raw: VALUE, id: VALUE) c_int {
 
 export fn rb_class_of(obj_raw: VALUE) VALUE {
     const vm = getVM();
-    return Value.fromObject(&vm.getClass(Value{ .raw = obj_raw }).module.object).raw;
+    const obj = Value{ .raw = obj_raw };
+    const class = if (obj.isClass() or obj.isModule())
+        vm.getOrCreateSingletonClass(obj) catch return 0
+    else
+        obj.getSingletonClass() orelse vm.getClass(obj);
+    return Value.fromObject(&class.module.object).raw;
 }
 
 export fn rb_type(obj_raw: VALUE) c_int {
@@ -810,7 +815,8 @@ export fn rb_type(obj_raw: VALUE) c_int {
 }
 
 export fn rb_obj_class(obj_raw: VALUE) VALUE {
-    return rb_class_of(obj_raw);
+    const vm = getVM();
+    return Value.fromObject(&vm.getClass(Value{ .raw = obj_raw }).module.object).raw;
 }
 
 export fn rb_class_new_instance(argc: c_int, argv: [*c]const VALUE, klass_raw: VALUE) VALUE {
@@ -1983,7 +1989,8 @@ export fn rb_undef_method(klass_raw: VALUE, name_ptr: [*c]const u8) void {
     const sym = vm.intern(name) catch return;
     const klass = Value{ .raw = klass_raw };
     const mod = if (klass.isClass()) &klass.toClassObject().module else @as(*value.ModuleObject, @ptrFromInt(klass_raw));
-    _ = mod.methods.remove(sym);
+    mod.methods.put(sym, .{ .method = .{ .undefined = {} } }) catch return;
+    vm.method_state_version +%= 1;
 }
 
 // ─── Intern ──────────────────────────────────────────────────────────────────
