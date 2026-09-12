@@ -319,6 +319,25 @@ pub fn register(vm: *VM) !void {
 
     const unary_plus_sym = try vm.intern("+@");
     try vm.rational_class.module.methods.put(unary_plus_sym, value.MethodEntry.builtin(&builtinRationalUnaryPlus, .{ .exact = 0 }));
+
+    const plus_sym = try vm.intern("+");
+    try vm.rational_class.module.methods.put(plus_sym, value.MethodEntry.builtin(&builtinRationalPlus, .{ .exact = 1 }));
+
+    const minus_sym = try vm.intern("-");
+    try vm.rational_class.module.methods.put(minus_sym, value.MethodEntry.builtin(&builtinRationalMinus, .{ .exact = 1 }));
+
+    const multiply_sym = try vm.intern("*");
+    try vm.rational_class.module.methods.put(multiply_sym, value.MethodEntry.builtin(&builtinRationalMultiply, .{ .exact = 1 }));
+
+    const divide_entry = value.MethodEntry.builtin(&builtinRationalDivide, .{ .exact = 1 });
+    const divide_sym = try vm.intern("/");
+    try vm.rational_class.module.methods.put(divide_sym, divide_entry);
+
+    const quo_sym = try vm.intern("quo");
+    try vm.rational_class.module.methods.put(quo_sym, divide_entry);
+
+    const coerce_sym = try vm.intern("coerce");
+    try vm.rational_class.module.methods.put(coerce_sym, value.MethodEntry.builtin(&builtinRationalCoerce, .{ .exact = 1 }));
 }
 
 pub fn builtinRationalNewForbidden(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
@@ -475,4 +494,147 @@ pub fn builtinRationalUnaryMinus(vm: *VM, receiver: Value, args: []Value, _: ?Bl
 pub fn builtinRationalUnaryPlus(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
     return receiver;
+}
+
+fn rationalToF64(rational: *value.RationalObject) f64 {
+    return rational.numerator.integerToF64() / rational.denominator.integerToF64();
+}
+
+fn coerceAndCallRationalArithmetic(vm: *VM, receiver: Value, arg: Value, op_name: []const u8) VMError!Value {
+    var coerce_args = [_]Value{receiver};
+    const maybe_coerced = try vm.checkCallMethodByName(arg, "coerce", true, coerce_args[0..], null);
+    const coerced = maybe_coerced orelse {
+        return vm.raiseExceptionFmt(vm.type_error_class, "{s} can't be coerced into Rational", .{vm.className(arg)});
+    };
+    if (!coerced.isArray()) {
+        return vm.raiseExceptionFmt(vm.type_error_class, "coerce must return [x, y]", .{});
+    }
+    const coerced_items = coerced.toArrayObject().elements.items;
+    if (coerced_items.len != 2) {
+        return vm.raiseExceptionFmt(vm.type_error_class, "coerce must return [x, y]", .{});
+    }
+    var op_args = [_]Value{coerced_items[1]};
+    return vm.callMethodByName(coerced_items[0], op_name, op_args[0..], null);
+}
+
+pub fn builtinRationalPlus(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    const rational = receiver.toRationalObject();
+    const other = args[0];
+    if (other.isRational()) {
+        const rhs = other.toRationalObject();
+        const ad = try vm.mulIntegerValues(rational.numerator, rhs.denominator);
+        const bc = try vm.mulIntegerValues(rhs.numerator, rational.denominator);
+        const num = try vm.addIntegerValues(ad, bc);
+        const den = try vm.mulIntegerValues(rational.denominator, rhs.denominator);
+        return vm.newRationalValues(num, den);
+    }
+    if (other.isInteger() or other.isBigInteger()) {
+        const c_times_b = try vm.mulIntegerValues(other, rational.denominator);
+        const num = try vm.addIntegerValues(rational.numerator, c_times_b);
+        return vm.newRationalValues(num, rational.denominator);
+    }
+    if (other.isFloat()) {
+        return vm.newFloat(rationalToF64(rational) + other.toFloatObject().val);
+    }
+    return coerceAndCallRationalArithmetic(vm, receiver, other, "+");
+}
+
+pub fn builtinRationalMinus(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    const rational = receiver.toRationalObject();
+    const other = args[0];
+    if (other.isRational()) {
+        const rhs = other.toRationalObject();
+        const ad = try vm.mulIntegerValues(rational.numerator, rhs.denominator);
+        const bc = try vm.mulIntegerValues(rhs.numerator, rational.denominator);
+        const num = try vm.subIntegerValues(ad, bc);
+        const den = try vm.mulIntegerValues(rational.denominator, rhs.denominator);
+        return vm.newRationalValues(num, den);
+    }
+    if (other.isInteger() or other.isBigInteger()) {
+        const c_times_b = try vm.mulIntegerValues(other, rational.denominator);
+        const num = try vm.subIntegerValues(rational.numerator, c_times_b);
+        return vm.newRationalValues(num, rational.denominator);
+    }
+    if (other.isFloat()) {
+        return vm.newFloat(rationalToF64(rational) - other.toFloatObject().val);
+    }
+    return coerceAndCallRationalArithmetic(vm, receiver, other, "-");
+}
+
+pub fn builtinRationalMultiply(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    const rational = receiver.toRationalObject();
+    const other = args[0];
+    if (other.isRational()) {
+        const rhs = other.toRationalObject();
+        const num = try vm.mulIntegerValues(rational.numerator, rhs.numerator);
+        const den = try vm.mulIntegerValues(rational.denominator, rhs.denominator);
+        return vm.newRationalValues(num, den);
+    }
+    if (other.isInteger() or other.isBigInteger()) {
+        const num = try vm.mulIntegerValues(rational.numerator, other);
+        return vm.newRationalValues(num, rational.denominator);
+    }
+    if (other.isFloat()) {
+        return vm.newFloat(rationalToF64(rational) * other.toFloatObject().val);
+    }
+    return coerceAndCallRationalArithmetic(vm, receiver, other, "*");
+}
+
+pub fn builtinRationalDivide(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    const rational = receiver.toRationalObject();
+    const other = args[0];
+    if (other.isRational()) {
+        const rhs = other.toRationalObject();
+        if ((try vm.compareIntegerValues(rhs.numerator, Value.integer(0))) == .eq) {
+            return vm.raiseExceptionFmt(vm.zero_division_error_class, "divided by 0", .{});
+        }
+        const num = try vm.mulIntegerValues(rational.numerator, rhs.denominator);
+        const den = try vm.mulIntegerValues(rational.denominator, rhs.numerator);
+        return vm.newRationalValues(num, den);
+    }
+    if (other.isInteger() or other.isBigInteger()) {
+        if ((try vm.compareIntegerValues(other, Value.integer(0))) == .eq) {
+            return vm.raiseExceptionFmt(vm.zero_division_error_class, "divided by 0", .{});
+        }
+        const den = try vm.mulIntegerValues(rational.denominator, other);
+        return vm.newRationalValues(rational.numerator, den);
+    }
+    if (other.isFloat()) {
+        return vm.newFloat(rationalToF64(rational) / other.toFloatObject().val);
+    }
+    return coerceAndCallRationalArithmetic(vm, receiver, other, "/");
+}
+
+pub fn builtinRationalCoerce(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    const other = args[0];
+    const result = try vm.createArray();
+    if (other.isRational()) {
+        result.elements.append(vm.gc_allocator, other) catch return error.Fatal;
+        result.elements.append(vm.gc_allocator, receiver) catch return error.Fatal;
+        return Value.fromObject(&result.object);
+    }
+    if (other.isInteger() or other.isBigInteger()) {
+        const coerced = try vm.newRationalValues(other, Value.integer(1));
+        result.elements.append(vm.gc_allocator, coerced) catch return error.Fatal;
+        result.elements.append(vm.gc_allocator, receiver) catch return error.Fatal;
+        return Value.fromObject(&result.object);
+    }
+    if (other.isFloat()) {
+        const rational = receiver.toRationalObject();
+        result.elements.append(vm.gc_allocator, other) catch return error.Fatal;
+        result.elements.append(vm.gc_allocator, try vm.newFloat(rationalToF64(rational))) catch return error.Fatal;
+        return Value.fromObject(&result.object);
+    }
+    if (other.isComplex()) {
+        const as_complex = try vm.newComplex(receiver, Value.integer(0));
+        result.elements.append(vm.gc_allocator, other) catch return error.Fatal;
+        result.elements.append(vm.gc_allocator, as_complex) catch return error.Fatal;
+        return Value.fromObject(&result.object);
+    }
+    return vm.raiseExceptionFmt(vm.type_error_class, "{s} can't be coerced into Rational", .{vm.className(other)});
 }

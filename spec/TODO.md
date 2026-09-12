@@ -1811,7 +1811,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/rational/comparison_spec.rb
 - [x] core/rational/denominator_spec.rb
 - [ ] core/rational/div_spec.rb
-- [ ] core/rational/divide_spec.rb
+- [x] core/rational/divide_spec.rb
 - [ ] core/rational/divmod_spec.rb
 - [x] core/rational/equal_value_spec.rb
 - [ ] core/rational/exponent_spec.rb
@@ -1822,12 +1822,12 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] core/rational/integer_spec.rb
 - [x] core/rational/magnitude_spec.rb
 - [ ] core/rational/marshal_dump_spec.rb
-- [ ] core/rational/minus_spec.rb
+- [x] core/rational/minus_spec.rb
 - [ ] core/rational/modulo_spec.rb
-- [ ] core/rational/multiply_spec.rb
+- [x] core/rational/multiply_spec.rb
 - [x] core/rational/numerator_spec.rb
-- [ ] core/rational/plus_spec.rb
-- [ ] core/rational/quo_spec.rb
+- [x] core/rational/plus_spec.rb
+- [x] core/rational/quo_spec.rb
 - [x] core/rational/rational_spec.rb
 - [ ] core/rational/rationalize_spec.rb
 - [ ] core/rational/remainder_spec.rb

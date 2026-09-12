@@ -19,16 +19,12 @@ describe 'Enumerable#sum' do
   end
 
   it 'gives 0 as a default argument' do
-    CORAFIXME "Rational arithmetic is not implemented yet" do
-      @enum.sum.should == 5/3r
-    end
+    @enum.sum.should == 5/3r
   end
 
   context 'with a block' do
     it 'transforms the elements' do
-      CORAFIXME "Rational arithmetic is not implemented yet" do
-        @enum.sum { |element| element * 2 }.should == 10/3r
-      end
+      @enum.sum { |element| element * 2 }.should == 10/3r
     end
 
     it 'does not destructure array elements' do
