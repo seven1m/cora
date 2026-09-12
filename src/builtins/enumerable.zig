@@ -90,6 +90,8 @@ pub fn register(vm: *VM) !void {
     try enumerable_val.toModuleObject().methods.put(first_sym, value.MethodEntry.builtin(&builtinEnumerableFirst, .{ .variadic = 0 }));
     const take_sym = try vm.intern("take");
     try enumerable_val.toModuleObject().methods.put(take_sym, value.MethodEntry.builtin(&builtinEnumerableTake, .{ .exact = 1 }));
+    const drop_sym = try vm.intern("drop");
+    try enumerable_val.toModuleObject().methods.put(drop_sym, value.MethodEntry.builtin(&builtinEnumerableDrop, .{ .exact = 1 }));
 }
 
 fn builtinEnumerableToSet(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
@@ -1054,6 +1056,32 @@ fn builtinEnumerableTake(vm: *VM, receiver: Value, args: []Value, _: ?Block) VME
         const element = (try enumerableNextElement(vm, enum_value)) orelse break;
         out.elements.append(vm.gc_allocator, element) catch return error.Fatal;
         taken += 1;
+    }
+    return Value.fromObject(&out.object);
+}
+
+fn builtinEnumerableDrop(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+
+    const count = try args[0].coerceToI64ViaToInt(
+        vm,
+        "no implicit conversion into Integer",
+        "no implicit conversion into Integer",
+        "bignum too big to convert into `long`",
+    );
+    if (count < 0) {
+        return vm.raiseExceptionFmt(vm.argument_error_class, "negative array size", .{});
+    }
+
+    const enum_value = try vm.createMethodEnumerator(receiver, try vm.intern("each"), &.{});
+    const out = try vm.createArray();
+    var skipped: i64 = 0;
+    while ((try enumerableNextElement(vm, enum_value))) |element| {
+        if (skipped < count) {
+            skipped += 1;
+            continue;
+        }
+        out.elements.append(vm.gc_allocator, element) catch return error.Fatal;
     }
     return Value.fromObject(&out.object);
 }
