@@ -789,9 +789,8 @@ pub const Compiler = struct {
                         // Literal block: compile to separate chunk
                         block_chunk_id = try self.compileBlock(block_node.block, line);
                     } else if (block_node == .block_argument) {
-                        // Block argument (&variable): compile expression to push Proc onto stack
-                        const expr = try self.parser.asNode(@ptrCast(block_node.block_argument.expression));
-                        try self.compileNode(expr, line);
+                        // Block argument (&variable or anonymous &): push Proc onto stack
+                        try self.compileBlockArgumentValue(block_node.block_argument, line);
                         block_chunk_id = chunk.BLOCK_ARG_ON_STACK;
                     }
                 }
@@ -1273,8 +1272,7 @@ pub const Compiler = struct {
                     if (block_node == .block) {
                         block_chunk_id = try self.compileBlock(block_node.block, line);
                     } else if (block_node == .block_argument) {
-                        const expr = try self.parser.asNode(@ptrCast(block_node.block_argument.expression));
-                        try self.compileNode(expr, line);
+                        try self.compileBlockArgumentValue(block_node.block_argument, line);
                         block_chunk_id = chunk.BLOCK_ARG_ON_STACK;
                     }
                 }
@@ -1347,8 +1345,7 @@ pub const Compiler = struct {
                             if (block_node == .block) {
                                 block_chunk_id = try self.compileBlock(block_node.block, line);
                             } else if (block_node == .block_argument) {
-                                const expr = try self.parser.asNode(@ptrCast(block_node.block_argument.expression));
-                                try self.compileNode(expr, line);
+                                try self.compileBlockArgumentValue(block_node.block_argument, line);
                                 block_chunk_id = chunk.BLOCK_ARG_ON_STACK;
                             }
                         }
@@ -1503,8 +1500,7 @@ pub const Compiler = struct {
                             if (block_node == .block) {
                                 block_chunk_id = try self.compileBlock(block_node.block, line);
                             } else if (block_node == .block_argument) {
-                                const expr = try self.parser.asNode(@ptrCast(block_node.block_argument.expression));
-                                try self.compileNode(expr, line);
+                                try self.compileBlockArgumentValue(block_node.block_argument, line);
                                 block_chunk_id = chunk.BLOCK_ARG_ON_STACK;
                             }
                         }
@@ -1524,8 +1520,7 @@ pub const Compiler = struct {
                         if (block_node == .block) {
                             block_chunk_id = try self.compileBlock(block_node.block, line);
                         } else if (block_node == .block_argument) {
-                            const expr = try self.parser.asNode(@ptrCast(block_node.block_argument.expression));
-                            try self.compileNode(expr, line);
+                            try self.compileBlockArgumentValue(block_node.block_argument, line);
                             block_chunk_id = chunk.BLOCK_ARG_ON_STACK;
                         }
                     }
@@ -3976,8 +3971,15 @@ pub const Compiler = struct {
             const block_node = try self.parser.asNode(@ptrCast(block_ptr));
             if (block_node == .block_parameter) {
                 const block_param = block_node.block_parameter;
-                const block_name = try self.parser.getLocalVariableName(block_param.name);
-                try self.addLocal(block_name);
+                if (block_param.name != 0) {
+                    const block_name = try self.parser.getLocalVariableName(block_param.name);
+                    try self.addLocal(block_name);
+                } else {
+                    // Anonymous block parameter (`def foo(&)`): still needs a
+                    // slot so the caller's block is bound and bare `&` at call
+                    // sites can forward it. "&" cannot collide with a real local.
+                    try self.addLocal("&");
+                }
                 const block_idx = @as(u16, @intCast(self.locals.items.len - 1));
                 target_chunk.block_param_index = block_idx;
             } else {
@@ -4095,6 +4097,19 @@ pub const Compiler = struct {
                 return error.UnsupportedNode;
             }
         }
+    }
+
+    /// Compile a `&block` call argument onto the stack. Named form (`&blk`)
+    /// compiles the expression; anonymous form (`&`) forwards the current
+    /// chunk's (possibly anonymous) block parameter slot.
+    fn compileBlockArgumentValue(self: *Compiler, block_arg: *const prism.BlockArgumentNode, line: u32) !void {
+        if (block_arg.expression) |expr_ptr| {
+            const expr = try self.parser.asNode(@ptrCast(expr_ptr));
+            try self.compileNode(expr, line);
+            return;
+        }
+        const block_idx = self.current_chunk.block_param_index orelse return error.UnsupportedNode;
+        try self.current_chunk.emitOpU16(.GET_LOCAL, block_idx, line);
     }
 
     fn compileMethod(self: *Compiler, def_node: *prism.DefNode, line: u32) anyerror!void {

@@ -949,6 +949,9 @@ pub const Parser = struct {
     }
 
     pub fn getConstantName(self: *Parser, const_id: c.pm_constant_id_t) ![]const u8 {
+        if (const_id == 0) {
+            return error.ConstantNotFound;
+        }
         const constant = c.pm_constant_pool_id_to_constant(&self.internal.constant_pool, const_id);
         if (constant == null) {
             return error.ConstantNotFound;

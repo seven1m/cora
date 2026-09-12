@@ -418,3 +418,47 @@ test "&argument to_proc returning non-Proc raises TypeError" {
         \\[1].map(&M.new)
     ));
 }
+
+test "anonymous block parameter forwards to another method" {
+    const result = try evalCode(
+        \\def bar(x, &b)
+        \\  b.call(x * 2)
+        \\end
+        \\def foo(x, &)
+        \\  bar(x, &)
+        \\end
+        \\foo(21) { |n| n + 1 }
+    );
+    try std.testing.expectEqual(@as(i64, 43), result.toInteger());
+}
+
+test "anonymous block parameter forwards nil when no block given" {
+    const result = try evalCode(
+        \\def bar(&b)
+        \\  b.nil?
+        \\end
+        \\def foo(&)
+        \\  bar(&)
+        \\end
+        \\foo
+    );
+    try std.testing.expect(result.isBool());
+    try std.testing.expect(result.toBool());
+}
+
+test "anonymous block parameter defined via module_eval forwards" {
+    const result = try evalCode(
+        \\class W
+        \\  def initialize(v)
+        \\    @value = v
+        \\  end
+        \\  def value
+        \\    @value
+        \\  end
+        \\end
+        \\W.class_eval("def doubled(&); (@value * 2) + (block_given? ? yield : 0); end")
+        \\W.class_eval("def via_anon(&); doubled(&); end")
+        \\W.new(21).via_anon { 1 }
+    );
+    try std.testing.expectEqual(@as(i64, 43), result.toInteger());
+}
