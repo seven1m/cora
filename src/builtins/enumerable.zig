@@ -30,6 +30,8 @@ pub fn register(vm: *VM) !void {
     try enumerable_val.toModuleObject().methods.put(any_sym, value.MethodEntry.builtin(&builtinEnumerableAny, .{ .variadic = 0 }));
     const none_sym = try vm.intern("none?");
     try enumerable_val.toModuleObject().methods.put(none_sym, value.MethodEntry.builtin(&builtinEnumerableNone, .{ .variadic = 0 }));
+    const one_sym = try vm.intern("one?");
+    try enumerable_val.toModuleObject().methods.put(one_sym, value.MethodEntry.builtin(&builtinEnumerableOne, .{ .variadic = 0 }));
     const all_sym = try vm.intern("all?");
     try enumerable_val.toModuleObject().methods.put(all_sym, value.MethodEntry.builtin(&builtinEnumerableAll, .{ .variadic = 0 }));
     const filter_map_sym = try vm.intern("filter_map");
@@ -263,6 +265,47 @@ fn builtinEnumerableAny(vm: *VM, receiver: Value, args: []Value, block: ?Block) 
 fn builtinEnumerableNone(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
     const result = try builtinEnumerableAny(vm, receiver, args, block);
     return Value.boolean(!result.toBool());
+}
+
+fn builtinEnumerableOne(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
+    try vm.requireArgCountRange(args, 0, 1);
+    const pattern = if (args.len == 1) args[0] else null;
+
+    if (pattern != null and block != null) {
+        try warning_builtin.warnBlockUnused(vm);
+    }
+
+    const enum_value = try vm.createMethodEnumerator(receiver, try vm.intern("each"), &.{});
+    var matched = false;
+
+    if (pattern) |pat| {
+        while (try enumerableNextElement(vm, enum_value)) |element| {
+            if (try enumerablePatternMatches(vm, pat, element)) {
+                if (matched) return Value.boolean(false);
+                matched = true;
+            }
+        }
+        return Value.boolean(matched);
+    }
+
+    if (block) |blk| {
+        while (try enumerableNextValues(vm, enum_value)) |next_values| {
+            const result = try vm.yieldToBlock(blk, next_values.elements.items);
+            if (result.isTruthy()) {
+                if (matched) return Value.boolean(false);
+                matched = true;
+            }
+        }
+        return Value.boolean(matched);
+    }
+
+    while (try enumerableNextElement(vm, enum_value)) |element| {
+        if (element.isTruthy()) {
+            if (matched) return Value.boolean(false);
+            matched = true;
+        }
+    }
+    return Value.boolean(matched);
 }
 
 fn builtinEnumerableAll(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
