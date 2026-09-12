@@ -74,6 +74,8 @@ pub fn register(vm: *VM) !void {
     try enumerable_val.toModuleObject().methods.put(count_sym, value.MethodEntry.builtin(&builtinEnumerableCount, .{ .variadic = 0 }));
     const to_set_sym = try vm.intern("to_set");
     try enumerable_val.toModuleObject().methods.put(to_set_sym, value.MethodEntry.builtin(&builtinEnumerableToSet, .{ .variadic = 0 }));
+    const compact_sym = try vm.intern("compact");
+    try enumerable_val.toModuleObject().methods.put(compact_sym, value.MethodEntry.builtin(&builtinEnumerableCompact, .{ .exact = 0 }));
 }
 
 fn builtinEnumerableToSet(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
@@ -390,6 +392,18 @@ fn builtinEnumerableToA(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMEr
     const out = try vm.createArray();
     while (try enumerableNextElement(vm, enum_value)) |element| {
         out.elements.append(vm.gc_allocator, element) catch return error.Fatal;
+    }
+    return Value.fromObject(&out.object);
+}
+
+fn builtinEnumerableCompact(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    const enum_value = try vm.createMethodEnumerator(receiver, try vm.intern("each"), &.{});
+    const out = try vm.createArray();
+    while (try enumerableNextElement(vm, enum_value)) |element| {
+        if (!element.isNil()) {
+            out.elements.append(vm.gc_allocator, element) catch return error.Fatal;
+        }
     }
     return Value.fromObject(&out.object);
 }
