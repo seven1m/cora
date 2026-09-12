@@ -665,7 +665,15 @@ pub const Compiler = struct {
 
             .local_variable_read => |var_read| {
                 const var_name = try self.parser.getLocalVariableName(var_read.name);
-                const slot = try self.resolveExistingLocalSlot(var_name);
+                // Prism only emits LocalVariableRead when the name is a local in this
+                // scope (an assignment exists lexically in the scope). Modifier forms
+                // such as `ok = f() until ok` place the assignment textually before
+                // the predicate, but the compiler emits the predicate first, so the
+                // slot may not exist yet. Resolve-or-create gives the MRI semantics:
+                // the local reads as nil until the body assigns it (frame slots are
+                // nil-initialized). Reads that are textually before any assignment
+                // never reach here: Prism parses those as method calls.
+                const slot = try self.resolveOrCreateLocalSlot(var_name);
                 try self.emitGetLocalSlot(slot, line);
             },
 
@@ -2461,20 +2469,6 @@ pub const Compiler = struct {
         };
     }
 
-    fn resolveExistingLocalSlot(self: *Compiler, var_name: []const u8) !LocalSlot {
-        if (self.findLocal(var_name)) |idx| {
-            return .{ .idx = idx, .depth = 0 };
-        }
-        if (self.findLocalWithDepth(var_name)) |info| {
-            return .{
-                .idx = @intCast(info.idx),
-                .depth = @intCast(info.depth),
-            };
-        }
-        std.debug.print("Error: undefined local variable '{s}'\n", .{var_name});
-        return error.UndefinedVariable;
-    }
-
     fn emitGetLocalSlot(self: *Compiler, slot: LocalSlot, line: u32) !void {
         if (slot.depth == 0) {
             try self.current_chunk.emitOpU16(.GET_LOCAL, slot.idx, line);
@@ -3099,7 +3093,10 @@ pub const Compiler = struct {
 
     fn compileLocalOperatorWrite(self: *Compiler, var_write: *prism.LocalVariableOperatorWriteNode, line: u32) !void {
         const var_name = try self.parser.getLocalVariableName(var_write.name);
-        const slot = try self.resolveExistingLocalSlot(var_name);
+        // Same first-reference reasoning as local_variable_read: `x += 1` with no
+        // prior assignment parses as an operator write on a nil-initialized local
+        // (MRI raises NoMethodError for `nil + 1` at runtime, not a compile error).
+        const slot = try self.resolveOrCreateLocalSlot(var_name);
 
         try self.emitGetLocalSlot(slot, line);
 

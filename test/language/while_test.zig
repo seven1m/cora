@@ -63,6 +63,66 @@ test "until begin modifier executes body before first condition check" {
     try std.testing.expectEqual(@as(i64, 1), result.toInteger());
 }
 
+test "until modifier - local assigned in body readable by first condition check" {
+    const result = try evalCode(
+        \\ok = 1 until ok
+        \\ok
+    );
+    try std.testing.expectEqual(@as(i64, 1), result.toInteger());
+}
+
+test "while modifier - local assigned in body readable by first condition check" {
+    const result = try evalCode(
+        \\ok = 1 while !ok
+        \\ok
+    );
+    try std.testing.expectEqual(@as(i64, 1), result.toInteger());
+}
+
+test "while modifier - false condition skips body" {
+    const result = try evalCode(
+        \\x = 0
+        \\x = x + 1 while false
+        \\x
+    );
+    try std.testing.expectEqual(@as(i64, 0), result.toInteger());
+}
+
+test "until modifier - true condition skips body" {
+    const result = try evalCode(
+        \\x = 0
+        \\x = x + 1 until true
+        \\x
+    );
+    try std.testing.expectEqual(@as(i64, 0), result.toInteger());
+}
+
+test "until modifier - loops until condition true" {
+    const result = try evalCode(
+        \\i = 0
+        \\i = i + 1 until i == 3
+        \\i
+    );
+    try std.testing.expectEqual(@as(i64, 3), result.toInteger());
+}
+
+test "while modifier - loops while condition true" {
+    const result = try evalCode(
+        \\x = 5
+        \\x = x - 1 while x > 0
+        \\x
+    );
+    try std.testing.expectEqual(@as(i64, 0), result.toInteger());
+}
+
+test "if modifier - local assigned in body readable by condition" {
+    const result = try evalCode(
+        \\x = 1 if x
+        \\x
+    );
+    try std.testing.expect(result.isNil());
+}
+
 test "while loop - break without value" {
     const result = try evalCode(
         \\i = 0
