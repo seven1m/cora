@@ -94,6 +94,8 @@ pub fn register(vm: *VM) !void {
     try enumerable_val.toModuleObject().methods.put(drop_sym, value.MethodEntry.builtin(&builtinEnumerableDrop, .{ .exact = 1 }));
     const take_while_sym = try vm.intern("take_while");
     try enumerable_val.toModuleObject().methods.put(take_while_sym, value.MethodEntry.builtin(&builtinEnumerableTakeWhile, .{ .exact = 0 }));
+    const drop_while_sym = try vm.intern("drop_while");
+    try enumerable_val.toModuleObject().methods.put(drop_while_sym, value.MethodEntry.builtin(&builtinEnumerableDropWhile, .{ .exact = 0 }));
 }
 
 fn builtinEnumerableToSet(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
@@ -1100,6 +1102,28 @@ fn builtinEnumerableTakeWhile(vm: *VM, receiver: Value, args: []Value, block: ?B
     while (try enumerableNextValues(vm, enum_value)) |next_values| {
         const result = try vm.yieldToBlock(blk, next_values.elements.items);
         if (!result.isTruthy()) break;
+        out.elements.append(vm.gc_allocator, collapseYieldValues(next_values)) catch return error.Fatal;
+    }
+
+    return Value.fromObject(&out.object);
+}
+
+fn builtinEnumerableDropWhile(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    const blk = block orelse {
+        return vm.createMethodEnumerator(receiver, try vm.intern("drop_while"), args);
+    };
+
+    const enum_value = try vm.createMethodEnumerator(receiver, try vm.intern("each"), &.{});
+    const out = try vm.createArray();
+    var dropping = true;
+
+    while (try enumerableNextValues(vm, enum_value)) |next_values| {
+        if (dropping) {
+            const result = try enumerableYieldCollapsed(vm, blk, next_values);
+            if (result.isTruthy()) continue;
+            dropping = false;
+        }
         out.elements.append(vm.gc_allocator, collapseYieldValues(next_values)) catch return error.Fatal;
     }
 
