@@ -2728,9 +2728,9 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] library/csv/writer/terminate_spec.rb
 
 ### library/date
-- [ ] library/date/accessor_spec.rb
-- [ ] library/date/add_month_spec.rb
-- [ ] library/date/add_spec.rb
+- [x] library/date/accessor_spec.rb
+- [x] library/date/add_month_spec.rb
+- [x] library/date/add_spec.rb
 - [ ] library/date/ajd_spec.rb
 - [ ] library/date/ajd_to_amjd_spec.rb
 - [ ] library/date/ajd_to_jd_spec.rb
@@ -2739,11 +2739,11 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] library/date/append_spec.rb
 - [ ] library/date/asctime_spec.rb
 - [ ] library/date/boat_spec.rb
-- [ ] library/date/case_compare_spec.rb
-- [ ] library/date/civil_spec.rb
+- [x] library/date/case_compare_spec.rb
+- [x] library/date/civil_spec.rb
 - [ ] library/date/commercial_spec.rb
 - [ ] library/date/commercial_to_jd_spec.rb
-- [ ] library/date/comparison_spec.rb
+- [x] library/date/comparison_spec.rb
 - [ ] library/date/constants_spec.rb
 - [ ] library/date/conversions_spec.rb
 - [ ] library/date/ctime_spec.rb
@@ -2752,11 +2752,11 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] library/date/cwyear_spec.rb
 - [ ] library/date/day_fraction_spec.rb
 - [ ] library/date/day_fraction_to_time_spec.rb
-- [ ] library/date/day_spec.rb
+- [x] library/date/day_spec.rb
 - [ ] library/date/deconstruct_keys_spec.rb
 - [ ] library/date/downto_spec.rb
 - [ ] library/date/england_spec.rb
-- [ ] library/date/eql_spec.rb
+- [x] library/date/eql_spec.rb
 
 ### library/date/format/bag
 - [ ] library/date/format/bag/method_missing_spec.rb
@@ -2764,9 +2764,9 @@ Source baseline: ../ruby_spec compared to local spec/
 
 ### library/date
 - [ ] library/date/friday_spec.rb
-- [ ] library/date/gregorian_leap_spec.rb
+- [x] library/date/gregorian_leap_spec.rb
 - [ ] library/date/gregorian_spec.rb
-- [ ] library/date/hash_spec.rb
+- [x] library/date/hash_spec.rb
 
 ### library/date/infinity
 - [ ] library/date/infinity/abs_spec.rb
@@ -2785,7 +2785,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] library/date/inspect_spec.rb
 - [ ] library/date/iso8601_spec.rb
 - [ ] library/date/italy_spec.rb
-- [ ] library/date/jd_spec.rb
+- [x] library/date/jd_spec.rb
 - [ ] library/date/jd_to_ajd_spec.rb
 - [ ] library/date/jd_to_civil_spec.rb
 - [ ] library/date/jd_to_commercial_spec.rb
@@ -2793,41 +2793,41 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] library/date/jd_to_mjd_spec.rb
 - [ ] library/date/jd_to_ordinal_spec.rb
 - [ ] library/date/jd_to_wday_spec.rb
-- [ ] library/date/julian_leap_spec.rb
+- [x] library/date/julian_leap_spec.rb
 - [ ] library/date/julian_spec.rb
 - [ ] library/date/ld_spec.rb
 - [ ] library/date/ld_to_jd_spec.rb
 - [ ] library/date/leap_spec.rb
-- [ ] library/date/mday_spec.rb
-- [ ] library/date/minus_month_spec.rb
-- [ ] library/date/minus_spec.rb
+- [x] library/date/mday_spec.rb
+- [x] library/date/minus_month_spec.rb
+- [x] library/date/minus_spec.rb
 - [ ] library/date/mjd_spec.rb
 - [ ] library/date/mjd_to_jd_spec.rb
-- [ ] library/date/mon_spec.rb
+- [x] library/date/mon_spec.rb
 - [ ] library/date/monday_spec.rb
-- [ ] library/date/month_spec.rb
-- [ ] library/date/new_spec.rb
+- [x] library/date/month_spec.rb
+- [x] library/date/new_spec.rb
 - [ ] library/date/new_start_spec.rb
-- [ ] library/date/next_day_spec.rb
+- [x] library/date/next_day_spec.rb
 - [ ] library/date/next_month_spec.rb
-- [ ] library/date/next_spec.rb
+- [x] library/date/next_spec.rb
 - [ ] library/date/next_year_spec.rb
 - [ ] library/date/ordinal_spec.rb
 - [ ] library/date/ordinal_to_jd_spec.rb
 - [ ] library/date/parse_spec.rb
 - [ ] library/date/plus_spec.rb
-- [ ] library/date/prev_day_spec.rb
+- [x] library/date/prev_day_spec.rb
 - [ ] library/date/prev_month_spec.rb
 - [ ] library/date/prev_year_spec.rb
-- [ ] library/date/relationship_spec.rb
+- [x] library/date/relationship_spec.rb
 - [ ] library/date/rfc3339_spec.rb
-- [ ] library/date/right_shift_spec.rb
+- [x] library/date/right_shift_spec.rb
 - [ ] library/date/saturday_spec.rb
 - [ ] library/date/start_spec.rb
 - [ ] library/date/step_spec.rb
 - [ ] library/date/strftime_spec.rb
 - [ ] library/date/strptime_spec.rb
-- [ ] library/date/succ_spec.rb
+- [x] library/date/succ_spec.rb
 - [ ] library/date/sunday_spec.rb
 - [ ] library/date/thursday_spec.rb
 
@@ -2840,16 +2840,16 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] library/date/today_spec.rb
 - [ ] library/date/tuesday_spec.rb
 - [ ] library/date/upto_spec.rb
-- [ ] library/date/valid_civil_spec.rb
+- [x] library/date/valid_civil_spec.rb
 - [ ] library/date/valid_commercial_spec.rb
-- [ ] library/date/valid_date_spec.rb
-- [ ] library/date/valid_jd_spec.rb
+- [x] library/date/valid_date_spec.rb
+- [x] library/date/valid_jd_spec.rb
 - [ ] library/date/valid_ordinal_spec.rb
 - [ ] library/date/valid_time_spec.rb
 - [ ] library/date/wday_spec.rb
 - [ ] library/date/wednesday_spec.rb
 - [ ] library/date/yday_spec.rb
-- [ ] library/date/year_spec.rb
+- [x] library/date/year_spec.rb
 - [ ] library/date/zone_to_diff_spec.rb
 
 ### library/datetime
