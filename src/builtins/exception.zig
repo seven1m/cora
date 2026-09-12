@@ -80,10 +80,13 @@ pub fn builtinExceptionInitialize(vm: *VM, receiver: Value, args: []Value, _: ?B
     try vm.requireArgCountRange(args, 0, 1);
 
     const exc = receiver.toExceptionObject();
-    const message = if (args.len == 1)
-        try args[0].coerceToStr(vm, "no implicit conversion into String")
-    else
-        vm.defaultExceptionMessageForClass(exc.object.class.?);
+    const message = if (args.len == 1) blk: {
+        const message_value = if (args[0].isString()) args[0] else try vm.callMethodByName(args[0], "to_s", &.{}, null);
+        if (!message_value.isString()) {
+            return vm.raiseExceptionFmt(vm.type_error_class, "to_s did not return String", .{});
+        }
+        break :blk message_value.toStringObject().str;
+    } else vm.defaultExceptionMessageForClass(exc.object.class.?);
     const msg_val = try vm.newString(message, false);
     exc.message = msg_val.toStringObject();
     return receiver;
