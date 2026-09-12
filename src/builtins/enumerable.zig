@@ -102,6 +102,8 @@ pub fn register(vm: *VM) !void {
     try enumerable_val.toModuleObject().methods.put(reverse_each_sym, value.MethodEntry.builtin(&builtinEnumerableReverseEach, .{ .variadic = 0 }));
     const each_entry_sym = try vm.intern("each_entry");
     try enumerable_val.toModuleObject().methods.put(each_entry_sym, value.MethodEntry.builtin(&builtinEnumerableEachEntry, .{ .variadic = 0 }));
+    const zip_sym = try vm.intern("zip");
+    try enumerable_val.toModuleObject().methods.put(zip_sym, value.MethodEntry.builtin(&builtinEnumerableZip, .{ .variadic = 0 }));
 }
 
 fn builtinEnumerableToSet(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
@@ -1306,4 +1308,85 @@ fn builtinEnumerableEachEntry(vm: *VM, receiver: Value, args: []Value, block: ?B
     }
 
     return receiver;
+}
+
+const EnumerableZipSource = struct {
+    array: ?*value.ArrayObject = null,
+    enumerator: ?Value = null,
+    enum_exhausted: bool = false,
+};
+
+fn builtinEnumerableZip(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
+    const sources = vm.allocator.alloc(EnumerableZipSource, args.len) catch return error.Fatal;
+    defer vm.allocator.free(sources);
+    for (sources) |*src| src.* = .{};
+
+    for (args, 0..) |arg, i| {
+        const probe = try vm.probeToAry(arg);
+        switch (probe) {
+            .array => |arr| {
+                sources[i] = .{ .array = arr.toArrayObject() };
+            },
+            .nil_result, .missing => {
+                if (!try vm.respondsToMethodByName(arg, "each", false)) {
+                    return vm.raiseExceptionFmt(
+                        vm.type_error_class,
+                        "wrong argument type {s} (must respond to :each)",
+                        .{vm.className(arg)},
+                    );
+                }
+                const each_sym_val = Value.fromObject(&(try vm.intern("each")).object);
+                var to_enum_args = [_]Value{each_sym_val};
+                const enum_val = try vm.callMethodByName(arg, "to_enum", &to_enum_args, null);
+                sources[i] = .{ .enumerator = enum_val };
+            },
+        }
+    }
+
+    const enum_value = try vm.createMethodEnumerator(receiver, try vm.intern("each"), &.{});
+    const result = try vm.createArray();
+    var index: usize = 0;
+
+    while (try enumerableNextElement(vm, enum_value)) |element| {
+        const tuple = try vm.createArray();
+        tuple.elements.append(vm.gc_allocator, element) catch return error.Fatal;
+        for (sources) |*src| {
+            const elem = try enumerableZipSourceNext(vm, src, index);
+            tuple.elements.append(vm.gc_allocator, elem) catch return error.Fatal;
+        }
+        const tuple_val = Value.fromObject(&tuple.object);
+        if (block) |blk| {
+            _ = try vm.yieldToBlock(blk, &[_]Value{tuple_val});
+        } else {
+            result.elements.append(vm.gc_allocator, tuple_val) catch return error.Fatal;
+        }
+        index += 1;
+    }
+
+    if (block != null) return Value.nil();
+    return Value.fromObject(&result.object);
+}
+
+fn enumerableZipSourceNext(vm: *VM, src: *EnumerableZipSource, index: usize) VMError!Value {
+    if (src.array) |arr| {
+        if (index < arr.elements.items.len) {
+            return arr.elements.items[index];
+        }
+        return Value.nil();
+    }
+    const enum_val = src.enumerator.?;
+    if (src.enum_exhausted) return Value.nil();
+    const next = vm.callMethodByName(enum_val, "next_values", &.{}, null) catch |err| {
+        if (err == error.Unwind) {
+            if (vm.pendingException()) |exc| {
+                if (exc.object.class == vm.stop_iteration_class) {
+                    vm.setPendingException(null);
+                    src.enum_exhausted = true;
+                    return Value.nil();
+                }
+            }
+        }
+        return err;
+    };
+    return collapseYieldValues(next.toArrayObject());
 }
