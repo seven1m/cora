@@ -88,6 +88,10 @@ def fixnum_min
   -(2**62)
 end
 
+def new_datetime(year: -4712, month: 1, day: 1, hour: 0, minute: 0, second: 0, offset: 0, start: Date::ITALY)
+  DateTime.civil(year, month, day, hour, minute, second, offset, start)
+end
+
 def xit(description, &block)
   it(description) { skip 'temporarily disabled' }
 end

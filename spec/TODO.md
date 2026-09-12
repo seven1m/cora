@@ -2855,29 +2855,29 @@ Source baseline: ../ruby_spec compared to local spec/
 ### library/datetime
 - [ ] library/datetime/_strptime_spec.rb
 - [ ] library/datetime/add_spec.rb
-- [ ] library/datetime/civil_spec.rb
+- [x] library/datetime/civil_spec.rb
 - [ ] library/datetime/commercial_spec.rb
 - [ ] library/datetime/deconstruct_keys_spec.rb
-- [ ] library/datetime/hour_spec.rb
+- [x] library/datetime/hour_spec.rb
 - [ ] library/datetime/httpdate_spec.rb
 - [ ] library/datetime/iso8601_spec.rb
-- [ ] library/datetime/jd_spec.rb
+- [x] library/datetime/jd_spec.rb
 - [ ] library/datetime/jisx0301_spec.rb
-- [ ] library/datetime/min_spec.rb
-- [ ] library/datetime/minute_spec.rb
+- [x] library/datetime/min_spec.rb
+- [x] library/datetime/minute_spec.rb
 - [ ] library/datetime/new_offset_spec.rb
-- [ ] library/datetime/new_spec.rb
+- [x] library/datetime/new_spec.rb
 - [ ] library/datetime/now_spec.rb
-- [ ] library/datetime/offset_spec.rb
+- [x] library/datetime/offset_spec.rb
 - [ ] library/datetime/ordinal_spec.rb
 - [ ] library/datetime/parse_spec.rb
 - [ ] library/datetime/rfc2822_spec.rb
 - [ ] library/datetime/rfc3339_spec.rb
 - [ ] library/datetime/rfc822_spec.rb
-- [ ] library/datetime/sec_fraction_spec.rb
-- [ ] library/datetime/sec_spec.rb
-- [ ] library/datetime/second_fraction_spec.rb
-- [ ] library/datetime/second_spec.rb
+- [x] library/datetime/sec_fraction_spec.rb
+- [x] library/datetime/sec_spec.rb
+- [x] library/datetime/second_fraction_spec.rb
+- [x] library/datetime/second_spec.rb
 - [ ] library/datetime/strftime_spec.rb
 - [ ] library/datetime/strptime_spec.rb
 - [ ] library/datetime/subtract_spec.rb
@@ -2891,8 +2891,8 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] library/datetime/to_s_spec.rb
 - [ ] library/datetime/to_time_spec.rb
 - [ ] library/datetime/xmlschema_spec.rb
-- [ ] library/datetime/yday_spec.rb
-- [ ] library/datetime/zone_spec.rb
+- [x] library/datetime/yday_spec.rb
+- [x] library/datetime/zone_spec.rb
 
 ### library/delegate/delegate_class
 - [x] library/delegate/delegate_class/instance_method_spec.rb
