@@ -450,7 +450,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] core/enumerable/filter_map_spec.rb
 - [x] core/enumerable/filter_spec.rb
 - [x] core/enumerable/find_all_spec.rb
-- [ ] core/enumerable/find_index_spec.rb
+- [x] core/enumerable/find_index_spec.rb
 - [x] core/enumerable/find_spec.rb
 - [ ] core/enumerable/first_spec.rb
 - [x] core/enumerable/flat_map_spec.rb

@@ -80,6 +80,8 @@ pub fn register(vm: *VM) !void {
     try enumerable_val.toModuleObject().methods.put(partition_sym, value.MethodEntry.builtin(&builtinEnumerablePartition, .{ .exact = 0 }));
     const reject_sym = try vm.intern("reject");
     try enumerable_val.toModuleObject().methods.put(reject_sym, value.MethodEntry.builtin(&builtinEnumerableReject, .{ .exact = 0 }));
+    const find_index_sym = try vm.intern("find_index");
+    try enumerable_val.toModuleObject().methods.put(find_index_sym, value.MethodEntry.builtin(&builtinEnumerableFindIndex, .{ .variadic = 0 }));
 }
 
 fn builtinEnumerableToSet(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
@@ -652,6 +654,39 @@ fn builtinEnumerableFind(vm: *VM, receiver: Value, args: []Value, block: ?Block)
 
     if (!ifnone.isNil()) {
         return vm.callMethodByName(ifnone, "call", &.{}, null);
+    }
+    return Value.nil();
+}
+
+fn builtinEnumerableFindIndex(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
+    try vm.requireArgCountRange(args, 0, 1);
+    const pattern = if (args.len == 1) args[0] else null;
+
+    if (pattern != null and block != null) {
+        try warning_builtin.warnBlockUnused(vm);
+    }
+
+    if (block == null and pattern == null) {
+        return vm.createMethodEnumerator(receiver, try vm.intern("find_index"), args);
+    }
+
+    const enum_value = try vm.createMethodEnumerator(receiver, try vm.intern("each"), &.{});
+    var index: i64 = 0;
+
+    if (pattern) |pat| {
+        while (try enumerableNextElement(vm, enum_value)) |element| {
+            if (try vm.valueEquals(element, pat)) return Value.integer(index);
+            index += 1;
+        }
+        return Value.nil();
+    }
+
+    const blk = block.?;
+    while (true) {
+        const next_values = try enumerableNextValues(vm, enum_value) orelse break;
+        const result = try vm.yieldToBlock(blk, next_values.elements.items);
+        if (result.isTruthy()) return Value.integer(index);
+        index += 1;
     }
     return Value.nil();
 }
