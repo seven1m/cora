@@ -13,6 +13,20 @@ class Pathname
     @path
   end
 
+  def ==(other)
+    other.is_a?(Pathname) && @path == other.to_path
+  end
+
+  alias eql? ==
+
+  def hash
+    @path.hash
+  end
+
+  def inspect
+    "#<Pathname:#{@path}>"
+  end
+
   def dirname
     Pathname.new(File.dirname(@path))
   end

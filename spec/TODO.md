@@ -3529,10 +3529,10 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] library/pathname/case_compare_spec.rb
 - [ ] library/pathname/divide_spec.rb
 - [ ] library/pathname/empty_spec.rb
-- [ ] library/pathname/equal_value_spec.rb
+- [x] library/pathname/equal_value_spec.rb
 - [ ] library/pathname/glob_spec.rb
-- [ ] library/pathname/hash_spec.rb
-- [ ] library/pathname/inspect_spec.rb
+- [x] library/pathname/hash_spec.rb
+- [x] library/pathname/inspect_spec.rb
 - [ ] library/pathname/join_spec.rb
 - [ ] library/pathname/new_spec.rb
 - [x] library/pathname/parent_spec.rb
