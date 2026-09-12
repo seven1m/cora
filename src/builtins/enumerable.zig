@@ -48,6 +48,8 @@ pub fn register(vm: *VM) !void {
     try enumerable_val.toModuleObject().methods.put(group_by_sym, value.MethodEntry.builtin(&builtinEnumerableGroupBy, .{ .exact = 0 }));
     const grep_sym = try vm.intern("grep");
     try enumerable_val.toModuleObject().methods.put(grep_sym, value.MethodEntry.builtin(&builtinEnumerableGrep, .{ .exact = 1 }));
+    const grep_v_sym = try vm.intern("grep_v");
+    try enumerable_val.toModuleObject().methods.put(grep_v_sym, value.MethodEntry.builtin(&builtinEnumerableGrepV, .{ .exact = 1 }));
     const inject_sym = try vm.intern("inject");
     try enumerable_val.toModuleObject().methods.put(inject_sym, value.MethodEntry.builtin(&builtinEnumerableInject, .{ .variadic = 0 }));
     const reduce_sym = try vm.intern("reduce");
@@ -617,6 +619,45 @@ fn builtinEnumerableGrep(vm: *VM, receiver: Value, args: []Value, block: ?Block)
 
     while (try enumerableNextElement(vm, enum_value)) |element| {
         if (!try enumerablePatternMatches(vm, pattern, element)) continue;
+
+        if (block) |blk| {
+            const yield_args = [_]Value{element};
+            const result = try vm.yieldToBlock(blk, &yield_args);
+            out.elements.append(vm.gc_allocator, result) catch return error.Fatal;
+        } else {
+            out.elements.append(vm.gc_allocator, element) catch return error.Fatal;
+        }
+    }
+
+    if (block == null) {
+        if (saved_last_match.isMatchData()) {
+            try vm.setLastMatch(saved_last_match.toMatchDataObject());
+        } else {
+            try vm.clearLastMatch();
+        }
+    }
+
+    return Value.fromObject(&out.object);
+}
+
+fn builtinEnumerableGrepV(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+
+    const saved_last_match = vm.getGlobalValue("$~");
+    errdefer if (block == null) {
+        if (saved_last_match.isMatchData()) {
+            vm.setLastMatch(saved_last_match.toMatchDataObject()) catch unreachable;
+        } else {
+            vm.clearLastMatch() catch unreachable;
+        }
+    };
+
+    const pattern = args[0];
+    const out = try vm.createArray();
+    const enum_value = try vm.createMethodEnumerator(receiver, try vm.intern("each"), &.{});
+
+    while (try enumerableNextElement(vm, enum_value)) |element| {
+        if (try enumerablePatternMatches(vm, pattern, element)) continue;
 
         if (block) |blk| {
             const yield_args = [_]Value{element};
