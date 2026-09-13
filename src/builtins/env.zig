@@ -86,6 +86,9 @@ pub fn register(vm: *VM) !void {
 
     const fetch_sym = try vm.intern("fetch");
     try env_singleton.module.methods.put(fetch_sym, value.MethodEntry.builtin(&builtinEnvFetch, .{ .variadic = 0 }));
+
+    const keys_sym = try vm.intern("keys");
+    try env_singleton.module.methods.put(keys_sym, value.MethodEntry.builtin(&builtinEnvKeys, .{ .exact = 0 }));
 }
 
 pub fn builtinEnvBracket(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
@@ -345,6 +348,20 @@ pub fn builtinEnvFetch(vm: *VM, _: Value, args: []Value, block: ?Block) VMError!
     } else {
         return vm.raiseExceptionFmt(vm.key_error_class, "key not found: \"{s}\"", .{key});
     }
+}
+
+pub fn builtinEnvKeys(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    const result = try vm.createArray();
+    var env_map = try vm.currentEnvMap();
+    defer env_map.deinit();
+
+    var iter = env_map.iterator();
+    while (iter.next()) |entry| {
+        const key_val = try vm.newString(entry.key_ptr.*, false);
+        result.elements.append(vm.gc_allocator, key_val) catch return error.Fatal;
+    }
+    return Value.fromObject(&result.object);
 }
 
 pub fn builtinEnvAssoc(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {

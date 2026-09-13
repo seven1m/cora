@@ -590,7 +590,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/env/each_value_spec.rb
 - [ ] core/env/element_reference_spec.rb
 - [ ] core/env/element_set_spec.rb
-- [-] core/env/empty_spec.rb
+- [x] core/env/empty_spec.rb
 - [x] core/env/except_spec.rb
 - [ ] core/env/fetch_spec.rb
 - [ ] core/env/fetch_values_spec.rb
@@ -602,7 +602,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/env/invert_spec.rb
 - [ ] core/env/keep_if_spec.rb
 - [ ] core/env/key_spec.rb
-- [ ] core/env/keys_spec.rb
+- [x] core/env/keys_spec.rb
 - [ ] core/env/length_spec.rb
 - [x] core/env/member_spec.rb
 - [ ] core/env/merge_spec.rb
