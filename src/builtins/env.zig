@@ -98,6 +98,9 @@ pub fn register(vm: *VM) !void {
 
     const rehash_sym = try vm.intern("rehash");
     try env_singleton.module.methods.put(rehash_sym, value.MethodEntry.builtin(&builtinEnvRehash, .{ .exact = 0 }));
+
+    const to_s_sym = try vm.intern("to_s");
+    try env_singleton.module.methods.put(to_s_sym, value.MethodEntry.builtin(&builtinEnvToS, .{ .exact = 0 }));
 }
 
 pub fn builtinEnvBracket(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
@@ -477,4 +480,9 @@ pub fn builtinEnvReplace(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Va
 pub fn builtinEnvRehash(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
     return Value.nil();
+}
+
+pub fn builtinEnvToS(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    return vm.newString("ENV", false);
 }
