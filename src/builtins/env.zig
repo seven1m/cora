@@ -36,6 +36,9 @@ pub fn register(vm: *VM) !void {
     const size_sym = try vm.intern("size");
     try env_singleton.module.methods.put(size_sym, value.MethodEntry.builtin(&builtinEnvSize, .{ .exact = 0 }));
 
+    const length_sym = try vm.intern("length");
+    try env_singleton.module.methods.put(length_sym, value.MethodEntry.builtin(&builtinEnvSize, .{ .exact = 0 }));
+
     const to_a_sym = try vm.intern("to_a");
     try env_singleton.module.methods.put(to_a_sym, value.MethodEntry.builtin(&builtinEnvToA, .{ .exact = 0 }));
 
