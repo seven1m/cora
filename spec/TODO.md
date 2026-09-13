@@ -622,7 +622,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/env/update_spec.rb
 - [ ] core/env/value_spec.rb
 - [ ] core/env/values_at_spec.rb
-- [ ] core/env/values_spec.rb
+- [x] core/env/values_spec.rb
 
 ### core/exception
 - [ ] core/exception/backtrace_locations_spec.rb
