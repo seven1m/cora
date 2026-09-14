@@ -765,6 +765,9 @@ pub fn register(vm: *VM) !void {
     const setuid_q_sym = try vm.intern("setuid?");
     try vm.file_stat_class.module.methods.put(setuid_q_sym, value.MethodEntry.builtin(&builtinFileStatSetuidQ, .{ .exact = 0 }));
 
+    const setgid_q_sym = try vm.intern("setgid?");
+    try vm.file_stat_class.module.methods.put(setgid_q_sym, value.MethodEntry.builtin(&builtinFileStatSetgidQ, .{ .exact = 0 }));
+
     const readable_q_sym = try vm.intern("readable?");
     try vm.file_stat_class.module.methods.put(readable_q_sym, value.MethodEntry.builtin(&builtinFileStatReadableQ, .{ .exact = 0 }));
 
@@ -2798,6 +2801,13 @@ pub fn builtinFileStatSetuidQ(vm: *VM, receiver: Value, args: []Value, _: ?Block
     try vm.requireArgCount(args, 0);
     const mode = try fileStatIntegerIvar(vm, receiver, "@mode");
     return Value.boolean(mode.isInteger() and (mode.toInteger() & 0o4000) != 0);
+}
+
+// setgid? returns true if the set-group-ID bit is set.
+pub fn builtinFileStatSetgidQ(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    const mode = try fileStatIntegerIvar(vm, receiver, "@mode");
+    return Value.boolean(mode.isInteger() and (mode.toInteger() & 0o2000) != 0);
 }
 
 // readable? returns true if world-readable or readable by owner/group.

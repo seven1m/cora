@@ -786,7 +786,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/file/stat/rdev_spec.rb
 - [ ] core/file/stat/readable_real_spec.rb
 - [x] core/file/stat/readable_spec.rb
-- [ ] core/file/stat/setgid_spec.rb
+- [x] core/file/stat/setgid_spec.rb
 - [x] core/file/stat/setuid_spec.rb
 - [x] core/file/stat/size_spec.rb
 - [x] core/file/stat/socket_spec.rb
