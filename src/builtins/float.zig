@@ -376,15 +376,19 @@ pub fn builtinFloatFdiv(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMEr
 pub fn builtinFloatModulo(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 1);
     const lhs = receiver.toFloatObject().val;
-    const rhs = try coerceNumericArg(vm, args[0]);
-    if (rhs == 0.0) {
-        return vm.raiseExceptionFmt(vm.zero_division_error_class, "divided by 0", .{});
+    const arg = args[0];
+    if (arg.isFloat() or arg.isInteger() or arg.isBigInteger()) {
+        const rhs = try coerceNumericArg(vm, arg);
+        if (rhs == 0.0) {
+            return vm.raiseExceptionFmt(vm.zero_division_error_class, "divided by 0", .{});
+        }
+        // Use @rem (truncated remainder, like C fmod) then adjust sign
+        // to match Ruby's floored modulo semantics.
+        var rem = @rem(lhs, rhs);
+        if (rem != 0.0 and (rem < 0.0) != (rhs < 0.0)) rem += rhs;
+        return vm.newFloat(rem);
     }
-    // Use @rem (truncated remainder, like C fmod) then adjust sign
-    // to match Ruby's floored modulo semantics.
-    var result = @rem(lhs, rhs);
-    if (result != 0.0 and (result < 0.0) != (rhs < 0.0)) result += rhs;
-    return vm.newFloat(result);
+    return coerceAndCallFloatArithmetic(vm, receiver, arg, "%");
 }
 
 pub fn builtinFloatDivmod(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
