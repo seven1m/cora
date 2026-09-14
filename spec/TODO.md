@@ -770,7 +770,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/file/stat/executable_real_spec.rb
 - [x] core/file/stat/executable_spec.rb
 - [x] core/file/stat/file_spec.rb
-- [ ] core/file/stat/ftype_spec.rb
+- [-] core/file/stat/ftype_spec.rb
 - [x] core/file/stat/gid_spec.rb
 - [x] core/file/stat/grpowned_spec.rb
 - [x] core/file/stat/ino_spec.rb

@@ -714,6 +714,9 @@ pub fn register(vm: *VM) !void {
     const socket_q_sym = try vm.intern("socket?");
     try vm.file_stat_class.module.methods.put(socket_q_sym, value.MethodEntry.builtin(&builtinFileStatSocketQ, .{ .exact = 0 }));
 
+    const ftype_sym = try vm.intern("ftype");
+    try vm.file_stat_class.module.methods.put(ftype_sym, value.MethodEntry.builtin(&builtinFileStatFtype, .{ .exact = 0 }));
+
     const zero_q_sym = try vm.intern("zero?");
     try vm.file_stat_class.module.methods.put(zero_q_sym, value.MethodEntry.builtin(&builtinFileStatZeroQ, .{ .exact = 0 }));
 
@@ -2659,6 +2662,19 @@ pub fn builtinFileStatChardevQ(vm: *VM, receiver: Value, args: []Value, _: ?Bloc
 pub fn builtinFileStatSocketQ(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
     return fileStatBoolIvar(vm, receiver, "@socket");
+}
+
+pub fn builtinFileStatFtype(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    const stat_val = try requireFileStatReceiver(vm, receiver);
+    if ((try vm.getInstanceVariable(stat_val, "@file")).isTruthy()) return vm.newString("file", false);
+    if ((try vm.getInstanceVariable(stat_val, "@directory")).isTruthy()) return vm.newString("directory", false);
+    if ((try vm.getInstanceVariable(stat_val, "@chardev")).isTruthy()) return vm.newString("characterSpecial", false);
+    if ((try vm.getInstanceVariable(stat_val, "@blockdev")).isTruthy()) return vm.newString("blockSpecial", false);
+    if ((try vm.getInstanceVariable(stat_val, "@pipe")).isTruthy()) return vm.newString("fifo", false);
+    if ((try vm.getInstanceVariable(stat_val, "@symlink")).isTruthy()) return vm.newString("link", false);
+    if ((try vm.getInstanceVariable(stat_val, "@socket")).isTruthy()) return vm.newString("socket", false);
+    return vm.newString("unknown", false);
 }
 
 pub fn builtinFileStatZeroQ(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
