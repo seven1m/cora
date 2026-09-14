@@ -616,7 +616,7 @@ Source baseline: ../ruby_spec compared to local spec/
  - [x] core/env/slice_spec.rb
 - [x] core/env/store_spec.rb
 - [x] core/env/to_a_spec.rb
-- [ ] core/env/to_h_spec.rb
+- [x] core/env/to_h_spec.rb
 - [x] core/env/to_hash_spec.rb
 - [x] core/env/to_s_spec.rb
  - [x] core/env/update_spec.rb

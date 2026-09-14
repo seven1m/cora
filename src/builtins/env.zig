@@ -47,7 +47,7 @@ pub fn register(vm: *VM) !void {
     try env_singleton.module.methods.put(to_a_sym, value.MethodEntry.builtin(&builtinEnvToA, .{ .exact = 0 }));
 
     const to_hash_sym = try vm.intern("to_hash");
-    try env_singleton.module.methods.put(to_hash_sym, value.MethodEntry.builtin(&builtinEnvToH, .{ .exact = 0 }));
+    try env_singleton.module.methods.put(to_hash_sym, value.MethodEntry.builtin(&builtinEnvToHash, .{ .exact = 0 }));
 
     const to_h_sym = try vm.intern("to_h");
     try env_singleton.module.methods.put(to_h_sym, value.MethodEntry.builtin(&builtinEnvToH, .{ .exact = 0 }));
@@ -220,7 +220,49 @@ pub fn builtinEnvToA(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value 
     return vm.envToArray();
 }
 
-pub fn builtinEnvToH(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+pub fn builtinEnvToH(vm: *VM, _: Value, args: []Value, block: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    if (block) |blk| {
+        const result = try vm.createHash();
+        var env_map = try vm.currentEnvMap();
+        defer env_map.deinit();
+
+        var iter = env_map.iterator();
+        while (iter.next()) |entry| {
+            const key_val = try vm.newString(entry.key_ptr.*, false);
+            const value_val = try vm.newString(entry.value_ptr.*, false);
+
+            const yield_args = [_]Value{ key_val, value_val };
+            const yielded = try vm.yieldToBlock(blk, &yield_args);
+
+            const pair_value = switch (try vm.probeToAry(yielded)) {
+                .array => |array_value| array_value,
+                .missing, .nil_result => {
+                    return vm.raiseExceptionFmt(
+                        vm.type_error_class,
+                        "wrong element type {s} at {d} (expected array)",
+                        .{ vm.className(yielded), 0 },
+                    );
+                },
+            };
+
+            const pair = pair_value.toArrayObject().elements.items;
+            if (pair.len != 2) {
+                return vm.raiseExceptionFmt(
+                    vm.argument_error_class,
+                    "element has wrong array length at {d} (expected 2, was {d})",
+                    .{ 0, pair.len },
+                );
+            }
+
+            try vm.hashSetEntry(result, pair[0], pair[1]);
+        }
+        return Value.fromObject(&result.object);
+    }
+    return vm.envToHash();
+}
+
+pub fn builtinEnvToHash(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
     return vm.envToHash();
 }
