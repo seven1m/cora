@@ -18,6 +18,9 @@ pub fn register(vm: *VM) !void {
     const bracket_set_sym = try vm.intern("[]=");
     try env_singleton.module.methods.put(bracket_set_sym, value.MethodEntry.builtin(&builtinEnvBracketSet, .{ .exact = 2 }));
 
+    const store_sym = try vm.intern("store");
+    try env_singleton.module.methods.put(store_sym, value.MethodEntry.builtin(&builtinEnvBracketSet, .{ .exact = 2 }));
+
     const delete_sym = try vm.intern("delete");
     try env_singleton.module.methods.put(delete_sym, value.MethodEntry.builtin(&builtinEnvDelete, .{ .exact = 1 }));
 
