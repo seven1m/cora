@@ -571,6 +571,9 @@ pub fn register(vm: *VM) !void {
     const pipe_sym = try vm.intern("pipe?");
     try file_singleton.module.methods.put(pipe_sym, value.MethodEntry.builtin(&builtinFilePipe, .{ .exact = 1 }));
 
+    const socket_singleton_sym = try vm.intern("socket?");
+    try file_singleton.module.methods.put(socket_singleton_sym, value.MethodEntry.builtin(&builtinFileSocket, .{ .exact = 1 }));
+
     const sticky_singleton_sym = try vm.intern("sticky?");
     try file_singleton.module.methods.put(sticky_singleton_sym, value.MethodEntry.builtin(&builtinFileSticky, .{ .exact = 1 }));
 
@@ -1811,6 +1814,17 @@ pub fn builtinFilePipe(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Valu
     const path = try vm.coerceToPath(args[0], "no implicit conversion into String");
     const st = std.Io.Dir.cwd().statFile(vm.io, path, .{}) catch return Value.boolean(false);
     return Value.boolean(st.kind == .named_pipe);
+}
+
+pub fn builtinFileSocket(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    if (builtin.os.tag == .windows) {
+        return vm.raiseExceptionFmt(vm.not_implemented_error_class, "File.socket? is not implemented on Windows", .{});
+    }
+
+    const path = try vm.coerceToPath(args[0], "no implicit conversion into String");
+    const st = std.Io.Dir.cwd().statFile(vm.io, path, .{}) catch return Value.boolean(false);
+    return Value.boolean(st.kind == .unix_domain_socket);
 }
 
 pub fn builtinFileSticky(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {

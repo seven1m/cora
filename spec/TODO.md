@@ -751,7 +751,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] core/file/setgid_spec.rb
 - [x] core/file/setuid_spec.rb
 - [ ] core/file/size_spec.rb
-- [ ] core/file/socket_spec.rb
+- [-] core/file/socket_spec.rb
 - [x] core/file/split_spec.rb
 
 ### core/file/stat
