@@ -750,6 +750,9 @@ pub fn register(vm: *VM) !void {
     const world_writable_q_sym = try vm.intern("world_writable?");
     try vm.file_stat_class.module.methods.put(world_writable_q_sym, value.MethodEntry.builtin(&builtinFileStatWorldWritableQ, .{ .exact = 0 }));
 
+    const world_readable_q_sym = try vm.intern("world_readable?");
+    try vm.file_stat_class.module.methods.put(world_readable_q_sym, value.MethodEntry.builtin(&builtinFileStatWorldReadableQ, .{ .exact = 0 }));
+
     const sticky_q_sym = try vm.intern("sticky?");
     try vm.file_stat_class.module.methods.put(sticky_q_sym, value.MethodEntry.builtin(&builtinFileStatStickyQ, .{ .exact = 0 }));
 
@@ -2690,6 +2693,17 @@ pub fn builtinFileStatWorldWritableQ(vm: *VM, receiver: Value, args: []Value, _:
     if (!mode.isInteger()) return Value.nil();
     const m = mode.toInteger();
     if ((m & 0o002) != 0) return Value.integer(m & 0o7777);
+    return Value.nil();
+}
+
+// world_readable? returns the mode integer if world-readable, nil otherwise.
+// In Ruby: (mode & 0o004 != 0) ? (mode & 0o7777) : nil
+pub fn builtinFileStatWorldReadableQ(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    const mode = try fileStatIntegerIvar(vm, receiver, "@mode");
+    if (!mode.isInteger()) return Value.nil();
+    const m = mode.toInteger();
+    if ((m & 0o004) != 0) return Value.integer(m & 0o7777);
     return Value.nil();
 }
 

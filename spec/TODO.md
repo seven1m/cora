@@ -793,7 +793,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] core/file/stat/sticky_spec.rb
 - [x] core/file/stat/symlink_spec.rb
 - [x] core/file/stat/uid_spec.rb
-- [ ] core/file/stat/world_readable_spec.rb
+- [x] core/file/stat/world_readable_spec.rb
 - [x] core/file/stat/world_writable_spec.rb
 - [ ] core/file/stat/writable_real_spec.rb
 - [x] core/file/stat/writable_spec.rb
