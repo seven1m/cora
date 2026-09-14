@@ -2156,7 +2156,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] core/struct/size_spec.rb
 - [x] core/struct/struct_spec.rb
 - [x] core/struct/to_a_spec.rb
-- [ ] core/struct/to_h_spec.rb
+- [x] core/struct/to_h_spec.rb
 - [x] core/struct/to_s_spec.rb
 - [x] core/struct/values_at_spec.rb
 - [x] core/struct/values_spec.rb

@@ -184,6 +184,9 @@ pub fn register(vm: *VM) !void {
 
     const dig_sym = try vm.intern("dig");
     try vm.struct_class.module.methods.put(dig_sym, value.MethodEntry.builtin(&builtinStructDig, .{ .variadic = 0 }));
+
+    const to_h_sym = try vm.intern("to_h");
+    try vm.struct_class.module.methods.put(to_h_sym, value.MethodEntry.builtin(&builtinStructToH, .{ .exact = 0 }));
 }
 
 pub fn builtinStructNew(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
@@ -523,6 +526,47 @@ fn structDigFirst(vm: *VM, receiver: Value, members: *value.ArrayObject, key: Va
     if (actual < 0) actual += size;
     if (actual < 0 or actual >= size) return Value.nil();
     return structMemberReaderValue(vm, receiver, members.elements.items[@intCast(actual)].toSymbolObject());
+}
+
+pub fn builtinStructToH(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    const members = try getStructMembersForReceiver(vm, receiver);
+    const result = try vm.createHash();
+
+    for (members.elements.items) |member| {
+        const key = member;
+        const val = try structMemberReaderValue(vm, receiver, member.toSymbolObject());
+        if (block) |blk| {
+            const yield_args = [_]Value{ key, val };
+            const yielded = try vm.yieldToBlock(blk, &yield_args);
+
+            const pair_value = switch (try vm.probeToAry(yielded)) {
+                .array => |array_value| array_value,
+                .missing, .nil_result => {
+                    return vm.raiseExceptionFmt(
+                        vm.type_error_class,
+                        "wrong element type {s} (expected array)",
+                        .{vm.className(yielded)},
+                    );
+                },
+            };
+
+            const pair = pair_value.toArrayObject().elements.items;
+            if (pair.len != 2) {
+                return vm.raiseExceptionFmt(
+                    vm.argument_error_class,
+                    "element has wrong array length (expected 2, was {d})",
+                    .{pair.len},
+                );
+            }
+
+            try vm.hashSetEntry(result, pair[0], pair[1]);
+        } else {
+            try vm.hashSetEntry(result, key, val);
+        }
+    }
+
+    return Value.fromObject(&result.object);
 }
 
 pub fn builtinStructHash(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
