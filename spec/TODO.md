@@ -2301,7 +2301,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/time/minus_spec.rb
 - [x] core/time/mktime_spec.rb
 - [x] core/time/mon_spec.rb
-- [ ] core/time/monday_spec.rb
+ - [x] core/time/monday_spec.rb
 - [x] core/time/month_spec.rb
 - [ ] core/time/new_spec.rb
 - [ ] core/time/now_spec.rb
