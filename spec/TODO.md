@@ -767,7 +767,7 @@ Source baseline: ../ruby_spec compared to local spec/
  - [x] core/file/stat/dev_minor_spec.rb
 - [x] core/file/stat/dev_spec.rb
 - [x] core/file/stat/directory_spec.rb
-- [ ] core/file/stat/executable_real_spec.rb
+- [x] core/file/stat/executable_real_spec.rb
 - [x] core/file/stat/executable_spec.rb
 - [x] core/file/stat/file_spec.rb
 - [-] core/file/stat/ftype_spec.rb
