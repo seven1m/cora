@@ -173,6 +173,9 @@ pub fn register(vm: *VM) !void {
     const eql_sym = try vm.intern("eql?");
     try vm.struct_class.module.methods.put(eql_sym, value.MethodEntry.builtin(&builtinStructEql, .{ .exact = 1 }));
 
+    const values_at_sym = try vm.intern("values_at");
+    try vm.struct_class.module.methods.put(values_at_sym, value.MethodEntry.builtin(&builtinStructValuesAt, .{ .variadic = 0 }));
+
     const hash_sym = try vm.intern("hash");
     try vm.struct_class.module.methods.put(hash_sym, value.MethodEntry.builtin(&builtinStructHash, .{ .exact = 0 }));
 }
@@ -405,6 +408,86 @@ pub fn builtinStructEql(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMEr
     }
 
     return Value.boolean(true);
+}
+
+pub fn builtinStructValuesAt(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    const members = try getStructMembersForReceiver(vm, receiver);
+    const size: i64 = @intCast(members.elements.items.len);
+    const result = try vm.createArray();
+
+    for (args) |arg| {
+        if (arg.isRange()) {
+            const range_obj = arg.toRangeObject();
+
+            var beg: i64 = 0;
+            if (!range_obj.begin.isNil()) {
+                const beg_raw = try coerceStructIndex(vm, range_obj.begin);
+                beg = beg_raw;
+                if (beg < 0) {
+                    beg += size;
+                    if (beg < 0) {
+                        const range_str = try vm.callMethodByName(arg, "to_s", &.{}, null);
+                        return vm.raiseExceptionFmt(vm.range_error_class, "{s} out of range", .{range_str.toStringObject().str});
+                    }
+                }
+            }
+
+            var len: i64 = size - beg;
+            if (!range_obj.end.isNil()) {
+                var end_raw = try coerceStructIndex(vm, range_obj.end);
+                if (end_raw < 0) end_raw += size;
+                if (range_obj.exclude_end) {
+                    len = end_raw - beg;
+                } else {
+                    len = end_raw - beg + 1;
+                }
+                if (len < 0) len = 0;
+            }
+
+            var i: i64 = beg;
+            while (i < beg + len and i < size) : (i += 1) {
+                result.elements.append(vm.gc_allocator, try structMemberReaderValue(vm, receiver, members.elements.items[@intCast(i)].toSymbolObject())) catch return error.Fatal;
+            }
+            if (beg + len > size) {
+                result.elements.append(vm.gc_allocator, Value.nil()) catch return error.Fatal;
+            }
+        } else {
+            const index = try coerceStructIndex(vm, arg);
+            var actual = index;
+            if (actual < 0) actual += size;
+            if (actual < 0) {
+                const display = try structIndexDisplay(vm, arg);
+                defer vm.allocator.free(display);
+                return vm.raiseExceptionFmt(vm.index_error_class, "offset {s} too small for struct(size:{d})", .{ display, size });
+            } else if (actual >= size) {
+                const display = try structIndexDisplay(vm, arg);
+                defer vm.allocator.free(display);
+                return vm.raiseExceptionFmt(vm.index_error_class, "offset {s} too large for struct(size:{d})", .{ display, size });
+            }
+            result.elements.append(vm.gc_allocator, try structMemberReaderValue(vm, receiver, members.elements.items[@intCast(actual)].toSymbolObject())) catch return error.Fatal;
+        }
+    }
+
+    return Value.fromObject(&result.object);
+}
+
+fn coerceStructIndex(vm: *VM, arg: Value) VMError!i64 {
+    const message = std.fmt.allocPrint(vm.allocator, "no implicit conversion of {s} into Integer", .{vm.className(arg)}) catch return error.Fatal;
+    defer vm.allocator.free(message);
+    return arg.coerceToI64ViaToInt(
+        vm,
+        message,
+        message,
+        "bignum too big to convert into `long`",
+    );
+}
+
+fn structIndexDisplay(vm: *VM, arg: Value) VMError![]u8 {
+    if (arg.isInteger()) {
+        return std.fmt.allocPrint(vm.allocator, "{d}", .{arg.toInteger()}) catch return error.Fatal;
+    }
+    const display_value = try vm.callMethodByName(arg, "to_s", &.{}, null);
+    return vm.allocator.dupe(u8, display_value.toStringObject().str) catch return error.Fatal;
 }
 
 pub fn builtinStructHash(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
