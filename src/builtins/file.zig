@@ -586,6 +586,9 @@ pub fn register(vm: *VM) !void {
     const owned_singleton_sym = try vm.intern("owned?");
     try file_singleton.module.methods.put(owned_singleton_sym, value.MethodEntry.builtin(&builtinFileOwned, .{ .exact = 1 }));
 
+    const grpowned_singleton_sym = try vm.intern("grpowned?");
+    try file_singleton.module.methods.put(grpowned_singleton_sym, value.MethodEntry.builtin(&builtinFileGrpowned, .{ .exact = 1 }));
+
     const world_writable_singleton_sym = try vm.intern("world_writable?");
     try file_singleton.module.methods.put(world_writable_singleton_sym, value.MethodEntry.builtin(&builtinFileWorldWritable, .{ .exact = 1 }));
 
@@ -1940,6 +1943,19 @@ pub fn builtinFileOwned(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Val
     const stat = std.Io.Dir.cwd().statFile(vm.io, path_obj.str, .{}) catch return Value.boolean(false);
     const posix_metadata = try loadPosixStatMetadataForPath(vm, path_obj, @intCast(stat.permissions.toMode()), true);
     return Value.boolean(posix_metadata.uid == @as(i64, @intCast(std.c.geteuid())));
+}
+
+pub fn builtinFileGrpowned(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    if (builtin.os.tag == .windows) {
+        return Value.boolean(false);
+    }
+
+    const path_value = try vm.coerceToPathValue(args[0], "no implicit conversion into String");
+    const path_obj = path_value.toStringObject();
+    const stat = std.Io.Dir.cwd().statFile(vm.io, path_obj.str, .{}) catch return Value.boolean(false);
+    const posix_metadata = try loadPosixStatMetadataForPath(vm, path_obj, @intCast(stat.permissions.toMode()), true);
+    return Value.boolean(posix_metadata.gid == @as(i64, @intCast(std.c.getegid())));
 }
 
 pub fn builtinFileWorldWritable(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
