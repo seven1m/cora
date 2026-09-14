@@ -1825,7 +1825,9 @@ pub fn builtinFileInstanceMtime(vm: *VM, receiver: Value, args: []Value, _: ?Blo
     return builtinFileStatMtime(vm, stat_value, &[_]Value{}, null);
 }
 
-fn statSizeForValue(vm: *VM, arg: Value, nil_when_missing: bool) VMError!Value {
+fn statSizeForValue(vm: *VM, arg: Value, missing: enum { raise, return_nil, return_false }) VMError!Value {
+    const nil_when_missing = missing == .return_nil;
+    const false_when_missing = missing == .return_false;
     if (builtin.os.tag == .windows) {
         return vm.raiseExceptionFmt(vm.not_implemented_error_class, "File.size is not implemented on Windows", .{});
     }
@@ -1853,6 +1855,7 @@ fn statSizeForValue(vm: *VM, arg: Value, nil_when_missing: bool) VMError!Value {
     const stat = std.Io.Dir.cwd().statFile(vm.io, path_obj.str, .{}) catch |err| switch (err) {
         error.FileNotFound => {
             if (nil_when_missing) return Value.nil();
+            if (false_when_missing) return Value.boolean(false);
             return raisePathStatError(vm, path_obj, err);
         },
         else => return raisePathStatError(vm, path_obj, err),
@@ -1864,17 +1867,17 @@ fn statSizeForValue(vm: *VM, arg: Value, nil_when_missing: bool) VMError!Value {
 
 pub fn builtinFileSize(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 1);
-    return statSizeForValue(vm, args[0], false);
+    return statSizeForValue(vm, args[0], .raise);
 }
 
 pub fn builtinFileSizeQ(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 1);
-    return statSizeForValue(vm, args[0], true);
+    return statSizeForValue(vm, args[0], .return_nil);
 }
 
 pub fn builtinFileZeroQ(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 1);
-    const size_value = try statSizeForValue(vm, args[0], false);
+    const size_value = try statSizeForValue(vm, args[0], .return_false);
     return Value.boolean(size_value.isInteger() and size_value.toInteger() == 0);
 }
 

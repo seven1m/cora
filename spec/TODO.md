@@ -712,7 +712,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] core/file/delete_spec.rb
 - [ ] core/file/directory_spec.rb
 - [ ] core/file/dirname_spec.rb
-- [ ] core/file/empty_spec.rb
+- [x] core/file/empty_spec.rb
 - [ ] core/file/executable_real_spec.rb
 - [x] core/file/executable_spec.rb
 - [x] core/file/exist_spec.rb
