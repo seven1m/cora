@@ -276,7 +276,9 @@ pub fn builtinDataHash(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMErr
 pub fn builtinDataDeconstruct(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
     const members = try memberNames(vm, receiver);
+    defer vm.allocator.free(members);
     const vals = try memberValues(vm, receiver, members);
+    defer vm.allocator.free(vals);
     const arr = try vm.createArray();
     for (vals) |val| {
         arr.elements.append(vm.gc_allocator, val) catch return error.Fatal;
