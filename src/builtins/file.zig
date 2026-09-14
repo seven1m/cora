@@ -1897,6 +1897,20 @@ pub fn builtinFileDirectory(vm: *VM, _: Value, args: []Value, _: ?Block) VMError
         return vm.raiseExceptionFmt(vm.not_implemented_error_class, "File.directory? is not implemented on Windows", .{});
     }
 
+    if (args[0].isIo()) {
+        const stat_value = try builtinIoStat(vm, args[0], &[_]Value{}, null);
+        return builtinFileStatDirectoryQ(vm, stat_value, &[_]Value{}, null);
+    }
+
+    const maybe_io = try vm.checkCallMethodByName(args[0], "to_io", false, &[_]Value{}, null);
+    if (maybe_io) |io_value| {
+        if (!io_value.isIo()) {
+            return vm.raiseExceptionFmt(vm.type_error_class, "can't convert {s} into IO", .{vm.className(args[0])});
+        }
+        const stat_value = try builtinIoStat(vm, io_value, &[_]Value{}, null);
+        return builtinFileStatDirectoryQ(vm, stat_value, &[_]Value{}, null);
+    }
+
     const path = try vm.coerceToPath(args[0], "no implicit conversion into String");
     var dir = std.Io.Dir.cwd().openDir(vm.io, path, .{}) catch return Value.boolean(false);
     defer dir.close(vm.io);
