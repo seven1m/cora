@@ -871,7 +871,7 @@ Source baseline: ../ruby_spec compared to local spec/
  - [x] core/float/magnitude_spec.rb
  - [x] core/float/minus_spec.rb
 - [x] core/float/modulo_spec.rb
-- [ ] core/float/multiply_spec.rb
+- [x] core/float/multiply_spec.rb
 - [x] core/float/nan_spec.rb
 - [x] core/float/negative_spec.rb
 - [x] core/float/next_float_spec.rb
