@@ -194,7 +194,7 @@ pub fn builtinEnvToH(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value 
 pub fn builtinEnvValuesAt(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
     const result = try vm.createArray();
     for (args) |arg| {
-        const key = try arg.coerceToStr(vm, "no implicit conversion into String");
+        const key = try arg.coerceToStr(vm, "no implicit conversion of Object into String");
         result.elements.append(vm.gc_allocator, try vm.envGet(key)) catch return error.Fatal;
     }
     return Value.fromObject(&result.object);
