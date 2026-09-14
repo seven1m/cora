@@ -286,14 +286,66 @@ pub fn builtinDataDeconstruct(vm: *VM, receiver: Value, args: []Value, _: ?Block
     return Value.fromObject(&arr.object);
 }
 
-pub fn builtinDataDeconstructKeys(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
-    _ = args;
-    const members = try memberNames(vm, receiver);
-    const vals = try memberValues(vm, receiver, members);
-    const hash_val = try vm.createHash();
-    for (members, 0..) |name, i| {
-        const sym = try vm.intern(name);
-        try vm.hashSetEntry(hash_val, Value.fromObject(&sym.object), vals[i]);
+fn memberIndex(members: []const []const u8, name: []const u8) ?usize {
+    for (members, 0..) |member, i| {
+        if (std.mem.eql(u8, member, name)) return i;
     }
-    return Value.fromObject(&hash_val.object);
+    return null;
+}
+
+pub fn builtinDataDeconstructKeys(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    const members = try memberNames(vm, receiver);
+    defer vm.allocator.free(members);
+    const vals = try memberValues(vm, receiver, members);
+    defer vm.allocator.free(vals);
+
+    const result = try vm.createHash();
+    const result_val = Value.fromObject(&result.object);
+
+    if (args[0].isNil()) {
+        for (members, 0..) |name, i| {
+            const sym = try vm.intern(name);
+            try vm.hashSetEntry(result, Value.fromObject(&sym.object), vals[i]);
+        }
+        return result_val;
+    }
+
+    if (!args[0].isArray()) {
+        return vm.raiseExceptionFmt(
+            vm.type_error_class,
+            "wrong argument type {s} (expected Array or nil)",
+            .{vm.className(args[0])},
+        );
+    }
+    const keys = args[0].toArrayObject().elements.items;
+
+    if (keys.len > members.len) return result_val;
+
+    for (keys) |key| {
+        if (key.isSymbol()) {
+            const idx = memberIndex(members, key.toSymbolObject().name) orelse return result_val;
+            try vm.hashSetEntry(result, key, vals[idx]);
+        } else if (key.isString()) {
+            const idx = memberIndex(members, key.toStringObject().str) orelse return result_val;
+            try vm.hashSetEntry(result, key, vals[idx]);
+        } else {
+            switch (try vm.probeToStringValue(key)) {
+                .string => |coerced| {
+                    const idx = memberIndex(members, coerced.toStringObject().str) orelse return result_val;
+                    try vm.hashSetEntry(result, coerced, vals[idx]);
+                },
+                .missing, .nil_result => {
+                    const inspected = try key.inspect(vm);
+                    return vm.raiseExceptionFmt(
+                        vm.type_error_class,
+                        "{s} is not a symbol nor a string",
+                        .{inspected.toStringObject().str},
+                    );
+                },
+            }
+        }
+    }
+
+    return result_val;
 }

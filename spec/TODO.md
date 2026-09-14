@@ -321,7 +321,7 @@ Source baseline: ../ruby_spec compared to local spec/
 
 ### core/data
 - [x] core/data/constants_spec.rb
-- [ ] core/data/deconstruct_keys_spec.rb
+- [x] core/data/deconstruct_keys_spec.rb
 - [x] core/data/deconstruct_spec.rb
 - [ ] core/data/define_spec.rb
 - [x] core/data/eql_spec.rb
