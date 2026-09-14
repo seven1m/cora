@@ -1751,7 +1751,16 @@ pub fn builtinHashRehash(vm: *VM, receiver: Value, args: []Value, _: ?Block) VME
     try vm.requireArgCount(args, 0);
     try ensureMutableHash(vm, receiver);
 
-    try vm.hashRebuildIndexes(receiver.toHashObject());
+    const hash_obj = receiver.toHashObject();
+    const snapshot = vm.allocator.alloc(value.HashEntry, hash_obj.entries.items.len) catch return error.Fatal;
+    defer vm.allocator.free(snapshot);
+    @memcpy(snapshot, hash_obj.entries.items);
+
+    hash_obj.entries.clearRetainingCapacity();
+    hash_obj.map.clearRetainingCapacity();
+    for (snapshot) |entry| {
+        try vm.hashSetEntry(hash_obj, entry.key, entry.value);
+    }
 
     return receiver;
 }

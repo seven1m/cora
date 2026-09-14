@@ -965,7 +965,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] core/hash/merge_spec.rb
 - [x] core/hash/new_spec.rb
 - [x] core/hash/rassoc_spec.rb
-- [ ] core/hash/rehash_spec.rb
+- [x] core/hash/rehash_spec.rb
 - [x] core/hash/reject_spec.rb
 - [x] core/hash/replace_spec.rb
 - [x] core/hash/ruby2_keywords_hash_spec.rb
