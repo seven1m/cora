@@ -351,7 +351,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/dir/fileno_spec.rb
 - [ ] core/dir/for_fd_spec.rb
 - [ ] core/dir/foreach_spec.rb
-- [ ] core/dir/getwd_spec.rb
+- [x] core/dir/getwd_spec.rb
 - [-] core/dir/glob_spec.rb
 - [x] core/dir/home_spec.rb
 - [ ] core/dir/initialize_spec.rb

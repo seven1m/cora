@@ -94,6 +94,9 @@ pub fn register(vm: *VM) !void {
     const pwd_sym = try vm.intern("pwd");
     try dir_singleton.module.methods.put(pwd_sym, value.MethodEntry.builtin(&builtinDirPwd, .{ .exact = 0 }));
 
+    const getwd_sym = try vm.intern("getwd");
+    try dir_singleton.module.methods.put(getwd_sym, value.MethodEntry.builtin(&builtinDirPwd, .{ .exact = 0 }));
+
     const home_sym = try vm.intern("home");
     try dir_singleton.module.methods.put(home_sym, value.MethodEntry.builtin(&builtinDirHome, .{ .variadic = 0 }));
 
