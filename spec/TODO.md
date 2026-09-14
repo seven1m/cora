@@ -2330,7 +2330,7 @@ Source baseline: ../ruby_spec compared to local spec/
  - [x] core/time/wday_spec.rb
 - [x] core/time/wednesday_spec.rb
 - [ ] core/time/xmlschema_spec.rb
-- [ ] core/time/yday_spec.rb
+- [x] core/time/yday_spec.rb
 - [x] core/time/year_spec.rb
 - [ ] core/time/zone_spec.rb
 
