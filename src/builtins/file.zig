@@ -611,6 +611,9 @@ pub fn register(vm: *VM) !void {
     const writable_sym = try vm.intern("writable?");
     try file_singleton.module.methods.put(writable_sym, value.MethodEntry.builtin(&builtinFileWritable, .{ .exact = 1 }));
 
+    const writable_real_sym = try vm.intern("writable_real?");
+    try file_singleton.module.methods.put(writable_real_sym, value.MethodEntry.builtin(&builtinFileWritableReal, .{ .exact = 1 }));
+
     const executable_sym = try vm.intern("executable?");
     try file_singleton.module.methods.put(executable_sym, value.MethodEntry.builtin(&builtinFileExecutable, .{ .exact = 1 }));
 
@@ -2330,6 +2333,18 @@ pub fn builtinFileWritable(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!
     try vm.requireArgCount(args, 1);
     if (builtin.os.tag == .windows) {
         return vm.raiseExceptionFmt(vm.not_implemented_error_class, "File.writable? is not implemented on Windows", .{});
+    }
+
+    const path = try vm.coerceToPath(args[0], "no implicit conversion into String");
+    const path_z = try vm.allocCStringZ(path);
+    defer vm.allocator.free(path_z);
+    return Value.boolean(std.c.access(path_z.ptr, std.c.W_OK) == 0);
+}
+
+pub fn builtinFileWritableReal(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    if (builtin.os.tag == .windows) {
+        return vm.raiseExceptionFmt(vm.not_implemented_error_class, "File.writable_real? is not implemented on Windows", .{});
     }
 
     const path = try vm.coerceToPath(args[0], "no implicit conversion into String");
