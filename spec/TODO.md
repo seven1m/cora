@@ -2316,7 +2316,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] core/time/thursday_spec.rb
 - [x] core/time/time_spec.rb
 - [ ] core/time/to_a_spec.rb
-- [ ] core/time/to_f_spec.rb
+- [x] core/time/to_f_spec.rb
 - [x] core/time/to_i_spec.rb
 - [x] core/time/to_r_spec.rb
 - [ ] core/time/to_s_spec.rb
