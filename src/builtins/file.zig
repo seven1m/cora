@@ -698,6 +698,9 @@ pub fn register(vm: *VM) !void {
     const symlink_q_sym = try vm.intern("symlink?");
     try vm.file_stat_class.module.methods.put(symlink_q_sym, value.MethodEntry.builtin(&builtinFileStatSymlinkQ, .{ .exact = 0 }));
 
+    const pipe_q_sym = try vm.intern("pipe?");
+    try vm.file_stat_class.module.methods.put(pipe_q_sym, value.MethodEntry.builtin(&builtinFileStatPipeQ, .{ .exact = 0 }));
+
     const zero_q_sym = try vm.intern("zero?");
     try vm.file_stat_class.module.methods.put(zero_q_sym, value.MethodEntry.builtin(&builtinFileStatZeroQ, .{ .exact = 0 }));
 
@@ -1474,6 +1477,7 @@ fn buildFileStat(vm: *VM, stat: std.Io.File.Stat, posix_metadata: PosixStatMetad
     try vm.setInstanceVariable(stat_val, "@directory", Value.boolean(stat.kind == .directory));
     try vm.setInstanceVariable(stat_val, "@file", Value.boolean(stat.kind == .file));
     try vm.setInstanceVariable(stat_val, "@symlink", Value.boolean(stat.kind == .sym_link));
+    try vm.setInstanceVariable(stat_val, "@pipe", Value.boolean(stat.kind == .named_pipe));
     try vm.setInstanceVariable(stat_val, "@mode", Value.integer(posix_metadata.mode));
     try vm.setInstanceVariable(stat_val, "@uid", Value.integer(posix_metadata.uid));
     try vm.setInstanceVariable(stat_val, "@gid", Value.integer(posix_metadata.gid));
@@ -2579,6 +2583,11 @@ pub fn builtinFileStatDirectoryQ(vm: *VM, receiver: Value, args: []Value, _: ?Bl
 pub fn builtinFileStatSymlinkQ(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
     return fileStatBoolIvar(vm, receiver, "@symlink");
+}
+
+pub fn builtinFileStatPipeQ(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    return fileStatBoolIvar(vm, receiver, "@pipe");
 }
 
 pub fn builtinFileStatZeroQ(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {

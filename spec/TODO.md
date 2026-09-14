@@ -780,7 +780,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/file/stat/new_spec.rb
 - [ ] core/file/stat/nlink_spec.rb
 - [ ] core/file/stat/owned_spec.rb
-- [ ] core/file/stat/pipe_spec.rb
+- [x] core/file/stat/pipe_spec.rb
 - [ ] core/file/stat/rdev_major_spec.rb
 - [ ] core/file/stat/rdev_minor_spec.rb
 - [ ] core/file/stat/rdev_spec.rb
