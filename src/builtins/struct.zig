@@ -181,6 +181,9 @@ pub fn register(vm: *VM) !void {
 
     const hash_sym = try vm.intern("hash");
     try vm.struct_class.module.methods.put(hash_sym, value.MethodEntry.builtin(&builtinStructHash, .{ .exact = 0 }));
+
+    const dig_sym = try vm.intern("dig");
+    try vm.struct_class.module.methods.put(dig_sym, value.MethodEntry.builtin(&builtinStructDig, .{ .variadic = 0 }));
 }
 
 pub fn builtinStructNew(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
@@ -494,6 +497,32 @@ fn structIndexDisplay(vm: *VM, arg: Value) VMError![]u8 {
     }
     const display_value = try vm.callMethodByName(arg, "to_s", &.{}, null);
     return vm.allocator.dupe(u8, display_value.toStringObject().str) catch return error.Fatal;
+}
+
+pub fn builtinStructDig(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireMinArgCount(args, 1);
+    const members = try getStructMembersForReceiver(vm, receiver);
+    const current = try structDigFirst(vm, receiver, members, args[0]);
+    if (args.len == 1 or current.isNil()) return current;
+    if (!try vm.respondsToMethodByName(current, "dig", false)) {
+        return vm.raiseExceptionFmt(vm.type_error_class, "{s} does not have #dig method", .{vm.className(current)});
+    }
+    return vm.callMethodByName(current, "dig", args[1..], null);
+}
+
+fn structDigFirst(vm: *VM, receiver: Value, members: *value.ArrayObject, key: Value) VMError!Value {
+    if (key.isSymbol() or key.isString()) {
+        const name = if (key.isSymbol()) key.toSymbolObject().name else key.toStringObject().str;
+        const index = try structIndexForMemberName(vm, members, name);
+        if (index == null) return Value.nil();
+        return structMemberReaderValue(vm, receiver, members.elements.items[index.?].toSymbolObject());
+    }
+    const index = try coerceStructIndex(vm, key);
+    const size: i64 = @intCast(members.elements.items.len);
+    var actual = index;
+    if (actual < 0) actual += size;
+    if (actual < 0 or actual >= size) return Value.nil();
+    return structMemberReaderValue(vm, receiver, members.elements.items[@intCast(actual)].toSymbolObject());
 }
 
 pub fn builtinStructHash(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
