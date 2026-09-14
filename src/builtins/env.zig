@@ -101,6 +101,9 @@ pub fn register(vm: *VM) !void {
 
     const to_s_sym = try vm.intern("to_s");
     try env_singleton.module.methods.put(to_s_sym, value.MethodEntry.builtin(&builtinEnvToS, .{ .exact = 0 }));
+
+    const invert_sym = try vm.intern("invert");
+    try env_singleton.module.methods.put(invert_sym, value.MethodEntry.builtin(&builtinEnvInvert, .{ .exact = 0 }));
 }
 
 pub fn builtinEnvBracket(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
@@ -485,4 +488,21 @@ pub fn builtinEnvRehash(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Val
 pub fn builtinEnvToS(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
     return vm.newString("ENV", false);
+}
+
+pub fn builtinEnvInvert(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    const result = try vm.createHash();
+    var env_map = try vm.currentEnvMap();
+    defer env_map.deinit();
+
+    var iter = env_map.iterator();
+    while (iter.next()) |entry| {
+        const key_val = try vm.newString(entry.key_ptr.*, false);
+        const value_val = try vm.newString(entry.value_ptr.*, false);
+
+        try vm.hashSetEntry(result, value_val, key_val);
+    }
+
+    return Value.fromObject(&result.object);
 }
