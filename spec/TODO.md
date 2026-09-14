@@ -2269,7 +2269,7 @@ Source baseline: ../ruby_spec compared to local spec/
 ### core/time
 - [ ] core/time/_dump_spec.rb
 - [ ] core/time/_load_spec.rb
-- [ ] core/time/asctime_spec.rb
+- [x] core/time/asctime_spec.rb
 - [x] core/time/at_spec.rb
 - [ ] core/time/ceil_spec.rb
 - [ ] core/time/comparison_spec.rb
