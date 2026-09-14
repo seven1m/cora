@@ -1205,11 +1205,33 @@ fn dirnameBytesAlloc(allocator: std.mem.Allocator, path: []const u8) ![]u8 {
     while (end > 1 and path[end - 1] == '/') : (end -= 1) {}
     const trimmed = path[0..end];
 
-    if (std.mem.eql(u8, trimmed, "/")) return allocator.dupe(u8, "/");
+    var all_slashes = true;
+    for (trimmed) |ch| {
+        if (ch != '/') {
+            all_slashes = false;
+            break;
+        }
+    }
+    if (all_slashes) return allocator.dupe(u8, "/");
 
     const last_slash = std.mem.lastIndexOfScalar(u8, trimmed, '/') orelse return allocator.dupe(u8, ".");
     if (last_slash == 0) return allocator.dupe(u8, "/");
-    return allocator.dupe(u8, trimmed[0..last_slash]);
+    var head = trimmed[0..last_slash];
+    while (head.len > 1 and head[head.len - 1] == '/') {
+        head = head[0 .. head.len - 1];
+    }
+    if (head.len == 0) return allocator.dupe(u8, "/");
+    if (head[0] == '/') {
+        var lead: usize = 0;
+        while (lead < head.len and head[lead] == '/') : (lead += 1) {}
+        if (lead > 1) {
+            const collapsed = try allocator.alloc(u8, head.len - lead + 1);
+            collapsed[0] = '/';
+            @memcpy(collapsed[1..], head[lead..]);
+            return collapsed;
+        }
+    }
+    return allocator.dupe(u8, head);
 }
 
 fn extnameBytesAlloc(allocator: std.mem.Allocator, path: []const u8) ![]u8 {
@@ -1712,16 +1734,39 @@ pub fn builtinFileJoin(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Valu
 }
 
 pub fn builtinFileDirname(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
-    try vm.requireArgCount(args, 1);
+    try vm.requireArgCountRange(args, 1, 2);
     if (builtin.os.tag == .windows) {
         return vm.raiseExceptionFmt(vm.not_implemented_error_class, "File.dirname is not implemented on Windows", .{});
     }
 
     const path_value = try vm.coerceToPathValue(args[0], "no implicit conversion into String");
     const path_obj = path_value.toStringObject();
-    const dir = dirnameBytesAlloc(vm.allocator, path_obj.str) catch return error.Fatal;
-    defer vm.allocator.free(dir);
-    return try vm.newStringWithEncoding(dir, false, path_obj.encoding);
+
+    var level: i64 = 1;
+    if (args.len == 2) {
+        level = try args[1].coerceToI64ViaToInt(
+            vm,
+            "no implicit conversion into Integer",
+            "no implicit conversion into Integer",
+            "level too large",
+        );
+    }
+    if (level < 0) {
+        return vm.raiseExceptionFmt(vm.argument_error_class, "negative level: {d}", .{level});
+    }
+    if (level == 0) {
+        return try vm.newStringWithEncoding(path_obj.str, false, path_obj.encoding);
+    }
+
+    var current: []u8 = vm.allocator.dupe(u8, path_obj.str) catch return error.Fatal;
+    defer vm.allocator.free(current);
+    var i: i64 = 0;
+    while (i < level) : (i += 1) {
+        const next = dirnameBytesAlloc(vm.allocator, current) catch return error.Fatal;
+        vm.allocator.free(current);
+        current = next;
+    }
+    return try vm.newStringWithEncoding(current, false, path_obj.encoding);
 }
 
 pub fn builtinFileBasename(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
