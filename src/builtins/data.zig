@@ -20,8 +20,11 @@ pub fn register(vm: *VM) !void {
     const members_sym = try vm.intern("members");
     try vm.data_class.module.methods.put(members_sym, value.MethodEntry.builtin(&builtinDataMembers, .{ .exact = 0 }));
 
+    const inspect_entry = value.MethodEntry.builtin(&builtinDataInspect, .{ .exact = 0 });
     const inspect_sym = try vm.intern("inspect");
-    try vm.data_class.module.methods.put(inspect_sym, value.MethodEntry.builtin(&builtinDataInspect, .{ .exact = 0 }));
+    try vm.data_class.module.methods.put(inspect_sym, inspect_entry);
+    const to_s_sym = try vm.intern("to_s");
+    try vm.data_class.module.methods.put(to_s_sym, inspect_entry);
 
     const to_h_sym = try vm.intern("to_h");
     try vm.data_class.module.methods.put(to_h_sym, value.MethodEntry.builtin(&builtinDataToH, .{ .exact = 0 }));
