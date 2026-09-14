@@ -187,6 +187,9 @@ pub fn register(vm: *VM) !void {
 
     const to_h_sym = try vm.intern("to_h");
     try vm.struct_class.module.methods.put(to_h_sym, value.MethodEntry.builtin(&builtinStructToH, .{ .exact = 0 }));
+
+    const deconstruct_keys_sym = try vm.intern("deconstruct_keys");
+    try vm.struct_class.module.methods.put(deconstruct_keys_sym, value.MethodEntry.builtin(&builtinStructDeconstructKeys, .{ .exact = 1 }));
 }
 
 pub fn builtinStructNew(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
@@ -591,4 +594,73 @@ fn structuralStructHash(vm: *VM, receiver: Value) VMError!aggregate_hash.Result 
         hash = aggregate_hash.mix(hash, member_hash.hash);
     }
     return .{ .hash = hash, .recursive = false };
+}
+
+fn coerceDeconstructKeyIndex(vm: *VM, key: Value) VMError!i64 {
+    if (key.isNil()) {
+        return vm.raiseExceptionFmt(vm.type_error_class, "no implicit conversion from nil to integer", .{});
+    }
+    if (key.isInteger() or key.isBigInteger()) {
+        return key.integerToI64(vm, "bignum too big to convert into `long`");
+    }
+
+    const maybe_index = try vm.checkCallMethodByName(key, "to_int", false, &[_]Value{}, null);
+    const coerced = maybe_index orelse {
+        return vm.raiseExceptionFmt(
+            vm.type_error_class,
+            "no implicit conversion of {s} into Integer",
+            .{vm.className(key)},
+        );
+    };
+    if (!coerced.isInteger() and !coerced.isBigInteger()) {
+        return vm.raiseExceptionFmt(
+            vm.type_error_class,
+            "can't convert {s} into Integer ({s}#to_int gives {s})",
+            .{ vm.className(key), vm.className(key), vm.className(coerced) },
+        );
+    }
+
+    return coerced.integerToI64(vm, "bignum too big to convert into `long`");
+}
+
+pub fn builtinStructDeconstructKeys(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    const members = try getStructMembersForReceiver(vm, receiver);
+    const result = try vm.createHash();
+
+    if (args[0].isNil()) {
+        for (members.elements.items) |member| {
+            try vm.hashSetEntry(result, member, try structMemberReaderValue(vm, receiver, member.toSymbolObject()));
+        }
+        return Value.fromObject(&result.object);
+    }
+
+    if (!args[0].isArray()) {
+        return vm.raiseExceptionFmt(
+            vm.type_error_class,
+            "wrong argument type {s} (expected Array or nil)",
+            .{vm.className(args[0])},
+        );
+    }
+    const keys = args[0].toArrayObject().elements.items;
+
+    const size: i64 = @intCast(members.elements.items.len);
+    if (@as(i64, @intCast(keys.len)) > size) return Value.fromObject(&result.object);
+
+    for (keys) |key| {
+        if (key.isSymbol() or key.isString()) {
+            const name = if (key.isSymbol()) key.toSymbolObject().name else key.toStringObject().str;
+            const index = try structIndexForMemberName(vm, members, name);
+            if (index == null) return Value.fromObject(&result.object);
+            try vm.hashSetEntry(result, key, try structMemberReaderValue(vm, receiver, members.elements.items[index.?].toSymbolObject()));
+        } else {
+            const raw = try coerceDeconstructKeyIndex(vm, key);
+            var actual = raw;
+            if (actual < 0) actual += size;
+            if (actual < 0 or actual >= size) return Value.fromObject(&result.object);
+            try vm.hashSetEntry(result, key, try structMemberReaderValue(vm, receiver, members.elements.items[@intCast(actual)].toSymbolObject()));
+        }
+    }
+
+    return Value.fromObject(&result.object);
 }
