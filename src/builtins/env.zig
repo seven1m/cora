@@ -1,4 +1,5 @@
 const std = @import("std");
+const enc = @import("../encoding.zig");
 const vm_mod = @import("../vm.zig");
 const value = @import("../value.zig");
 
@@ -137,6 +138,9 @@ pub fn register(vm: *VM) !void {
 
     const slice_sym = try vm.intern("slice");
     try env_singleton.module.methods.put(slice_sym, value.MethodEntry.builtin(&builtinEnvSlice, .{ .variadic = 0 }));
+
+    const shift_sym = try vm.intern("shift");
+    try env_singleton.module.methods.put(shift_sym, value.MethodEntry.builtin(&builtinEnvShift, .{ .exact = 0 }));
 
     const inspect_sym = try vm.intern("inspect");
     try env_singleton.module.methods.put(inspect_sym, value.MethodEntry.builtin(&builtinEnvInspect, .{ .exact = 0 }));
@@ -712,6 +716,36 @@ pub fn builtinEnvSlice(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Valu
         }
     }
     return Value.fromObject(&result.object);
+}
+
+pub fn builtinEnvShift(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    var env_map = try vm.currentEnvMap();
+    defer env_map.deinit();
+
+    var iter = env_map.iterator();
+    const entry = iter.next() orelse return Value.nil();
+    const key_val = try newEnvString(vm, entry.key_ptr.*);
+    const value_val = try newEnvString(vm, entry.value_ptr.*);
+    _ = try vm.envUnset(entry.key_ptr.*, true);
+
+    const result = try vm.createArray();
+    result.elements.append(vm.gc_allocator, key_val) catch return error.Fatal;
+    result.elements.append(vm.gc_allocator, value_val) catch return error.Fatal;
+    return Value.fromObject(&result.object);
+}
+
+fn newEnvString(vm: *VM, bytes: []const u8) VMError!Value {
+    const external_encoding = vm.default_external_encoding.encoding;
+    const internal_encoding = if (vm.default_internal_encoding) |internal| internal.encoding else return vm.newStringWithEncoding(bytes, false, external_encoding);
+    if (internal_encoding.eql(external_encoding) or (external_encoding.isAsciiCompatible() and enc.isAsciiOnly(bytes))) {
+        return vm.newStringWithEncoding(bytes, false, internal_encoding);
+    }
+
+    const transcoded = enc.transcode(vm.gc_allocator_atomic, bytes, external_encoding, internal_encoding) catch {
+        return vm.newStringWithEncoding(bytes, false, external_encoding);
+    };
+    return vm.newStringWithEncoding(transcoded, false, internal_encoding);
 }
 
 pub fn builtinEnvInspect(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
