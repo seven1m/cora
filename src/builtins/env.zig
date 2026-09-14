@@ -685,12 +685,51 @@ pub fn builtinEnvEmpty(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Valu
 pub fn builtinEnvReplace(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 1);
 
-    const source_hash = (try vm.coerceToHashValue(args[0])).toHashObject();
-    try clearCurrentEnv(vm);
+    const probe = try vm.probeToHash(args[0]);
+    const source_val = switch (probe) {
+        .hash => |h| h,
+        .missing => return vm.raiseExceptionFmt(
+            vm.type_error_class,
+            "no implicit conversion of {s} into Hash",
+            .{vm.className(args[0])},
+        ),
+        .nil_result => return vm.raiseExceptionFmt(
+            vm.type_error_class,
+            "can't convert {s} into Hash ({s}#to_hash gives NilClass)",
+            .{ vm.className(args[0]), vm.className(args[0]) },
+        ),
+        .non_hash => |coerced| return vm.raiseExceptionFmt(
+            vm.type_error_class,
+            "can't convert {s} into Hash ({s}#to_hash gives {s})",
+            .{ vm.className(args[0]), vm.className(args[0]), vm.className(coerced) },
+        ),
+    };
+    const source_hash = source_val.toHashObject();
+
+    // Validate and coerce everything before mutating so a failed
+    // replace leaves ENV unchanged.
+    const Pair = struct { key: []const u8, value: []const u8 };
+    var pairs = std.ArrayListUnmanaged(Pair){ .items = &.{}, .capacity = 0 };
+    defer {
+        for (pairs.items) |pair| {
+            vm.allocator.free(pair.key);
+            vm.allocator.free(pair.value);
+        }
+        pairs.deinit(vm.allocator);
+    }
+
     for (source_hash.entries.items) |entry| {
         const key_str = try entry.key.coerceToStr(vm, "no implicit conversion of Object into String");
+        try validateEnvKey(vm, key_str);
         const value_str = try entry.value.coerceToStr(vm, "no implicit conversion of Object into String");
-        _ = try vm.envSetString(key_str, value_str, true);
+        const key_copy = vm.allocator.dupe(u8, key_str) catch return error.Fatal;
+        const value_copy = vm.allocator.dupe(u8, value_str) catch return error.Fatal;
+        pairs.append(vm.allocator, .{ .key = key_copy, .value = value_copy }) catch return error.Fatal;
+    }
+
+    try clearCurrentEnv(vm);
+    for (pairs.items) |pair| {
+        _ = try vm.envSetString(pair.key, pair.value, true);
     }
 
     return vm.env_object.?;
