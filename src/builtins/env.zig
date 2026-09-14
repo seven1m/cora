@@ -682,8 +682,8 @@ pub fn builtinEnvEachPair(vm: *VM, env_receiver: Value, args: []Value, block: ?B
 
     var iter = env_map.iterator();
     while (iter.next()) |entry| {
-        const key_val = try vm.newString(entry.key_ptr.*, false);
-        const value_val = try vm.newString(entry.value_ptr.*, false);
+        const key_val = try newEnvString(vm, entry.key_ptr.*);
+        const value_val = try newEnvString(vm, entry.value_ptr.*);
         const yield_args = [_]Value{ key_val, value_val };
         _ = try vm.yieldToBlock(blk, &yield_args);
     }
