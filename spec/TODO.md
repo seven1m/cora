@@ -782,7 +782,7 @@ Source baseline: ../ruby_spec compared to local spec/
  - [x] core/file/stat/owned_spec.rb
 - [x] core/file/stat/pipe_spec.rb
 - [x] core/file/stat/rdev_major_spec.rb
-- [ ] core/file/stat/rdev_minor_spec.rb
+- [x] core/file/stat/rdev_minor_spec.rb
 - [x] core/file/stat/rdev_spec.rb
 - [ ] core/file/stat/readable_real_spec.rb
 - [x] core/file/stat/readable_spec.rb
