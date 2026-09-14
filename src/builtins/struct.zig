@@ -353,15 +353,18 @@ pub fn builtinStructEachPair(vm: *VM, receiver: Value, args: []Value, block: ?Bl
 pub fn builtinStructInspect(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
     const receiver_class = vm.getClass(receiver);
-    const class_name = try vm.callMethodByName(Value.fromObject(&receiver_class.module.object), "name", &.{}, null);
+    const classpath: ?[]const u8 = if (receiver_class.module.classpath) |classpath| classpath.str else null;
+    // MRI reports nil for names nested under anonymous modules/classes
+    // (e.g. "#<Class:0x...>::Foo"); omit those like anonymous structs.
+    const class_name: ?[]const u8 = if (classpath) |path| (if (std.mem.indexOf(u8, path, "#<") == null) path else null) else null;
     const members = try getStructMembersForReceiver(vm, receiver);
 
     var buffer: std.ArrayList(u8) = .empty;
     defer buffer.deinit(vm.allocator);
 
     buffer.appendSlice(vm.allocator, "#<struct") catch return error.Fatal;
-    if (class_name.isString()) {
-        const class_name_segment = std.fmt.allocPrint(vm.allocator, " {s}", .{class_name.toStringObject().str}) catch return error.Fatal;
+    if (class_name) |name| {
+        const class_name_segment = std.fmt.allocPrint(vm.allocator, " {s}", .{name}) catch return error.Fatal;
         defer vm.allocator.free(class_name_segment);
         buffer.appendSlice(vm.allocator, class_name_segment) catch return error.Fatal;
     }
