@@ -587,7 +587,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] core/env/each_key_spec.rb
 - [ ] core/env/each_pair_spec.rb
 - [ ] core/env/each_spec.rb
-- [ ] core/env/each_value_spec.rb
+- [x] core/env/each_value_spec.rb
 - [ ] core/env/element_reference_spec.rb
 - [x] core/env/element_set_spec.rb
 - [x] core/env/empty_spec.rb
