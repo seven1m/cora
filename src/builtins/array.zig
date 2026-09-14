@@ -723,6 +723,8 @@ pub fn register(vm: *VM) !void {
     try vm.array_class.module.methods.put(rindex_sym, value.MethodEntry.builtin(&builtinArrayRindex, .{ .variadic = 0 }));
     const find_index_sym = try vm.intern("find_index");
     try vm.array_class.module.methods.put(find_index_sym, value.MethodEntry.builtin(&builtinArrayIndex, .{ .variadic = 0 }));
+    const rfind_sym = try vm.intern("rfind");
+    try vm.array_class.module.methods.put(rfind_sym, value.MethodEntry.builtin(&builtinArrayRfind, .{ .variadic = 0 }));
     const bsearch_sym = try vm.intern("bsearch");
     try vm.array_class.module.methods.put(bsearch_sym, value.MethodEntry.builtin(&builtinArrayBsearch, .{ .exact = 0 }));
     const bsearch_index_sym = try vm.intern("bsearch_index");
@@ -2363,6 +2365,33 @@ pub fn builtinArrayRindex(vm: *VM, receiver: Value, args: []Value, block: ?Block
         idx -= 1;
         const yielded = try vm.yieldToBlock(blk, &[_]Value{array.elements.items[idx]});
         if (yielded.isTruthy()) return Value.integer(@intCast(idx));
+    }
+    return Value.nil();
+}
+
+pub fn builtinArrayRfind(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
+    try vm.requireArgCountRange(args, 0, 1);
+    const blk = block orelse {
+        return try vm.createMethodEnumerator(receiver, try vm.intern("rfind"), args);
+    };
+
+    const ifnone = if (args.len == 1) args[0] else Value.nil();
+    const array = receiver.toArrayObject();
+
+    var idx: usize = array.elements.items.len;
+    while (idx > 0) {
+        const current_len = array.elements.items.len;
+        if (idx > current_len) idx = current_len;
+        if (idx == 0) break;
+
+        idx -= 1;
+        const element = array.elements.items[idx];
+        const yielded = try vm.yieldToBlock(blk, &[_]Value{element});
+        if (yielded.isTruthy()) return element;
+    }
+
+    if (!ifnone.isNil()) {
+        return vm.callMethodByName(ifnone, "call", &.{}, null);
     }
     return Value.nil();
 }
