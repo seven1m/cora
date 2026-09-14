@@ -157,14 +157,23 @@ pub fn builtinEnvBracket(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Va
 
 pub fn builtinEnvBracketSet(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 2);
-    const key = try args[0].coerceToStr(vm, "no implicit conversion into String");
+    const key = try args[0].coerceToStr(vm, "no implicit conversion of Object into String");
 
     if (args[1].isNil()) {
+        // Assigning nil deletes the variable; invalid keys are a no-op.
+        if (key.len == 0 or std.mem.indexOfScalar(u8, key, '=') != null) {
+            return Value.nil();
+        }
         return vm.envUnset(key, true);
     }
 
-    const value_str = try args[1].coerceToStr(vm, "no implicit conversion into String");
-    return vm.envSetString(key, value_str, true);
+    try validateEnvKey(vm, key);
+
+    const value_is_string = args[1].isString();
+    const value_str = try args[1].coerceToStr(vm, "no implicit conversion of Object into String");
+    const set_result = try vm.envSetString(key, value_str, true);
+    if (value_is_string) return args[1];
+    return set_result;
 }
 
 pub fn builtinEnvDelete(vm: *VM, _: Value, args: []Value, block: ?Block) VMError!Value {
