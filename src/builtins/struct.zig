@@ -91,6 +91,9 @@ fn defineStructSubclassSingletonMethods(vm: *VM, class_value: Value) VMError!voi
 
     const members_sym = try vm.intern("members");
     singleton.module.methods.put(members_sym, .{ .method = .{ .builtin = .{ .function = &builtinStructClassMembers, .arity = .{ .exact = 0 } } } }) catch return error.Fatal;
+
+    const keyword_init_sym = try vm.intern("keyword_init?");
+    singleton.module.methods.put(keyword_init_sym, .{ .method = .{ .builtin = .{ .function = &builtinStructKeywordInit, .arity = .{ .exact = 0 } } } }) catch return error.Fatal;
 }
 
 fn runStructSubclassBody(vm: *VM, struct_val: Value, block: Block) VMError!void {
@@ -229,7 +232,7 @@ pub fn builtinStructNew(vm: *VM, receiver: Value, args: []Value, block: ?Block) 
     const class_name_sym = try vm.intern(class_name);
     const struct_val = try vm.newClass(class_name_sym, vm.struct_class);
     struct_val.toClassObject().struct_members = members;
-    struct_val.toClassObject().struct_keyword_init = if (keyword_init) |value_arg| value_arg.isTruthy() else null;
+    struct_val.toClassObject().struct_keyword_init = if (keyword_init) |value_arg| (if (value_arg.isNil()) null else value_arg.isTruthy()) else null;
 
     if (name_arg) |name| {
         var const_args = [_]Value{ name, struct_val };
@@ -254,6 +257,15 @@ pub fn builtinStructClassMembers(vm: *VM, receiver: Value, args: []Value, _: ?Bl
     try vm.requireArgCount(args, 0);
     std.debug.assert(receiver.isClass());
     return duplicateMembersArray(vm, try getStructMembersForClass(vm, receiver.toClassObject()));
+}
+
+pub fn builtinStructKeywordInit(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    std.debug.assert(receiver.isClass());
+    if (structKeywordInitForClass(receiver.toClassObject())) |enabled| {
+        return Value.boolean(enabled);
+    }
+    return Value.nil();
 }
 
 pub fn builtinStructInitialize(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {

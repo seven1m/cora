@@ -2148,7 +2148,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] core/struct/inspect_spec.rb
 - [ ] core/struct/instance_variable_get_spec.rb
 - [ ] core/struct/instance_variables_spec.rb
-- [ ] core/struct/keyword_init_spec.rb
+- [x] core/struct/keyword_init_spec.rb
 - [x] core/struct/length_spec.rb
 - [x] core/struct/members_spec.rb
 - [ ] core/struct/new_spec.rb
