@@ -568,6 +568,9 @@ pub fn register(vm: *VM) !void {
     const chardev_sym = try vm.intern("chardev?");
     try file_singleton.module.methods.put(chardev_sym, value.MethodEntry.builtin(&builtinFileChardev, .{ .exact = 1 }));
 
+    const pipe_sym = try vm.intern("pipe?");
+    try file_singleton.module.methods.put(pipe_sym, value.MethodEntry.builtin(&builtinFilePipe, .{ .exact = 1 }));
+
     const stat_sym = try vm.intern("stat");
     try file_singleton.module.methods.put(stat_sym, value.MethodEntry.builtin(&builtinFileStat, .{ .exact = 1 }));
     const lstat_sym = try vm.intern("lstat");
@@ -1788,6 +1791,17 @@ pub fn builtinFileChardev(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!V
     const path = try vm.coerceToPath(args[0], "no implicit conversion into String");
     const st = std.Io.Dir.cwd().statFile(vm.io, path, .{}) catch return Value.boolean(false);
     return Value.boolean(st.kind == .character_device);
+}
+
+pub fn builtinFilePipe(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    if (builtin.os.tag == .windows) {
+        return vm.raiseExceptionFmt(vm.not_implemented_error_class, "File.pipe? is not implemented on Windows", .{});
+    }
+
+    const path = try vm.coerceToPath(args[0], "no implicit conversion into String");
+    const st = std.Io.Dir.cwd().statFile(vm.io, path, .{}) catch return Value.boolean(false);
+    return Value.boolean(st.kind == .named_pipe);
 }
 
 pub fn builtinFileIdentical(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
