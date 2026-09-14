@@ -725,7 +725,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/file/grpowned_spec.rb
 - [ ] core/file/identical_spec.rb
 - [ ] core/file/initialize_spec.rb
-- [ ] core/file/join_spec.rb
+- [x] core/file/join_spec.rb
 - [ ] core/file/lchmod_spec.rb
 - [ ] core/file/lchown_spec.rb
 - [ ] core/file/link_spec.rb
