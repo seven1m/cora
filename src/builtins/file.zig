@@ -423,6 +423,12 @@ fn gnuMajor(dev: i64) i64 {
     return @intCast(major);
 }
 
+fn gnuMinor(dev: i64) i64 {
+    const u: u64 = @bitCast(dev);
+    const minor: u64 = (u & 0xff) | ((u >> 12) & 0xffffff00);
+    return @intCast(minor);
+}
+
 const linux_statx_request: std.os.linux.STATX = .{
     .MODE = true,
     .UID = true,
@@ -758,6 +764,9 @@ pub fn register(vm: *VM) !void {
 
     const dev_major_sym = try vm.intern("dev_major");
     try vm.file_stat_class.module.methods.put(dev_major_sym, value.MethodEntry.builtin(&builtinFileStatDevMajor, .{ .exact = 0 }));
+
+    const dev_minor_sym = try vm.intern("dev_minor");
+    try vm.file_stat_class.module.methods.put(dev_minor_sym, value.MethodEntry.builtin(&builtinFileStatDevMinor, .{ .exact = 0 }));
 
     const rdev_sym = try vm.intern("rdev");
     try vm.file_stat_class.module.methods.put(rdev_sym, value.MethodEntry.builtin(&builtinFileStatRdev, .{ .exact = 0 }));
@@ -2773,6 +2782,12 @@ pub fn builtinFileStatDevMajor(vm: *VM, receiver: Value, args: []Value, _: ?Bloc
     try vm.requireArgCount(args, 0);
     const dev_val = try fileStatIntegerIvar(vm, receiver, "@dev");
     return Value.integer(gnuMajor(dev_val.toInteger()));
+}
+
+pub fn builtinFileStatDevMinor(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    const dev_val = try fileStatIntegerIvar(vm, receiver, "@dev");
+    return Value.integer(gnuMinor(dev_val.toInteger()));
 }
 
 pub fn builtinFileStatRdev(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
