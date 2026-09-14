@@ -402,7 +402,18 @@ const PosixStatMetadata = struct {
     gid: i64,
     mode: i64,
     blocks: i64,
+    dev: i64,
 };
+
+// Reconstruct a st_dev-style device number from statx major/minor components
+// using the same encoding as glibc makedev(3).
+fn gnuMakeDev(major: u32, minor: u32) i64 {
+    const dev: u64 = (@as(u64, major & 0xfffff000) << 32) |
+        (@as(u64, major & 0xfff) << 8) |
+        (@as(u64, minor & 0xffffff00) << 12) |
+        @as(u64, minor & 0xff);
+    return @intCast(dev);
+}
 
 const linux_statx_request: std.os.linux.STATX = .{
     .MODE = true,
@@ -733,6 +744,9 @@ pub fn register(vm: *VM) !void {
 
     const blocks_sym = try vm.intern("blocks");
     try vm.file_stat_class.module.methods.put(blocks_sym, value.MethodEntry.builtin(&builtinFileStatBlocks, .{ .exact = 0 }));
+
+    const dev_sym = try vm.intern("dev");
+    try vm.file_stat_class.module.methods.put(dev_sym, value.MethodEntry.builtin(&builtinFileStatDev, .{ .exact = 0 }));
 
     const ino_sym = try vm.intern("ino");
     try vm.file_stat_class.module.methods.put(ino_sym, value.MethodEntry.builtin(&builtinFileStatIno, .{ .exact = 0 }));
@@ -1417,6 +1431,7 @@ fn loadPosixStatMetadataForPath(vm: *VM, path_obj: *value.StringObject, default_
             .gid = @intCast(std.c.getgid()),
             .mode = default_mode,
             .blocks = 0,
+            .dev = 0,
         };
     }
 
@@ -1434,6 +1449,7 @@ fn loadPosixStatMetadataForPath(vm: *VM, path_obj: *value.StringObject, default_
                     .gid = @intCast(statx.gid),
                     .mode = @intCast(statx.mode),
                     .blocks = @intCast(statx.blocks),
+                    .dev = gnuMakeDev(statx.dev_major, statx.dev_minor),
                 };
             },
             .INTR => {
@@ -1454,6 +1470,7 @@ fn loadPosixStatMetadataForFd(vm: *VM, fd: std.c.fd_t, default_mode: i64) VMErro
             .gid = @intCast(std.c.getgid()),
             .mode = default_mode,
             .blocks = 0,
+            .dev = 0,
         };
     }
 
@@ -1466,6 +1483,7 @@ fn loadPosixStatMetadataForFd(vm: *VM, fd: std.c.fd_t, default_mode: i64) VMErro
                     .gid = @intCast(statx.gid),
                     .mode = @intCast(statx.mode),
                     .blocks = @intCast(statx.blocks),
+                    .dev = gnuMakeDev(statx.dev_major, statx.dev_minor),
                 };
             },
             .INTR => continue,
@@ -1538,6 +1556,7 @@ fn setFileStatIvars(vm: *VM, stat_val: Value, stat: std.Io.File.Stat, posix_meta
     } else {
         try vm.setInstanceVariable(stat_val, "@blocks", Value.integer(posix_metadata.blocks));
     }
+    try vm.setInstanceVariable(stat_val, "@dev", Value.integer(posix_metadata.dev));
     try vm.setInstanceVariable(stat_val, "@atime", atime_value);
     try vm.setInstanceVariable(stat_val, "@ctime", try statTimestampToValue(vm, stat.ctime));
     try vm.setInstanceVariable(stat_val, "@mtime", try statTimestampToValue(vm, stat.mtime));
@@ -2724,6 +2743,11 @@ pub fn builtinFileStatBlocks(vm: *VM, receiver: Value, args: []Value, _: ?Block)
     try vm.requireArgCount(args, 0);
     const stat_val = try requireFileStatReceiver(vm, receiver);
     return vm.getInstanceVariable(stat_val, "@blocks");
+}
+
+pub fn builtinFileStatDev(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    return fileStatIntegerIvar(vm, receiver, "@dev");
 }
 
 pub fn builtinFileStatIno(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
