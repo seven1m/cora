@@ -28,6 +28,9 @@ pub fn register(vm: *VM) !void {
     const euid_sym = try vm.intern("euid");
     try process_singleton.module.methods.put(euid_sym, value.MethodEntry.builtin(&builtinProcessEuid, .{ .exact = 0 }));
 
+    const gid_sym = try vm.intern("gid");
+    try process_singleton.module.methods.put(gid_sym, value.MethodEntry.builtin(&builtinProcessGid, .{ .exact = 0 }));
+
     const pid_sym = try vm.intern("pid");
     try process_singleton.module.methods.put(pid_sym, value.MethodEntry.builtin(&builtinProcessPid, .{ .exact = 0 }));
 
@@ -108,6 +111,17 @@ pub fn builtinProcessEuid(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!V
 
     const euid = std.c.geteuid();
     return Value.integer(@intCast(euid));
+}
+
+pub fn builtinProcessGid(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+
+    if (builtin.os.tag == .windows) {
+        return vm.raiseExceptionFmt(vm.runtime_error_class, "Process.gid is not implemented on Windows", .{});
+    }
+
+    const gid = std.c.getgid();
+    return Value.integer(@intCast(gid));
 }
 
 pub fn builtinProcessPid(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
