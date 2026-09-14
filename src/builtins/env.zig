@@ -85,8 +85,11 @@ pub fn register(vm: *VM) !void {
     const merge_sym = try vm.intern("merge");
     try env_singleton.module.methods.put(merge_sym, value.MethodEntry.builtin(&builtinEnvMerge, .{ .variadic = 0 }));
 
+    const merge_bang_sym = try vm.intern("merge!");
+    try env_singleton.module.methods.put(merge_bang_sym, value.MethodEntry.builtin(&builtinEnvMergeBang, .{ .variadic = 0 }));
+
     const update_sym = try vm.intern("update");
-    try env_singleton.module.methods.put(update_sym, value.MethodEntry.builtin(&builtinEnvMerge, .{ .variadic = 0 }));
+    try env_singleton.module.methods.put(update_sym, value.MethodEntry.builtin(&builtinEnvMergeBang, .{ .variadic = 0 }));
 
     const assoc_sym = try vm.intern("assoc");
     try env_singleton.module.methods.put(assoc_sym, value.MethodEntry.builtin(&builtinEnvAssoc, .{ .exact = 1 }));
@@ -484,6 +487,37 @@ pub fn builtinEnvMerge(vm: *VM, _: Value, args: []Value, block: ?Block) VMError!
     }
 
     return Value.fromObject(&result.object);
+}
+
+fn validateEnvKey(vm: *VM, key: []const u8) VMError!void {
+    if (key.len == 0 or std.mem.indexOfScalar(u8, key, '=') != null) {
+        return vm.raiseErrnoFmt(.INVAL, "Invalid argument", .{});
+    }
+}
+
+pub fn builtinEnvMergeBang(vm: *VM, env_receiver: Value, args: []Value, block: ?Block) VMError!Value {
+    _ = env_receiver;
+    for (args) |arg| {
+        const source_hash = (try vm.coerceToHashValue(arg)).toHashObject();
+
+        for (source_hash.entries.items) |entry| {
+            const key_str = try entry.key.coerceToStr(vm, "no implicit conversion of Object into String");
+            try validateEnvKey(vm, key_str);
+
+            const old_value = try vm.envGet(key_str);
+            const value_to_set: Value = if (!old_value.isNil()) blk: {
+                if (block) |blk| {
+                    const key_val = try vm.newString(key_str, false);
+                    const yield_args = [_]Value{ key_val, old_value, entry.value };
+                    break :blk try vm.yieldToBlock(blk, &yield_args);
+                } else break :blk entry.value;
+            } else entry.value;
+            const value_str = try value_to_set.coerceToStr(vm, "no implicit conversion of Object into String");
+            _ = try vm.envSetString(key_str, value_str, true);
+        }
+    }
+
+    return vm.env_object.?;
 }
 
 pub fn builtinEnvExcept(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {

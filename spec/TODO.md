@@ -605,7 +605,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] core/env/keys_spec.rb
 - [x] core/env/length_spec.rb
 - [x] core/env/member_spec.rb
-- [ ] core/env/merge_spec.rb
+- [x] core/env/merge_spec.rb
 - [x] core/env/rassoc_spec.rb
  - [x] core/env/rehash_spec.rb
 - [x] core/env/reject_spec.rb
