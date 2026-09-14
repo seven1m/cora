@@ -577,6 +577,9 @@ pub fn register(vm: *VM) !void {
     const setgid_singleton_sym = try vm.intern("setgid?");
     try file_singleton.module.methods.put(setgid_singleton_sym, value.MethodEntry.builtin(&builtinFileSetgid, .{ .exact = 1 }));
 
+    const setuid_singleton_sym = try vm.intern("setuid?");
+    try file_singleton.module.methods.put(setuid_singleton_sym, value.MethodEntry.builtin(&builtinFileSetuid, .{ .exact = 1 }));
+
     const stat_sym = try vm.intern("stat");
     try file_singleton.module.methods.put(stat_sym, value.MethodEntry.builtin(&builtinFileStat, .{ .exact = 1 }));
     const lstat_sym = try vm.intern("lstat");
@@ -1834,6 +1837,19 @@ pub fn builtinFileSetgid(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Va
     const stat = std.Io.Dir.cwd().statFile(vm.io, path_obj.str, .{}) catch return Value.boolean(false);
     const posix_metadata = try loadPosixStatMetadataForPath(vm, path_obj, @intCast(stat.permissions.toMode()), true);
     return Value.boolean((posix_metadata.mode & 0o2000) != 0);
+}
+
+pub fn builtinFileSetuid(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    if (builtin.os.tag == .windows) {
+        return vm.raiseExceptionFmt(vm.not_implemented_error_class, "File.setuid? is not implemented on Windows", .{});
+    }
+
+    const path_value = try vm.coerceToPathValue(args[0], "no implicit conversion into String");
+    const path_obj = path_value.toStringObject();
+    const stat = std.Io.Dir.cwd().statFile(vm.io, path_obj.str, .{}) catch return Value.boolean(false);
+    const posix_metadata = try loadPosixStatMetadataForPath(vm, path_obj, @intCast(stat.permissions.toMode()), true);
+    return Value.boolean((posix_metadata.mode & 0o4000) != 0);
 }
 
 pub fn builtinFileIdentical(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
