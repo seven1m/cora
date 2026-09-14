@@ -2292,7 +2292,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] core/time/hash_spec.rb
 - [x] core/time/hour_spec.rb
 - [ ] core/time/inspect_spec.rb
-- [ ] core/time/isdst_spec.rb
+- [x] core/time/isdst_spec.rb
 - [ ] core/time/iso8601_spec.rb
 - [ ] core/time/local_spec.rb
 - [x] core/time/localtime_spec.rb
