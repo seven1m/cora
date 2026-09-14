@@ -118,6 +118,9 @@ pub fn register(vm: *VM) !void {
     const values_sym = try vm.intern("values");
     try env_singleton.module.methods.put(values_sym, value.MethodEntry.builtin(&builtinEnvValues, .{ .exact = 0 }));
 
+    const each_key_sym = try vm.intern("each_key");
+    try env_singleton.module.methods.put(each_key_sym, value.MethodEntry.builtin(&builtinEnvEachKey, .{ .exact = 0 }));
+
     const rehash_sym = try vm.intern("rehash");
     try env_singleton.module.methods.put(rehash_sym, value.MethodEntry.builtin(&builtinEnvRehash, .{ .exact = 0 }));
 
@@ -607,6 +610,29 @@ pub fn builtinEnvValues(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Val
         result.elements.append(vm.gc_allocator, value_val) catch return error.Fatal;
     }
     return Value.fromObject(&result.object);
+}
+
+pub fn builtinEnvEachKey(vm: *VM, env_receiver: Value, args: []Value, block: ?Block) VMError!Value {
+    _ = env_receiver;
+    try vm.requireArgCount(args, 0);
+    const blk = block orelse {
+        var env_map = try vm.currentEnvMap();
+        const size_value = Value.integer(@intCast(env_map.count()));
+        env_map.deinit();
+        return try vm.createMethodEnumeratorWithSize(vm.env_object.?, try vm.intern("each_key"), &.{}, size_value);
+    };
+
+    var env_map = try vm.currentEnvMap();
+    defer env_map.deinit();
+
+    var iter = env_map.iterator();
+    while (iter.next()) |entry| {
+        const key_val = try vm.newString(entry.key_ptr.*, false);
+        const yield_args = [_]Value{key_val};
+        _ = try vm.yieldToBlock(blk, &yield_args);
+    }
+
+    return vm.env_object.?;
 }
 
 pub fn builtinEnvAssoc(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {

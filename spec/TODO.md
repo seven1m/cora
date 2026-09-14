@@ -584,7 +584,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] core/env/delete_if_spec.rb
 - [x] core/env/delete_spec.rb
 - [x] core/env/dup_spec.rb
-- [ ] core/env/each_key_spec.rb
+- [x] core/env/each_key_spec.rb
 - [ ] core/env/each_pair_spec.rb
 - [ ] core/env/each_spec.rb
 - [ ] core/env/each_value_spec.rb
