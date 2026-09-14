@@ -825,6 +825,9 @@ pub fn register(vm: *VM) !void {
     const writable_q_sym = try vm.intern("writable?");
     try vm.file_stat_class.module.methods.put(writable_q_sym, value.MethodEntry.builtin(&builtinFileStatWritableQ, .{ .exact = 0 }));
 
+    const writable_real_q_sym = try vm.intern("writable_real?");
+    try vm.file_stat_class.module.methods.put(writable_real_q_sym, value.MethodEntry.builtin(&builtinFileStatWritableRealQ, .{ .exact = 0 }));
+
     const owned_q_sym = try vm.intern("owned?");
     try vm.file_stat_class.module.methods.put(owned_q_sym, value.MethodEntry.builtin(&builtinFileStatOwnedQ, .{ .exact = 0 }));
 
@@ -3016,6 +3019,29 @@ pub fn builtinFileStatWritableQ(vm: *VM, receiver: Value, args: []Value, _: ?Blo
     if (uid_val.toInteger() == euid) return Value.boolean((mode & 0o200) != 0);
     const gid: std.c.gid_t = @intCast(gid_val.toInteger());
     if (processInGroup(vm, gid)) return Value.boolean((mode & 0o020) != 0);
+    return Value.boolean((mode & 0o002) != 0);
+}
+
+// writable_real? reports whether the real user could write the file.
+// Root may always write; otherwise the owner, group, or other write bit
+// applies based on the real uid and group membership of the process.
+pub fn builtinFileStatWritableRealQ(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    const mode_val = try fileStatIntegerIvar(vm, receiver, "@mode");
+    if (builtin.os.tag == .windows) {
+        return Value.boolean(mode_val.isInteger() and (mode_val.toInteger() & 0o222) != 0);
+    }
+    const uid_val = try fileStatIntegerIvar(vm, receiver, "@uid");
+    const gid_val = try fileStatIntegerIvar(vm, receiver, "@gid");
+    if (!mode_val.isInteger() or !uid_val.isInteger() or !gid_val.isInteger()) {
+        return Value.boolean(false);
+    }
+    const mode = mode_val.toInteger();
+    const ruid: i64 = @intCast(std.c.getuid());
+    if (ruid == 0) return Value.boolean(true);
+    if (uid_val.toInteger() == ruid) return Value.boolean((mode & 0o200) != 0);
+    const gid: std.c.gid_t = @intCast(gid_val.toInteger());
+    if (processInRealGroup(vm, gid)) return Value.boolean((mode & 0o020) != 0);
     return Value.boolean((mode & 0o002) != 0);
 }
 
