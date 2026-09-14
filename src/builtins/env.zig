@@ -133,12 +133,19 @@ pub fn builtinEnvBracketSet(vm: *VM, _: Value, args: []Value, _: ?Block) VMError
     return vm.envSetString(key, value_str, true);
 }
 
-pub fn builtinEnvDelete(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+pub fn builtinEnvDelete(vm: *VM, _: Value, args: []Value, block: ?Block) VMError!Value {
     try vm.requireArgCount(args, 1);
-    const key = try args[0].coerceToStr(vm, "no implicit conversion into String");
+    const key = try args[0].coerceToStr(vm, "no implicit conversion of Object into String");
     const old_value = try vm.envGet(key);
-    _ = try vm.envUnset(key, true);
-    return old_value;
+    if (!old_value.isNil()) {
+        _ = try vm.envUnset(key, true);
+        return old_value;
+    }
+    if (block) |blk| {
+        const yield_args = [_]Value{args[0]};
+        return try vm.yieldToBlock(blk, &yield_args);
+    }
+    return Value.nil();
 }
 
 pub fn builtinEnvInclude(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
