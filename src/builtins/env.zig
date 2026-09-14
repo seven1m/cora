@@ -131,6 +131,9 @@ pub fn register(vm: *VM) !void {
 
     const slice_sym = try vm.intern("slice");
     try env_singleton.module.methods.put(slice_sym, value.MethodEntry.builtin(&builtinEnvSlice, .{ .variadic = 0 }));
+
+    const inspect_sym = try vm.intern("inspect");
+    try env_singleton.module.methods.put(inspect_sym, value.MethodEntry.builtin(&builtinEnvInspect, .{ .exact = 0 }));
 }
 
 pub fn builtinEnvBracket(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
@@ -625,4 +628,10 @@ pub fn builtinEnvSlice(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Valu
         }
     }
     return Value.fromObject(&result.object);
+}
+
+pub fn builtinEnvInspect(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    const hash_val = try vm.envToHash();
+    return try vm.callMethodByName(hash_val, "inspect", &.{}, null);
 }
