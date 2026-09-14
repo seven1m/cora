@@ -402,7 +402,12 @@ pub fn builtinEnvSelect(vm: *VM, _: Value, args: []Value, block: ?Block) VMError
     }
 
     try vm.requireArgCount(args, 0);
-    const blk = try vm.requireBlock(block);
+    const blk = block orelse {
+        var env_map = try vm.currentEnvMap();
+        const size_value = Value.integer(@intCast(env_map.count()));
+        env_map.deinit();
+        return try vm.createMethodEnumeratorWithSize(vm.env_object.?, try vm.intern("select"), &.{}, size_value);
+    };
 
     const result = try vm.createHash();
     var env_map = try vm.currentEnvMap();
