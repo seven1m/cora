@@ -698,7 +698,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/file/atime_spec.rb
 - [x] core/file/basename_spec.rb
 - [ ] core/file/birthtime_spec.rb
-- [ ] core/file/blockdev_spec.rb
+- [x] core/file/blockdev_spec.rb
 - [ ] core/file/chardev_spec.rb
 - [ ] core/file/chmod_spec.rb
 - [x] core/file/chown_spec.rb

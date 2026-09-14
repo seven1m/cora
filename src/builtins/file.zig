@@ -562,6 +562,9 @@ pub fn register(vm: *VM) !void {
     const file_sym = try vm.intern("file?");
     try file_singleton.module.methods.put(file_sym, value.MethodEntry.builtin(&builtinFileFile, .{ .exact = 1 }));
 
+    const blockdev_sym = try vm.intern("blockdev?");
+    try file_singleton.module.methods.put(blockdev_sym, value.MethodEntry.builtin(&builtinFileBlockdev, .{ .exact = 1 }));
+
     const stat_sym = try vm.intern("stat");
     try file_singleton.module.methods.put(stat_sym, value.MethodEntry.builtin(&builtinFileStat, .{ .exact = 1 }));
     const lstat_sym = try vm.intern("lstat");
@@ -1760,6 +1763,17 @@ pub fn builtinFileFile(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Valu
     const path = try vm.coerceToPath(args[0], "no implicit conversion into String");
     const st = std.Io.Dir.cwd().statFile(vm.io, path, .{}) catch return Value.boolean(false);
     return Value.boolean(st.kind == .file);
+}
+
+pub fn builtinFileBlockdev(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    if (builtin.os.tag == .windows) {
+        return vm.raiseExceptionFmt(vm.not_implemented_error_class, "File.blockdev? is not implemented on Windows", .{});
+    }
+
+    const path = try vm.coerceToPath(args[0], "no implicit conversion into String");
+    const st = std.Io.Dir.cwd().statFile(vm.io, path, .{}) catch return Value.boolean(false);
+    return Value.boolean(st.kind == .block_device);
 }
 
 pub fn builtinFileIdentical(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
