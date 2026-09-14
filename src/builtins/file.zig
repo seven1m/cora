@@ -401,12 +401,14 @@ const PosixStatMetadata = struct {
     uid: i64,
     gid: i64,
     mode: i64,
+    blocks: i64,
 };
 
 const linux_statx_request: std.os.linux.STATX = .{
     .MODE = true,
     .UID = true,
     .GID = true,
+    .BLOCKS = true,
 };
 
 const linux_identical_statx_request: std.os.linux.STATX = .{
@@ -728,6 +730,9 @@ pub fn register(vm: *VM) !void {
 
     const blksize_sym = try vm.intern("blksize");
     try vm.file_stat_class.module.methods.put(blksize_sym, value.MethodEntry.builtin(&builtinFileStatBlksize, .{ .exact = 0 }));
+
+    const blocks_sym = try vm.intern("blocks");
+    try vm.file_stat_class.module.methods.put(blocks_sym, value.MethodEntry.builtin(&builtinFileStatBlocks, .{ .exact = 0 }));
 
     const ino_sym = try vm.intern("ino");
     try vm.file_stat_class.module.methods.put(ino_sym, value.MethodEntry.builtin(&builtinFileStatIno, .{ .exact = 0 }));
@@ -1411,6 +1416,7 @@ fn loadPosixStatMetadataForPath(vm: *VM, path_obj: *value.StringObject, default_
             .uid = @intCast(std.c.getuid()),
             .gid = @intCast(std.c.getgid()),
             .mode = default_mode,
+            .blocks = 0,
         };
     }
 
@@ -1427,6 +1433,7 @@ fn loadPosixStatMetadataForPath(vm: *VM, path_obj: *value.StringObject, default_
                     .uid = @intCast(statx.uid),
                     .gid = @intCast(statx.gid),
                     .mode = @intCast(statx.mode),
+                    .blocks = @intCast(statx.blocks),
                 };
             },
             .INTR => {
@@ -1446,6 +1453,7 @@ fn loadPosixStatMetadataForFd(vm: *VM, fd: std.c.fd_t, default_mode: i64) VMErro
             .uid = @intCast(std.c.getuid()),
             .gid = @intCast(std.c.getgid()),
             .mode = default_mode,
+            .blocks = 0,
         };
     }
 
@@ -1457,6 +1465,7 @@ fn loadPosixStatMetadataForFd(vm: *VM, fd: std.c.fd_t, default_mode: i64) VMErro
                     .uid = @intCast(statx.uid),
                     .gid = @intCast(statx.gid),
                     .mode = @intCast(statx.mode),
+                    .blocks = @intCast(statx.blocks),
                 };
             },
             .INTR => continue,
@@ -1524,6 +1533,11 @@ fn setFileStatIvars(vm: *VM, stat_val: Value, stat: std.Io.File.Stat, posix_meta
     try vm.setInstanceVariable(stat_val, "@blksize", Value.integer(@intCast(stat.block_size)));
     try vm.setInstanceVariable(stat_val, "@ino", Value.integer(@intCast(stat.inode)));
     try vm.setInstanceVariable(stat_val, "@nlink", Value.integer(@intCast(stat.nlink)));
+    if (builtin.os.tag == .windows) {
+        try vm.setInstanceVariable(stat_val, "@blocks", Value.nil());
+    } else {
+        try vm.setInstanceVariable(stat_val, "@blocks", Value.integer(posix_metadata.blocks));
+    }
     try vm.setInstanceVariable(stat_val, "@atime", atime_value);
     try vm.setInstanceVariable(stat_val, "@ctime", try statTimestampToValue(vm, stat.ctime));
     try vm.setInstanceVariable(stat_val, "@mtime", try statTimestampToValue(vm, stat.mtime));
@@ -2704,6 +2718,12 @@ pub fn builtinFileStatSizeQ(vm: *VM, receiver: Value, args: []Value, _: ?Block) 
 pub fn builtinFileStatBlksize(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
     return fileStatIntegerIvar(vm, receiver, "@blksize");
+}
+
+pub fn builtinFileStatBlocks(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    const stat_val = try requireFileStatReceiver(vm, receiver);
+    return vm.getInstanceVariable(stat_val, "@blocks");
 }
 
 pub fn builtinFileStatIno(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
