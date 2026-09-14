@@ -758,7 +758,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] core/file/stat/atime_spec.rb
 - [ ] core/file/stat/birthtime_spec.rb
 - [x] core/file/stat/blksize_spec.rb
-- [ ] core/file/stat/blockdev_spec.rb
+- [x] core/file/stat/blockdev_spec.rb
 - [ ] core/file/stat/blocks_spec.rb
 - [ ] core/file/stat/chardev_spec.rb
 - [ ] core/file/stat/comparison_spec.rb
