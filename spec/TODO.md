@@ -2278,7 +2278,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/time/deconstruct_keys_spec.rb
 - [x] core/time/dst_spec.rb
 - [ ] core/time/dup_spec.rb
-- [ ] core/time/eql_spec.rb
+- [x] core/time/eql_spec.rb
 - [ ] core/time/floor_spec.rb
 - [x] core/time/friday_spec.rb
 - [ ] core/time/getgm_spec.rb
