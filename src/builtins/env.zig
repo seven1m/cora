@@ -107,6 +107,9 @@ pub fn register(vm: *VM) !void {
 
     const value_query_sym = try vm.intern("value?");
     try env_singleton.module.methods.put(value_query_sym, value.MethodEntry.builtin(&builtinEnvValue, .{ .exact = 1 }));
+
+    const has_value_sym = try vm.intern("has_value?");
+    try env_singleton.module.methods.put(has_value_sym, value.MethodEntry.builtin(&builtinEnvValue, .{ .exact = 1 }));
 }
 
 pub fn builtinEnvBracket(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
