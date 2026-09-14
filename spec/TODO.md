@@ -748,7 +748,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/file/realpath_spec.rb
 - [x] core/file/rename_spec.rb
 - [x] core/file/reopen_spec.rb
-- [ ] core/file/setgid_spec.rb
+- [x] core/file/setgid_spec.rb
 - [ ] core/file/setuid_spec.rb
 - [ ] core/file/size_spec.rb
 - [ ] core/file/socket_spec.rb
