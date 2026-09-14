@@ -819,6 +819,9 @@ pub fn register(vm: *VM) !void {
     const readable_q_sym = try vm.intern("readable?");
     try vm.file_stat_class.module.methods.put(readable_q_sym, value.MethodEntry.builtin(&builtinFileStatReadableQ, .{ .exact = 0 }));
 
+    const readable_real_q_sym = try vm.intern("readable_real?");
+    try vm.file_stat_class.module.methods.put(readable_real_q_sym, value.MethodEntry.builtin(&builtinFileStatReadableRealQ, .{ .exact = 0 }));
+
     const writable_q_sym = try vm.intern("writable?");
     try vm.file_stat_class.module.methods.put(writable_q_sym, value.MethodEntry.builtin(&builtinFileStatWritableQ, .{ .exact = 0 }));
 
@@ -2922,6 +2925,52 @@ pub fn builtinFileStatReadableQ(vm: *VM, receiver: Value, args: []Value, _: ?Blo
     try vm.requireArgCount(args, 0);
     const mode = try fileStatIntegerIvar(vm, receiver, "@mode");
     return Value.boolean(mode.isInteger() and (mode.toInteger() & 0o444) != 0);
+}
+
+// True if gid is the real gid or one of the supplementary groups.
+fn processInRealGroup(vm: *VM, gid: std.c.gid_t) bool {
+    if (gid == std.c.getgid()) return true;
+    const needed = getgroups(0, null);
+    if (needed <= 0) return false;
+    const n: usize = @intCast(needed);
+    if (n <= 64) {
+        var groups: [64]std.c.gid_t = undefined;
+        const got = getgroups(@intCast(n), groups[0..n].ptr);
+        if (got < 0) return false;
+        const m: usize = @intCast(got);
+        for (groups[0..m]) |g| if (g == gid) return true;
+        return false;
+    }
+    const buf = vm.allocator.alloc(std.c.gid_t, n) catch return false;
+    defer vm.allocator.free(buf);
+    const got = getgroups(@intCast(n), buf.ptr);
+    if (got < 0) return false;
+    const m: usize = @intCast(got);
+    for (buf[0..m]) |g| if (g == gid) return true;
+    return false;
+}
+
+// readable_real? reports whether the real user could read the file.
+// Root may always read; otherwise the owner, group, or other read bit
+// applies based on the real uid and group membership of the process.
+pub fn builtinFileStatReadableRealQ(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    const mode_val = try fileStatIntegerIvar(vm, receiver, "@mode");
+    if (builtin.os.tag == .windows) {
+        return Value.boolean(mode_val.isInteger() and (mode_val.toInteger() & 0o444) != 0);
+    }
+    const uid_val = try fileStatIntegerIvar(vm, receiver, "@uid");
+    const gid_val = try fileStatIntegerIvar(vm, receiver, "@gid");
+    if (!mode_val.isInteger() or !uid_val.isInteger() or !gid_val.isInteger()) {
+        return Value.boolean(false);
+    }
+    const mode = mode_val.toInteger();
+    const ruid: i64 = @intCast(std.c.getuid());
+    if (ruid == 0) return Value.boolean(true);
+    if (uid_val.toInteger() == ruid) return Value.boolean((mode & 0o400) != 0);
+    const gid: std.c.gid_t = @intCast(gid_val.toInteger());
+    if (processInRealGroup(vm, gid)) return Value.boolean((mode & 0o040) != 0);
+    return Value.boolean((mode & 0o004) != 0);
 }
 
 // True if gid is the effective gid or one of the supplementary groups.
