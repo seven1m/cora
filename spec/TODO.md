@@ -2312,7 +2312,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] core/time/sec_spec.rb
 - [-] core/time/strftime_spec.rb
 - [x] core/time/subsec_spec.rb
-- [ ] core/time/sunday_spec.rb
+- [x] core/time/sunday_spec.rb
 - [ ] core/time/thursday_spec.rb
 - [x] core/time/time_spec.rb
 - [ ] core/time/to_a_spec.rb

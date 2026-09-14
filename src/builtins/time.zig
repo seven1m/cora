@@ -201,6 +201,9 @@ pub fn register(vm: *VM) !void {
 
     const zone_sym = try vm.intern("zone");
     try vm.time_class.module.methods.put(zone_sym, value.MethodEntry.builtin(&builtinTimeZone, .{ .exact = 0 }));
+
+    const sunday_q_sym = try vm.intern("sunday?");
+    try vm.time_class.module.methods.put(sunday_q_sym, value.MethodEntry.builtin(&builtinTimeSunday, .{ .exact = 0 }));
 }
 
 fn floorDiv(numerator: i64, denominator: i64) i64 {
@@ -1588,4 +1591,9 @@ pub fn builtinTimeZone(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMErr
     if (t.zone) |zone| return zone;
     if (!t.is_local) return Value.nil();
     return vm.newString("local", false);
+}
+
+pub fn builtinTimeSunday(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    return Value.boolean((try timePartsFor(vm, receiver.toTimeObject())).weekday == 0);
 }
