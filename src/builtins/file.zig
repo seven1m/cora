@@ -666,6 +666,9 @@ pub fn register(vm: *VM) !void {
     const rename_sym = try vm.intern("rename");
     try file_singleton.module.methods.put(rename_sym, value.MethodEntry.builtin(&builtinFileRename, .{ .exact = 2 }));
 
+    const link_sym = try vm.intern("link");
+    try file_singleton.module.methods.put(link_sym, value.MethodEntry.builtin(&builtinFileLink, .{ .exact = 2 }));
+
     const delete_sym = try vm.intern("delete");
     try file_singleton.module.methods.put(delete_sym, value.MethodEntry.builtin(&builtinFileDelete, .{ .variadic = 0 }));
 
@@ -767,6 +770,12 @@ pub fn register(vm: *VM) !void {
 
     const grpowned_q_sym = try vm.intern("grpowned?");
     try vm.file_stat_class.module.methods.put(grpowned_q_sym, value.MethodEntry.builtin(&builtinFileStatGrpownedQ, .{ .exact = 0 }));
+
+    const nlink_sym = try vm.intern("nlink");
+    try vm.file_stat_class.module.methods.put(nlink_sym, value.MethodEntry.builtin(&builtinFileStatNlink, .{ .exact = 0 }));
+
+    const stat_initialize_sym = try vm.intern("initialize");
+    try vm.file_stat_class.module.methods.put(stat_initialize_sym, value.MethodEntry.builtin(&builtinFileStatInitialize, .{ .exact = 1 }));
 }
 
 fn parseMode(vm: *VM, mode_str: []const u8) VMError!FileMode {
@@ -1490,8 +1499,7 @@ fn fileIdentityForPath(vm: *VM, path_obj: *value.StringObject) VMError!?FileIden
     }
 }
 
-fn buildFileStat(vm: *VM, stat: std.Io.File.Stat, posix_metadata: PosixStatMetadata) VMError!Value {
-    const stat_val = try vm.newInstance(vm.file_stat_class);
+fn setFileStatIvars(vm: *VM, stat_val: Value, stat: std.Io.File.Stat, posix_metadata: PosixStatMetadata) VMError!void {
     const atime_value = try statTimestampToValue(vm, stat.atime orelse stat.mtime);
     try vm.setInstanceVariable(stat_val, "@directory", Value.boolean(stat.kind == .directory));
     try vm.setInstanceVariable(stat_val, "@file", Value.boolean(stat.kind == .file));
@@ -1506,9 +1514,15 @@ fn buildFileStat(vm: *VM, stat: std.Io.File.Stat, posix_metadata: PosixStatMetad
     try vm.setInstanceVariable(stat_val, "@size", Value.integer(@intCast(stat.size)));
     try vm.setInstanceVariable(stat_val, "@blksize", Value.integer(@intCast(stat.block_size)));
     try vm.setInstanceVariable(stat_val, "@ino", Value.integer(@intCast(stat.inode)));
+    try vm.setInstanceVariable(stat_val, "@nlink", Value.integer(@intCast(stat.nlink)));
     try vm.setInstanceVariable(stat_val, "@atime", atime_value);
     try vm.setInstanceVariable(stat_val, "@ctime", try statTimestampToValue(vm, stat.ctime));
     try vm.setInstanceVariable(stat_val, "@mtime", try statTimestampToValue(vm, stat.mtime));
+}
+
+fn buildFileStat(vm: *VM, stat: std.Io.File.Stat, posix_metadata: PosixStatMetadata) VMError!Value {
+    const stat_val = try vm.newInstance(vm.file_stat_class);
+    try setFileStatIvars(vm, stat_val, stat, posix_metadata);
     return stat_val;
 }
 
@@ -2459,6 +2473,26 @@ pub fn builtinFileRename(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Va
     return Value.integer(0);
 }
 
+pub fn builtinFileLink(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 2);
+    if (builtin.os.tag == .windows) {
+        return vm.raiseExceptionFmt(vm.not_implemented_error_class, "File.link is not implemented on Windows", .{});
+    }
+
+    const from = try vm.coerceToPath(args[0], "no implicit conversion into String");
+    const to = try vm.coerceToPath(args[1], "no implicit conversion into String");
+    const from_z = try vm.allocCStringZ(from);
+    defer vm.allocator.free(from_z);
+    const to_z = try vm.allocCStringZ(to);
+    defer vm.allocator.free(to_z);
+
+    const result = std.c.link(from_z.ptr, to_z.ptr);
+    if (result != 0) {
+        return vm.raiseErrnoFmt(std.posix.errno(result), "failed to link: {s}", .{from});
+    }
+    return Value.integer(0);
+}
+
 pub fn builtinFileExist(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 1);
     if (builtin.os.tag == .windows) {
@@ -2653,6 +2687,26 @@ pub fn builtinFileStatBlksize(vm: *VM, receiver: Value, args: []Value, _: ?Block
 pub fn builtinFileStatIno(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
     return fileStatIntegerIvar(vm, receiver, "@ino");
+}
+
+pub fn builtinFileStatNlink(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    return fileStatIntegerIvar(vm, receiver, "@nlink");
+}
+
+pub fn builtinFileStatInitialize(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    if (builtin.os.tag == .windows) {
+        return vm.raiseExceptionFmt(vm.not_implemented_error_class, "File::Stat.new is not implemented on Windows", .{});
+    }
+
+    const stat_val = try requireFileStatReceiver(vm, receiver);
+    const path_value = try vm.coerceToPathValue(args[0], "no implicit conversion into String");
+    const path_obj = path_value.toStringObject();
+    const stat = std.Io.Dir.cwd().statFile(vm.io, path_obj.str, .{}) catch |err| return raisePathStatError(vm, path_obj, err);
+    const posix_metadata = try loadPosixStatMetadataForPath(vm, path_obj, @intCast(stat.permissions.toMode()), true);
+    try setFileStatIvars(vm, stat_val, stat, posix_metadata);
+    return stat_val;
 }
 
 pub fn builtinFileStatAtime(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
