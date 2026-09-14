@@ -617,6 +617,9 @@ pub fn register(vm: *VM) !void {
     const executable_sym = try vm.intern("executable?");
     try file_singleton.module.methods.put(executable_sym, value.MethodEntry.builtin(&builtinFileExecutable, .{ .exact = 1 }));
 
+    const executable_real_sym = try vm.intern("executable_real?");
+    try file_singleton.module.methods.put(executable_real_sym, value.MethodEntry.builtin(&builtinFileExecutableReal, .{ .exact = 1 }));
+
     const identical_sym = try vm.intern("identical?");
     try file_singleton.module.methods.put(identical_sym, value.MethodEntry.builtin(&builtinFileIdentical, .{ .exact = 2 }));
 
@@ -2374,6 +2377,18 @@ pub fn builtinFileExecutable(vm: *VM, _: Value, args: []Value, _: ?Block) VMErro
     try vm.requireArgCount(args, 1);
     if (builtin.os.tag == .windows) {
         return vm.raiseExceptionFmt(vm.not_implemented_error_class, "File.executable? is not implemented on Windows", .{});
+    }
+
+    const path = try vm.coerceToPath(args[0], "no implicit conversion into String");
+    const path_z = try vm.allocCStringZ(path);
+    defer vm.allocator.free(path_z);
+    return Value.boolean(std.c.access(path_z.ptr, std.c.X_OK) == 0);
+}
+
+pub fn builtinFileExecutableReal(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    if (builtin.os.tag == .windows) {
+        return vm.raiseExceptionFmt(vm.not_implemented_error_class, "File.executable_real? is not implemented on Windows", .{});
     }
 
     const path = try vm.coerceToPath(args[0], "no implicit conversion into String");
