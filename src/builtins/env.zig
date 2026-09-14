@@ -113,6 +113,9 @@ pub fn register(vm: *VM) !void {
 
     const has_value_sym = try vm.intern("has_value?");
     try env_singleton.module.methods.put(has_value_sym, value.MethodEntry.builtin(&builtinEnvValue, .{ .exact = 1 }));
+
+    const dup_sym = try vm.intern("dup");
+    try env_singleton.module.methods.put(dup_sym, value.MethodEntry.builtin(&builtinEnvDup, .{ .exact = 0 }));
 }
 
 pub fn builtinEnvBracket(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
@@ -542,4 +545,9 @@ pub fn builtinEnvValue(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Valu
         }
     }
     return Value.boolean(false);
+}
+
+pub fn builtinEnvDup(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    return vm.raiseExceptionFmt(vm.type_error_class, "Cannot dup ENV, use ENV.to_h to get a copy of ENV as a hash", .{});
 }
