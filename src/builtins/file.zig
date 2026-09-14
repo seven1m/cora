@@ -764,6 +764,9 @@ pub fn register(vm: *VM) !void {
 
     const owned_q_sym = try vm.intern("owned?");
     try vm.file_stat_class.module.methods.put(owned_q_sym, value.MethodEntry.builtin(&builtinFileStatOwnedQ, .{ .exact = 0 }));
+
+    const grpowned_q_sym = try vm.intern("grpowned?");
+    try vm.file_stat_class.module.methods.put(grpowned_q_sym, value.MethodEntry.builtin(&builtinFileStatGrpownedQ, .{ .exact = 0 }));
 }
 
 fn parseMode(vm: *VM, mode_str: []const u8) VMError!FileMode {
@@ -2777,6 +2780,17 @@ pub fn builtinFileStatOwnedQ(vm: *VM, receiver: Value, args: []Value, _: ?Block)
     if (!uid_val.isInteger()) return Value.boolean(false);
     const euid: i64 = @intCast(std.c.geteuid());
     return Value.boolean(uid_val.toInteger() == euid);
+}
+
+// grpowned? returns true if the file's group is the effective gid or one of
+// the supplementary groups of the process.
+pub fn builtinFileStatGrpownedQ(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    if (builtin.os.tag == .windows) return Value.boolean(false);
+    const gid_val = try fileStatIntegerIvar(vm, receiver, "@gid");
+    if (!gid_val.isInteger()) return Value.boolean(false);
+    const gid: std.c.gid_t = @intCast(gid_val.toInteger());
+    return Value.boolean(processInGroup(vm, gid));
 }
 
 pub fn builtinFileFnmatch(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {

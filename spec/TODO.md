@@ -772,7 +772,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] core/file/stat/file_spec.rb
 - [ ] core/file/stat/ftype_spec.rb
 - [ ] core/file/stat/gid_spec.rb
-- [ ] core/file/stat/grpowned_spec.rb
+- [x] core/file/stat/grpowned_spec.rb
 - [x] core/file/stat/ino_spec.rb
 - [ ] core/file/stat/inspect_spec.rb
 - [x] core/file/stat/mode_spec.rb
