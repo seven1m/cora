@@ -34,6 +34,9 @@ pub fn register(vm: *VM) !void {
     const pid_sym = try vm.intern("pid");
     try process_singleton.module.methods.put(pid_sym, value.MethodEntry.builtin(&builtinProcessPid, .{ .exact = 0 }));
 
+    const ppid_sym = try vm.intern("ppid");
+    try process_singleton.module.methods.put(ppid_sym, value.MethodEntry.builtin(&builtinProcessPpid, .{ .exact = 0 }));
+
     const daemon_sym = try vm.intern("daemon");
     try process_singleton.module.methods.put(daemon_sym, value.MethodEntry.builtin(&builtinProcessDaemon, .{ .variadic = 0 }));
 
@@ -132,6 +135,16 @@ pub fn builtinProcessPid(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Va
     }
 
     return Value.integer(@intCast(std.c.getpid()));
+}
+
+pub fn builtinProcessPpid(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+
+    if (builtin.os.tag == .windows) {
+        return vm.raiseExceptionFmt(vm.runtime_error_class, "Process.ppid is not implemented on Windows", .{});
+    }
+
+    return Value.integer(@intCast(std.c.getppid()));
 }
 
 pub fn builtinProcessDaemon(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {

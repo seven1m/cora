@@ -1666,7 +1666,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] core/process/last_status_spec.rb
 - [ ] core/process/maxgroups_spec.rb
 - [x] core/process/pid_spec.rb
-- [ ] core/process/ppid_spec.rb
+- [x] core/process/ppid_spec.rb
 - [ ] core/process/set_proctitle_spec.rb
 - [ ] core/process/setpgid_spec.rb
 - [ ] core/process/setpgrp_spec.rb
