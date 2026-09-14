@@ -539,6 +539,12 @@ pub fn register(vm: *VM) !void {
     const expand_path_sym = try vm.intern("expand_path");
     try file_singleton.module.methods.put(expand_path_sym, value.MethodEntry.builtin(&builtinFileExpandPath, .{ .variadic = 0 }));
 
+    const absolute_path_sym = try vm.intern("absolute_path");
+    try file_singleton.module.methods.put(absolute_path_sym, value.MethodEntry.builtin(&builtinFileAbsolutePath, .{ .variadic = 0 }));
+
+    const absolute_path_q_sym = try vm.intern("absolute_path?");
+    try file_singleton.module.methods.put(absolute_path_q_sym, value.MethodEntry.builtin(&builtinFileAbsolutePathQ, .{ .exact = 1 }));
+
     const realpath_sym = try vm.intern("realpath");
     try file_singleton.module.methods.put(realpath_sym, value.MethodEntry.builtin(&builtinFileRealpath, .{ .variadic = 0 }));
 
@@ -1211,6 +1217,35 @@ fn expandPathAlloc(vm: *VM, path: []const u8, base_opt: ?[]const u8) VMError![]u
     return normalizeAbsolutePathAlloc(vm.allocator, joined) catch return error.Fatal;
 }
 
+fn absoluteBaseDirAlloc(vm: *VM, base_opt: ?[]const u8) VMError![]u8 {
+    const base = base_opt orelse {
+        return currentWorkingDir(vm);
+    };
+
+    if (base.len > 0 and base[0] == '/') {
+        return normalizeAbsolutePathAlloc(vm.allocator, base) catch return error.Fatal;
+    }
+
+    const cwd = try currentWorkingDir(vm);
+    defer vm.allocator.free(cwd);
+    const joined = joinPathPartsAlloc(vm.allocator, cwd, base) catch return error.Fatal;
+    defer vm.allocator.free(joined);
+    return normalizeAbsolutePathAlloc(vm.allocator, joined) catch return error.Fatal;
+}
+
+fn absolutePathAlloc(vm: *VM, path: []const u8, base_opt: ?[]const u8) VMError![]u8 {
+    if (path.len > 0 and path[0] == '/') {
+        return normalizeAbsolutePathAlloc(vm.allocator, path) catch return error.Fatal;
+    }
+
+    const base = try absoluteBaseDirAlloc(vm, base_opt);
+    defer vm.allocator.free(base);
+
+    const joined = joinPathPartsAlloc(vm.allocator, base, path) catch return error.Fatal;
+    defer vm.allocator.free(joined);
+    return normalizeAbsolutePathAlloc(vm.allocator, joined) catch return error.Fatal;
+}
+
 fn dirnameBytesAlloc(allocator: std.mem.Allocator, path: []const u8) ![]u8 {
     if (path.len == 0) return allocator.dupe(u8, ".");
 
@@ -1658,6 +1693,35 @@ pub fn builtinFileExpandPath(vm: *VM, _: Value, args: []Value, _: ?Block) VMErro
     const expanded = try expandPathAlloc(vm, path_obj.str, base);
     defer vm.allocator.free(expanded);
     return try vm.newStringWithEncoding(expanded, false, path_obj.encoding);
+}
+
+pub fn builtinFileAbsolutePath(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCountRange(args, 1, 2);
+    if (builtin.os.tag == .windows) {
+        return vm.raiseExceptionFmt(vm.not_implemented_error_class, "File.absolute_path is not implemented on Windows", .{});
+    }
+
+    const path_value = try vm.coerceToPathValue(args[0], "no implicit conversion into String");
+    const path_obj = path_value.toStringObject();
+
+    const base: ?[]const u8 = if (args.len == 2 and !args[1].isNil()) blk: {
+        const base_value = try vm.coerceToPathValue(args[1], "no implicit conversion into String");
+        break :blk base_value.toStringObject().str;
+    } else null;
+
+    const expanded = try absolutePathAlloc(vm, path_obj.str, base);
+    defer vm.allocator.free(expanded);
+    return try vm.newStringWithEncoding(expanded, false, path_obj.encoding);
+}
+
+pub fn builtinFileAbsolutePathQ(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    if (builtin.os.tag == .windows) {
+        return vm.raiseExceptionFmt(vm.not_implemented_error_class, "File.absolute_path? is not implemented on Windows", .{});
+    }
+
+    const path = try vm.coerceToPath(args[0], "no implicit conversion into String");
+    return Value.boolean(path.len > 0 and path[0] == '/');
 }
 
 pub fn builtinFileRealpath(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {

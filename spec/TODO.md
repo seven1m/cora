@@ -694,7 +694,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] core/fiber/yield_spec.rb
 
 ### core/file
-- [ ] core/file/absolute_path_spec.rb
+- [x] core/file/absolute_path_spec.rb
 - [ ] core/file/atime_spec.rb
 - [x] core/file/basename_spec.rb
 - [ ] core/file/birthtime_spec.rb
