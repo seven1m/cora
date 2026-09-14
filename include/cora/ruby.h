@@ -254,6 +254,7 @@ int rb_type(VALUE obj);
 #define RSTRUCT_GET(obj, idx) rb_struct_get(obj, idx)
 
 #define SIZEOF_VALUE 8
+#define SIZEOF_UINT64_T 8
 #define SIZEOF_LONG 8
 #define SIZEOF_LONG_LONG 8
 #define PRIuSIZE "zu"
