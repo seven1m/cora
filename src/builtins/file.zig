@@ -638,6 +638,9 @@ pub fn register(vm: *VM) !void {
     const symlink_q_singleton_sym = try vm.intern("symlink?");
     try file_singleton.module.methods.put(symlink_q_singleton_sym, value.MethodEntry.builtin(&builtinFileSymlinkQ, .{ .exact = 1 }));
 
+    const readlink_sym = try vm.intern("readlink");
+    try file_singleton.module.methods.put(readlink_sym, value.MethodEntry.builtin(&builtinFileReadlink, .{ .exact = 1 }));
+
     const chmod_sym = try vm.intern("chmod");
     try file_singleton.module.methods.put(chmod_sym, value.MethodEntry.builtin(&builtinFileChmod, .{ .variadic = 1 }));
 
@@ -2228,8 +2231,46 @@ pub fn builtinFileSymlinkQ(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!
     }
 
     const path = try vm.coerceToPath(args[0], "no implicit conversion into String");
-    const stat = std.Io.Dir.cwd().statFile(vm.io, path, .{ .follow_symlinks = false }) catch return Value.boolean(false);
-    return Value.boolean(stat.kind == .sym_link);
+    const st = std.Io.Dir.cwd().statFile(vm.io, path, .{ .follow_symlinks = false }) catch return Value.boolean(false);
+    return Value.boolean(st.kind == .sym_link);
+}
+
+pub fn builtinFileReadlink(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    if (builtin.os.tag == .windows) {
+        return vm.raiseExceptionFmt(vm.not_implemented_error_class, "File.readlink is not implemented on Windows", .{});
+    }
+
+    const path_value = try vm.coerceToPathValue(args[0], "no implicit conversion into String");
+    const path_obj = path_value.toStringObject();
+    const path_z = try vm.allocCStringZ(path_obj.str);
+    defer vm.allocator.free(path_z);
+
+    var capacity: usize = 256;
+    while (true) {
+        const buf = vm.allocator.alloc(u8, capacity) catch return error.Fatal;
+        defer vm.allocator.free(buf);
+        while (true) {
+            const n = std.c.readlink(path_z.ptr, buf.ptr, capacity);
+            if (n >= 0) {
+                const len: usize = @intCast(n);
+                if (len == capacity) break;
+                return try vm.newStringWithEncoding(buf[0..len], false, path_obj.encoding);
+            }
+            const errno_code = std.posix.errno(-1);
+            switch (errno_code) {
+                .INTR => {
+                    try vm.checkAsyncEvents();
+                    continue;
+                },
+                .NOENT, .NOTDIR => return vm.raiseErrnoFmt(errno_code, "No such file or directory @ readlink - {s}", .{path_obj.str}),
+                .INVAL => return vm.raiseErrnoFmt(errno_code, "Invalid argument @ readlink - {s}", .{path_obj.str}),
+                .ACCES, .PERM => return vm.raiseErrnoFmt(.ACCES, "Permission denied @ readlink - {s}", .{path_obj.str}),
+                else => return vm.raiseErrnoFmt(errno_code, "readlink failed - {s}", .{path_obj.str}),
+            }
+        }
+        capacity *= 2;
+    }
 }
 
 pub fn builtinFileChmod(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
