@@ -124,6 +124,12 @@ pub fn register(vm: *VM) !void {
     const each_value_sym = try vm.intern("each_value");
     try env_singleton.module.methods.put(each_value_sym, value.MethodEntry.builtin(&builtinEnvEachValue, .{ .exact = 0 }));
 
+    const each_pair_sym = try vm.intern("each_pair");
+    try env_singleton.module.methods.put(each_pair_sym, value.MethodEntry.builtin(&builtinEnvEachPair, .{ .exact = 0 }));
+
+    const each_sym = try vm.intern("each");
+    try env_singleton.module.methods.put(each_sym, value.MethodEntry.builtin(&builtinEnvEachPair, .{ .exact = 0 }));
+
     const rehash_sym = try vm.intern("rehash");
     try env_singleton.module.methods.put(rehash_sym, value.MethodEntry.builtin(&builtinEnvRehash, .{ .exact = 0 }));
 
@@ -655,6 +661,30 @@ pub fn builtinEnvEachValue(vm: *VM, env_receiver: Value, args: []Value, block: ?
     while (iter.next()) |entry| {
         const value_val = try vm.newString(entry.value_ptr.*, false);
         const yield_args = [_]Value{value_val};
+        _ = try vm.yieldToBlock(blk, &yield_args);
+    }
+
+    return vm.env_object.?;
+}
+
+pub fn builtinEnvEachPair(vm: *VM, env_receiver: Value, args: []Value, block: ?Block) VMError!Value {
+    _ = env_receiver;
+    try vm.requireArgCount(args, 0);
+    const blk = block orelse {
+        var env_map = try vm.currentEnvMap();
+        const size_value = Value.integer(@intCast(env_map.count()));
+        env_map.deinit();
+        return try vm.createMethodEnumeratorWithSize(vm.env_object.?, try vm.intern("each_pair"), &.{}, size_value);
+    };
+
+    var env_map = try vm.currentEnvMap();
+    defer env_map.deinit();
+
+    var iter = env_map.iterator();
+    while (iter.next()) |entry| {
+        const key_val = try vm.newString(entry.key_ptr.*, false);
+        const value_val = try vm.newString(entry.value_ptr.*, false);
+        const yield_args = [_]Value{ key_val, value_val };
         _ = try vm.yieldToBlock(blk, &yield_args);
     }
 
