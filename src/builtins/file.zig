@@ -761,6 +761,9 @@ pub fn register(vm: *VM) !void {
 
     const writable_q_sym = try vm.intern("writable?");
     try vm.file_stat_class.module.methods.put(writable_q_sym, value.MethodEntry.builtin(&builtinFileStatWritableQ, .{ .exact = 0 }));
+
+    const owned_q_sym = try vm.intern("owned?");
+    try vm.file_stat_class.module.methods.put(owned_q_sym, value.MethodEntry.builtin(&builtinFileStatOwnedQ, .{ .exact = 0 }));
 }
 
 fn parseMode(vm: *VM, mode_str: []const u8) VMError!FileMode {
@@ -2765,6 +2768,15 @@ pub fn builtinFileStatWritableQ(vm: *VM, receiver: Value, args: []Value, _: ?Blo
     const gid: std.c.gid_t = @intCast(gid_val.toInteger());
     if (processInGroup(vm, gid)) return Value.boolean((mode & 0o020) != 0);
     return Value.boolean((mode & 0o002) != 0);
+}
+
+// owned? returns true if the file is owned by the effective user.
+pub fn builtinFileStatOwnedQ(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    const uid_val = try fileStatIntegerIvar(vm, receiver, "@uid");
+    if (!uid_val.isInteger()) return Value.boolean(false);
+    const euid: i64 = @intCast(std.c.geteuid());
+    return Value.boolean(uid_val.toInteger() == euid);
 }
 
 pub fn builtinFileFnmatch(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
