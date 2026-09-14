@@ -741,7 +741,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] core/file/pipe_spec.rb
 - [x] core/file/printf_spec.rb
 - [x] core/file/read_spec.rb
-- [ ] core/file/readable_real_spec.rb
+- [x] core/file/readable_real_spec.rb
 - [x] core/file/readable_spec.rb
 - [ ] core/file/readlink_spec.rb
 - [ ] core/file/realdirpath_spec.rb
