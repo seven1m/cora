@@ -771,6 +771,9 @@ pub fn register(vm: *VM) !void {
     const rdev_sym = try vm.intern("rdev");
     try vm.file_stat_class.module.methods.put(rdev_sym, value.MethodEntry.builtin(&builtinFileStatRdev, .{ .exact = 0 }));
 
+    const rdev_major_sym = try vm.intern("rdev_major");
+    try vm.file_stat_class.module.methods.put(rdev_major_sym, value.MethodEntry.builtin(&builtinFileStatRdevMajor, .{ .exact = 0 }));
+
     const ino_sym = try vm.intern("ino");
     try vm.file_stat_class.module.methods.put(ino_sym, value.MethodEntry.builtin(&builtinFileStatIno, .{ .exact = 0 }));
 
@@ -2793,6 +2796,12 @@ pub fn builtinFileStatDevMinor(vm: *VM, receiver: Value, args: []Value, _: ?Bloc
 pub fn builtinFileStatRdev(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
     return fileStatIntegerIvar(vm, receiver, "@rdev");
+}
+
+pub fn builtinFileStatRdevMajor(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    const rdev_val = try fileStatIntegerIvar(vm, receiver, "@rdev");
+    return Value.integer(gnuMajor(rdev_val.toInteger()));
 }
 
 pub fn builtinFileStatIno(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
