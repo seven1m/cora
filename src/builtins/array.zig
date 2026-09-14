@@ -866,6 +866,9 @@ pub fn register(vm: *VM) !void {
     const repeated_permutation_sym = try vm.intern("repeated_permutation");
     try vm.array_class.module.methods.put(repeated_permutation_sym, value.MethodEntry.builtin(&builtinArrayRepeatedPermutation, .{ .exact = 1 }));
 
+    const repeated_combination_sym = try vm.intern("repeated_combination");
+    try vm.array_class.module.methods.put(repeated_combination_sym, value.MethodEntry.builtin(&builtinArrayRepeatedCombination, .{ .exact = 1 }));
+
     const zip_sym = try vm.intern("zip");
     try vm.array_class.module.methods.put(zip_sym, value.MethodEntry.builtin(&builtinArrayZip, .{ .variadic = 0 }));
 }
@@ -3786,6 +3789,81 @@ pub fn builtinArrayRepeatedPermutation(vm: *VM, receiver: Value, args: []Value, 
             indices[pos] = 0;
         }
         if (carry) break;
+    }
+
+    return receiver;
+}
+
+fn repeatedCombinationSize(len: i64, n: i64) i64 {
+    if (n < 0) return 0;
+    if (n == 0) return 1;
+    if (len == 0) return 0;
+    return combinationBinomialSize(len + n - 1, n);
+}
+
+pub fn builtinArrayRepeatedCombination(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+
+    const array = receiver.toArrayObject();
+    const len: i64 = @intCast(array.elements.items.len);
+
+    const n = try args[0].coerceToI64ViaToInt(
+        vm,
+        "no implicit conversion into Integer",
+        "no implicit conversion into Integer",
+        "bignum too big to convert into `long`",
+    );
+
+    const blk = block orelse {
+        const size = repeatedCombinationSize(len, n);
+        return try vm.createMethodEnumeratorWithSize(
+            receiver,
+            try vm.intern("repeated_combination"),
+            args,
+            Value.integer(size),
+        );
+    };
+
+    if (n < 0) return receiver;
+
+    if (n == 0) {
+        const empty = try vm.createArray();
+        _ = try vm.yieldToBlock(blk, &[_]Value{Value.fromObject(&empty.object)});
+        return receiver;
+    }
+
+    if (len == 0) return receiver;
+
+    const snapshot_val = try createArrayFromElements(vm, array.elements.items);
+    const elements = snapshot_val.toArrayObject().elements.items;
+    const n_usize: usize = @intCast(n);
+
+    const indices = vm.allocator.alloc(usize, n_usize) catch return error.Fatal;
+    defer vm.allocator.free(indices);
+    @memset(indices, 0);
+
+    while (true) {
+        const comb = try vm.createArray();
+        for (indices) |idx| {
+            comb.elements.append(vm.gc_allocator, elements[idx]) catch return error.Fatal;
+        }
+        _ = try vm.yieldToBlock(blk, &[_]Value{Value.fromObject(&comb.object)});
+
+        var pos: usize = n_usize;
+        var advanced = false;
+        while (pos > 0) {
+            pos -= 1;
+            if (indices[pos] + 1 < elements.len) {
+                indices[pos] += 1;
+                var j = pos + 1;
+                while (j < n_usize) : (j += 1) {
+                    indices[j] = indices[pos];
+                }
+                advanced = true;
+                break;
+            }
+        }
+        if (!advanced) break;
     }
 
     return receiver;

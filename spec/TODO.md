@@ -185,7 +185,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] core/array/push_spec.rb
 - [x] core/array/rassoc_spec.rb
 - [x] core/array/reject_spec.rb
-- [ ] core/array/repeated_combination_spec.rb
+- [x] core/array/repeated_combination_spec.rb
 - [x] core/array/repeated_permutation_spec.rb
 - [x] core/array/replace_spec.rb
 - [x] core/array/reverse_each_spec.rb
