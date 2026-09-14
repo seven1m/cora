@@ -91,6 +91,10 @@ pub fn builtinDataDefine(vm: *VM, receiver: Value, args: []Value, block: ?Block)
     }
     try vm.setInstanceVariable(Value.fromObject(&subclass.toClassObject().module.object), "@_data_members", Value.fromObject(&arr.object));
 
+    const subclass_singleton = try vm.getOrCreateSingletonClass(Value.fromObject(&subclass.toClassObject().module.object));
+    const class_members_sym = try vm.intern("members");
+    subclass_singleton.module.methods.put(class_members_sym, value.MethodEntry.builtin(&builtinDataClassMembers, .{ .exact = 0 })) catch return error.Fatal;
+
     return Value.fromObject(&subclass.toClassObject().module.object);
 }
 
@@ -129,8 +133,35 @@ pub fn builtinDataInitialize(vm: *VM, receiver: Value, args: []Value, _: ?Block)
 
 pub fn builtinDataMembers(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
-    const stored = try vm.getInstanceVariable(receiver, "@_data_members");
-    return stored;
+    const members = try memberNames(vm, receiver);
+    defer vm.allocator.free(members);
+
+    const out = try vm.createArray();
+    for (members) |name| {
+        const sym = try vm.intern(name);
+        out.elements.append(vm.gc_allocator, Value.fromObject(&sym.object)) catch return error.Fatal;
+    }
+    return Value.fromObject(&out.object);
+}
+
+pub fn builtinDataClassMembers(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    var current: ?*value.ClassObject = if (receiver.isClass()) receiver.toClassObject() else vm.getClass(receiver);
+    while (current) |klass| {
+        const stored = try vm.getInstanceVariable(Value.fromObject(&klass.module.object), "@_data_members");
+        if (stored.isArray()) {
+            const arr = stored.toArrayObject();
+            const out = try vm.createArray();
+            for (arr.elements.items) |elem| {
+                const sym = try vm.intern(elem.toStringObject().str);
+                out.elements.append(vm.gc_allocator, Value.fromObject(&sym.object)) catch return error.Fatal;
+            }
+            return Value.fromObject(&out.object);
+        }
+        current = klass.superclass;
+    }
+    const out = try vm.createArray();
+    return Value.fromObject(&out.object);
 }
 
 pub fn builtinDataToH(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
