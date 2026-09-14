@@ -2133,7 +2133,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] core/struct/clone_spec.rb
 - [x] core/struct/constants_spec.rb
 - [ ] core/struct/deconstruct_keys_spec.rb
-- [ ] core/struct/deconstruct_spec.rb
+- [x] core/struct/deconstruct_spec.rb
 - [ ] core/struct/dig_spec.rb
 - [x] core/struct/dup_spec.rb
 - [x] core/struct/each_pair_spec.rb

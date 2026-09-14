@@ -146,6 +146,9 @@ pub fn register(vm: *VM) !void {
     const to_a_sym = try vm.intern("to_a");
     try vm.struct_class.module.methods.put(to_a_sym, value.MethodEntry.builtin(&builtinStructToA, .{ .exact = 0 }));
 
+    const deconstruct_sym = try vm.intern("deconstruct");
+    try vm.struct_class.module.methods.put(deconstruct_sym, value.MethodEntry.builtin(&builtinStructToA, .{ .exact = 0 }));
+
     const values_sym = try vm.intern("values");
     try vm.struct_class.module.methods.put(values_sym, value.MethodEntry.builtin(&builtinStructToA, .{ .exact = 0 }));
 
