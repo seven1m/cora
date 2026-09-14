@@ -104,6 +104,9 @@ pub fn register(vm: *VM) !void {
 
     const invert_sym = try vm.intern("invert");
     try env_singleton.module.methods.put(invert_sym, value.MethodEntry.builtin(&builtinEnvInvert, .{ .exact = 0 }));
+
+    const value_query_sym = try vm.intern("value?");
+    try env_singleton.module.methods.put(value_query_sym, value.MethodEntry.builtin(&builtinEnvValue, .{ .exact = 1 }));
 }
 
 pub fn builtinEnvBracket(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
@@ -505,4 +508,25 @@ pub fn builtinEnvInvert(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Val
     }
 
     return Value.fromObject(&result.object);
+}
+
+pub fn builtinEnvValue(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+
+    const string_opt = try vm.probeToStringValue(args[0]);
+    const value_to_find: []const u8 = switch (string_opt) {
+        .string => |s| s.toStringObject().str,
+        .missing, .nil_result => return Value.nil(),
+    };
+
+    var env_map = try vm.currentEnvMap();
+    defer env_map.deinit();
+
+    var iter = env_map.iterator();
+    while (iter.next()) |entry| {
+        if (std.mem.eql(u8, entry.value_ptr.*, value_to_find)) {
+            return Value.boolean(true);
+        }
+    }
+    return Value.boolean(false);
 }
