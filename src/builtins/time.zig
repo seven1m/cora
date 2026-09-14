@@ -228,6 +228,13 @@ pub fn register(vm: *VM) !void {
 
     const yday_sym = try vm.intern("yday");
     try vm.time_class.module.methods.put(yday_sym, value.MethodEntry.builtin(&builtinTimeYday, .{ .exact = 0 }));
+
+    const dst_method = value.MethodEntry.builtin(&builtinTimeDst, .{ .exact = 0 });
+    const dst_q_sym = try vm.intern("dst?");
+    try vm.time_class.module.methods.put(dst_q_sym, dst_method);
+
+    const isdst_sym = try vm.intern("isdst");
+    try vm.time_class.module.methods.put(isdst_sym, dst_method);
 }
 
 fn floorDiv(numerator: i64, denominator: i64) i64 {
@@ -540,7 +547,12 @@ fn parseStrftimeUtcOffsetSeconds(bytes: []const u8) ?i64 {
     return sign * (hours * seconds_per_hour + minutes * seconds_per_minute);
 }
 
-fn zoneinfoUtcOffsetNanos(io: std.Io, epoch_seconds: i64) ?i64 {
+const ZoneinfoLocalInfo = struct {
+    offset_nanos: i64,
+    is_dst: bool,
+};
+
+fn zoneinfoLocalInfo(io: std.Io, epoch_seconds: i64) ?ZoneinfoLocalInfo {
     var tz = std.mem.span(std.c.getenv("TZ") orelse return null);
     if (tz.len == 0) return null;
     if (tz[0] == ':') {
@@ -583,7 +595,18 @@ fn zoneinfoUtcOffsetNanos(io: std.Io, epoch_seconds: i64) ?i64 {
         }
     }
 
-    return @as(i64, selected_timetype.offset) * nanos_per_second;
+    return .{
+        .offset_nanos = @as(i64, selected_timetype.offset) * nanos_per_second,
+        .is_dst = selected_timetype.isDst(),
+    };
+}
+
+fn zoneinfoUtcOffsetNanos(io: std.Io, epoch_seconds: i64) ?i64 {
+    return if (zoneinfoLocalInfo(io, epoch_seconds)) |info| info.offset_nanos else null;
+}
+
+fn zoneinfoIsDst(io: std.Io, epoch_seconds: i64) ?bool {
+    return if (zoneinfoLocalInfo(io, epoch_seconds)) |info| info.is_dst else null;
 }
 
 // Get the system local UTC offset in nanoseconds for the given epoch second.
@@ -1660,4 +1683,17 @@ pub fn builtinTimeWday(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMErr
 pub fn builtinTimeYday(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
     return Value.integer((try timePartsFor(vm, receiver.toTimeObject())).year_day);
+}
+
+pub fn builtinTimeDst(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    const t = receiver.toTimeObject();
+    if (t.is_utc or !t.is_local) return Value.boolean(false);
+    const epoch_seconds = try epochSecondsForTimezone(vm, t.timew);
+    if (zoneinfoIsDst(vm.io, epoch_seconds)) |is_dst| return Value.boolean(is_dst);
+    tzset(); // pick up any TZ environment variable change
+    var tm: CStructTm = undefined;
+    const seconds: c_time_t = epoch_seconds;
+    if (localtime_r(&seconds, &tm) == null) return Value.boolean(false);
+    return Value.boolean(tm.tm_isdst > 0);
 }
