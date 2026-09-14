@@ -32,6 +32,10 @@ fn openFlagValue(flags: std.posix.O) i64 {
 }
 
 pub fn register(vm: *VM) !void {
+    const enumerable_sym = try vm.intern("Enumerable");
+    const enumerable_entry = vm.object_class.module.constants.get(enumerable_sym) orelse return error.Fatal;
+    try vm.includeModule(&vm.io_class.module, enumerable_entry.value.toModuleObject());
+
     const io_class_val = Value.fromObject(&vm.io_class.module.object);
     const io_singleton = try vm.getOrCreateSingletonClass(io_class_val);
 

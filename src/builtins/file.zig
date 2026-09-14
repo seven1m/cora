@@ -513,6 +513,7 @@ pub fn register(vm: *VM) !void {
         try file_constants_module.constants.put(sym, .{ .value = Value.integer(entry[1]) });
         try vm.file_class.module.constants.put(sym, .{ .value = Value.integer(entry[1]) });
     }
+    try vm.includeModule(&vm.file_class.module, file_constants_module);
 
     const alt_separator_sym = try vm.intern("ALT_SEPARATOR");
     try vm.file_class.module.constants.put(alt_separator_sym, .{ .value = Value.nil() });

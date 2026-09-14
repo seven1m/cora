@@ -718,7 +718,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] core/file/exist_spec.rb
 - [-] core/file/expand_path_spec.rb
 - [x] core/file/extname_spec.rb
-- [ ] core/file/file_spec.rb
+- [x] core/file/file_spec.rb
 - [-] core/file/flock_spec.rb
 - [x] core/file/fnmatch_spec.rb
 - [ ] core/file/ftype_spec.rb
