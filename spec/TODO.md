@@ -736,7 +736,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/file/new_spec.rb
 - [x] core/file/null_spec.rb
 - [x] core/file/open_spec.rb
-- [ ] core/file/owned_spec.rb
+- [x] core/file/owned_spec.rb
 - [x] core/file/path_spec.rb
 - [x] core/file/pipe_spec.rb
 - [x] core/file/printf_spec.rb
