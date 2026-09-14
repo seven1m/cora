@@ -204,6 +204,9 @@ pub fn register(vm: *VM) !void {
     const modulo_method_sym = try vm.intern("modulo");
     try vm.float_class.module.methods.put(modulo_method_sym, value.MethodEntry.builtin(&builtinFloatModulo, .{ .exact = 1 }));
 
+    const divmod_sym = try vm.intern("divmod");
+    try vm.float_class.module.methods.put(divmod_sym, value.MethodEntry.builtin(&builtinFloatDivmod, .{ .exact = 1 }));
+
     const compare_sym = try vm.intern("<=>");
     try vm.float_class.module.methods.put(compare_sym, value.MethodEntry.builtin(&builtinFloatCompare, .{ .exact = 1 }));
 
@@ -382,6 +385,31 @@ pub fn builtinFloatModulo(vm: *VM, receiver: Value, args: []Value, _: ?Block) VM
     var result = @rem(lhs, rhs);
     if (result != 0.0 and (result < 0.0) != (rhs < 0.0)) result += rhs;
     return vm.newFloat(result);
+}
+
+pub fn builtinFloatDivmod(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    const lhs = receiver.toFloatObject().val;
+    if (std.math.isNan(lhs)) {
+        return vm.raiseExceptionFmt(vm.float_domain_error_class, "Computation results to 'NaN'(Not a Number)", .{});
+    }
+    if (std.math.isInf(lhs)) {
+        return vm.raiseExceptionFmt(vm.float_domain_error_class, "Computation results to 'Infinity'", .{});
+    }
+    const rhs = try coerceNumericArg(vm, args[0]);
+    if (std.math.isNan(rhs)) {
+        return vm.raiseExceptionFmt(vm.float_domain_error_class, "Computation results to 'NaN'(Not a Number)", .{});
+    }
+    if (rhs == 0.0) {
+        return vm.raiseExceptionFmt(vm.zero_division_error_class, "divided by 0", .{});
+    }
+    const quot = try floatToIntegerValue(vm, @floor(lhs / rhs));
+    var mod = @rem(lhs, rhs);
+    if (mod != 0.0 and (mod < 0.0) != (rhs < 0.0)) mod += rhs;
+    const result = try vm.createArray();
+    result.elements.append(vm.gc_allocator, quot) catch return error.Fatal;
+    result.elements.append(vm.gc_allocator, try vm.newFloat(mod)) catch return error.Fatal;
+    return Value.fromObject(&result.object);
 }
 
 pub fn builtinFloatEqual(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
