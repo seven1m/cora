@@ -812,7 +812,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/file/world_writable_spec.rb
 - [ ] core/file/writable_real_spec.rb
 - [x] core/file/writable_spec.rb
-- [ ] core/file/zero_spec.rb
+- [x] core/file/zero_spec.rb
 
 ### core/filetest
 - [ ] core/filetest/blockdev_spec.rb

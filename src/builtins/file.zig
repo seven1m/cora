@@ -631,6 +631,9 @@ pub fn register(vm: *VM) !void {
     const zero_q_sym_file = try vm.intern("zero?");
     try file_singleton.module.methods.put(zero_q_sym_file, value.MethodEntry.builtin(&builtinFileZeroQ, .{ .exact = 1 }));
 
+    const empty_q_sym_file = try vm.intern("empty?");
+    try file_singleton.module.methods.put(empty_q_sym_file, value.MethodEntry.builtin(&builtinFileZeroQ, .{ .exact = 1 }));
+
     const mtime_sym_file = try vm.intern("mtime");
     try file_singleton.module.methods.put(mtime_sym_file, value.MethodEntry.builtin(&builtinFileMtime, .{ .exact = 1 }));
     try vm.file_class.module.methods.put(mtime_sym_file, value.MethodEntry.builtin(&builtinFileInstanceMtime, .{ .exact = 0 }));
