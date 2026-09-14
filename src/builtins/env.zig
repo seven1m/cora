@@ -163,8 +163,12 @@ pub fn register(vm: *VM) !void {
 
 pub fn builtinEnvBracket(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 1);
-    const key = try args[0].coerceToStr(vm, "no implicit conversion into String");
-    return vm.envGet(key);
+    const key = try args[0].coerceToStr(vm, "no implicit conversion of Object into String");
+    const raw = try vm.envGet(key);
+    if (raw.isNil()) return Value.nil();
+    const result = try newEnvString(vm, raw.toStringObject().str);
+    result.freeze();
+    return result;
 }
 
 pub fn builtinEnvBracketSet(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
