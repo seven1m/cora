@@ -2273,7 +2273,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] core/time/at_spec.rb
 - [ ] core/time/ceil_spec.rb
 - [ ] core/time/comparison_spec.rb
-- [ ] core/time/ctime_spec.rb
+- [x] core/time/ctime_spec.rb
 - [x] core/time/day_spec.rb
 - [ ] core/time/deconstruct_keys_spec.rb
 - [x] core/time/dst_spec.rb
