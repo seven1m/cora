@@ -540,14 +540,14 @@ pub fn builtinEnvExcept(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Val
     return Value.fromObject(&result.object);
 }
 
-pub fn builtinEnvFetch(vm: *VM, _: Value, args: []Value, block: ?Block) VMError!Value {
+pub fn builtinEnvFetch(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
     try vm.requireArgCountRange(args, 1, 2);
 
     if (args.len == 2 and block != null) {
         try warning_builtin.writeWarning(vm, "warning: block supersedes default value argument\n");
     }
 
-    const key = try args[0].coerceToStr(vm, "no implicit conversion into String");
+    const key = try args[0].coerceToStr(vm, "no implicit conversion of Object into String");
 
     const value_opt = try vm.envGet(key);
 
@@ -562,7 +562,8 @@ pub fn builtinEnvFetch(vm: *VM, _: Value, args: []Value, block: ?Block) VMError!
     } else if (args.len == 2) {
         return args[1];
     } else {
-        return vm.raiseExceptionFmt(vm.key_error_class, "key not found: \"{s}\"", .{key});
+        const key_str = try args[0].inspect(vm);
+        return vm.raiseKeyErrorFmt(args[0], receiver, "key not found: {s}", .{key_str.toStringObject().str});
     }
 }
 
