@@ -66,6 +66,9 @@ pub fn register(vm: *VM) !void {
     const delete_if_sym = try vm.intern("delete_if");
     try env_singleton.module.methods.put(delete_if_sym, value.MethodEntry.builtin(&builtinEnvDeleteIf, .{ .exact = 0 }));
 
+    const keep_if_sym = try vm.intern("keep_if");
+    try env_singleton.module.methods.put(keep_if_sym, value.MethodEntry.builtin(&builtinEnvKeepIf, .{ .exact = 0 }));
+
     const select_sym = try vm.intern("select");
     try env_singleton.module.methods.put(select_sym, value.MethodEntry.builtin(&builtinEnvSelect, .{ .variadic = 0 }));
 
@@ -315,6 +318,45 @@ pub fn builtinEnvDeleteIf(vm: *VM, env_receiver: Value, args: []Value, block: ?B
         const yield_args = [_]Value{ key_val, value_val };
         const yielded = try vm.yieldToBlock(blk, &yield_args);
         if (yielded.isTruthy()) {
+            const key_copy = vm.allocator.dupe(u8, entry.key_ptr.*) catch return error.Fatal;
+            keys_to_delete.append(vm.allocator, key_copy) catch return error.Fatal;
+        }
+    }
+
+    for (keys_to_delete.items) |key| {
+        _ = try vm.envUnset(key, true);
+    }
+
+    return vm.env_object.?;
+}
+
+pub fn builtinEnvKeepIf(vm: *VM, env_receiver: Value, args: []Value, block: ?Block) VMError!Value {
+    _ = env_receiver;
+    try vm.requireArgCount(args, 0);
+    const blk = block orelse {
+        var env_map = try vm.currentEnvMap();
+        const size_value = Value.integer(@intCast(env_map.count()));
+        env_map.deinit();
+        return try vm.createMethodEnumeratorWithSize(vm.env_object.?, try vm.intern("keep_if"), &.{}, size_value);
+    };
+
+    var env_map = try vm.currentEnvMap();
+    defer env_map.deinit();
+
+    var keys_to_delete = std.ArrayListUnmanaged([]const u8){ .items = &.{}, .capacity = 0 };
+    defer {
+        for (keys_to_delete.items) |key| vm.allocator.free(key);
+        keys_to_delete.deinit(vm.allocator);
+    }
+
+    var iter = env_map.iterator();
+    while (iter.next()) |entry| {
+        const key_val = try vm.newString(entry.key_ptr.*, false);
+        const value_val = try vm.newString(entry.value_ptr.*, false);
+
+        const yield_args = [_]Value{ key_val, value_val };
+        const yielded = try vm.yieldToBlock(blk, &yield_args);
+        if (yielded.isFalsey()) {
             const key_copy = vm.allocator.dupe(u8, entry.key_ptr.*) catch return error.Fatal;
             keys_to_delete.append(vm.allocator, key_copy) catch return error.Fatal;
         }
