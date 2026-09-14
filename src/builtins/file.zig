@@ -707,6 +707,9 @@ pub fn register(vm: *VM) !void {
     const chardev_q_sym = try vm.intern("chardev?");
     try vm.file_stat_class.module.methods.put(chardev_q_sym, value.MethodEntry.builtin(&builtinFileStatChardevQ, .{ .exact = 0 }));
 
+    const socket_q_sym = try vm.intern("socket?");
+    try vm.file_stat_class.module.methods.put(socket_q_sym, value.MethodEntry.builtin(&builtinFileStatSocketQ, .{ .exact = 0 }));
+
     const zero_q_sym = try vm.intern("zero?");
     try vm.file_stat_class.module.methods.put(zero_q_sym, value.MethodEntry.builtin(&builtinFileStatZeroQ, .{ .exact = 0 }));
 
@@ -1486,6 +1489,7 @@ fn buildFileStat(vm: *VM, stat: std.Io.File.Stat, posix_metadata: PosixStatMetad
     try vm.setInstanceVariable(stat_val, "@pipe", Value.boolean(stat.kind == .named_pipe));
     try vm.setInstanceVariable(stat_val, "@chardev", Value.boolean(stat.kind == .character_device));
     try vm.setInstanceVariable(stat_val, "@blockdev", Value.boolean(stat.kind == .block_device));
+    try vm.setInstanceVariable(stat_val, "@socket", Value.boolean(stat.kind == .unix_domain_socket));
     try vm.setInstanceVariable(stat_val, "@mode", Value.integer(posix_metadata.mode));
     try vm.setInstanceVariable(stat_val, "@uid", Value.integer(posix_metadata.uid));
     try vm.setInstanceVariable(stat_val, "@gid", Value.integer(posix_metadata.gid));
@@ -2606,6 +2610,11 @@ pub fn builtinFileStatBlockdevQ(vm: *VM, receiver: Value, args: []Value, _: ?Blo
 pub fn builtinFileStatChardevQ(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
     return fileStatBoolIvar(vm, receiver, "@chardev");
+}
+
+pub fn builtinFileStatSocketQ(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    return fileStatBoolIvar(vm, receiver, "@socket");
 }
 
 pub fn builtinFileStatZeroQ(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
