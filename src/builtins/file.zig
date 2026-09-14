@@ -416,6 +416,13 @@ fn gnuMakeDev(major: u32, minor: u32) i64 {
     return @intCast(dev);
 }
 
+// Inverse of gnuMakeDev, matching glibc major(3)/minor(3).
+fn gnuMajor(dev: i64) i64 {
+    const u: u64 = @bitCast(dev);
+    const major: u64 = ((u >> 8) & 0xfff) | ((u >> 32) & 0xfffff000);
+    return @intCast(major);
+}
+
 const linux_statx_request: std.os.linux.STATX = .{
     .MODE = true,
     .UID = true,
@@ -748,6 +755,9 @@ pub fn register(vm: *VM) !void {
 
     const dev_sym = try vm.intern("dev");
     try vm.file_stat_class.module.methods.put(dev_sym, value.MethodEntry.builtin(&builtinFileStatDev, .{ .exact = 0 }));
+
+    const dev_major_sym = try vm.intern("dev_major");
+    try vm.file_stat_class.module.methods.put(dev_major_sym, value.MethodEntry.builtin(&builtinFileStatDevMajor, .{ .exact = 0 }));
 
     const rdev_sym = try vm.intern("rdev");
     try vm.file_stat_class.module.methods.put(rdev_sym, value.MethodEntry.builtin(&builtinFileStatRdev, .{ .exact = 0 }));
@@ -2757,6 +2767,12 @@ pub fn builtinFileStatBlocks(vm: *VM, receiver: Value, args: []Value, _: ?Block)
 pub fn builtinFileStatDev(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
     return fileStatIntegerIvar(vm, receiver, "@dev");
+}
+
+pub fn builtinFileStatDevMajor(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    const dev_val = try fileStatIntegerIvar(vm, receiver, "@dev");
+    return Value.integer(gnuMajor(dev_val.toInteger()));
 }
 
 pub fn builtinFileStatRdev(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
