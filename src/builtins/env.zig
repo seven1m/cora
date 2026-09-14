@@ -181,7 +181,7 @@ pub fn builtinEnvValuesAt(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!V
 
 pub fn builtinEnvKey(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 1);
-    const value_to_find = try args[0].coerceToStr(vm, "no implicit conversion into String");
+    const value_to_find = try args[0].coerceToStr(vm, "no implicit conversion of Object into String");
 
     var env_map = try vm.currentEnvMap();
     defer env_map.deinit();

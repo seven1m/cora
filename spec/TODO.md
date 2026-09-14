@@ -601,7 +601,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/env/inspect_spec.rb
 - [x] core/env/invert_spec.rb
 - [ ] core/env/keep_if_spec.rb
-- [ ] core/env/key_spec.rb
+ - [x] core/env/key_spec.rb
 - [x] core/env/keys_spec.rb
 - [x] core/env/length_spec.rb
 - [x] core/env/member_spec.rb
