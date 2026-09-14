@@ -129,6 +129,9 @@ pub fn register(vm: *VM) !void {
 
     const exist_sym = try vm.intern("exist?");
     try dir_singleton.module.methods.put(exist_sym, value.MethodEntry.builtin(&file_builtin.builtinFileDirectory, .{ .exact = 1 }));
+
+    const empty_sym = try vm.intern("empty?");
+    try dir_singleton.module.methods.put(empty_sym, value.MethodEntry.builtin(&builtinDirEmpty, .{ .exact = 1 }));
 }
 
 pub fn builtinDirPwd(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
@@ -267,6 +270,33 @@ pub fn builtinDirChildren(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!V
     }
 
     return Value.fromObject(&result.object);
+}
+
+pub fn builtinDirEmpty(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    if (builtin.os.tag == .windows) {
+        return vm.raiseExceptionFmt(vm.not_implemented_error_class, "Dir.empty? is not implemented on Windows", .{});
+    }
+
+    const target = try vm.coerceToPath(args[0], "no implicit conversion into String");
+    const st = std.Io.Dir.cwd().statFile(vm.io, target, .{}) catch |err| switch (err) {
+        error.FileNotFound => return vm.raiseErrnoFmt(.NOENT, "No such file or directory @ dir_s_empty - {s}", .{target}),
+        else => return Value.boolean(false),
+    };
+    if (st.kind != .directory) return Value.boolean(false);
+
+    var dir = std.Io.Dir.cwd().openDir(vm.io, target, .{ .iterate = true }) catch |err| switch (err) {
+        error.FileNotFound => return vm.raiseErrnoFmt(.NOENT, "No such file or directory @ dir_s_empty - {s}", .{target}),
+        else => return vm.raiseExceptionFmt(vm.system_call_error_class, "failed to open directory: {s}", .{target}),
+    };
+    defer dir.close(vm.io);
+
+    var iter = dir.iterate();
+    while (iter.next(vm.io) catch return error.Fatal) |entry| {
+        if (isDotLike(entry.name)) continue;
+        return Value.boolean(false);
+    }
+    return Value.boolean(true);
 }
 
 fn encodedDirEntry(vm: *VM, name: []const u8, external_encoding: enc.Encoding) VMError!Value {

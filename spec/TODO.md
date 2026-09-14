@@ -344,7 +344,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/dir/each_child_spec.rb
 - [ ] core/dir/each_spec.rb
 - [x] core/dir/element_reference_spec.rb
-- [ ] core/dir/empty_spec.rb
+- [x] core/dir/empty_spec.rb
 - [x] core/dir/entries_spec.rb
 - [x] core/dir/exist_spec.rb
 - [ ] core/dir/fchdir_spec.rb
