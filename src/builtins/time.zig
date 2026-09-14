@@ -210,6 +210,9 @@ pub fn register(vm: *VM) !void {
 
     const tuesday_q_sym = try vm.intern("tuesday?");
     try vm.time_class.module.methods.put(tuesday_q_sym, value.MethodEntry.builtin(&builtinTimeTuesday, .{ .exact = 0 }));
+
+    const wednesday_q_sym = try vm.intern("wednesday?");
+    try vm.time_class.module.methods.put(wednesday_q_sym, value.MethodEntry.builtin(&builtinTimeWednesday, .{ .exact = 0 }));
 }
 
 fn floorDiv(numerator: i64, denominator: i64) i64 {
@@ -1612,4 +1615,9 @@ pub fn builtinTimeMonday(vm: *VM, receiver: Value, args: []Value, _: ?Block) VME
 pub fn builtinTimeTuesday(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
     return Value.boolean((try timePartsFor(vm, receiver.toTimeObject())).weekday == 2);
+}
+
+pub fn builtinTimeWednesday(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    return Value.boolean((try timePartsFor(vm, receiver.toTimeObject())).weekday == 3);
 }

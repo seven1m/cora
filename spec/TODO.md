@@ -2328,7 +2328,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/time/utc_offset_spec.rb
 - [ ] core/time/utc_spec.rb
 - [ ] core/time/wday_spec.rb
-- [ ] core/time/wednesday_spec.rb
+- [x] core/time/wednesday_spec.rb
 - [ ] core/time/xmlschema_spec.rb
 - [ ] core/time/yday_spec.rb
 - [x] core/time/year_spec.rb
