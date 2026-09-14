@@ -802,7 +802,7 @@ Source baseline: ../ruby_spec compared to local spec/
 ### core/file
 - [x] core/file/stat_spec.rb
  - [x] core/file/sticky_spec.rb
-- [ ] core/file/symlink_spec.rb
+- [x] core/file/symlink_spec.rb
 - [x] core/file/to_path_spec.rb
 - [ ] core/file/truncate_spec.rb
 - [x] core/file/umask_spec.rb
