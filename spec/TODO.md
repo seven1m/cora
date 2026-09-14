@@ -597,7 +597,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/env/filter_spec.rb
 - [x] core/env/has_key_spec.rb
  - [x] core/env/has_value_spec.rb
-- [ ] core/env/include_spec.rb
+- [x] core/env/include_spec.rb
 - [ ] core/env/inspect_spec.rb
 - [x] core/env/invert_spec.rb
 - [ ] core/env/keep_if_spec.rb

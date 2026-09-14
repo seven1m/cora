@@ -143,7 +143,7 @@ pub fn builtinEnvDelete(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Val
 
 pub fn builtinEnvInclude(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 1);
-    const key = try args[0].coerceToStr(vm, "no implicit conversion into String");
+    const key = try args[0].coerceToStr(vm, "no implicit conversion of Object into String");
     const value_opt = try vm.envGet(key);
     return Value.boolean(!value_opt.isNil());
 }
