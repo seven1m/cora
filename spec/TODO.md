@@ -809,7 +809,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] core/file/unlink_spec.rb
 - [ ] core/file/utime_spec.rb
 - [ ] core/file/world_readable_spec.rb
-- [ ] core/file/world_writable_spec.rb
+- [x] core/file/world_writable_spec.rb
 - [ ] core/file/writable_real_spec.rb
 - [x] core/file/writable_spec.rb
 - [x] core/file/zero_spec.rb
