@@ -254,7 +254,8 @@ pub fn floatToRationalParts(vm: *VM, f: f64) VMError!RationalParts {
         numerator = try vm.valueFromManagedInteger(&shifted);
     } else {
         const shift: u32 = @intCast(-exponent);
-        if (shift < 63) {
+        // Fixnums are i63, so 2**62 and above must use the BigInt path.
+        if (shift < 62) {
             denominator = Value.integer(@as(i64, 1) << @intCast(shift));
         } else {
             var den = BigInt.initSet(vm.allocator, 1) catch return error.Fatal;
@@ -356,6 +357,9 @@ pub fn register(vm: *VM) !void {
 
     const marshal_dump_sym = try vm.intern("marshal_dump");
     try vm.rational_class.module.methods.put(marshal_dump_sym, value.MethodEntry.builtinWithVisibility(&builtinRationalMarshalDump, .{ .exact = 0 }, .private));
+
+    const rationalize_sym = try vm.intern("rationalize");
+    try vm.rational_class.module.methods.put(rationalize_sym, value.MethodEntry.builtin(&builtinRationalRationalize, .{ .variadic = 0 }));
 }
 
 pub fn builtinRationalNewForbidden(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
@@ -909,4 +913,76 @@ pub fn builtinRationalCoerce(vm: *VM, receiver: Value, args: []Value, _: ?Block)
         return Value.fromObject(&result.object);
     }
     return vm.raiseExceptionFmt(vm.type_error_class, "{s} can't be coerced into Rational", .{vm.className(other)});
+}
+
+pub fn builtinRationalRationalize(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCountRange(args, 0, 1);
+    if (args.len == 0) return receiver;
+    const rational = receiver.toRationalObject();
+
+    var eps_num: Value = undefined;
+    var eps_den: Value = Value.integer(1);
+    const eps = args[0];
+    if (eps.isRational()) {
+        const eps_rational = eps.toRationalObject();
+        eps_num = eps_rational.numerator;
+        eps_den = eps_rational.denominator;
+    } else if (eps.isInteger() or eps.isBigInteger()) {
+        eps_num = eps;
+    } else if (eps.isFloat()) {
+        const parts = try floatToRationalParts(vm, eps.toFloatObject().val);
+        eps_num = parts.numerator;
+        eps_den = parts.denominator;
+    } else {
+        const converted = try vm.callMethodByName(eps, "to_r", &.{}, null);
+        if (!converted.isRational()) {
+            return vm.raiseExceptionFmt(vm.type_error_class, "can't convert {s} into Rational", .{vm.className(eps)});
+        }
+        const converted_rational = converted.toRationalObject();
+        eps_num = converted_rational.numerator;
+        eps_den = converted_rational.denominator;
+    }
+
+    const zero = Value.integer(0);
+    const negative_one = Value.integer(-1);
+    if ((try vm.compareIntegerValues(eps_num, zero)) == .lt) {
+        eps_num = try vm.mulIntegerValues(negative_one, eps_num);
+    }
+
+    const self_num = rational.numerator;
+    const self_den = rational.denominator;
+    const scaled_self = try vm.mulIntegerValues(self_num, eps_den);
+    const scaled_eps = try vm.mulIntegerValues(eps_num, self_den);
+    const common_den = try vm.mulIntegerValues(self_den, eps_den);
+    const lower_num = try vm.subIntegerValues(scaled_self, scaled_eps);
+    const upper_num = try vm.addIntegerValues(scaled_self, scaled_eps);
+
+    return simplestRationalInInterval(vm, lower_num, common_den, upper_num, common_den);
+}
+
+fn simplestRationalInInterval(vm: *VM, lower_num: Value, lower_den: Value, upper_num: Value, upper_den: Value) VMError!Value {
+    const one = Value.integer(1);
+    const negative_one = Value.integer(-1);
+
+    const neg_lower = try vm.mulIntegerValues(negative_one, lower_num);
+    const floor_neg_lower = try vm.divFloorIntegerValues(neg_lower, lower_den);
+    const ceil_lower = try vm.mulIntegerValues(negative_one, floor_neg_lower);
+    const ceil_scaled = try vm.mulIntegerValues(ceil_lower, upper_den);
+    if ((try vm.compareIntegerValues(ceil_scaled, upper_num)) != .gt) {
+        return vm.newRationalValues(ceil_lower, one);
+    }
+
+    const whole = try vm.divFloorIntegerValues(lower_num, lower_den);
+    const whole_lower_den = try vm.mulIntegerValues(whole, lower_den);
+    const lower_remainder = try vm.subIntegerValues(lower_num, whole_lower_den);
+    const whole_upper_den = try vm.mulIntegerValues(whole, upper_den);
+    const upper_remainder = try vm.subIntegerValues(upper_num, whole_upper_den);
+
+    const convergent = try simplestRationalInInterval(vm, upper_den, upper_remainder, lower_den, lower_remainder);
+    const convergent_rational = convergent.toRationalObject();
+    const convergent_num = convergent_rational.numerator;
+    const convergent_den = convergent_rational.denominator;
+    const whole_scaled = try vm.mulIntegerValues(whole, convergent_num);
+    const result_num = try vm.addIntegerValues(whole_scaled, convergent_den);
+    return vm.newRationalValues(result_num, convergent_num);
 }

@@ -1829,7 +1829,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] core/rational/plus_spec.rb
 - [x] core/rational/quo_spec.rb
 - [x] core/rational/rational_spec.rb
-- [ ] core/rational/rationalize_spec.rb
+- [x] core/rational/rationalize_spec.rb
 - [ ] core/rational/remainder_spec.rb
 - [x] core/rational/round_spec.rb
 - [x] core/rational/to_f_spec.rb
