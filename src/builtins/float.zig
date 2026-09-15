@@ -273,6 +273,9 @@ pub fn register(vm: *VM) !void {
     const to_r_sym = try vm.intern("to_r");
     try vm.float_class.module.methods.put(to_r_sym, value.MethodEntry.builtin(&builtinFloatToR, .{ .exact = 0 }));
 
+    const rationalize_sym = try vm.intern("rationalize");
+    try vm.float_class.module.methods.put(rationalize_sym, value.MethodEntry.builtin(&builtinFloatRationalize, .{ .variadic = 0 }));
+
     const denominator_sym = try vm.intern("denominator");
     try vm.float_class.module.methods.put(denominator_sym, value.MethodEntry.builtin(&builtinFloatDenominator, .{ .exact = 0 }));
 
@@ -659,6 +662,22 @@ pub fn builtinFloatToR(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMErr
     try vm.requireArgCount(args, 0);
     const parts = try rational_builtin.floatToRationalParts(vm, receiver.toFloatObject().val);
     return vm.newRationalValues(parts.numerator, parts.denominator);
+}
+
+pub fn builtinFloatRationalize(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCountRange(args, 0, 1);
+    const f = receiver.toFloatObject().val;
+    if (std.math.isNan(f)) {
+        return vm.raiseExceptionFmt(vm.float_domain_error_class, "NaN", .{});
+    }
+    if (std.math.isInf(f)) {
+        return vm.raiseExceptionFmt(vm.float_domain_error_class, "Infinity", .{});
+    }
+    if (args.len == 0) {
+        return rational_builtin.floatRationalize(vm, f);
+    }
+    const as_rational = try builtinFloatToR(vm, receiver, &.{}, null);
+    return vm.callMethodByName(as_rational, "rationalize", args, null);
 }
 
 pub fn builtinFloatDenominator(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {

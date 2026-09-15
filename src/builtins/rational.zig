@@ -269,6 +269,49 @@ pub fn floatToRationalParts(vm: *VM, f: f64) VMError!RationalParts {
     return .{ .numerator = numerator, .denominator = denominator };
 }
 
+pub fn floatRationalize(vm: *VM, f: f64) VMError!Value {
+    // Mirrors MRI rb_flt_rationalize: the simplest Rational that converts
+    // back to the same Float. For value = mantissa * 2^n with integer
+    // mantissa, that is the simplest Rational in the interval
+    // [(2*mantissa-1)/2^(1-n), (2*mantissa+1)/2^(1-n)].
+    if (f == 0.0) {
+        return vm.newRationalValues(Value.integer(0), Value.integer(1));
+    }
+    const negative = f < 0.0;
+    const af = if (negative) -f else f;
+    const bits: u64 = @bitCast(af);
+    const exponent_bits: u16 = @intCast((bits >> 52) & 0x7ff);
+    const fraction_bits = bits & 0x000f_ffff_ffff_ffff;
+    const mantissa: u64 = if (exponent_bits == 0)
+        fraction_bits
+    else
+        fraction_bits | (@as(u64, 1) << 52);
+    const unbiased: i32 = if (exponent_bits == 0) 1 else @as(i32, exponent_bits);
+    const n: i32 = unbiased - 1023 - 52;
+
+    const mantissa_val = Value.integer(@intCast(mantissa));
+
+    var result: Value = undefined;
+    if (n >= 0) {
+        var pow_args = [_]Value{Value.integer(@as(i64, n))};
+        const scale = try vm.callMethodByName(Value.integer(2), "**", pow_args[0..], null);
+        result = try vm.newRationalValues(try vm.mulIntegerValues(mantissa_val, scale), Value.integer(1));
+    } else {
+        const shift: i64 = @as(i64, 1) - @as(i64, n);
+        var pow_args = [_]Value{Value.integer(shift)};
+        const den = try vm.callMethodByName(Value.integer(2), "**", pow_args[0..], null);
+        const twice = try vm.mulIntegerValues(Value.integer(2), mantissa_val);
+        const lower_num = try vm.subIntegerValues(twice, Value.integer(1));
+        const upper_num = try vm.addIntegerValues(twice, Value.integer(1));
+        result = try simplestRationalInInterval(vm, lower_num, den, upper_num, den);
+    }
+
+    if (!negative) return result;
+    const rational = result.toRationalObject();
+    const neg_num = try vm.mulIntegerValues(Value.integer(-1), rational.numerator);
+    return vm.newRationalValues(neg_num, rational.denominator);
+}
+
 pub fn register(vm: *VM) !void {
     const rational_new_sym = try vm.intern("new");
     try vm.rational_class.module.methods.put(rational_new_sym, value.MethodEntry.builtinWithVisibility(&builtinRationalNewForbidden, .{ .variadic = 0 }, .private));
