@@ -350,8 +350,27 @@ pub fn builtinFloatMultiply(vm: *VM, receiver: Value, args: []Value, _: ?Block) 
 pub fn builtinFloatExponent(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 1);
     const lhs = receiver.toFloatObject().val;
-    const rhs = try coerceNumericArg(vm, args[0]);
-    return vm.newFloat(pow(lhs, rhs));
+    const arg = args[0];
+    var rhs: f64 = undefined;
+    if (arg.isFloat() or arg.isInteger() or arg.isBigInteger()) {
+        rhs = try coerceNumericArg(vm, arg);
+    } else if (arg.isRational()) {
+        const rational = arg.toRationalObject();
+        rhs = rational.numerator.integerToF64() / rational.denominator.integerToF64();
+    } else {
+        return coerceAndCallFloatArithmetic(vm, receiver, arg, "**");
+    }
+    const result = pow(lhs, rhs);
+    if (std.math.isNan(result) and !std.math.isNan(lhs) and !std.math.isNan(rhs) and lhs < 0.0) {
+        // MRI returns the principal complex value for a negative base
+        // raised to a fractional power instead of NaN.
+        const magnitude = pow(-lhs, rhs);
+        const angle = std.math.pi * rhs;
+        const real = try vm.newFloat(magnitude * std.math.cos(angle));
+        const imaginary = try vm.newFloat(magnitude * std.math.sin(angle));
+        return vm.newComplex(real, imaginary);
+    }
+    return vm.newFloat(result);
 }
 
 pub fn builtinFloatDivide(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
