@@ -1871,7 +1871,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] core/regexp/quote_spec.rb
 - [x] core/regexp/source_spec.rb
 - [ ] core/regexp/timeout_spec.rb
-- [ ] core/regexp/to_s_spec.rb
+- [x] core/regexp/to_s_spec.rb
 - [x] core/regexp/try_convert_spec.rb
 - [x] core/regexp/union_spec.rb
 

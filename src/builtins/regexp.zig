@@ -246,31 +246,146 @@ fn appendEncodedAscii(out: *std.ArrayList(u8), allocator: std.mem.Allocator, tar
     }
 }
 
+fn validRegexpToSFlags(flags: []const u8) bool {
+    if (flags.len == 0) return false;
+    var seen_dash = false;
+    for (flags) |c| {
+        switch (c) {
+            'i', 'm', 'x' => {},
+            '-' => {
+                if (seen_dash) return false;
+                seen_dash = true;
+            },
+            else => return false,
+        }
+    }
+    return true;
+}
+
+fn applyRegexpToSFlags(options: *u16, flags: []const u8) void {
+    var disabling = false;
+    for (flags) |c| {
+        if (c == '-') {
+            disabling = true;
+            continue;
+        }
+        const bit: u16 = switch (c) {
+            'i' => OPTION_IGNORECASE,
+            'm' => OPTION_MULTILINE,
+            'x' => OPTION_EXTENDED,
+            else => continue,
+        };
+        if (disabling) {
+            options.* &= ~bit;
+        } else {
+            options.* |= bit;
+        }
+    }
+}
+
+/// Finds the index of the `)` matching the `(` at index 0, skipping escaped
+/// bytes and `[...]` character classes. Returns null if unbalanced.
+fn matchRegexpToSGroupEnd(pattern: []const u8) ?usize {
+    var depth: usize = 0;
+    var i: usize = 0;
+    var in_class = false;
+    while (i < pattern.len) {
+        const c = pattern[i];
+        if (in_class) {
+            if (c == '\\') {
+                i += 2;
+                continue;
+            }
+            if (c == ']') in_class = false;
+            i += 1;
+            continue;
+        }
+        switch (c) {
+            '\\' => i += 2,
+            '[' => {
+                in_class = true;
+                i += 1;
+            },
+            '(' => {
+                depth += 1;
+                i += 1;
+            },
+            ')' => {
+                depth -= 1;
+                if (depth == 0) return i;
+                i += 1;
+            },
+            else => i += 1,
+        }
+    }
+    return null;
+}
+
+const RegexpToSEffective = struct {
+    options: u16,
+    pattern: []const u8,
+};
+
+/// Mirrors MRI's `Regexp#to_s` normalization: absorbs leading `(?flags)`
+/// prefixes into the options, then unwraps a single outer `(?:...)` or
+/// `(?flags:...)` group spanning the whole pattern.
+fn effectiveRegexpToSPattern(regexp: *value.RegexpObject) RegexpToSEffective {
+    var options = regexp.options;
+    var pattern = regexp.pattern;
+    while (pattern.len >= 3 and pattern[0] == '(' and pattern[1] == '?') {
+        var fend: usize = 2;
+        while (fend < pattern.len and (pattern[fend] == 'i' or pattern[fend] == 'm' or pattern[fend] == 'x' or pattern[fend] == '-')) : (fend += 1) {}
+        const flags = pattern[2..fend];
+        if (fend < pattern.len and pattern[fend] == ')' and validRegexpToSFlags(flags)) {
+            applyRegexpToSFlags(&options, flags);
+            pattern = pattern[fend + 1 ..];
+            continue;
+        }
+        // Whole-pattern group "(?:inner)" or "(?flags:inner)" — unwrap once.
+        if (fend < pattern.len and pattern[fend] == ':' and (flags.len == 0 or validRegexpToSFlags(flags))) {
+            if (matchRegexpToSGroupEnd(pattern)) |close| {
+                if (close == pattern.len - 1) {
+                    applyRegexpToSFlags(&options, flags);
+                    pattern = pattern[fend + 1 .. close];
+                    break;
+                }
+            }
+            break;
+        }
+        break;
+    }
+    return .{ .options = options, .pattern = pattern };
+}
+
 fn buildRegexpToSBytes(vm: *VM, regexp: *value.RegexpObject) VMError![]u8 {
     var out: std.ArrayList(u8) = .empty;
     errdefer out.deinit(vm.allocator);
 
+    const effective = effectiveRegexpToSPattern(regexp);
+    const options = effective.options;
+    const pattern = effective.pattern;
+
     try appendEncodedAscii(&out, vm.allocator, regexp.encoding, "(?");
-    if ((regexp.options & OPTION_IGNORECASE) != 0) try appendEncodedAscii(&out, vm.allocator, regexp.encoding, "i");
-    if ((regexp.options & OPTION_MULTILINE) != 0) try appendEncodedAscii(&out, vm.allocator, regexp.encoding, "m");
-    if ((regexp.options & OPTION_EXTENDED) != 0) try appendEncodedAscii(&out, vm.allocator, regexp.encoding, "x");
+    if ((options & OPTION_MULTILINE) != 0) try appendEncodedAscii(&out, vm.allocator, regexp.encoding, "m");
+    if ((options & OPTION_IGNORECASE) != 0) try appendEncodedAscii(&out, vm.allocator, regexp.encoding, "i");
+    if ((options & OPTION_EXTENDED) != 0) try appendEncodedAscii(&out, vm.allocator, regexp.encoding, "x");
 
     var has_disabled = false;
-    if ((regexp.options & OPTION_MULTILINE) == 0) {
+    if ((options & OPTION_MULTILINE) == 0) {
         if (!has_disabled) {
             try appendEncodedAscii(&out, vm.allocator, regexp.encoding, "-");
             has_disabled = true;
         }
         try appendEncodedAscii(&out, vm.allocator, regexp.encoding, "m");
     }
-    if ((regexp.options & OPTION_IGNORECASE) == 0) {
+    if ((options & OPTION_IGNORECASE) == 0) {
         if (!has_disabled) {
             try appendEncodedAscii(&out, vm.allocator, regexp.encoding, "-");
             has_disabled = true;
         }
         try appendEncodedAscii(&out, vm.allocator, regexp.encoding, "i");
     }
-    if ((regexp.options & OPTION_EXTENDED) == 0) {
+    if ((options & OPTION_EXTENDED) == 0) {
         if (!has_disabled) {
             try appendEncodedAscii(&out, vm.allocator, regexp.encoding, "-");
             has_disabled = true;
@@ -278,7 +393,7 @@ fn buildRegexpToSBytes(vm: *VM, regexp: *value.RegexpObject) VMError![]u8 {
         try appendEncodedAscii(&out, vm.allocator, regexp.encoding, "x");
     }
     try appendEncodedAscii(&out, vm.allocator, regexp.encoding, ":");
-    out.appendSlice(vm.allocator, regexp.pattern) catch return error.Fatal;
+    out.appendSlice(vm.allocator, pattern) catch return error.Fatal;
     try appendEncodedAscii(&out, vm.allocator, regexp.encoding, ")");
     return out.toOwnedSlice(vm.allocator) catch return error.Fatal;
 }
