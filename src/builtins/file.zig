@@ -724,6 +724,7 @@ pub fn register(vm: *VM) !void {
     const filetest_singleton = try vm.getOrCreateSingletonClass(filetest_val);
     try filetest_singleton.module.methods.put(zero_q_sym_file, value.MethodEntry.builtin(&builtinFileZeroQ, .{ .exact = 1 }));
     try filetest_singleton.module.methods.put(empty_q_sym_file, value.MethodEntry.builtin(&builtinFileZeroQ, .{ .exact = 1 }));
+    try filetest_singleton.module.methods.put(directory_sym, value.MethodEntry.builtin(&builtinFileDirectory, .{ .exact = 1 }));
 
     const mtime_sym_file = try vm.intern("mtime");
     try file_singleton.module.methods.put(mtime_sym_file, value.MethodEntry.builtin(&builtinFileMtime, .{ .exact = 1 }));
