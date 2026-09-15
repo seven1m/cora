@@ -347,6 +347,9 @@ pub fn register(vm: *VM) !void {
 
     const round_sym = try vm.intern("round");
     try vm.rational_class.module.methods.put(round_sym, value.MethodEntry.builtin(&builtinRationalRound, .{ .variadic = 0 }));
+
+    const marshal_dump_sym = try vm.intern("marshal_dump");
+    try vm.rational_class.module.methods.put(marshal_dump_sym, value.MethodEntry.builtinWithVisibility(&builtinRationalMarshalDump, .{ .exact = 0 }, .private));
 }
 
 pub fn builtinRationalNewForbidden(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
@@ -586,6 +589,15 @@ pub fn builtinRationalRound(vm: *VM, receiver: Value, args: []Value, _: ?Block) 
     const scaled_num = try vm.mulIntegerValues(rational.numerator, factor);
     const quotient = try rationalRoundQuotient(vm, scaled_num, rational.denominator, half_mode);
     return vm.newRationalValues(quotient, factor);
+}
+
+fn builtinRationalMarshalDump(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    const rational = receiver.toRationalObject();
+    const result = try vm.createArray();
+    result.elements.append(vm.gc_allocator, rational.numerator) catch return error.Fatal;
+    result.elements.append(vm.gc_allocator, rational.denominator) catch return error.Fatal;
+    return Value.fromObject(&result.object);
 }
 
 pub fn builtinRationalFreeze(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
