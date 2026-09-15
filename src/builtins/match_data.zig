@@ -277,6 +277,12 @@ fn builtinMatchDataRegexp(vm: *VM, receiver: Value, args: []Value, _: ?Block) VM
 fn builtinMatchDataString(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
     const md = try getMatchData(receiver);
+    // Return a frozen copy of the matched string, caching it on the
+    // MatchData so repeated calls return the same object.
+    if (!Value.fromObject(&md.source.object).isFrozen()) {
+        const frozen_copy = try vm.newStringWithEncoding(md.source.str, true, md.source.encoding);
+        md.source = frozen_copy.toStringObject();
+    }
     return Value.fromObject(&md.source.object);
 }
 

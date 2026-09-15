@@ -1423,6 +1423,15 @@ fn advanceStringSubSearchOffset(bytes: []const u8, string_encoding: enc.Encoding
     return if (ch.len > 0 and next > base_offset) next else base_offset + 1;
 }
 
+// Bang sub/gsub mutate the receiver after matching, so detach the MatchData
+// source from the live receiver and point it at a snapshot of the
+// pre-mutation string. Bytes are identical at this point; only later
+// mutation would diverge.
+fn snapshotMatchDataSource(vm: *VM, md: *value.MatchDataObject, snapshot: value.StringObject) VMError!void {
+    const duped = try vm.newStringWithEncoding(snapshot.str, false, snapshot.encoding);
+    md.source = duped.toStringObject();
+}
+
 fn stringSub(vm: *VM, receiver: Value, args: []Value, block: ?Block, bang: bool) VMError!Value {
     try vm.requireArgCountRange(args, 1, 2);
     if (args.len == 1 and block == null) {
@@ -1435,6 +1444,7 @@ fn stringSub(vm: *VM, receiver: Value, args: []Value, block: ?Block, bang: bool)
         if (bang) return Value.nil();
         return try vm.newStringWithEncoding(snapshot.str, false, snapshot.encoding);
     };
+    if (bang) try snapshotMatchDataSource(vm, match.match_data, snapshot);
 
     const replacement = if (args.len == 2) blk: {
         if (args[1].isHash()) {
@@ -1492,6 +1502,7 @@ fn stringGsub(vm: *VM, receiver: Value, args: []Value, block: ?Block, bang: bool
     while (try findStringSubMatchAt(vm, receiver, args[0], search_offset)) |match| {
         matched = true;
         last_success_md = match.match_data;
+        if (bang) try snapshotMatchDataSource(vm, match.match_data, snapshot);
 
         try appendSubReplacementSegment(vm, &out, &result_encoding, snapshot.encoding, snapshot.str[copy_offset..match.start_byte]);
         copy_offset = match.end_byte;
