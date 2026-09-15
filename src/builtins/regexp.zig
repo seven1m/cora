@@ -406,11 +406,30 @@ fn builtinRegexpInspect(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMEr
     defer buf.deinit();
     const writer = &buf.writer;
     writer.writeByte('/') catch return error.Fatal;
-    writer.writeAll(r.pattern) catch return error.Fatal;
+    // Escape bare `/` as `\/`, copying `\X` escape pairs verbatim so
+    // already-escaped slashes are not double-escaped.
+    var i: usize = 0;
+    while (i < r.pattern.len) {
+        const c = r.pattern[i];
+        if (c == '\\' and i + 1 < r.pattern.len) {
+            writer.writeByte('\\') catch return error.Fatal;
+            writer.writeByte(r.pattern[i + 1]) catch return error.Fatal;
+            i += 2;
+            continue;
+        }
+        if (c == '/') {
+            writer.writeAll("\\/") catch return error.Fatal;
+            i += 1;
+            continue;
+        }
+        writer.writeByte(c) catch return error.Fatal;
+        i += 1;
+    }
     writer.writeByte('/') catch return error.Fatal;
-    if ((r.options & 1) != 0) writer.writeByte('i') catch return error.Fatal;
-    if ((r.options & 2) != 0) writer.writeByte('x') catch return error.Fatal;
-    if ((r.options & 4) != 0) writer.writeByte('m') catch return error.Fatal;
+    if ((r.options & OPTION_MULTILINE) != 0) writer.writeByte('m') catch return error.Fatal;
+    if ((r.options & OPTION_IGNORECASE) != 0) writer.writeByte('i') catch return error.Fatal;
+    if ((r.options & OPTION_EXTENDED) != 0) writer.writeByte('x') catch return error.Fatal;
+    if ((r.options & OPTION_NOENCODING) != 0) writer.writeByte('n') catch return error.Fatal;
 
     const str = buf.toOwnedSlice() catch return error.Fatal;
     defer vm.allocator.free(str);

@@ -1860,7 +1860,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] core/regexp/fixed_encoding_spec.rb
 - [x] core/regexp/hash_spec.rb
 - [ ] core/regexp/initialize_spec.rb
-- [ ] core/regexp/inspect_spec.rb
+- [x] core/regexp/inspect_spec.rb
 - [ ] core/regexp/last_match_spec.rb
 - [ ] core/regexp/linear_time_spec.rb
 - [ ] core/regexp/match_spec.rb
