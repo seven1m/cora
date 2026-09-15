@@ -517,7 +517,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] core/enumerator/each_with_object_spec.rb
 - [x] core/enumerator/enumerator_spec.rb
 - [ ] core/enumerator/feed_spec.rb
-- [ ] core/enumerator/first_spec.rb
+- [x] core/enumerator/first_spec.rb
 - [ ] core/enumerator/initialize_spec.rb
 - [ ] core/enumerator/inspect_spec.rb
 
