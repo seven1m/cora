@@ -46,6 +46,9 @@ pub fn register(vm: *VM) !void {
     const casefold_sym = try vm.intern("casefold?");
     try vm.regexp_class.module.methods.put(casefold_sym, value.MethodEntry.builtin(&builtinRegexpCasefold, .{ .exact = 0 }));
 
+    const fixed_encoding_sym = try vm.intern("fixed_encoding?");
+    try vm.regexp_class.module.methods.put(fixed_encoding_sym, value.MethodEntry.builtin(&builtinRegexpFixedEncoding, .{ .exact = 0 }));
+
     const case_equal_sym = try vm.intern("===");
     try vm.regexp_class.module.methods.put(case_equal_sym, value.MethodEntry.builtin(&builtinRegexpCaseEqual, .{ .exact = 1 }));
 
@@ -504,6 +507,11 @@ fn builtinRegexpEq(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!V
 fn builtinRegexpCasefold(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
     return Value.boolean((receiver.toRegexpObject().options & 1) != 0);
+}
+
+fn builtinRegexpFixedEncoding(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    return Value.boolean((receiver.toRegexpObject().options & OPTION_FIXEDENCODING) != 0);
 }
 
 fn builtinRegexpCaseEqual(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
