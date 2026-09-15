@@ -746,6 +746,7 @@ pub fn register(vm: *VM) !void {
     try filetest_singleton.module.methods.put(size_sym_file, value.MethodEntry.builtin(&builtinFileSize, .{ .exact = 1 }));
     try filetest_singleton.module.methods.put(size_q_sym_file, value.MethodEntry.builtin(&builtinFileSizeQ, .{ .exact = 1 }));
     try filetest_singleton.module.methods.put(world_readable_singleton_sym, value.MethodEntry.builtin(&builtinFileWorldReadable, .{ .exact = 1 }));
+    try filetest_singleton.module.methods.put(world_writable_singleton_sym, value.MethodEntry.builtin(&builtinFileWorldWritable, .{ .exact = 1 }));
 
     const mtime_sym_file = try vm.intern("mtime");
     try file_singleton.module.methods.put(mtime_sym_file, value.MethodEntry.builtin(&builtinFileMtime, .{ .exact = 1 }));
