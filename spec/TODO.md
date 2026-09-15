@@ -1855,7 +1855,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/regexp/compile_spec.rb
 - [ ] core/regexp/encoding_spec.rb
 - [x] core/regexp/eql_spec.rb
-- [ ] core/regexp/equal_value_spec.rb
+- [x] core/regexp/equal_value_spec.rb
 - [x] core/regexp/escape_spec.rb
 - [x] core/regexp/fixed_encoding_spec.rb
 - [x] core/regexp/hash_spec.rb

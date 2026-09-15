@@ -500,7 +500,8 @@ fn builtinRegexpEq(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!V
     const self_r = receiver.toRegexpObject();
     const other_r = other.toRegexpObject();
     return Value.boolean(
-        std.mem.eql(u8, self_r.pattern, other_r.pattern) and self_r.options == other_r.options,
+        std.mem.eql(u8, self_r.pattern, other_r.pattern) and
+            (self_r.options & ~OPTION_NOENCODING) == (other_r.options & ~OPTION_NOENCODING),
     );
 }
 
