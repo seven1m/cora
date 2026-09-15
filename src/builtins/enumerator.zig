@@ -339,9 +339,7 @@ fn builtinYielderYield(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMErr
 
 fn ensureEnumeratorFiber(vm: *VM, enum_obj: *value.EnumeratorObject) VMError!*value.FiberObject {
     if (enum_obj.fiber) |fiber| {
-        if (fiber.state != .terminated) {
-            return fiber;
-        }
+        return fiber;
     }
 
     // Create a new fiber with a builtin block that calls enum.each { |v| Fiber.yield(v) }
@@ -415,11 +413,25 @@ fn fetchNextYieldValues(vm: *VM, enum_obj: *value.EnumeratorObject) VMError!*val
     }
 
     var resume_args: [1]Value = .{Value.fromObject(&enum_obj.object)};
-    const result = try vm.resumeFiber(
+    const result = vm.resumeFiber(
         fiber,
         if (fiber.state == .created) resume_args[0..1] else &[_]Value{},
         Value.nil(),
-    );
+    ) catch |err| {
+        // The fiber died abnormally. A StopIteration leaves the enumerator
+        // stopped until rewind, but any other exception is transient, so drop
+        // the dead fiber and let the next call restart iteration.
+        if (err == error.Unwind) {
+            const stopped = if (vm.pendingException()) |pending|
+                pending.object.class == vm.stop_iteration_class
+            else
+                false;
+            if (!stopped) {
+                enum_obj.fiber = null;
+            }
+        }
+        return err;
+    };
 
     if (fiber.state == .terminated) {
         return raiseStopIteration(vm);
