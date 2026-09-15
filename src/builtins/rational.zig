@@ -742,11 +742,18 @@ pub fn builtinRationalCompare(vm: *VM, receiver: Value, args: []Value, _: ?Block
         return Value.integer(0);
     }
 
-    var reverse_args = [_]Value{receiver};
-    const cmp = try vm.callMethodByName(other, "<=>", reverse_args[0..], null);
-    if (cmp.isNil()) return Value.nil();
-    if (!cmp.isInteger()) return Value.nil();
-    return cmp;
+    var coerce_args = [_]Value{receiver};
+    const maybe_coerced = try vm.checkCallMethodByName(other, "coerce", false, coerce_args[0..], null) orelse return Value.nil();
+    if (maybe_coerced.isNil()) return Value.nil();
+    if (!maybe_coerced.isArray()) {
+        return vm.raiseExceptionFmt(vm.type_error_class, "coerce must return [x, y]", .{});
+    }
+    const coerced_items = maybe_coerced.toArrayObject().elements.items;
+    if (coerced_items.len != 2) {
+        return vm.raiseExceptionFmt(vm.type_error_class, "coerce must return [x, y]", .{});
+    }
+    var cmp_args = [_]Value{coerced_items[1]};
+    return vm.callMethodByName(coerced_items[0], "<=>", cmp_args[0..], null);
 }
 
 pub fn builtinRationalUnaryMinus(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
