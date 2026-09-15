@@ -733,6 +733,7 @@ pub fn register(vm: *VM) !void {
     try filetest_singleton.module.methods.put(readable_sym, value.MethodEntry.builtin(&builtinFileReadable, .{ .exact = 1 }));
     try filetest_singleton.module.methods.put(readable_real_sym, value.MethodEntry.builtin(&builtinFileReadableReal, .{ .exact = 1 }));
     try filetest_singleton.module.methods.put(writable_sym, value.MethodEntry.builtin(&builtinFileWritable, .{ .exact = 1 }));
+    try filetest_singleton.module.methods.put(writable_real_sym, value.MethodEntry.builtin(&builtinFileWritableReal, .{ .exact = 1 }));
     try filetest_singleton.module.methods.put(executable_sym, value.MethodEntry.builtin(&builtinFileExecutable, .{ .exact = 1 }));
     try filetest_singleton.module.methods.put(executable_real_sym, value.MethodEntry.builtin(&builtinFileExecutableReal, .{ .exact = 1 }));
     try filetest_singleton.module.methods.put(symlink_q_singleton_sym, value.MethodEntry.builtin(&builtinFileSymlinkQ, .{ .exact = 1 }));
