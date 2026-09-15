@@ -37,6 +37,9 @@ pub fn register(vm: *VM) !void {
     const eq_sym = try vm.intern("==");
     try vm.regexp_class.module.methods.put(eq_sym, value.MethodEntry.builtin(&builtinRegexpEq, .{ .exact = 1 }));
 
+    const eql_sym = try vm.intern("eql?");
+    try vm.regexp_class.module.methods.put(eql_sym, value.MethodEntry.builtin(&builtinRegexpEq, .{ .exact = 1 }));
+
     const hash_sym = try vm.intern("hash");
     try vm.regexp_class.module.methods.put(hash_sym, value.MethodEntry.builtin(&builtinRegexpHash, .{ .exact = 0 }));
 
