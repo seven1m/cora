@@ -717,6 +717,9 @@ pub fn register(vm: *VM) !void {
     const empty_q_sym_file = try vm.intern("empty?");
     try file_singleton.module.methods.put(empty_q_sym_file, value.MethodEntry.builtin(&builtinFileZeroQ, .{ .exact = 1 }));
 
+    const ftype_sym_file = try vm.intern("ftype");
+    try file_singleton.module.methods.put(ftype_sym_file, value.MethodEntry.builtin(&builtinFileFtype, .{ .exact = 1 }));
+
     // FileTest module — file predicate helpers (FileTest.zero? is an alias of FileTest.empty?)
     const filetest_name_sym = try vm.intern("FileTest");
     const filetest_val = try vm.newModule(filetest_name_sym);
@@ -2259,6 +2262,20 @@ pub fn builtinFileLstat(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Val
     const stat = std.Io.Dir.cwd().statFile(vm.io, path_obj.str, .{ .follow_symlinks = false }) catch |err| return raisePathStatError(vm, path_obj, err);
     const posix_metadata = try loadPosixStatMetadataForPath(vm, path_obj, @intCast(stat.permissions.toMode()), false);
     return buildFileStat(vm, stat, posix_metadata);
+}
+
+pub fn builtinFileFtype(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    if (builtin.os.tag == .windows) {
+        return vm.raiseExceptionFmt(vm.not_implemented_error_class, "File.ftype is not implemented on Windows", .{});
+    }
+
+    const path_value = try vm.coerceToPathValue(args[0], "no implicit conversion into String");
+    const path_obj = path_value.toStringObject();
+    const stat = std.Io.Dir.cwd().statFile(vm.io, path_obj.str, .{ .follow_symlinks = false }) catch |err| return raisePathStatError(vm, path_obj, err);
+    const posix_metadata = try loadPosixStatMetadataForPath(vm, path_obj, @intCast(stat.permissions.toMode()), false);
+    const stat_val = try buildFileStat(vm, stat, posix_metadata);
+    return builtinFileStatFtype(vm, stat_val, &[_]Value{}, null);
 }
 
 pub fn builtinFileMtime(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {

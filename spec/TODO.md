@@ -721,7 +721,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] core/file/file_spec.rb
 - [-] core/file/flock_spec.rb
 - [x] core/file/fnmatch_spec.rb
-- [ ] core/file/ftype_spec.rb
+- [-] core/file/ftype_spec.rb
 - [-] core/file/grpowned_spec.rb
 - [x] core/file/identical_spec.rb
 - [ ] core/file/initialize_spec.rb
