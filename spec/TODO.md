@@ -1814,7 +1814,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] core/rational/divide_spec.rb
 - [x] core/rational/divmod_spec.rb
 - [x] core/rational/equal_value_spec.rb
-- [ ] core/rational/exponent_spec.rb
+- [x] core/rational/exponent_spec.rb
 - [ ] core/rational/fdiv_spec.rb
 - [x] core/rational/floor_spec.rb
 - [x] core/rational/hash_spec.rb

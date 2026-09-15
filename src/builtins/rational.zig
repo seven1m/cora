@@ -360,6 +360,9 @@ pub fn register(vm: *VM) !void {
 
     const rationalize_sym = try vm.intern("rationalize");
     try vm.rational_class.module.methods.put(rationalize_sym, value.MethodEntry.builtin(&builtinRationalRationalize, .{ .variadic = 0 }));
+
+    const power_sym = try vm.intern("**");
+    try vm.rational_class.module.methods.put(power_sym, value.MethodEntry.builtin(&builtinRationalPower, .{ .exact = 1 }));
 }
 
 pub fn builtinRationalNewForbidden(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
@@ -985,4 +988,79 @@ fn simplestRationalInInterval(vm: *VM, lower_num: Value, lower_den: Value, upper
     const whole_scaled = try vm.mulIntegerValues(whole, convergent_num);
     const result_num = try vm.addIntegerValues(whole_scaled, convergent_den);
     return vm.newRationalValues(result_num, convergent_num);
+}
+
+pub fn builtinRationalPower(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    const rational = receiver.toRationalObject();
+    const other = args[0];
+    const zero = Value.integer(0);
+    const one = Value.integer(1);
+
+    if (other.isRational()) {
+        const exp = other.toRationalObject();
+        if ((try vm.compareIntegerValues(exp.numerator, zero)) == .eq) {
+            return vm.newRationalValues(one, one);
+        }
+        if ((try vm.compareIntegerValues(exp.denominator, one)) == .eq) {
+            var int_args = [_]Value{exp.numerator};
+            return builtinRationalPower(vm, receiver, int_args[0..], null);
+        }
+        if ((try vm.compareIntegerValues(rational.numerator, zero)) == .eq and
+            (try vm.compareIntegerValues(exp.numerator, zero)) == .lt)
+        {
+            return vm.raiseExceptionFmt(vm.zero_division_error_class, "divided by 0", .{});
+        }
+        const base_f = try vm.newFloat(rationalToF64(rational));
+        const exp_f = try vm.newFloat(exp.numerator.integerToF64() / exp.denominator.integerToF64());
+        var float_args = [_]Value{exp_f};
+        return vm.callMethodByName(base_f, "**", float_args[0..], null);
+    }
+    if (other.isInteger() or other.isBigInteger()) {
+        const is_zero_exp = (try vm.compareIntegerValues(other, zero)) == .eq;
+        if (is_zero_exp) return vm.newRationalValues(one, one);
+        const is_negative = (try vm.compareIntegerValues(other, zero)) == .lt;
+        const is_zero_base = (try vm.compareIntegerValues(rational.numerator, zero)) == .eq;
+        if (is_zero_base) {
+            if (is_negative) {
+                return vm.raiseExceptionFmt(vm.zero_division_error_class, "divided by 0", .{});
+            }
+            return vm.newRationalValues(zero, one);
+        }
+        if (other.isBigInteger()) {
+            const is_one = (try vm.compareIntegerValues(rational.numerator, one)) == .eq and
+                (try vm.compareIntegerValues(rational.denominator, one)) == .eq;
+            if (is_one) return vm.newRationalValues(one, one);
+            const is_neg_one = (try vm.compareIntegerValues(rational.numerator, Value.integer(-1))) == .eq and
+                (try vm.compareIntegerValues(rational.denominator, one)) == .eq;
+            if (is_neg_one) {
+                const two = Value.integer(2);
+                const half = try vm.divTruncIntegerValues(other, two);
+                const doubled = try vm.mulIntegerValues(half, two);
+                if ((try vm.compareIntegerValues(doubled, other)) == .eq) {
+                    return vm.newRationalValues(one, one);
+                }
+                return vm.newRationalValues(Value.integer(-1), one);
+            }
+            return vm.raiseExceptionFmt(vm.argument_error_class, "exponent is too large", .{});
+        }
+        const exponent_i64 = try other.integerToI64(vm, "exponent is too large");
+        if (exponent_i64 == std.math.minInt(i64)) {
+            return vm.raiseExceptionFmt(vm.argument_error_class, "exponent is too large", .{});
+        }
+        const magnitude: u64 = if (exponent_i64 < 0) @intCast(-exponent_i64) else @intCast(exponent_i64);
+        const magnitude_val: Value = Value.integer(@intCast(magnitude));
+        var pow_args = [_]Value{magnitude_val};
+        const num_pow = try vm.callMethodByName(rational.numerator, "**", pow_args[0..], null);
+        const den_pow = try vm.callMethodByName(rational.denominator, "**", pow_args[0..], null);
+        if (!is_negative) {
+            return vm.newRationalValues(num_pow, den_pow);
+        }
+        return vm.newRationalValues(den_pow, num_pow);
+    }
+    if (other.isFloat()) {
+        const base_f = try vm.newFloat(rationalToF64(rational));
+        return vm.callMethodByName(base_f, "**", args, null);
+    }
+    return coerceAndCallRationalArithmetic(vm, receiver, other, "**");
 }
