@@ -1337,7 +1337,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/matchdata/string_spec.rb
 - [x] core/matchdata/to_a_spec.rb
 - [x] core/matchdata/to_s_spec.rb
-- [ ] core/matchdata/values_at_spec.rb
+- [x] core/matchdata/values_at_spec.rb
 
 ### core/math
 - [ ] core/math/acos_spec.rb

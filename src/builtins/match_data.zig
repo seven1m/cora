@@ -80,6 +80,9 @@ pub fn register(vm: *VM) !void {
 
     const byteend_sym = try vm.intern("byteend");
     try vm.match_data_class.module.methods.put(byteend_sym, value.MethodEntry.builtin(&builtinMatchDataByteend, .{ .exact = 1 }));
+
+    const values_at_sym = try vm.intern("values_at");
+    try vm.match_data_class.module.methods.put(values_at_sym, value.MethodEntry.builtin(&builtinMatchDataValuesAt, .{ .variadic = 0 }));
 }
 
 fn getMatchData(receiver: Value) VMError!*value.MatchDataObject {
@@ -624,6 +627,74 @@ fn builtinMatchDataMatchLength(vm: *VM, receiver: Value, args: []Value, _: ?Bloc
         return vm.raiseExceptionFmt(vm.index_error_class, "index {d} out of matches", .{idx});
     }
     return matchLengthAt(vm, md, @intCast(idx));
+}
+
+fn coerceMatchDataIndex(vm: *VM, arg: Value) VMError!i64 {
+    const message = std.fmt.allocPrint(vm.allocator, "no implicit conversion of {s} into Integer", .{vm.className(arg)}) catch return error.Fatal;
+    defer vm.allocator.free(message);
+    return arg.coerceToI64ViaToInt(
+        vm,
+        message,
+        message,
+        "bignum too big to convert into `long`",
+    );
+}
+
+fn builtinMatchDataValuesAt(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    const md = try getMatchData(receiver);
+    const len: i64 = @intCast(md.captures.items.len);
+    const result = try vm.createArray();
+
+    for (args) |arg| {
+        if (arg.isSymbol()) {
+            result.elements.append(vm.gc_allocator, try captureByName(vm, md, arg.toSymbolObject().name)) catch return error.Fatal;
+            continue;
+        }
+
+        if (arg.isString()) {
+            result.elements.append(vm.gc_allocator, try captureByName(vm, md, arg.toStringObject().str)) catch return error.Fatal;
+            continue;
+        }
+
+        if (arg.isRange()) {
+            const range_obj = arg.toRangeObject();
+
+            var beg: i64 = 0;
+            if (!range_obj.begin.isNil()) {
+                beg = try coerceMatchDataIndex(vm, range_obj.begin);
+                if (beg < 0) {
+                    beg += len;
+                    if (beg < 0) {
+                        const range_str = try vm.callMethodByName(arg, "to_s", &.{}, null);
+                        return vm.raiseExceptionFmt(vm.range_error_class, "{s} out of range", .{range_str.toStringObject().str});
+                    }
+                }
+            }
+
+            var count: i64 = len - beg;
+            if (!range_obj.end.isNil()) {
+                var end_raw = try coerceMatchDataIndex(vm, range_obj.end);
+                if (end_raw < 0) end_raw += len;
+                if (range_obj.exclude_end) {
+                    count = end_raw - beg;
+                } else {
+                    count = end_raw - beg + 1;
+                }
+                if (count < 0) count = 0;
+            }
+
+            var i: i64 = beg;
+            while (i < beg + count) : (i += 1) {
+                result.elements.append(vm.gc_allocator, captureAt(md, i)) catch return error.Fatal;
+            }
+            continue;
+        }
+
+        const index = try coerceMatchDataIndex(vm, arg);
+        result.elements.append(vm.gc_allocator, captureAt(md, index)) catch return error.Fatal;
+    }
+
+    return Value.fromObject(&result.object);
 }
 
 fn byteBeginAt(md: *value.MatchDataObject, index: usize) Value {
