@@ -348,6 +348,9 @@ pub fn register(vm: *VM) !void {
     const round_sym = try vm.intern("round");
     try vm.rational_class.module.methods.put(round_sym, value.MethodEntry.builtin(&builtinRationalRound, .{ .variadic = 0 }));
 
+    const floor_sym = try vm.intern("floor");
+    try vm.rational_class.module.methods.put(floor_sym, value.MethodEntry.builtin(&builtinRationalFloor, .{ .variadic = 0 }));
+
     const marshal_dump_sym = try vm.intern("marshal_dump");
     try vm.rational_class.module.methods.put(marshal_dump_sym, value.MethodEntry.builtinWithVisibility(&builtinRationalMarshalDump, .{ .exact = 0 }, .private));
 }
@@ -589,6 +592,28 @@ pub fn builtinRationalRound(vm: *VM, receiver: Value, args: []Value, _: ?Block) 
     const scaled_num = try vm.mulIntegerValues(rational.numerator, factor);
     const quotient = try rationalRoundQuotient(vm, scaled_num, rational.denominator, half_mode);
     return vm.newRationalValues(quotient, factor);
+}
+
+pub fn builtinRationalFloor(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCountRange(args, 0, 1);
+    const rational = receiver.toRationalObject();
+    const ndigits: i64 = if (args.len == 0)
+        0
+    else
+        try args[0].integerArgToI64(vm, "not an integer", "ndigits is too large");
+    if (ndigits == 0) {
+        return vm.divFloorIntegerValues(rational.numerator, rational.denominator);
+    }
+    if (ndigits < 0) {
+        const factor = try rationalDecimalFactor(vm, @intCast(-ndigits));
+        const scaled_den = try vm.mulIntegerValues(rational.denominator, factor);
+        const quotient = try vm.divFloorIntegerValues(rational.numerator, scaled_den);
+        return vm.mulIntegerValues(quotient, factor);
+    }
+    const factor = try rationalDecimalFactor(vm, @intCast(ndigits));
+    const scaled_num = try vm.mulIntegerValues(rational.numerator, factor);
+    const floored = try vm.divFloorIntegerValues(scaled_num, rational.denominator);
+    return vm.newRationalValues(floored, factor);
 }
 
 fn builtinRationalMarshalDump(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
