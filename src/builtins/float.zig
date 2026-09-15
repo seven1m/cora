@@ -468,9 +468,30 @@ pub fn builtinFloatEqual(vm: *VM, receiver: Value, args: []Value, _: ?Block) VME
     return Value.boolean(result.isTruthy());
 }
 
+/// Normalized sign (-1/0/1) of an `infinite?` result, mirroring MRI `rb_cmpint`.
+fn infiniteResultSign(vm: *VM, owner: Value, infinite: Value) VMError!i8 {
+    if (infinite.isInteger()) {
+        const n = infinite.toInteger();
+        return if (n > 0) 1 else if (n < 0) -1 else 0;
+    }
+    if (infinite.isBigInteger()) {
+        const limbs = &infinite.toBigIntegerObject().value;
+        if (limbs.eqlZero()) return 0;
+        return if (limbs.isPositive()) 1 else -1;
+    }
+    if (infinite.isFloat()) {
+        const f = infinite.toFloatObject().val;
+        if (f > 0.0) return 1;
+        if (f < 0.0) return -1;
+        return 0;
+    }
+    return vm.raiseExceptionFmt(vm.argument_error_class, "comparison of Float with {s} failed", .{vm.className(owner)});
+}
+
 pub fn builtinFloatCompare(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 1);
     const lhs = receiver.toFloatObject().val;
+    if (std.math.isNan(lhs)) return Value.nil();
     const rhs_arg = args[0];
     var rhs_f: f64 = undefined;
     if (rhs_arg.isFloat()) {
@@ -478,13 +499,33 @@ pub fn builtinFloatCompare(vm: *VM, receiver: Value, args: []Value, _: ?Block) V
     } else if (rhs_arg.isInteger() or rhs_arg.isBigInteger()) {
         rhs_f = rhs_arg.integerToF64();
     } else {
-        // MRI `rb_num_coerce_cmp` semantics: incomparable objects yield nil
-        // rather than raising.
+        // MRI `flo_cmp`: an infinite receiver first probes `other.infinite?`
+        // before attempting coercion.
+        if (std.math.isInf(lhs)) {
+            const maybe_infinite = try vm.checkCallMethodByName(rhs_arg, "infinite?", false, &.{}, null);
+            if (maybe_infinite) |infinite| {
+                if (infinite.isTruthy()) {
+                    const sign = try infiniteResultSign(vm, rhs_arg, infinite);
+                    if (lhs > 0.0) {
+                        return Value.integer(if (sign > 0) 0 else 1);
+                    }
+                    return Value.integer(if (sign < 0) 0 else -1);
+                }
+                return Value.integer(if (lhs > 0.0) 1 else -1);
+            }
+        }
+        // MRI `rb_num_coerce_cmp` semantics: a missing (or nil-returning)
+        // `coerce` yields nil, while a misbehaving one raises TypeError.
         var coerce_args = [_]Value{receiver};
         const maybe_coerced = try vm.checkCallMethodByName(rhs_arg, "coerce", false, coerce_args[0..], null) orelse return Value.nil();
-        if (!maybe_coerced.isArray()) return Value.nil();
+        if (maybe_coerced.isNil()) return Value.nil();
+        if (!maybe_coerced.isArray()) {
+            return vm.raiseExceptionFmt(vm.type_error_class, "coerce must return [x, y]", .{});
+        }
         const items = maybe_coerced.toArrayObject().elements.items;
-        if (items.len != 2) return Value.nil();
+        if (items.len != 2) {
+            return vm.raiseExceptionFmt(vm.type_error_class, "coerce must return [x, y]", .{});
+        }
         var cmp_args = [_]Value{items[1]};
         return try vm.callMethodByName(items[0], "<=>", &cmp_args, null);
     }

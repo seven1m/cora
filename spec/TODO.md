@@ -848,7 +848,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [-] core/float/case_compare_spec.rb
 - [x] core/float/ceil_spec.rb
 - [x] core/float/coerce_spec.rb
-- [ ] core/float/comparison_spec.rb
+- [x] core/float/comparison_spec.rb
 - [-] core/float/constants_spec.rb
 - [x] core/float/denominator_spec.rb
 - [x] core/float/divide_spec.rb
