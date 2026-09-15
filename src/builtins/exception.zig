@@ -23,7 +23,7 @@ pub fn register(vm: *VM) !void {
     try vm.exception_class.module.methods.put(message_sym, value.MethodEntry.builtin(&builtinExceptionMessage, .{ .exact = 0 }));
 
     const to_s_sym = try vm.intern("to_s");
-    try vm.exception_class.module.methods.put(to_s_sym, value.MethodEntry.builtin(&builtinExceptionMessage, .{ .exact = 0 }));
+    try vm.exception_class.module.methods.put(to_s_sym, value.MethodEntry.builtin(&builtinExceptionToS, .{ .exact = 0 }));
 
     const inspect_sym = try vm.intern("inspect");
     try vm.exception_class.module.methods.put(inspect_sym, value.MethodEntry.builtin(&builtinExceptionInspect, .{ .exact = 0 }));
@@ -200,6 +200,12 @@ pub fn builtinSignalExceptionInitialize(vm: *VM, receiver: Value, args: []Value,
 pub fn builtinExceptionMessage(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
 
+    return try vm.callMethodByName(receiver, "to_s", &.{}, null);
+}
+
+pub fn builtinExceptionToS(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+
     const exc = receiver.toExceptionObject();
     return Value.fromObject(&exc.message.object);
 }
@@ -283,7 +289,7 @@ pub fn builtinSignalExceptionSigno(vm: *VM, receiver: Value, args: []Value, _: ?
 }
 
 pub fn builtinSignalExceptionSignm(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
-    return builtinExceptionMessage(vm, receiver, args, null);
+    return builtinExceptionToS(vm, receiver, args, null);
 }
 
 pub fn builtinKeyErrorReceiver(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
