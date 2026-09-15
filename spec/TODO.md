@@ -818,7 +818,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/filetest/blockdev_spec.rb
 - [ ] core/filetest/chardev_spec.rb
 - [x] core/filetest/directory_spec.rb
-- [ ] core/filetest/empty_spec.rb
+- [x] core/filetest/empty_spec.rb
 - [ ] core/filetest/executable_real_spec.rb
 - [ ] core/filetest/executable_spec.rb
 - [ ] core/filetest/exist_spec.rb
