@@ -1834,7 +1834,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/rational/round_spec.rb
 - [ ] core/rational/to_f_spec.rb
 - [x] core/rational/to_i_spec.rb
-- [ ] core/rational/to_r_spec.rb
+- [x] core/rational/to_r_spec.rb
 - [x] core/rational/to_s_spec.rb
 - [ ] core/rational/truncate_spec.rb
 - [x] core/rational/zero_spec.rb

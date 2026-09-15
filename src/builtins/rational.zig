@@ -293,6 +293,9 @@ pub fn register(vm: *VM) !void {
     const to_int_sym = try vm.intern("to_int");
     try vm.rational_class.module.methods.put(to_int_sym, value.MethodEntry.builtin(&builtinRationalToI, .{ .exact = 0 }));
 
+    const to_r_sym = try vm.intern("to_r");
+    try vm.rational_class.module.methods.put(to_r_sym, value.MethodEntry.builtin(&builtinRationalToR, .{ .exact = 0 }));
+
     const freeze_sym = try vm.intern("freeze");
     try vm.rational_class.module.methods.put(freeze_sym, value.MethodEntry.builtin(&builtinRationalFreeze, .{ .exact = 0 }));
 
@@ -411,6 +414,11 @@ pub fn builtinRationalToI(vm: *VM, receiver: Value, args: []Value, _: ?Block) VM
         return vm.raiseExceptionFmt(vm.zero_division_error_class, "divided by 0", .{});
     }
     return vm.divTruncIntegerValues(rational.numerator, rational.denominator);
+}
+
+pub fn builtinRationalToR(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    return receiver;
 }
 
 pub fn builtinRationalFreeze(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
