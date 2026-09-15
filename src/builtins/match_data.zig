@@ -68,6 +68,9 @@ pub fn register(vm: *VM) !void {
 
     const eql_sym = try vm.intern("eql?");
     try vm.match_data_class.module.methods.put(eql_sym, value.MethodEntry.builtin(&builtinMatchDataEqual, .{ .exact = 1 }));
+
+    const byteoffset_sym = try vm.intern("byteoffset");
+    try vm.match_data_class.module.methods.put(byteoffset_sym, value.MethodEntry.builtin(&builtinMatchDataByteoffset, .{ .exact = 1 }));
 }
 
 fn getMatchData(receiver: Value) VMError!*value.MatchDataObject {
@@ -422,6 +425,65 @@ fn matchLengthAt(vm: *VM, md: *value.MatchDataObject, index: usize) VMError!Valu
     if (begin_pos < 0 or end_pos < 0) return Value.nil();
     _ = vm;
     return Value.integer(end_pos - begin_pos);
+}
+
+fn byteOffsetAt(vm: *VM, md: *value.MatchDataObject, index: usize) VMError!Value {
+    const arr = try vm.createArray();
+    if (index >= md.begin_byte_offsets.items.len or index >= md.end_byte_offsets.items.len) {
+        arr.elements.append(vm.gc_allocator, Value.nil()) catch return error.Fatal;
+        arr.elements.append(vm.gc_allocator, Value.nil()) catch return error.Fatal;
+        return Value.fromObject(&arr.object);
+    }
+    const begin_pos = md.begin_byte_offsets.items[index];
+    const end_pos = md.end_byte_offsets.items[index];
+    if (begin_pos < 0 or end_pos < 0) {
+        arr.elements.append(vm.gc_allocator, Value.nil()) catch return error.Fatal;
+        arr.elements.append(vm.gc_allocator, Value.nil()) catch return error.Fatal;
+        return Value.fromObject(&arr.object);
+    }
+    arr.elements.append(vm.gc_allocator, Value.integer(begin_pos)) catch return error.Fatal;
+    arr.elements.append(vm.gc_allocator, Value.integer(end_pos)) catch return error.Fatal;
+    return Value.fromObject(&arr.object);
+}
+
+fn nilOffsetPair(vm: *VM) VMError!Value {
+    const arr = try vm.createArray();
+    arr.elements.append(vm.gc_allocator, Value.nil()) catch return error.Fatal;
+    arr.elements.append(vm.gc_allocator, Value.nil()) catch return error.Fatal;
+    return Value.fromObject(&arr.object);
+}
+
+fn builtinMatchDataByteoffset(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    const md = try getMatchData(receiver);
+    const arg = args[0];
+
+    if (arg.isSymbol()) {
+        const maybe_index = try resolveNamedCaptureIndex(vm, md, arg.toSymbolObject().name);
+        if (maybe_index) |index| return byteOffsetAt(vm, md, index);
+        return nilOffsetPair(vm);
+    }
+
+    if (arg.isString()) {
+        const maybe_index = try resolveNamedCaptureIndex(vm, md, arg.toStringObject().str);
+        if (maybe_index) |index| return byteOffsetAt(vm, md, index);
+        return nilOffsetPair(vm);
+    }
+
+    const message = std.fmt.allocPrint(vm.allocator, "no implicit conversion of {s} into Integer", .{vm.className(arg)}) catch return error.Fatal;
+    defer vm.allocator.free(message);
+    const idx = try arg.coerceToI64ViaToInt(
+        vm,
+        message,
+        message,
+        "bignum too big to convert into `long`",
+    );
+
+    const len: i64 = @intCast(md.begin_byte_offsets.items.len);
+    if (idx < 0 or idx >= len) {
+        return vm.raiseExceptionFmt(vm.index_error_class, "index {d} out of matches", .{idx});
+    }
+    return byteOffsetAt(vm, md, @intCast(idx));
 }
 
 fn builtinMatchDataMatchLength(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
