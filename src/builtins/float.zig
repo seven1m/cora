@@ -357,8 +357,12 @@ pub fn builtinFloatExponent(vm: *VM, receiver: Value, args: []Value, _: ?Block) 
 pub fn builtinFloatDivide(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 1);
     const lhs = receiver.toFloatObject().val;
-    const rhs = try coerceNumericArg(vm, args[0]);
-    return vm.newFloat(lhs / rhs);
+    const arg = args[0];
+    if (arg.isFloat() or arg.isInteger() or arg.isBigInteger()) {
+        const rhs = try coerceNumericArg(vm, arg);
+        return vm.newFloat(lhs / rhs);
+    }
+    return coerceAndCallFloatArithmetic(vm, receiver, arg, "/");
 }
 
 pub fn builtinFloatFdiv(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
