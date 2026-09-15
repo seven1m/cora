@@ -410,6 +410,14 @@ pub fn builtinStructEqual(vm: *VM, receiver: Value, args: []Value, _: ?Block) VM
     const other = args[0];
     if (!other.isObject()) return Value.boolean(false);
     if (vm.getClass(receiver) != vm.getClass(other)) return Value.boolean(false);
+    if (receiver.raw == other.raw) return Value.boolean(true);
+
+    // Reuses the array equality guard kind: entries are keyed by exact object
+    // pair, and struct operands can never collide with array operands.
+    if (try vm.enterRecursionGuard(.array_equal, receiver, other)) {
+        return Value.boolean(true);
+    }
+    defer vm.leaveRecursionGuard(.array_equal, receiver, other);
 
     const members = try getStructMembersForReceiver(vm, receiver);
     for (members.elements.items) |member| {
@@ -426,6 +434,14 @@ pub fn builtinStructEql(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMEr
     const other = args[0];
     if (!other.isObject()) return Value.boolean(false);
     if (vm.getClass(receiver) != vm.getClass(other)) return Value.boolean(false);
+    if (receiver.raw == other.raw) return Value.boolean(true);
+
+    // Reuses the array equality guard kind: entries are keyed by exact object
+    // pair, and struct operands can never collide with array operands.
+    if (try vm.enterRecursionGuard(.array_eql, receiver, other)) {
+        return Value.boolean(true);
+    }
+    defer vm.leaveRecursionGuard(.array_eql, receiver, other);
 
     const members = try getStructMembersForReceiver(vm, receiver);
     for (members.elements.items) |member| {
