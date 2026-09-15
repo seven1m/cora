@@ -325,21 +325,47 @@ fn builtinMatchDataOffset(vm: *VM, receiver: Value, args: []Value, _: ?Block) VM
     return Value.fromObject(&arr.object);
 }
 
+fn beginCharOffsetAt(md: *value.MatchDataObject, index: usize) VMError!Value {
+    if (index >= md.begin_byte_offsets.items.len) return Value.nil();
+    const begin_pos = md.begin_byte_offsets.items[index];
+    if (begin_pos < 0) return Value.nil();
+    const byte_begin: usize = @intCast(begin_pos);
+    if (byte_begin > md.source.str.len) return error.Fatal;
+    const char_off = md.source.encoding.charCount(md.source.str[0..byte_begin]);
+    return Value.integer(@intCast(char_off));
+}
+
 fn builtinMatchDataBegin(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 1);
-    if (!args[0].isInteger()) {
-        return vm.raiseExceptionFmt(vm.type_error_class, "no implicit conversion into Integer", .{});
+    const md = try getMatchData(receiver);
+    const arg = args[0];
+
+    if (arg.isSymbol()) {
+        const maybe_index = try resolveNamedCaptureIndex(vm, md, arg.toSymbolObject().name);
+        if (maybe_index) |index| return beginCharOffsetAt(md, index);
+        return Value.nil();
     }
 
-    const md = try getMatchData(receiver);
-    var idx = args[0].toInteger();
-    const len: i64 = @intCast(md.begin_byte_offsets.items.len);
-    if (idx < 0) idx += len;
-    if (idx < 0 or idx >= len) return Value.nil();
+    if (arg.isString()) {
+        const maybe_index = try resolveNamedCaptureIndex(vm, md, arg.toStringObject().str);
+        if (maybe_index) |index| return beginCharOffsetAt(md, index);
+        return Value.nil();
+    }
 
-    const begin_pos = md.begin_byte_offsets.items[@intCast(idx)];
-    if (begin_pos < 0) return Value.nil();
-    return Value.integer(begin_pos);
+    const message = std.fmt.allocPrint(vm.allocator, "no implicit conversion of {s} into Integer", .{vm.className(arg)}) catch return error.Fatal;
+    defer vm.allocator.free(message);
+    const idx = try arg.coerceToI64ViaToInt(
+        vm,
+        message,
+        message,
+        "bignum too big to convert into `long`",
+    );
+
+    const len: i64 = @intCast(md.begin_byte_offsets.items.len);
+    if (idx < 0 or idx >= len) {
+        return vm.raiseExceptionFmt(vm.index_error_class, "index {d} out of matches", .{idx});
+    }
+    return beginCharOffsetAt(md, @intCast(idx));
 }
 
 fn endCharOffsetAt(md: *value.MatchDataObject, index: usize) VMError!Value {

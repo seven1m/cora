@@ -1309,7 +1309,7 @@ Source baseline: ../ruby_spec compared to local spec/
 
 ### core/matchdata
 - [ ] core/matchdata/allocate_spec.rb
-- [ ] core/matchdata/begin_spec.rb
+- [x] core/matchdata/begin_spec.rb
 - [x] core/matchdata/bytebegin_spec.rb
 - [x] core/matchdata/byteend_spec.rb
 - [x] core/matchdata/byteoffset_spec.rb
