@@ -50,6 +50,9 @@ pub fn register(vm: *VM) !void {
 
     const named_captures_sym = try vm.intern("named_captures");
     try vm.match_data_class.module.methods.put(named_captures_sym, value.MethodEntry.builtin(&builtinMatchDataNamedCaptures, .{ .variadic = 0 }));
+
+    const to_s_sym = try vm.intern("to_s");
+    try vm.match_data_class.module.methods.put(to_s_sym, value.MethodEntry.builtin(&builtinMatchDataToS, .{ .exact = 0 }));
 }
 
 fn getMatchData(receiver: Value) VMError!*value.MatchDataObject {
@@ -235,6 +238,18 @@ fn builtinMatchDataString(vm: *VM, receiver: Value, args: []Value, _: ?Block) VM
     try vm.requireArgCount(args, 0);
     const md = try getMatchData(receiver);
     return Value.fromObject(&md.source.object);
+}
+
+fn builtinMatchDataToS(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    const md = try getMatchData(receiver);
+    if (md.begin_byte_offsets.items.len == 0 or md.begin_byte_offsets.items[0] < 0) {
+        return vm.newString("", false);
+    }
+    const begin_idx: usize = @intCast(md.begin_byte_offsets.items[0]);
+    const end_idx: usize = @intCast(md.end_byte_offsets.items[0]);
+    if (begin_idx > end_idx or end_idx > md.source.str.len) return error.Fatal;
+    return vm.newStringWithEncoding(md.source.str[begin_idx..end_idx], false, md.source.encoding);
 }
 
 fn builtinMatchDataPreMatch(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
