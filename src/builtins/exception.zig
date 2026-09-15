@@ -19,6 +19,9 @@ pub fn register(vm: *VM) !void {
     const initialize_sym = try vm.intern("initialize");
     try vm.exception_class.module.methods.put(initialize_sym, value.MethodEntry.builtin(&builtinExceptionInitialize, .{ .variadic = 0 }));
 
+    const initialize_copy_sym = try vm.intern("initialize_copy");
+    try vm.exception_class.module.methods.put(initialize_copy_sym, value.MethodEntry.builtinWithVisibility(&builtinExceptionInitializeCopy, .{ .exact = 1 }, .private));
+
     const message_sym = try vm.intern("message");
     try vm.exception_class.module.methods.put(message_sym, value.MethodEntry.builtin(&builtinExceptionMessage, .{ .exact = 0 }));
 
@@ -27,6 +30,9 @@ pub fn register(vm: *VM) !void {
 
     const inspect_sym = try vm.intern("inspect");
     try vm.exception_class.module.methods.put(inspect_sym, value.MethodEntry.builtin(&builtinExceptionInspect, .{ .exact = 0 }));
+
+    const equal_sym = try vm.intern("==");
+    try vm.exception_class.module.methods.put(equal_sym, value.MethodEntry.builtin(&builtinExceptionEqual, .{ .exact = 1 }));
 
     const backtrace_sym = try vm.intern("backtrace");
     try vm.exception_class.module.methods.put(backtrace_sym, value.MethodEntry.builtin(&builtinExceptionBacktrace, .{ .exact = 0 }));
@@ -89,6 +95,29 @@ pub fn builtinExceptionInitialize(vm: *VM, receiver: Value, args: []Value, _: ?B
     } else vm.defaultExceptionMessageForClass(exc.object.class.?);
     const msg_val = try vm.newString(message, false);
     exc.message = msg_val.toStringObject();
+    return receiver;
+}
+
+pub fn builtinExceptionInitializeCopy(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    if (receiver.objectId() == args[0].objectId()) {
+        return receiver;
+    }
+
+    try vm.guardNotFrozen(receiver);
+
+    if (vm.getClass(receiver) != vm.getClass(args[0])) {
+        return vm.raiseExceptionFmt(vm.type_error_class, "initialize_copy should take same class object", .{});
+    }
+
+    const dst = receiver.toExceptionObject();
+    const src = args[0].toExceptionObject();
+    dst.message = src.message;
+    dst.backtrace = src.backtrace;
+    dst.cause = src.cause;
+    dst.receiver = src.receiver;
+    dst.key = src.key;
+    dst.path = src.path;
     return receiver;
 }
 
@@ -223,6 +252,24 @@ pub fn builtinExceptionInspect(vm: *VM, receiver: Value, args: []Value, _: ?Bloc
     }
     const str = std.fmt.allocPrint(vm.gc_allocator, "#<{s}: {s}>", .{ class_name, to_s_str }) catch return error.Fatal;
     return try vm.newString(str, false);
+}
+
+pub fn builtinExceptionEqual(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+
+    const other = args[0];
+    if (!other.isException()) return Value.boolean(false);
+    if (vm.getClass(receiver) != vm.getClass(other)) return Value.boolean(false);
+
+    const self_message = try vm.callMethodByName(receiver, "message", &.{}, null);
+    const other_message = try vm.callMethodByName(other, "message", &.{}, null);
+    if (!try vm.valueEquals(self_message, other_message)) return Value.boolean(false);
+
+    const self_backtrace = try vm.callMethodByName(receiver, "backtrace", &.{}, null);
+    const other_backtrace = try vm.callMethodByName(other, "backtrace", &.{}, null);
+    if (!try vm.valueEquals(self_backtrace, other_backtrace)) return Value.boolean(false);
+
+    return Value.boolean(true);
 }
 
 pub fn builtinExceptionBacktrace(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
