@@ -731,6 +731,7 @@ pub fn register(vm: *VM) !void {
     try filetest_singleton.module.methods.put(socket_singleton_sym, value.MethodEntry.builtin(&builtinFileSocket, .{ .exact = 1 }));
     try filetest_singleton.module.methods.put(exist_sym, value.MethodEntry.builtin(&builtinFileExist, .{ .exact = 1 }));
     try filetest_singleton.module.methods.put(readable_sym, value.MethodEntry.builtin(&builtinFileReadable, .{ .exact = 1 }));
+    try filetest_singleton.module.methods.put(writable_sym, value.MethodEntry.builtin(&builtinFileWritable, .{ .exact = 1 }));
 
     const mtime_sym_file = try vm.intern("mtime");
     try file_singleton.module.methods.put(mtime_sym_file, value.MethodEntry.builtin(&builtinFileMtime, .{ .exact = 1 }));
