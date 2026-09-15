@@ -74,6 +74,9 @@ pub fn register(vm: *VM) !void {
 
     const byteoffset_sym = try vm.intern("byteoffset");
     try vm.match_data_class.module.methods.put(byteoffset_sym, value.MethodEntry.builtin(&builtinMatchDataByteoffset, .{ .exact = 1 }));
+
+    const bytebegin_sym = try vm.intern("bytebegin");
+    try vm.match_data_class.module.methods.put(bytebegin_sym, value.MethodEntry.builtin(&builtinMatchDataBytebegin, .{ .exact = 1 }));
 }
 
 fn getMatchData(receiver: Value) VMError!*value.MatchDataObject {
@@ -563,4 +566,44 @@ fn builtinMatchDataMatchLength(vm: *VM, receiver: Value, args: []Value, _: ?Bloc
         return vm.raiseExceptionFmt(vm.index_error_class, "index {d} out of matches", .{idx});
     }
     return matchLengthAt(vm, md, @intCast(idx));
+}
+
+fn byteBeginAt(md: *value.MatchDataObject, index: usize) Value {
+    if (index >= md.begin_byte_offsets.items.len) return Value.nil();
+    const begin_pos = md.begin_byte_offsets.items[index];
+    if (begin_pos < 0) return Value.nil();
+    return Value.integer(begin_pos);
+}
+
+fn builtinMatchDataBytebegin(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    const md = try getMatchData(receiver);
+    const arg = args[0];
+
+    if (arg.isSymbol()) {
+        const maybe_index = try resolveNamedCaptureIndex(vm, md, arg.toSymbolObject().name);
+        if (maybe_index) |index| return byteBeginAt(md, index);
+        return Value.nil();
+    }
+
+    if (arg.isString()) {
+        const maybe_index = try resolveNamedCaptureIndex(vm, md, arg.toStringObject().str);
+        if (maybe_index) |index| return byteBeginAt(md, index);
+        return Value.nil();
+    }
+
+    const message = std.fmt.allocPrint(vm.allocator, "no implicit conversion of {s} into Integer", .{vm.className(arg)}) catch return error.Fatal;
+    defer vm.allocator.free(message);
+    const idx = try arg.coerceToI64ViaToInt(
+        vm,
+        message,
+        message,
+        "bignum too big to convert into `long`",
+    );
+
+    const len: i64 = @intCast(md.begin_byte_offsets.items.len);
+    if (idx < 0 or idx >= len) {
+        return vm.raiseExceptionFmt(vm.index_error_class, "index {d} out of matches", .{idx});
+    }
+    return byteBeginAt(md, @intCast(idx));
 }
