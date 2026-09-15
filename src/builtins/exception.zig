@@ -216,7 +216,12 @@ pub fn builtinExceptionInspect(vm: *VM, receiver: Value, args: []Value, _: ?Bloc
     const exc = receiver.toExceptionObject();
     const class_name_val = try vm.callMethodByName(Value.fromObject(&exc.object.class.?.module.object), "name", &.{}, null);
     const class_name = if (class_name_val.isNil()) vm.className(receiver) else class_name_val.toStringObject().str;
-    const str = std.fmt.allocPrint(vm.gc_allocator, "#<{s}: {s}>", .{ class_name, exc.message.str }) catch return error.Fatal;
+    const to_s_val = try vm.callMethodByName(receiver, "to_s", &.{}, null);
+    const to_s_str = try to_s_val.coerceToStr(vm, "no implicit conversion into String");
+    if (to_s_str.len == 0) {
+        return try vm.newString(class_name, false);
+    }
+    const str = std.fmt.allocPrint(vm.gc_allocator, "#<{s}: {s}>", .{ class_name, to_s_str }) catch return error.Fatal;
     return try vm.newString(str, false);
 }
 
