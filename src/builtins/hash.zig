@@ -178,11 +178,12 @@ pub fn register(vm: *VM) !void {
     const empty_sym = try vm.intern("empty?");
     try vm.hash_class.module.methods.put(empty_sym, value.MethodEntry.builtin(&builtinHashEmpty, .{ .exact = 0 }));
 
+    const each_entry = value.MethodEntry.builtin(&builtinHashEachPair, .{ .exact = 0 });
     const each_sym = try vm.intern("each");
-    try vm.hash_class.module.methods.put(each_sym, value.MethodEntry.builtin(&builtinHashEach, .{ .exact = 0 }));
+    try vm.hash_class.module.methods.put(each_sym, each_entry);
 
     const each_pair_sym = try vm.intern("each_pair");
-    try vm.hash_class.module.methods.put(each_pair_sym, value.MethodEntry.builtin(&builtinHashEachPair, .{ .exact = 0 }));
+    try vm.hash_class.module.methods.put(each_pair_sym, each_entry);
 
     const each_key_sym = try vm.intern("each_key");
     try vm.hash_class.module.methods.put(each_key_sym, value.MethodEntry.builtin(&builtinHashEachKey, .{ .exact = 0 }));
@@ -1202,21 +1203,6 @@ pub fn builtinHashSize(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMErr
 pub fn builtinHashEmpty(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
     return Value.boolean(receiver.toHashObject().entries.items.len == 0);
-}
-
-pub fn builtinHashEach(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
-    try vm.requireArgCount(args, 0);
-    const blk = block orelse {
-        return try vm.createMethodEnumeratorWithSize(receiver, try vm.intern("each"), &.{}, Value.integer(@intCast(receiver.toHashObject().entries.items.len)));
-    };
-    const hash_obj = receiver.toHashObject();
-
-    // Iterate in insertion order
-    for (hash_obj.entries.items) |entry| {
-        _ = try yieldHashEntryPair(vm, blk, entry);
-    }
-
-    return receiver;
 }
 
 pub fn builtinHashEachPair(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {

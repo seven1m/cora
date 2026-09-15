@@ -934,7 +934,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] core/hash/dig_spec.rb
 - [x] core/hash/each_key_spec.rb
 - [x] core/hash/each_pair_spec.rb
-- [-] core/hash/each_spec.rb
+- [x] core/hash/each_spec.rb
 - [x] core/hash/each_value_spec.rb
 - [x] core/hash/element_reference_spec.rb
 - [x] core/hash/element_set_spec.rb
