@@ -273,6 +273,9 @@ pub fn register(vm: *VM) !void {
     const to_r_sym = try vm.intern("to_r");
     try vm.float_class.module.methods.put(to_r_sym, value.MethodEntry.builtin(&builtinFloatToR, .{ .exact = 0 }));
 
+    const denominator_sym = try vm.intern("denominator");
+    try vm.float_class.module.methods.put(denominator_sym, value.MethodEntry.builtin(&builtinFloatDenominator, .{ .exact = 0 }));
+
     const inspect_sym = try vm.intern("inspect");
     try vm.float_class.module.methods.put(inspect_sym, value.MethodEntry.builtin(&builtinFloatInspect, .{ .exact = 0 }));
 
@@ -589,6 +592,15 @@ pub fn builtinFloatToR(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMErr
     try vm.requireArgCount(args, 0);
     const parts = try rational_builtin.floatToRationalParts(vm, receiver.toFloatObject().val);
     return vm.newRationalValues(parts.numerator, parts.denominator);
+}
+
+pub fn builtinFloatDenominator(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    if (!std.math.isFinite(receiver.toFloatObject().val)) {
+        return Value.integer(1);
+    }
+    const to_r_result = try vm.callMethodByName(receiver, "to_r", &.{}, null);
+    return vm.callMethodByName(to_r_result, "denominator", &.{}, null);
 }
 
 fn floatToString(vm: *VM, value_f: f64) VMError!Value {
