@@ -1823,7 +1823,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] core/rational/magnitude_spec.rb
 - [x] core/rational/marshal_dump_spec.rb
 - [x] core/rational/minus_spec.rb
-- [ ] core/rational/modulo_spec.rb
+- [x] core/rational/modulo_spec.rb
 - [x] core/rational/multiply_spec.rb
 - [x] core/rational/numerator_spec.rb
 - [x] core/rational/plus_spec.rb
