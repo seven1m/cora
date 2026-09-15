@@ -630,7 +630,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/exception/case_compare_spec.rb
 - [ ] core/exception/cause_spec.rb
 - [ ] core/exception/detailed_message_spec.rb
-- [ ] core/exception/dup_spec.rb
+- [x] core/exception/dup_spec.rb
 - [x] core/exception/equal_value_spec.rb
 - [ ] core/exception/errno_spec.rb
 - [ ] core/exception/exception_spec.rb
