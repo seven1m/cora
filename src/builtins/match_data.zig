@@ -51,6 +51,9 @@ pub fn register(vm: *VM) !void {
     const begin_sym = try vm.intern("begin");
     try vm.match_data_class.module.methods.put(begin_sym, value.MethodEntry.builtin(&builtinMatchDataBegin, .{ .exact = 1 }));
 
+    const end_sym = try vm.intern("end");
+    try vm.match_data_class.module.methods.put(end_sym, value.MethodEntry.builtin(&builtinMatchDataEnd, .{ .exact = 1 }));
+
     const names_sym = try vm.intern("names");
     try vm.match_data_class.module.methods.put(names_sym, value.MethodEntry.builtin(&builtinMatchDataNames, .{ .exact = 0 }));
 
@@ -331,6 +334,49 @@ fn builtinMatchDataBegin(vm: *VM, receiver: Value, args: []Value, _: ?Block) VME
     const begin_pos = md.begin_byte_offsets.items[@intCast(idx)];
     if (begin_pos < 0) return Value.nil();
     return Value.integer(begin_pos);
+}
+
+fn endCharOffsetAt(md: *value.MatchDataObject, index: usize) VMError!Value {
+    if (index >= md.end_byte_offsets.items.len) return Value.nil();
+    const end_pos = md.end_byte_offsets.items[index];
+    if (end_pos < 0) return Value.nil();
+    const byte_end: usize = @intCast(end_pos);
+    if (byte_end > md.source.str.len) return error.Fatal;
+    const char_off = md.source.encoding.charCount(md.source.str[0..byte_end]);
+    return Value.integer(@intCast(char_off));
+}
+
+fn builtinMatchDataEnd(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    const md = try getMatchData(receiver);
+    const arg = args[0];
+
+    if (arg.isSymbol()) {
+        const maybe_index = try resolveNamedCaptureIndex(vm, md, arg.toSymbolObject().name);
+        if (maybe_index) |index| return endCharOffsetAt(md, index);
+        return Value.nil();
+    }
+
+    if (arg.isString()) {
+        const maybe_index = try resolveNamedCaptureIndex(vm, md, arg.toStringObject().str);
+        if (maybe_index) |index| return endCharOffsetAt(md, index);
+        return Value.nil();
+    }
+
+    const message = std.fmt.allocPrint(vm.allocator, "no implicit conversion of {s} into Integer", .{vm.className(arg)}) catch return error.Fatal;
+    defer vm.allocator.free(message);
+    const idx = try arg.coerceToI64ViaToInt(
+        vm,
+        message,
+        message,
+        "bignum too big to convert into `long`",
+    );
+
+    const len: i64 = @intCast(md.end_byte_offsets.items.len);
+    if (idx < 0 or idx >= len) {
+        return vm.raiseExceptionFmt(vm.index_error_class, "index {d} out of matches", .{idx});
+    }
+    return endCharOffsetAt(md, @intCast(idx));
 }
 
 fn builtinMatchDataNames(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {

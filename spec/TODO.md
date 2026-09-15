@@ -1318,7 +1318,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] core/matchdata/deconstruct_spec.rb
 - [ ] core/matchdata/dup_spec.rb
 - [x] core/matchdata/element_reference_spec.rb
-- [ ] core/matchdata/end_spec.rb
+- [x] core/matchdata/end_spec.rb
 - [x] core/matchdata/eql_spec.rb
 - [x] core/matchdata/equal_value_spec.rb
 - [x] core/matchdata/hash_spec.rb
