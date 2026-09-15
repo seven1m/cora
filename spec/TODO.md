@@ -833,7 +833,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/filetest/setuid_spec.rb
 - [ ] core/filetest/size_spec.rb
 - [x] core/filetest/socket_spec.rb
-- [ ] core/filetest/sticky_spec.rb
+- [x] core/filetest/sticky_spec.rb
 - [x] core/filetest/symlink_spec.rb
 - [ ] core/filetest/world_readable_spec.rb
 - [ ] core/filetest/world_writable_spec.rb
