@@ -403,8 +403,22 @@ pub fn builtinRationalInspect(vm: *VM, receiver: Value, args: []Value, _: ?Block
 pub fn builtinRationalToF(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
     const rational = receiver.toRationalObject();
-    const f = rational.numerator.integerToF64() / rational.denominator.integerToF64();
-    return vm.newFloat(f);
+    const num_f64 = rational.numerator.integerToF64();
+    const den_f64 = rational.denominator.integerToF64();
+    if (std.math.isFinite(num_f64) and std.math.isFinite(den_f64)) {
+        return vm.newFloat(num_f64 / den_f64);
+    }
+    // Huge numerator/denominator overflow f64 individually (e.g. 10**343),
+    // but their ratio fits. Divide in f128 (max ~1e4932) then narrow.
+    const num_f128 = integerValueToF128(rational.numerator);
+    const den_f128 = integerValueToF128(rational.denominator);
+    return vm.newFloat(@floatCast(num_f128 / den_f128));
+}
+
+fn integerValueToF128(v: Value) f128 {
+    if (v.isBigInteger()) return v.toBigIntegerObject().value.toFloat(f128, .nearest_even)[0];
+    if (v.isInteger()) return @floatFromInt(v.toInteger());
+    return v.integerToF64();
 }
 
 pub fn builtinRationalToI(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
