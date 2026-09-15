@@ -224,6 +224,9 @@ fn builtinRegexpEncoding(vm: *VM, receiver: Value, args: []Value, _: ?Block) VME
 
 fn builtinRegexpOptions(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
+    if (!receiver.isRegexp()) {
+        return vm.raiseExceptionFmt(vm.type_error_class, "uninitialized Regexp", .{});
+    }
     return Value.integer(@intCast(receiver.toRegexpObject().options));
 }
 

@@ -1867,7 +1867,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] core/regexp/named_captures_spec.rb
 - [x] core/regexp/names_spec.rb
 - [ ] core/regexp/new_spec.rb
-- [ ] core/regexp/options_spec.rb
+- [x] core/regexp/options_spec.rb
 - [x] core/regexp/quote_spec.rb
 - [x] core/regexp/source_spec.rb
 - [ ] core/regexp/timeout_spec.rb
