@@ -87,6 +87,9 @@ pub fn register(vm: *VM) !void {
     const allocate_sym = try vm.intern("allocate");
     const singleton = try vm.getOrCreateSingletonClass(Value.fromObject(&vm.match_data_class.module.object));
     try singleton.module.methods.put(allocate_sym, .{ .method = .{ .undefined = {} } });
+
+    const inspect_sym = try vm.intern("inspect");
+    try vm.match_data_class.module.methods.put(inspect_sym, value.MethodEntry.builtin(&builtinMatchDataInspect, .{ .exact = 0 }));
 }
 
 fn getMatchData(receiver: Value) VMError!*value.MatchDataObject {
@@ -699,6 +702,57 @@ fn builtinMatchDataValuesAt(vm: *VM, receiver: Value, args: []Value, _: ?Block) 
     }
 
     return Value.fromObject(&result.object);
+}
+
+fn appendInspectedCapture(vm: *VM, buf: *std.Io.Writer.Allocating, val: Value) VMError!void {
+    if (val.isNil()) {
+        buf.writer.writeAll("nil") catch return error.Fatal;
+        return;
+    }
+    const inspected = try vm.callMethodByName(val, "inspect", &.{}, null);
+    if (!inspected.isString()) {
+        return vm.raiseExceptionFmt(vm.type_error_class, "inspect did not return String", .{});
+    }
+    buf.writer.writeAll(inspected.toStringObject().str) catch return error.Fatal;
+}
+
+fn builtinMatchDataInspect(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    const md = try getMatchData(receiver);
+
+    var buf: std.Io.Writer.Allocating = .init(vm.allocator);
+    defer buf.deinit();
+    buf.writer.writeAll("#<MatchData ") catch return error.Fatal;
+
+    if (md.captures.items.len > 0) {
+        try appendInspectedCapture(vm, &buf, md.captures.items[0]);
+    }
+
+    const groups = onigmo.collectNamedCaptureGroups(vm.allocator, md.regexp.regex) catch return error.Fatal;
+    defer onigmo.freeNamedCaptureGroups(vm.allocator, groups);
+
+    if (groups.len > 0) {
+        for (groups) |group| {
+            buf.writer.writeByte(' ') catch return error.Fatal;
+            buf.writer.writeAll(group.name) catch return error.Fatal;
+            buf.writer.writeByte(':') catch return error.Fatal;
+            try appendInspectedCapture(vm, &buf, try captureByName(vm, md, group.name));
+        }
+    } else {
+        var i: usize = 1;
+        while (i < md.captures.items.len) : (i += 1) {
+            var num_buf: [32]u8 = undefined;
+            const num_str = std.fmt.bufPrint(&num_buf, " {d}:", .{i}) catch return error.Fatal;
+            buf.writer.writeAll(num_str) catch return error.Fatal;
+            try appendInspectedCapture(vm, &buf, md.captures.items[i]);
+        }
+    }
+
+    buf.writer.writeByte('>') catch return error.Fatal;
+
+    const str = buf.toOwnedSlice() catch return error.Fatal;
+    defer vm.allocator.free(str);
+    return try vm.newString(str, false);
 }
 
 fn byteBeginAt(md: *value.MatchDataObject, index: usize) Value {

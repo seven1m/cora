@@ -1322,7 +1322,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] core/matchdata/eql_spec.rb
 - [x] core/matchdata/equal_value_spec.rb
 - [x] core/matchdata/hash_spec.rb
-- [ ] core/matchdata/inspect_spec.rb
+- [x] core/matchdata/inspect_spec.rb
 - [ ] core/matchdata/integer_at_spec.rb
 - [x] core/matchdata/length_spec.rb
 - [x] core/matchdata/match_length_spec.rb
