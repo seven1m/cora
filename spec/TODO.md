@@ -1807,7 +1807,7 @@ Source baseline: ../ruby_spec compared to local spec/
 
 ### core/rational
 - [x] core/rational/abs_spec.rb
-- [ ] core/rational/ceil_spec.rb
+- [x] core/rational/ceil_spec.rb
 - [ ] core/rational/comparison_spec.rb
 - [x] core/rational/denominator_spec.rb
 - [ ] core/rational/div_spec.rb

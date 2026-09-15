@@ -351,6 +351,9 @@ pub fn register(vm: *VM) !void {
     const floor_sym = try vm.intern("floor");
     try vm.rational_class.module.methods.put(floor_sym, value.MethodEntry.builtin(&builtinRationalFloor, .{ .variadic = 0 }));
 
+    const ceil_sym = try vm.intern("ceil");
+    try vm.rational_class.module.methods.put(ceil_sym, value.MethodEntry.builtin(&builtinRationalCeil, .{ .variadic = 0 }));
+
     const marshal_dump_sym = try vm.intern("marshal_dump");
     try vm.rational_class.module.methods.put(marshal_dump_sym, value.MethodEntry.builtinWithVisibility(&builtinRationalMarshalDump, .{ .exact = 0 }, .private));
 }
@@ -614,6 +617,35 @@ pub fn builtinRationalFloor(vm: *VM, receiver: Value, args: []Value, _: ?Block) 
     const scaled_num = try vm.mulIntegerValues(rational.numerator, factor);
     const floored = try vm.divFloorIntegerValues(scaled_num, rational.denominator);
     return vm.newRationalValues(floored, factor);
+}
+
+fn rationalCeilQuotient(vm: *VM, numerator: Value, denominator: Value) VMError!Value {
+    // ceil(a/b) == -floor(-a/b)
+    const neg_num = try vm.mulIntegerValues(Value.integer(-1), numerator);
+    const floored = try vm.divFloorIntegerValues(neg_num, denominator);
+    return vm.mulIntegerValues(Value.integer(-1), floored);
+}
+
+pub fn builtinRationalCeil(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCountRange(args, 0, 1);
+    const rational = receiver.toRationalObject();
+    const ndigits: i64 = if (args.len == 0)
+        0
+    else
+        try args[0].integerArgToI64(vm, "not an integer", "ndigits is too large");
+    if (ndigits == 0) {
+        return rationalCeilQuotient(vm, rational.numerator, rational.denominator);
+    }
+    if (ndigits < 0) {
+        const factor = try rationalDecimalFactor(vm, @intCast(-ndigits));
+        const scaled_den = try vm.mulIntegerValues(rational.denominator, factor);
+        const quotient = try rationalCeilQuotient(vm, rational.numerator, scaled_den);
+        return vm.mulIntegerValues(quotient, factor);
+    }
+    const factor = try rationalDecimalFactor(vm, @intCast(ndigits));
+    const scaled_num = try vm.mulIntegerValues(rational.numerator, factor);
+    const ceiled = try rationalCeilQuotient(vm, scaled_num, rational.denominator);
+    return vm.newRationalValues(ceiled, factor);
 }
 
 fn builtinRationalMarshalDump(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
