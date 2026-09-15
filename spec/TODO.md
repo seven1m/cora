@@ -1325,7 +1325,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/matchdata/inspect_spec.rb
 - [ ] core/matchdata/integer_at_spec.rb
 - [x] core/matchdata/length_spec.rb
-- [ ] core/matchdata/match_length_spec.rb
+- [x] core/matchdata/match_length_spec.rb
 - [x] core/matchdata/match_spec.rb
 - [x] core/matchdata/named_captures_spec.rb
 - [x] core/matchdata/names_spec.rb

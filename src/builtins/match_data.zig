@@ -63,6 +63,9 @@ pub fn register(vm: *VM) !void {
     const equal_sym = try vm.intern("==");
     try vm.match_data_class.module.methods.put(equal_sym, value.MethodEntry.builtin(&builtinMatchDataEqual, .{ .exact = 1 }));
 
+    const match_length_sym = try vm.intern("match_length");
+    try vm.match_data_class.module.methods.put(match_length_sym, value.MethodEntry.builtin(&builtinMatchDataMatchLength, .{ .exact = 1 }));
+
     const eql_sym = try vm.intern("eql?");
     try vm.match_data_class.module.methods.put(eql_sym, value.MethodEntry.builtin(&builtinMatchDataEqual, .{ .exact = 1 }));
 }
@@ -410,4 +413,46 @@ fn builtinMatchDataDeconstructKeys(vm: *VM, receiver: Value, args: []Value, _: ?
     }
 
     return result;
+}
+
+fn matchLengthAt(vm: *VM, md: *value.MatchDataObject, index: usize) VMError!Value {
+    if (index >= md.begin_byte_offsets.items.len or index >= md.end_byte_offsets.items.len) return Value.nil();
+    const begin_pos = md.begin_byte_offsets.items[index];
+    const end_pos = md.end_byte_offsets.items[index];
+    if (begin_pos < 0 or end_pos < 0) return Value.nil();
+    _ = vm;
+    return Value.integer(end_pos - begin_pos);
+}
+
+fn builtinMatchDataMatchLength(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    const md = try getMatchData(receiver);
+    const arg = args[0];
+
+    if (arg.isSymbol()) {
+        const maybe_index = try resolveNamedCaptureIndex(vm, md, arg.toSymbolObject().name);
+        if (maybe_index) |index| return matchLengthAt(vm, md, index);
+        return Value.nil();
+    }
+
+    if (arg.isString()) {
+        const maybe_index = try resolveNamedCaptureIndex(vm, md, arg.toStringObject().str);
+        if (maybe_index) |index| return matchLengthAt(vm, md, index);
+        return Value.nil();
+    }
+
+    const message = std.fmt.allocPrint(vm.allocator, "no implicit conversion of {s} into Integer", .{vm.className(arg)}) catch return error.Fatal;
+    defer vm.allocator.free(message);
+    const idx = try arg.coerceToI64ViaToInt(
+        vm,
+        message,
+        message,
+        "bignum too big to convert into `long`",
+    );
+
+    const len: i64 = @intCast(md.begin_byte_offsets.items.len);
+    if (idx < 0 or idx >= len) {
+        return vm.raiseExceptionFmt(vm.index_error_class, "index {d} out of matches", .{idx});
+    }
+    return matchLengthAt(vm, md, @intCast(idx));
 }
