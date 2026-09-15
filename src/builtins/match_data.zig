@@ -90,6 +90,9 @@ pub fn register(vm: *VM) !void {
 
     const inspect_sym = try vm.intern("inspect");
     try vm.match_data_class.module.methods.put(inspect_sym, value.MethodEntry.builtin(&builtinMatchDataInspect, .{ .exact = 0 }));
+
+    const dup_sym = try vm.intern("dup");
+    try vm.match_data_class.module.methods.put(dup_sym, value.MethodEntry.builtin(&builtinMatchDataDup, .{ .exact = 0 }));
 }
 
 fn getMatchData(receiver: Value) VMError!*value.MatchDataObject {
@@ -753,6 +756,24 @@ fn builtinMatchDataInspect(vm: *VM, receiver: Value, args: []Value, _: ?Block) V
     const str = buf.toOwnedSlice() catch return error.Fatal;
     defer vm.allocator.free(str);
     return try vm.newString(str, false);
+}
+
+fn builtinMatchDataDup(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    const md = try getMatchData(receiver);
+    const duplicate = try vm.newMatchData(
+        md.regexp,
+        md.source,
+        md.captures.items,
+        md.begin_byte_offsets.items,
+        md.end_byte_offsets.items,
+    );
+    duplicate.getObjectPointer().?.class = vm.getClass(receiver);
+
+    const src_obj = receiver.getObjectPointer() orelse return error.Fatal;
+    const dst_obj = duplicate.getObjectPointer() orelse return error.Fatal;
+    try vm.copyObjectInstanceVariables(src_obj, dst_obj);
+    return duplicate;
 }
 
 fn byteBeginAt(md: *value.MatchDataObject, index: usize) Value {
