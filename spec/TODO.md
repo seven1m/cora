@@ -761,7 +761,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] core/file/stat/blockdev_spec.rb
 - [x] core/file/stat/blocks_spec.rb
 - [x] core/file/stat/chardev_spec.rb
-- [ ] core/file/stat/comparison_spec.rb
+- [x] core/file/stat/comparison_spec.rb
 - [x] core/file/stat/ctime_spec.rb
 - [x] core/file/stat/dev_major_spec.rb
 - [x] core/file/stat/dev_minor_spec.rb

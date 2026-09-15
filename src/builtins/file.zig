@@ -501,6 +501,11 @@ pub fn register(vm: *VM) !void {
     vm.file_stat_class = file_stat_class_val.toClassObject();
     try vm.file_class.module.constants.put(stat_name_sym, .{ .value = file_stat_class_val });
 
+    const comparable_sym = try vm.intern("Comparable");
+    if (vm.object_class.module.constants.get(comparable_sym)) |comparable_val| {
+        try vm.includeModule(&vm.file_stat_class.module, comparable_val.value.toModuleObject());
+    }
+
     const separator_sym = try vm.intern("SEPARATOR");
     try vm.file_class.module.constants.put(separator_sym, .{ .value = try vm.newString("/", false) });
 
@@ -822,6 +827,9 @@ pub fn register(vm: *VM) !void {
 
     const mtime_sym = try vm.intern("mtime");
     try vm.file_stat_class.module.methods.put(mtime_sym, value.MethodEntry.builtin(&builtinFileStatMtime, .{ .exact = 0 }));
+
+    const compare_sym = try vm.intern("<=>");
+    try vm.file_stat_class.module.methods.put(compare_sym, value.MethodEntry.builtin(&builtinFileStatCompare, .{ .exact = 1 }));
 
     const mode_sym = try vm.intern("mode");
     try vm.file_stat_class.module.methods.put(mode_sym, value.MethodEntry.builtin(&builtinFileStatMode, .{ .exact = 0 }));
@@ -2573,8 +2581,8 @@ pub fn builtinFileUtime(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Val
         defer vm.allocator.free(path_z);
 
         var ts = [2]std.c.timespec{
-            .{ .sec = atime_secs, .nsec = 0x3fffffff },
-            .{ .sec = mtime_secs, .nsec = 0x3fffffff },
+            .{ .sec = atime_secs, .nsec = 0 },
+            .{ .sec = mtime_secs, .nsec = 0 },
         };
         const result = std.c.utimensat(-100, path_z.ptr, &ts, 0);
         if (result != 0) {
@@ -2908,6 +2916,17 @@ pub fn builtinFileStatCtime(vm: *VM, receiver: Value, args: []Value, _: ?Block) 
 pub fn builtinFileStatMtime(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
     return fileStatTimeIvar(vm, receiver, "@mtime");
+}
+
+pub fn builtinFileStatCompare(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    const stat_val = try requireFileStatReceiver(vm, receiver);
+    const other = args[0];
+    if (!other.isObject() or vm.getClass(other) != vm.file_stat_class) return Value.nil();
+    const self_mtime = try vm.getInstanceVariable(stat_val, "@mtime");
+    const other_mtime = try vm.getInstanceVariable(other, "@mtime");
+    var cmp_args = [_]Value{other_mtime};
+    return vm.callMethodByName(self_mtime, "<=>", cmp_args[0..], null);
 }
 
 pub fn builtinFileStatMode(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
