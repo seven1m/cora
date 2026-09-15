@@ -823,7 +823,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/filetest/executable_spec.rb
 - [x] core/filetest/exist_spec.rb
 - [x] core/filetest/file_spec.rb
-- [ ] core/filetest/grpowned_spec.rb
+- [x] core/filetest/grpowned_spec.rb
 - [x] core/filetest/identical_spec.rb
 - [x] core/filetest/owned_spec.rb
 - [x] core/filetest/pipe_spec.rb
