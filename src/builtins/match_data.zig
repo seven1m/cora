@@ -18,6 +18,9 @@ pub fn register(vm: *VM) !void {
     const captures_sym = try vm.intern("captures");
     try vm.match_data_class.module.methods.put(captures_sym, value.MethodEntry.builtin(&builtinMatchDataCaptures, .{ .exact = 0 }));
 
+    const deconstruct_sym = try vm.intern("deconstruct");
+    try vm.match_data_class.module.methods.put(deconstruct_sym, value.MethodEntry.builtin(&builtinMatchDataCaptures, .{ .exact = 0 }));
+
     const to_a_sym = try vm.intern("to_a");
     try vm.match_data_class.module.methods.put(to_a_sym, value.MethodEntry.builtin(&builtinMatchDataToA, .{ .exact = 0 }));
 
