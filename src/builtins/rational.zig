@@ -344,6 +344,9 @@ pub fn register(vm: *VM) !void {
 
     const truncate_sym = try vm.intern("truncate");
     try vm.rational_class.module.methods.put(truncate_sym, value.MethodEntry.builtin(&builtinRationalTruncate, .{ .variadic = 0 }));
+
+    const round_sym = try vm.intern("round");
+    try vm.rational_class.module.methods.put(round_sym, value.MethodEntry.builtin(&builtinRationalRound, .{ .variadic = 0 }));
 }
 
 pub fn builtinRationalNewForbidden(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
@@ -467,6 +470,122 @@ pub fn builtinRationalTruncate(vm: *VM, receiver: Value, args: []Value, _: ?Bloc
     const scaled_num = try vm.mulIntegerValues(rational.numerator, factor);
     const truncated = try vm.divTruncIntegerValues(scaled_num, rational.denominator);
     return vm.newRationalValues(truncated, factor);
+}
+
+fn rationalRoundHalfMode(vm: *VM, half_val: ?Value) VMError![]const u8 {
+    const half = half_val orelse return "up";
+    if (half.isNil()) return "up";
+    if (!half.isSymbol()) {
+        return vm.raiseExceptionFmt(vm.argument_error_class, "invalid rounding mode: {s}", .{vm.className(half)});
+    }
+    const name = half.toSymbolObject().name;
+    if (!std.mem.eql(u8, name, "up") and
+        !std.mem.eql(u8, name, "down") and
+        !std.mem.eql(u8, name, "even"))
+    {
+        return vm.raiseExceptionFmt(vm.argument_error_class, "invalid rounding mode: {s}", .{name});
+    }
+    return name;
+}
+
+fn rationalRoundQuotient(vm: *VM, numerator: Value, denominator: Value, half_mode: []const u8) VMError!Value {
+    const zero = Value.integer(0);
+    const one = Value.integer(1);
+    const negative_one = Value.integer(-1);
+    const two = Value.integer(2);
+
+    const quotient = try vm.divTruncIntegerValues(numerator, denominator);
+    const product = try vm.mulIntegerValues(quotient, denominator);
+    const remainder = try vm.subIntegerValues(numerator, product);
+    if ((try vm.compareIntegerValues(remainder, zero)) == .eq) return quotient;
+
+    const abs_remainder = if ((try vm.compareIntegerValues(remainder, zero)) == .lt)
+        try vm.mulIntegerValues(negative_one, remainder)
+    else
+        remainder;
+    const abs_denominator = if ((try vm.compareIntegerValues(denominator, zero)) == .lt)
+        try vm.mulIntegerValues(negative_one, denominator)
+    else
+        denominator;
+    const twice_remainder = try vm.mulIntegerValues(two, abs_remainder);
+    const cmp = try vm.compareIntegerValues(twice_remainder, abs_denominator);
+
+    // Rational values are normalized with a positive denominator, so the
+    // sign of the quotient matches the sign of the numerator.
+    const positive = (try vm.compareIntegerValues(numerator, zero)) != .lt;
+    const round_away = if (positive)
+        try vm.addIntegerValues(quotient, one)
+    else
+        try vm.subIntegerValues(quotient, one);
+
+    if (cmp == .gt) return round_away;
+    if (cmp == .lt) return quotient;
+
+    if (std.mem.eql(u8, half_mode, "down")) return quotient;
+
+    if (std.mem.eql(u8, half_mode, "even")) {
+        const half_quotient = try vm.divTruncIntegerValues(quotient, two);
+        const doubled = try vm.mulIntegerValues(half_quotient, two);
+        if ((try vm.compareIntegerValues(doubled, quotient)) == .eq) return quotient;
+    }
+
+    return round_away;
+}
+
+fn rationalPowerOfTenDivisible(vm: *VM, denominator: Value, ndigits: u64) VMError!bool {
+    const one = Value.integer(1);
+    const two = Value.integer(2);
+    const five = Value.integer(5);
+
+    var remaining = denominator;
+    var twos: u64 = 0;
+    var fives: u64 = 0;
+    while ((try vm.compareIntegerValues(remaining, one)) != .eq) {
+        const half = try vm.divTruncIntegerValues(remaining, two);
+        if ((try vm.compareIntegerValues(try vm.mulIntegerValues(half, two), remaining)) == .eq) {
+            remaining = half;
+            twos += 1;
+            continue;
+        }
+        const fifth = try vm.divTruncIntegerValues(remaining, five);
+        if ((try vm.compareIntegerValues(try vm.mulIntegerValues(fifth, five), remaining)) == .eq) {
+            remaining = fifth;
+            fives += 1;
+            continue;
+        }
+        return false;
+    }
+    return twos <= ndigits and fives <= ndigits;
+}
+
+pub fn builtinRationalRound(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCountRange(args, 0, 1);
+    const half_mode = try rationalRoundHalfMode(vm, try vm.consumeKeywordArg("half"));
+    try vm.validateKeywordArgsConsumed();
+    const rational = receiver.toRationalObject();
+    const ndigits: i64 = if (args.len == 0)
+        0
+    else
+        try args[0].integerArgToI64(vm, "not an integer", "ndigits is too large");
+    if (ndigits == 0) {
+        return rationalRoundQuotient(vm, rational.numerator, rational.denominator, half_mode);
+    }
+    if (ndigits < 0) {
+        const factor = try rationalDecimalFactor(vm, @intCast(-ndigits));
+        const scaled_den = try vm.mulIntegerValues(rational.denominator, factor);
+        const quotient = try rationalRoundQuotient(vm, rational.numerator, scaled_den, half_mode);
+        return vm.mulIntegerValues(quotient, factor);
+    }
+    const abs_ndigits: u64 = @intCast(ndigits);
+    // Avoid materializing enormous powers of ten when the scaled division is
+    // exact; the rounded value is then self (e.g. round(2097171)).
+    if (abs_ndigits > 100 and try rationalPowerOfTenDivisible(vm, rational.denominator, abs_ndigits)) {
+        return receiver;
+    }
+    const factor = try rationalDecimalFactor(vm, abs_ndigits);
+    const scaled_num = try vm.mulIntegerValues(rational.numerator, factor);
+    const quotient = try rationalRoundQuotient(vm, scaled_num, rational.denominator, half_mode);
+    return vm.newRationalValues(quotient, factor);
 }
 
 pub fn builtinRationalFreeze(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
