@@ -56,6 +56,12 @@ pub fn register(vm: *VM) !void {
 
     const to_s_sym = try vm.intern("to_s");
     try vm.match_data_class.module.methods.put(to_s_sym, value.MethodEntry.builtin(&builtinMatchDataToS, .{ .exact = 0 }));
+
+    const equal_sym = try vm.intern("==");
+    try vm.match_data_class.module.methods.put(equal_sym, value.MethodEntry.builtin(&builtinMatchDataEqual, .{ .exact = 1 }));
+
+    const eql_sym = try vm.intern("eql?");
+    try vm.match_data_class.module.methods.put(eql_sym, value.MethodEntry.builtin(&builtinMatchDataEqual, .{ .exact = 1 }));
 }
 
 fn getMatchData(receiver: Value) VMError!*value.MatchDataObject {
@@ -344,4 +350,18 @@ fn builtinMatchDataNamedCaptures(vm: *VM, receiver: Value, args: []Value, _: ?Bl
     }
 
     return Value.fromObject(&hash.object);
+}
+
+fn builtinMatchDataEqual(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    const other = args[0];
+    if (!other.isMatchData()) return Value.boolean(false);
+    const self_md = try getMatchData(receiver);
+    const other_md = other.toMatchDataObject();
+    if (!std.mem.eql(u8, self_md.source.str, other_md.source.str)) return Value.boolean(false);
+    if (!std.mem.eql(u8, self_md.regexp.pattern, other_md.regexp.pattern)) return Value.boolean(false);
+    if (self_md.regexp.options != other_md.regexp.options) return Value.boolean(false);
+    if (!std.mem.eql(i64, self_md.begin_byte_offsets.items, other_md.begin_byte_offsets.items)) return Value.boolean(false);
+    if (!std.mem.eql(i64, self_md.end_byte_offsets.items, other_md.end_byte_offsets.items)) return Value.boolean(false);
+    return Value.boolean(true);
 }
