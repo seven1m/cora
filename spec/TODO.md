@@ -1329,7 +1329,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] core/matchdata/match_spec.rb
 - [x] core/matchdata/named_captures_spec.rb
 - [x] core/matchdata/names_spec.rb
-- [ ] core/matchdata/offset_spec.rb
+- [x] core/matchdata/offset_spec.rb
 - [x] core/matchdata/post_match_spec.rb
 - [x] core/matchdata/pre_match_spec.rb
 - [x] core/matchdata/regexp_spec.rb

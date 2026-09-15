@@ -301,28 +301,57 @@ fn builtinMatchDataPostMatch(vm: *VM, receiver: Value, args: []Value, _: ?Block)
     return vm.newStringWithEncoding(md.source.str[end_idx..], false, md.source.encoding);
 }
 
-fn builtinMatchDataOffset(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
-    try vm.requireArgCount(args, 1);
-    if (!args[0].isInteger()) {
-        return vm.raiseExceptionFmt(vm.type_error_class, "no implicit conversion into Integer", .{});
+fn charOffsetAt(vm: *VM, md: *value.MatchDataObject, index: usize) VMError!Value {
+    if (index >= md.begin_byte_offsets.items.len or index >= md.end_byte_offsets.items.len) {
+        return nilOffsetPair(vm);
     }
-
-    const md = try getMatchData(receiver);
-    var idx = args[0].toInteger();
-    const len: i64 = @intCast(md.captures.items.len);
-    if (idx < 0) idx += len;
-    if (idx < 0 or idx >= len) return Value.nil();
-
-    const index: usize = @intCast(idx);
-    if (index >= md.begin_byte_offsets.items.len or index >= md.end_byte_offsets.items.len) return Value.nil();
     const begin_pos = md.begin_byte_offsets.items[index];
     const end_pos = md.end_byte_offsets.items[index];
-    if (begin_pos < 0 or end_pos < 0) return Value.nil();
-
+    if (begin_pos < 0 or end_pos < 0) {
+        return nilOffsetPair(vm);
+    }
+    const byte_begin: usize = @intCast(begin_pos);
+    const byte_end: usize = @intCast(end_pos);
+    if (byte_begin > md.source.str.len or byte_end > md.source.str.len) return error.Fatal;
+    const begin_char = md.source.encoding.charCount(md.source.str[0..byte_begin]);
+    const end_char = md.source.encoding.charCount(md.source.str[0..byte_end]);
     const arr = try vm.createArray();
-    arr.elements.append(vm.gc_allocator, Value.integer(begin_pos)) catch return error.Fatal;
-    arr.elements.append(vm.gc_allocator, Value.integer(end_pos)) catch return error.Fatal;
+    arr.elements.append(vm.gc_allocator, Value.integer(@intCast(begin_char))) catch return error.Fatal;
+    arr.elements.append(vm.gc_allocator, Value.integer(@intCast(end_char))) catch return error.Fatal;
     return Value.fromObject(&arr.object);
+}
+
+fn builtinMatchDataOffset(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    const md = try getMatchData(receiver);
+    const arg = args[0];
+
+    if (arg.isSymbol()) {
+        const maybe_index = try resolveNamedCaptureIndex(vm, md, arg.toSymbolObject().name);
+        if (maybe_index) |index| return charOffsetAt(vm, md, index);
+        return nilOffsetPair(vm);
+    }
+
+    if (arg.isString()) {
+        const maybe_index = try resolveNamedCaptureIndex(vm, md, arg.toStringObject().str);
+        if (maybe_index) |index| return charOffsetAt(vm, md, index);
+        return nilOffsetPair(vm);
+    }
+
+    const message = std.fmt.allocPrint(vm.allocator, "no implicit conversion of {s} into Integer", .{vm.className(arg)}) catch return error.Fatal;
+    defer vm.allocator.free(message);
+    const idx = try arg.coerceToI64ViaToInt(
+        vm,
+        message,
+        message,
+        "bignum too big to convert into `long`",
+    );
+
+    const len: i64 = @intCast(md.begin_byte_offsets.items.len);
+    if (idx < 0 or idx >= len) {
+        return vm.raiseExceptionFmt(vm.index_error_class, "index {d} out of matches", .{idx});
+    }
+    return charOffsetAt(vm, md, @intCast(idx));
 }
 
 fn beginCharOffsetAt(md: *value.MatchDataObject, index: usize) VMError!Value {
