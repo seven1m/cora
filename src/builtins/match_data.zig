@@ -83,6 +83,10 @@ pub fn register(vm: *VM) !void {
 
     const values_at_sym = try vm.intern("values_at");
     try vm.match_data_class.module.methods.put(values_at_sym, value.MethodEntry.builtin(&builtinMatchDataValuesAt, .{ .variadic = 0 }));
+
+    const allocate_sym = try vm.intern("allocate");
+    const singleton = try vm.getOrCreateSingletonClass(Value.fromObject(&vm.match_data_class.module.object));
+    try singleton.module.methods.put(allocate_sym, .{ .method = .{ .undefined = {} } });
 }
 
 fn getMatchData(receiver: Value) VMError!*value.MatchDataObject {
