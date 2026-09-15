@@ -1853,7 +1853,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] core/regexp/case_compare_spec.rb
 - [x] core/regexp/casefold_spec.rb
 - [ ] core/regexp/compile_spec.rb
-- [ ] core/regexp/encoding_spec.rb
+- [-] core/regexp/encoding_spec.rb
 - [x] core/regexp/eql_spec.rb
 - [x] core/regexp/equal_value_spec.rb
 - [x] core/regexp/escape_spec.rb
