@@ -827,7 +827,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] core/filetest/identical_spec.rb
 - [x] core/filetest/owned_spec.rb
 - [x] core/filetest/pipe_spec.rb
-- [ ] core/filetest/readable_real_spec.rb
+- [x] core/filetest/readable_real_spec.rb
 - [x] core/filetest/readable_spec.rb
 - [x] core/filetest/setgid_spec.rb
 - [x] core/filetest/setuid_spec.rb
