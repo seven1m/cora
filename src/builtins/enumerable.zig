@@ -36,8 +36,11 @@ pub fn register(vm: *VM) !void {
     try enumerable_val.toModuleObject().methods.put(all_sym, value.MethodEntry.builtin(&builtinEnumerableAll, .{ .variadic = 0 }));
     const filter_map_sym = try vm.intern("filter_map");
     try enumerable_val.toModuleObject().methods.put(filter_map_sym, value.MethodEntry.builtin(&builtinEnumerableFilterMap, .{ .exact = 0 }));
+    const each_with_object_entry = value.MethodEntry.builtin(&builtinEnumerableEachWithObject, .{ .exact = 1 });
     const each_with_object_sym = try vm.intern("each_with_object");
-    try enumerable_val.toModuleObject().methods.put(each_with_object_sym, value.MethodEntry.builtin(&builtinEnumerableEachWithObject, .{ .exact = 1 }));
+    try enumerable_val.toModuleObject().methods.put(each_with_object_sym, each_with_object_entry);
+    const with_object_sym = try vm.intern("with_object");
+    try enumerable_val.toModuleObject().methods.put(with_object_sym, each_with_object_entry);
     const each_slice_sym = try vm.intern("each_slice");
     try enumerable_val.toModuleObject().methods.put(each_slice_sym, value.MethodEntry.builtin(&builtinEnumerableEachSlice, .{ .exact = 1 }));
     const find_sym = try vm.intern("find");
