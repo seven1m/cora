@@ -21,6 +21,9 @@ pub fn register(vm: *VM) !void {
     const deconstruct_sym = try vm.intern("deconstruct");
     try vm.match_data_class.module.methods.put(deconstruct_sym, value.MethodEntry.builtin(&builtinMatchDataCaptures, .{ .exact = 0 }));
 
+    const deconstruct_keys_sym = try vm.intern("deconstruct_keys");
+    try vm.match_data_class.module.methods.put(deconstruct_keys_sym, value.MethodEntry.builtin(&builtinMatchDataDeconstructKeys, .{ .exact = 1 }));
+
     const to_a_sym = try vm.intern("to_a");
     try vm.match_data_class.module.methods.put(to_a_sym, value.MethodEntry.builtin(&builtinMatchDataToA, .{ .exact = 0 }));
 
@@ -364,4 +367,47 @@ fn builtinMatchDataEqual(vm: *VM, receiver: Value, args: []Value, _: ?Block) VME
     if (!std.mem.eql(i64, self_md.begin_byte_offsets.items, other_md.begin_byte_offsets.items)) return Value.boolean(false);
     if (!std.mem.eql(i64, self_md.end_byte_offsets.items, other_md.end_byte_offsets.items)) return Value.boolean(false);
     return Value.boolean(true);
+}
+
+fn builtinMatchDataDeconstructKeys(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    const md = try getMatchData(receiver);
+    const groups = onigmo.collectNamedCaptureGroups(vm.allocator, md.regexp.regex) catch return error.Fatal;
+    defer onigmo.freeNamedCaptureGroups(vm.allocator, groups);
+
+    const hash = try vm.createHash();
+    const result = Value.fromObject(&hash.object);
+
+    if (args[0].isNil()) {
+        for (groups) |group| {
+            const sym = try vm.intern(group.name);
+            try vm.hashSetEntry(hash, Value.fromObject(&sym.object), try captureByName(vm, md, group.name));
+        }
+        return result;
+    }
+
+    if (!args[0].isArray()) {
+        return vm.raiseExceptionFmt(vm.type_error_class, "wrong argument type {s} (expected Array)", .{vm.className(args[0])});
+    }
+    const keys = args[0].toArrayObject().elements.items;
+
+    if (keys.len > groups.len) return result;
+
+    for (keys) |key| {
+        if (!key.isSymbol()) {
+            return vm.raiseExceptionFmt(vm.type_error_class, "wrong argument type {s} (expected Symbol)", .{vm.className(key)});
+        }
+        const name = key.toSymbolObject().name;
+        var found = false;
+        for (groups) |group| {
+            if (std.mem.eql(u8, group.name, name)) {
+                found = true;
+                break;
+            }
+        }
+        if (!found) return result;
+        try vm.hashSetEntry(hash, key, try captureByName(vm, md, name));
+    }
+
+    return result;
 }
