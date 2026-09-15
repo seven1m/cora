@@ -717,6 +717,14 @@ pub fn register(vm: *VM) !void {
     const empty_q_sym_file = try vm.intern("empty?");
     try file_singleton.module.methods.put(empty_q_sym_file, value.MethodEntry.builtin(&builtinFileZeroQ, .{ .exact = 1 }));
 
+    // FileTest module — file predicate helpers (FileTest.zero? is an alias of FileTest.empty?)
+    const filetest_name_sym = try vm.intern("FileTest");
+    const filetest_val = try vm.newModule(filetest_name_sym);
+    try vm.setConstant(&vm.object_class.module, filetest_name_sym, filetest_val);
+    const filetest_singleton = try vm.getOrCreateSingletonClass(filetest_val);
+    try filetest_singleton.module.methods.put(zero_q_sym_file, value.MethodEntry.builtin(&builtinFileZeroQ, .{ .exact = 1 }));
+    try filetest_singleton.module.methods.put(empty_q_sym_file, value.MethodEntry.builtin(&builtinFileZeroQ, .{ .exact = 1 }));
+
     const mtime_sym_file = try vm.intern("mtime");
     try file_singleton.module.methods.put(mtime_sym_file, value.MethodEntry.builtin(&builtinFileMtime, .{ .exact = 1 }));
     try vm.file_class.module.methods.put(mtime_sym_file, value.MethodEntry.builtin(&builtinFileInstanceMtime, .{ .exact = 0 }));
