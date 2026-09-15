@@ -1836,7 +1836,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] core/rational/to_i_spec.rb
 - [x] core/rational/to_r_spec.rb
 - [x] core/rational/to_s_spec.rb
-- [ ] core/rational/truncate_spec.rb
+- [x] core/rational/truncate_spec.rb
 - [x] core/rational/zero_spec.rb
 
 ### core/refinement

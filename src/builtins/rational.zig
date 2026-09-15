@@ -341,6 +341,9 @@ pub fn register(vm: *VM) !void {
 
     const coerce_sym = try vm.intern("coerce");
     try vm.rational_class.module.methods.put(coerce_sym, value.MethodEntry.builtin(&builtinRationalCoerce, .{ .exact = 1 }));
+
+    const truncate_sym = try vm.intern("truncate");
+    try vm.rational_class.module.methods.put(truncate_sym, value.MethodEntry.builtin(&builtinRationalTruncate, .{ .variadic = 0 }));
 }
 
 pub fn builtinRationalNewForbidden(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
@@ -433,6 +436,37 @@ pub fn builtinRationalToI(vm: *VM, receiver: Value, args: []Value, _: ?Block) VM
 pub fn builtinRationalToR(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
     return receiver;
+}
+
+fn rationalDecimalFactor(vm: *VM, abs_ndigits: u64) VMError!Value {
+    var factor = Value.integer(1);
+    var i: u64 = 0;
+    while (i < abs_ndigits) : (i += 1) {
+        factor = try vm.mulIntegerValues(factor, Value.integer(10));
+    }
+    return factor;
+}
+
+pub fn builtinRationalTruncate(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCountRange(args, 0, 1);
+    const rational = receiver.toRationalObject();
+    if (args.len == 0) {
+        return builtinRationalToI(vm, receiver, &.{}, null);
+    }
+    const ndigits = try args[0].integerArgToI64(vm, "not an integer", "ndigits is too large");
+    if (ndigits == 0) {
+        return builtinRationalToI(vm, receiver, &.{}, null);
+    }
+    if (ndigits < 0) {
+        const factor = try rationalDecimalFactor(vm, @intCast(-ndigits));
+        const scaled_den = try vm.mulIntegerValues(rational.denominator, factor);
+        const quotient = try vm.divTruncIntegerValues(rational.numerator, scaled_den);
+        return vm.mulIntegerValues(quotient, factor);
+    }
+    const factor = try rationalDecimalFactor(vm, @intCast(ndigits));
+    const scaled_num = try vm.mulIntegerValues(rational.numerator, factor);
+    const truncated = try vm.divTruncIntegerValues(scaled_num, rational.denominator);
+    return vm.newRationalValues(truncated, factor);
 }
 
 pub fn builtinRationalFreeze(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
