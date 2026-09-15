@@ -1818,7 +1818,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/rational/fdiv_spec.rb
 - [ ] core/rational/floor_spec.rb
 - [x] core/rational/hash_spec.rb
-- [ ] core/rational/inspect_spec.rb
+- [x] core/rational/inspect_spec.rb
 - [x] core/rational/integer_spec.rb
 - [x] core/rational/magnitude_spec.rb
 - [ ] core/rational/marshal_dump_spec.rb

@@ -360,12 +360,16 @@ pub fn builtinRationalDenominator(vm: *VM, receiver: Value, args: []Value, _: ?B
 pub fn builtinRationalToS(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
     const rational = receiver.toRationalObject();
+    const num_str_val = try vm.callMethodByName(rational.numerator, "to_s", &.{}, null);
+    const den_str_val = try vm.callMethodByName(rational.denominator, "to_s", &.{}, null);
+    const num_str = num_str_val.toStringObject().str;
+    const den_str = den_str_val.toStringObject().str;
     var buf: std.Io.Writer.Allocating = .init(vm.allocator);
     defer buf.deinit();
 
-    rational.numerator.format(&buf.writer) catch return error.Fatal;
+    buf.writer.writeAll(num_str) catch return error.Fatal;
     buf.writer.writeByte('/') catch return error.Fatal;
-    rational.denominator.format(&buf.writer) catch return error.Fatal;
+    buf.writer.writeAll(den_str) catch return error.Fatal;
 
     const str = buf.toOwnedSlice() catch return error.Fatal;
     defer vm.allocator.free(str);
@@ -373,7 +377,24 @@ pub fn builtinRationalToS(vm: *VM, receiver: Value, args: []Value, _: ?Block) VM
 }
 
 pub fn builtinRationalInspect(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
-    return builtinRationalToS(vm, receiver, args, null);
+    try vm.requireArgCount(args, 0);
+    const rational = receiver.toRationalObject();
+    const num_str_val = try vm.callMethodByName(rational.numerator, "to_s", &.{}, null);
+    const den_str_val = try vm.callMethodByName(rational.denominator, "to_s", &.{}, null);
+    const num_str = num_str_val.toStringObject().str;
+    const den_str = den_str_val.toStringObject().str;
+    var buf: std.Io.Writer.Allocating = .init(vm.allocator);
+    defer buf.deinit();
+
+    buf.writer.writeByte('(') catch return error.Fatal;
+    buf.writer.writeAll(num_str) catch return error.Fatal;
+    buf.writer.writeByte('/') catch return error.Fatal;
+    buf.writer.writeAll(den_str) catch return error.Fatal;
+    buf.writer.writeByte(')') catch return error.Fatal;
+
+    const str = buf.toOwnedSlice() catch return error.Fatal;
+    defer vm.allocator.free(str);
+    return try vm.newStringWithEncoding(str, false, .{ .us_ascii = .{} });
 }
 
 pub fn builtinRationalToF(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
