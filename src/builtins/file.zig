@@ -732,6 +732,7 @@ pub fn register(vm: *VM) !void {
     try filetest_singleton.module.methods.put(exist_sym, value.MethodEntry.builtin(&builtinFileExist, .{ .exact = 1 }));
     try filetest_singleton.module.methods.put(readable_sym, value.MethodEntry.builtin(&builtinFileReadable, .{ .exact = 1 }));
     try filetest_singleton.module.methods.put(writable_sym, value.MethodEntry.builtin(&builtinFileWritable, .{ .exact = 1 }));
+    try filetest_singleton.module.methods.put(executable_sym, value.MethodEntry.builtin(&builtinFileExecutable, .{ .exact = 1 }));
     try filetest_singleton.module.methods.put(symlink_q_singleton_sym, value.MethodEntry.builtin(&builtinFileSymlinkQ, .{ .exact = 1 }));
     try filetest_singleton.module.methods.put(owned_singleton_sym, value.MethodEntry.builtin(&builtinFileOwned, .{ .exact = 1 }));
     try filetest_singleton.module.methods.put(identical_sym, value.MethodEntry.builtin(&builtinFileIdentical, .{ .exact = 2 }));
