@@ -1812,7 +1812,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] core/rational/denominator_spec.rb
 - [x] core/rational/div_spec.rb
 - [x] core/rational/divide_spec.rb
-- [ ] core/rational/divmod_spec.rb
+- [x] core/rational/divmod_spec.rb
 - [x] core/rational/equal_value_spec.rb
 - [ ] core/rational/exponent_spec.rb
 - [ ] core/rational/fdiv_spec.rb
