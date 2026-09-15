@@ -738,6 +738,7 @@ pub fn register(vm: *VM) !void {
     try filetest_singleton.module.methods.put(sticky_singleton_sym, value.MethodEntry.builtin(&builtinFileSticky, .{ .exact = 1 }));
     try filetest_singleton.module.methods.put(grpowned_singleton_sym, value.MethodEntry.builtin(&builtinFileGrpowned, .{ .exact = 1 }));
     try filetest_singleton.module.methods.put(setgid_singleton_sym, value.MethodEntry.builtin(&builtinFileSetgid, .{ .exact = 1 }));
+    try filetest_singleton.module.methods.put(setuid_singleton_sym, value.MethodEntry.builtin(&builtinFileSetuid, .{ .exact = 1 }));
 
     const mtime_sym_file = try vm.intern("mtime");
     try file_singleton.module.methods.put(mtime_sym_file, value.MethodEntry.builtin(&builtinFileMtime, .{ .exact = 1 }));
