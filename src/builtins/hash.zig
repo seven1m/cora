@@ -191,11 +191,12 @@ pub fn register(vm: *VM) !void {
     const each_value_sym = try vm.intern("each_value");
     try vm.hash_class.module.methods.put(each_value_sym, value.MethodEntry.builtin(&builtinHashEachValue, .{ .exact = 0 }));
 
+    const to_s_entry = value.MethodEntry.builtin(&builtinHashToS, .{ .exact = 0 });
     const to_s_sym = try vm.intern("to_s");
-    try vm.hash_class.module.methods.put(to_s_sym, value.MethodEntry.builtin(&builtinHashToS, .{ .exact = 0 }));
+    try vm.hash_class.module.methods.put(to_s_sym, to_s_entry);
 
     const inspect_sym = try vm.intern("inspect");
-    try vm.hash_class.module.methods.put(inspect_sym, value.MethodEntry.builtin(&builtinHashInspect, .{ .exact = 0 }));
+    try vm.hash_class.module.methods.put(inspect_sym, to_s_entry);
 
     const invert_sym = try vm.intern("invert");
     try vm.hash_class.module.methods.put(invert_sym, value.MethodEntry.builtin(&builtinHashInvert, .{ .exact = 0 }));
@@ -1397,11 +1398,6 @@ pub fn builtinHashHash(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMErr
     try vm.requireArgCount(args, 0);
     const result = try aggregate_hash.structuralHashHash(vm, receiver);
     return Value.integer(@bitCast(result.hash));
-}
-
-pub fn builtinHashInspect(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
-    try vm.requireArgCount(args, 0);
-    return try builtinHashToS(vm, receiver, args, null);
 }
 
 pub fn builtinHashFetch(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
