@@ -229,6 +229,31 @@ test "Array#each + Fiber.yield resumes inside builtin" {
     try std.testing.expectEqualStrings("1\n2\n:done\n", result.stdout);
 }
 
+test "recursive comparisons are isolated between fibers" {
+    const result = try evalCode(
+        \\$calls = 0
+        \\class FiberComparisonElement
+        \\  def ==(other)
+        \\    $calls += 1
+        \\    Fiber.yield if $calls == 1
+        \\    false
+        \\  end
+        \\end
+        \\left = [FiberComparisonElement.new]
+        \\right = [FiberComparisonElement.new]
+        \\fiber = Fiber.new { left == right }
+        \\fiber.resume
+        \\outside = left == right
+        \\inside = fiber.resume
+        \\[outside, inside, $calls]
+    );
+    const elems = result.toArrayObject().elements.items;
+    try std.testing.expectEqual(@as(usize, 3), elems.len);
+    try std.testing.expectEqual(false, elems[0].toBool());
+    try std.testing.expectEqual(false, elems[1].toBool());
+    try std.testing.expectEqual(@as(i64, 2), elems[2].toInteger());
+}
+
 test "Kernel#tap resumes and returns receiver" {
     var stdout_buf: [8192]u8 = undefined;
     var stderr_buf: [8192]u8 = undefined;

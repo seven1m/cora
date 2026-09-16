@@ -11,6 +11,10 @@ pub const Kind = enum {
     array_equal,
     array_eql,
     array_compare,
+    struct_equal,
+    struct_eql,
+    data_equal,
+    data_eql,
     comparable_equal,
     array_hash,
     struct_hash,
@@ -21,6 +25,7 @@ pub const Kind = enum {
 };
 
 const Entry = struct {
+    context: usize,
     kind: Kind,
     lhs_raw: u64,
     rhs_raw: u64,
@@ -33,18 +38,19 @@ pub const RecursionGuard = struct {
         self.stack.deinit(allocator);
     }
 
-    fn key(kind: Kind, lhs: Value, rhs: Value) Entry {
+    fn key(context: usize, kind: Kind, lhs: Value, rhs: Value) Entry {
         return .{
+            .context = context,
             .kind = kind,
             .lhs_raw = lhs.raw,
             .rhs_raw = rhs.raw,
         };
     }
 
-    pub fn enter(self: *RecursionGuard, allocator: std.mem.Allocator, kind: Kind, lhs: Value, rhs: Value) !bool {
-        const wanted = key(kind, lhs, rhs);
+    pub fn enter(self: *RecursionGuard, allocator: std.mem.Allocator, context: usize, kind: Kind, lhs: Value, rhs: Value) !bool {
+        const wanted = key(context, kind, lhs, rhs);
         for (self.stack.items) |entry| {
-            if (entry.kind == wanted.kind and entry.lhs_raw == wanted.lhs_raw and entry.rhs_raw == wanted.rhs_raw) {
+            if (entry.context == wanted.context and entry.kind == wanted.kind and entry.lhs_raw == wanted.lhs_raw and entry.rhs_raw == wanted.rhs_raw) {
                 return true;
             }
         }
@@ -52,13 +58,13 @@ pub const RecursionGuard = struct {
         return false;
     }
 
-    pub fn leave(self: *RecursionGuard, kind: Kind, lhs: Value, rhs: Value) void {
-        const wanted = key(kind, lhs, rhs);
+    pub fn leave(self: *RecursionGuard, context: usize, kind: Kind, lhs: Value, rhs: Value) void {
+        const wanted = key(context, kind, lhs, rhs);
         var i = self.stack.items.len;
         while (i > 0) {
             i -= 1;
             const entry = self.stack.items[i];
-            if (entry.kind == wanted.kind and entry.lhs_raw == wanted.lhs_raw and entry.rhs_raw == wanted.rhs_raw) {
+            if (entry.context == wanted.context and entry.kind == wanted.kind and entry.lhs_raw == wanted.lhs_raw and entry.rhs_raw == wanted.rhs_raw) {
                 _ = self.stack.swapRemove(i);
                 return;
             }

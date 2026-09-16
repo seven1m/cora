@@ -3089,11 +3089,11 @@ pub const VM = struct {
     }
 
     pub fn enterRecursionGuard(self: *VM, kind: RecursionGuardKind, lhs: Value, rhs: Value) VMError!bool {
-        return self.recursion_guard.enter(self.allocator, kind, lhs, rhs) catch return error.Fatal;
+        return self.recursion_guard.enter(self.allocator, @intFromPtr(self.current_fiber), kind, lhs, rhs) catch return error.Fatal;
     }
 
     pub fn leaveRecursionGuard(self: *VM, kind: RecursionGuardKind, lhs: Value, rhs: Value) void {
-        self.recursion_guard.leave(kind, lhs, rhs);
+        self.recursion_guard.leave(@intFromPtr(self.current_fiber), kind, lhs, rhs);
     }
 
     pub fn currentFrame(self: *VM) *CallFrame {

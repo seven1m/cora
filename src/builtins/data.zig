@@ -246,8 +246,8 @@ pub fn builtinDataEqual(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMEr
     if (vm.getClass(receiver) != vm.getClass(other)) return Value.boolean(false);
     if (receiver.raw == other.raw) return Value.boolean(true);
 
-    if (try vm.enterRecursionGuard(.array_equal, receiver, other)) return Value.boolean(true);
-    defer vm.leaveRecursionGuard(.array_equal, receiver, other);
+    if (try vm.enterRecursionGuard(.data_equal, receiver, other)) return Value.boolean(true);
+    defer vm.leaveRecursionGuard(.data_equal, receiver, other);
 
     const members = try memberNames(vm, receiver);
     defer vm.allocator.free(members);
@@ -271,8 +271,8 @@ pub fn builtinDataEql(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMErro
     if (vm.getClass(receiver) != vm.getClass(other)) return Value.boolean(false);
     if (receiver.raw == other.raw) return Value.boolean(true);
 
-    if (try vm.enterRecursionGuard(.array_eql, receiver, other)) return Value.boolean(true);
-    defer vm.leaveRecursionGuard(.array_eql, receiver, other);
+    if (try vm.enterRecursionGuard(.data_eql, receiver, other)) return Value.boolean(true);
+    defer vm.leaveRecursionGuard(.data_eql, receiver, other);
 
     const members = try memberNames(vm, receiver);
     defer vm.allocator.free(members);
