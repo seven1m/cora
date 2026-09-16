@@ -144,8 +144,13 @@ pub fn register(vm: *VM) !void {
         const cbrt_sym = try vm.intern("cbrt");
         try math_singleton.module.methods.put(cbrt_sym, value.MethodEntry.builtin(&builtinMathCbrt, .{ .exact = 1 }));
         try math_entry.value.toModuleObject().methods.put(cbrt_sym, value.MethodEntry.builtinWithVisibility(&builtinMathCbrt, .{ .exact = 1 }, .private));
+        const exp_sym = try vm.intern("exp");
+        try math_singleton.module.methods.put(exp_sym, value.MethodEntry.builtin(&builtinMathExp, .{ .exact = 1 }));
+        try math_entry.value.toModuleObject().methods.put(exp_sym, value.MethodEntry.builtinWithVisibility(&builtinMathExp, .{ .exact = 1 }, .private));
         const pi_sym = try vm.intern("PI");
         try math_entry.value.toModuleObject().constants.put(pi_sym, .{ .value = try vm.newFloat(std.math.pi) });
+        const e_sym = try vm.intern("E");
+        try math_entry.value.toModuleObject().constants.put(e_sym, .{ .value = try vm.newFloat(std.math.e) });
     }
 }
 
@@ -559,6 +564,27 @@ fn builtinMathCbrt(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
     } else
         return vm.raiseExceptionFmt(vm.type_error_class, "can't convert {s} into Float", .{vm.className(arg)});
     return vm.newFloat(std.math.cbrt(f));
+}
+
+fn builtinMathExp(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    const arg = args[0];
+    const f: f64 = if (arg.isFloat())
+        arg.toFloatObject().val
+    else if (arg.isInteger() or arg.isBigInteger())
+        arg.integerToF64()
+    else if (arg.isRational())
+        arg.toRationalObject().numerator.integerToF64() / arg.toRationalObject().denominator.integerToF64()
+    else if (vm.isClassOrSubclassOf(vm.getClass(arg), vm.numeric_class)) blk: {
+        // Mirrors MRI's rb_num_to_dbl: non-core Numerics convert via to_f.
+        const float_val = try vm.callMethodByName(arg, "to_f", &.{}, null);
+        if (!float_val.isFloat()) {
+            return vm.raiseExceptionFmt(vm.type_error_class, "can't convert {s} into Float", .{vm.className(arg)});
+        }
+        break :blk float_val.toFloatObject().val;
+    } else
+        return vm.raiseExceptionFmt(vm.type_error_class, "can't convert {s} into Float", .{vm.className(arg)});
+    return vm.newFloat(std.math.exp(f));
 }
 
 fn builtinComplexDenominator(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
