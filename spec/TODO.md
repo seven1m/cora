@@ -1365,7 +1365,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/math/log2_spec.rb
 - [ ] core/math/log_spec.rb
 - [ ] core/math/sin_spec.rb
-- [ ] core/math/sinh_spec.rb
+- [x] core/math/sinh_spec.rb
 - [x] core/math/sqrt_spec.rb
 - [ ] core/math/tan_spec.rb
 - [ ] core/math/tanh_spec.rb
