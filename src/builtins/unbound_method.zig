@@ -34,6 +34,12 @@ pub fn register(vm: *VM) !void {
     const inspect_entry = common.MethodEntry.builtin(&builtinUnboundMethodInspect, .{ .exact = 0 });
     try vm.unbound_method_class.module.methods.put(inspect_sym, inspect_entry);
     try vm.unbound_method_class.module.methods.put(to_s_sym, inspect_entry);
+
+    const equal_entry = common.MethodEntry.builtin(&builtinUnboundMethodEqual, .{ .exact = 1 });
+    const equal_sym = try vm.intern("==");
+    try vm.unbound_method_class.module.methods.put(equal_sym, equal_entry);
+    const eql_sym = try vm.intern("eql?");
+    try vm.unbound_method_class.module.methods.put(eql_sym, equal_entry);
 }
 
 fn builtinMethodCall(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {

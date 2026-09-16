@@ -1531,7 +1531,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] core/numeric/div_spec.rb
 - [x] core/numeric/divmod_spec.rb
 - [x] core/numeric/dup_spec.rb
-- [ ] core/numeric/eql_spec.rb
+- [x] core/numeric/eql_spec.rb
 - [x] core/numeric/fdiv_spec.rb
 - [x] core/numeric/finite_spec.rb
 - [x] core/numeric/floor_spec.rb

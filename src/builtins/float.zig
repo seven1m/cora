@@ -787,6 +787,14 @@ fn floatToIntegerValue(vm: *VM, f: f64) VMError!Value {
     return vm.valueFromManagedInteger(&managed);
 }
 
+fn scaleIntegralFloatByDecimalFactor(vm: *VM, quotient: f64, digits: c_int) VMError!Value {
+    const quotient_value = try floatToIntegerValue(vm, quotient);
+    var power_args = [_]Value{Value.integer(-@as(i64, digits))};
+    const factor = try vm.callMethodByName(Value.integer(10), "**", power_args[0..], null);
+    var multiply_args = [_]Value{factor};
+    return vm.callMethodByName(quotient_value, "*", multiply_args[0..], null);
+}
+
 pub fn builtinFloatCeil(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCountRange(args, 0, 1);
     const f = receiver.toFloatObject().val;
@@ -795,13 +803,14 @@ pub fn builtinFloatCeil(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMEr
     }
     const digits = try coercePrecisionArgToCInt(vm, args[0]);
     if (digits > 0) {
-        return try vm.newFloat(f);
+        const factor = std.math.pow(f64, 10, @as(f64, @floatFromInt(digits)));
+        return try vm.newFloat(@ceil(f * factor) / factor);
     }
     if (digits == 0) {
         return floatToIntegerValue(vm, @ceil(f));
     }
     const factor = std.math.pow(f64, 10, @as(f64, @floatFromInt(-digits)));
-    return floatToIntegerValue(vm, @ceil(f / factor) * factor);
+    return scaleIntegralFloatByDecimalFactor(vm, @ceil(f / factor), digits);
 }
 
 pub fn builtinFloatFloor(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
@@ -812,13 +821,14 @@ pub fn builtinFloatFloor(vm: *VM, receiver: Value, args: []Value, _: ?Block) VME
     }
     const digits = try coercePrecisionArgToCInt(vm, args[0]);
     if (digits > 0) {
-        return try vm.newFloat(f);
+        const factor = std.math.pow(f64, 10, @as(f64, @floatFromInt(digits)));
+        return try vm.newFloat(@floor(f * factor) / factor);
     }
     if (digits == 0) {
         return floatToIntegerValue(vm, @floor(f));
     }
     const factor = std.math.pow(f64, 10, @as(f64, @floatFromInt(-digits)));
-    return floatToIntegerValue(vm, @floor(f / factor) * factor);
+    return scaleIntegralFloatByDecimalFactor(vm, @floor(f / factor), digits);
 }
 
 pub fn builtinFloatRound(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {

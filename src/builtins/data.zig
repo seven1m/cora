@@ -36,7 +36,7 @@ pub fn register(vm: *VM) !void {
     try vm.data_class.module.methods.put(eq_sym, value.MethodEntry.builtin(&builtinDataEqual, .{ .exact = 1 }));
 
     const eql_sym = try vm.intern("eql?");
-    try vm.data_class.module.methods.put(eql_sym, value.MethodEntry.builtin(&builtinDataEqual, .{ .exact = 1 }));
+    try vm.data_class.module.methods.put(eql_sym, value.MethodEntry.builtin(&builtinDataEql, .{ .exact = 1 }));
 
     const hash_sym = try vm.intern("hash");
     try vm.data_class.module.methods.put(hash_sym, value.MethodEntry.builtin(&builtinDataHash, .{ .exact = 0 }));
@@ -244,8 +244,13 @@ pub fn builtinDataEqual(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMEr
     const other = args[0];
 
     if (vm.getClass(receiver) != vm.getClass(other)) return Value.boolean(false);
+    if (receiver.raw == other.raw) return Value.boolean(true);
+
+    if (try vm.enterRecursionGuard(.array_equal, receiver, other)) return Value.boolean(true);
+    defer vm.leaveRecursionGuard(.array_equal, receiver, other);
 
     const members = try memberNames(vm, receiver);
+    defer vm.allocator.free(members);
     const self_vals = try memberValues(vm, receiver, members);
     defer vm.allocator.free(self_vals);
     const other_vals = try memberValues(vm, other, members);
@@ -255,6 +260,29 @@ pub fn builtinDataEqual(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMEr
         var eq_args = [_]Value{other_vals[i]};
         const eq_result = try vm.callMethodByName(self_vals[i], "==", &eq_args, null);
         if (!eq_result.isTruthy()) return Value.boolean(false);
+    }
+    return Value.boolean(true);
+}
+
+pub fn builtinDataEql(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    const other = args[0];
+
+    if (vm.getClass(receiver) != vm.getClass(other)) return Value.boolean(false);
+    if (receiver.raw == other.raw) return Value.boolean(true);
+
+    if (try vm.enterRecursionGuard(.array_eql, receiver, other)) return Value.boolean(true);
+    defer vm.leaveRecursionGuard(.array_eql, receiver, other);
+
+    const members = try memberNames(vm, receiver);
+    defer vm.allocator.free(members);
+    const self_vals = try memberValues(vm, receiver, members);
+    defer vm.allocator.free(self_vals);
+    const other_vals = try memberValues(vm, other, members);
+    defer vm.allocator.free(other_vals);
+
+    for (members, 0..) |_, i| {
+        if (!try vm.hashKeysEqual(self_vals[i], other_vals[i])) return Value.boolean(false);
     }
     return Value.boolean(true);
 }

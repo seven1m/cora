@@ -119,6 +119,8 @@ def CORAFIXME(description, exception: StandardError, message: nil, condition: tr
     yield
     :unexpected_pass
   rescue Exception => error
+    raise if error.is_a?(SkippedSpecError)
+
     candidates = [error]
     if defined?(RaiseErrorMatcher) && (failure = RaiseErrorMatcher::FAILURE_MESSAGE_FOR_EXCEPTION.delete(error))
       # Real MSpec's raise_error re-raises the original exception and stores

@@ -36,6 +36,17 @@ pub fn register(vm: *VM) !void {
 
     const to_proc_sym = try vm.intern("to_proc");
     try vm.proc_class.module.methods.put(to_proc_sym, value.MethodEntry.builtin(&builtinProcToProc, .{ .exact = 0 }));
+
+    const equal_entry = value.MethodEntry.builtin(&builtinProcEqual, .{ .exact = 1 });
+    const equal_sym = try vm.intern("==");
+    try vm.proc_class.module.methods.put(equal_sym, equal_entry);
+    const eql_sym = try vm.intern("eql?");
+    try vm.proc_class.module.methods.put(eql_sym, equal_entry);
+}
+
+pub fn builtinProcEqual(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    return Value.boolean(receiver.raw == args[0].raw);
 }
 
 pub fn builtinProcNew(vm: *VM, _: Value, args: []Value, block: ?Block) VMError!Value {

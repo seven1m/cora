@@ -182,6 +182,9 @@ pub fn register(vm: *VM) !void {
     const class_sym = try vm.intern("class");
     try vm.kernel_module.methods.put(class_sym, value.MethodEntry.builtin(&object_builtin.builtinObjectClass, .{ .exact = 0 }));
 
+    const eql_sym = try vm.intern("eql?");
+    try vm.kernel_module.methods.put(eql_sym, value.MethodEntry.builtin(&builtinKernelEql, .{ .exact = 1 }));
+
     const kernel_array_convert_sym = try vm.intern("Array");
     try vm.kernel_module.methods.put(kernel_array_convert_sym, value.MethodEntry.builtinWithVisibility(&builtinKernelArrayConvert, .{ .exact = 1 }, .private));
 
@@ -475,6 +478,11 @@ pub fn register(vm: *VM) !void {
 
     const complex_sym = try vm.intern("Complex");
     try vm.kernel_module.methods.put(complex_sym, value.MethodEntry.builtin(&builtinKernelComplex, .{ .variadic = 0 }));
+}
+
+pub fn builtinKernelEql(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    return Value.boolean(receiver.eql(args[0]));
 }
 
 fn builtinKernelComplex(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {

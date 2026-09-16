@@ -82,6 +82,9 @@ pub fn register(vm: *VM) !void {
     const coerce_sym = try vm.intern("coerce");
     try vm.numeric_class.module.methods.put(coerce_sym, value.MethodEntry.builtin(&builtinNumericCoerce, .{ .exact = 1 }));
 
+    const eql_sym = try vm.intern("eql?");
+    try vm.numeric_class.module.methods.put(eql_sym, value.MethodEntry.builtin(&builtinNumericEql, .{ .exact = 1 }));
+
     const dup_sym = try vm.intern("dup");
     try vm.numeric_class.module.methods.put(dup_sym, value.MethodEntry.builtin(&builtinNumericDup, .{ .exact = 0 }));
 
@@ -137,6 +140,13 @@ pub fn register(vm: *VM) !void {
 
     const to_c_sym = try vm.intern("to_c");
     try vm.numeric_class.module.methods.put(to_c_sym, value.MethodEntry.builtin(&builtinNumericToC, .{ .exact = 0 }));
+}
+
+pub fn builtinNumericEql(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    if (vm.getClass(receiver) != vm.getClass(args[0])) return Value.boolean(false);
+
+    return vm.callMethodByName(receiver, "==", args, null);
 }
 
 pub fn builtinNumericCoerce(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
