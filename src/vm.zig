@@ -7111,22 +7111,26 @@ pub const VM = struct {
             .FORWARDING_SUPER => {
                 const block_chunk_id = readU16From(frame, operands, &operand_cursor);
 
+                const forwarding_frame = self.enclosingMethodFrame(frame);
+
                 // Resolve block, falling back to frame's block for forwarding
                 var block = try self.resolveBlock(block_chunk_id, frame);
                 if (block == null) {
-                    block = frame.block;
+                    block = forwarding_frame.block;
                 }
 
                 // Get forwarding positional arguments from current method's environment
                 var fwd_buf: [256]Value = undefined;
-                const fwd_args = self.getForwardingArguments(frame, &fwd_buf);
+                const fwd_args = self.getForwardingArguments(forwarding_frame, &fwd_buf);
 
                 // Build forwarding keyword context from actual param slot values
                 // (includes defaults that were applied, not just what was explicitly passed).
-                const fwd_kw_ctx = try self.buildForwardingKeywordContext(frame);
+                const saved_kw_ctx = forwarding_frame.forwarded_keyword_ctx;
+                const fwd_kw_ctx = try self.buildForwardingKeywordContext(forwarding_frame);
                 if (fwd_kw_ctx) |ctx| {
-                    frame.forwarded_keyword_ctx = ctx;
+                    forwarding_frame.forwarded_keyword_ctx = ctx;
                 }
+                defer forwarding_frame.forwarded_keyword_ctx = saved_kw_ctx;
 
                 try self.callSuper(fwd_args, block);
             },
@@ -9280,7 +9284,7 @@ pub const VM = struct {
 
         if (ch.has_forwarding_parameter) {
             const rest_idx = ch.rest_param_index orelse return buf[0..0];
-            const rest_val = (ep - lc + rest_idx)[0];
+            const rest_val = localSlot(ep, lc, rest_idx).*;
             if (!rest_val.isArray()) return buf[0..0];
 
             const elems = rest_val.toArrayObject().elements.items;
@@ -9292,7 +9296,7 @@ pub const VM = struct {
 
         if (ch.rest_param_index == null) {
             // Common case: copy param slots into buffer
-            for (0..param_count) |i| buf[i] = (ep - lc + @as(u16, @intCast(i)))[0];
+            for (0..param_count) |i| buf[i] = localSlot(ep, lc, @intCast(i)).*;
             return buf[0..param_count];
         }
 
@@ -9301,7 +9305,7 @@ pub const VM = struct {
         const total_slots = param_count + 1; // +1 for the rest slot itself
         var out: usize = 0;
         for (0..total_slots) |slot| {
-            const slot_val = (ep - lc + @as(u16, @intCast(slot)))[0];
+            const slot_val = localSlot(ep, lc, @intCast(slot)).*;
             if (slot == rest_idx) {
                 if (slot_val.isArray()) {
                     for (slot_val.toArrayObject().elements.items) |elem| {
@@ -9325,7 +9329,7 @@ pub const VM = struct {
         const ch = frame.chunk;
         if (ch.has_forwarding_parameter) {
             const rest_idx = ch.keyword_rest_index orelse return null;
-            const kw_hash_val = (frame.ep - ch.locals_count + rest_idx)[0];
+            const kw_hash_val = localSlot(frame.ep, ch.locals_count, rest_idx).*;
             if (!kw_hash_val.isHash()) return null;
 
             const len = kw_hash_val.toHashObject().entries.items.len;
@@ -9339,8 +9343,14 @@ pub const VM = struct {
             return ctx;
         }
 
-        const total = ch.required_keywords.items.len + ch.optional_keywords.items.len;
+        const named_total = ch.required_keywords.items.len + ch.optional_keywords.items.len;
+        const kwrest_len = if (ch.keyword_rest_index) |rest_idx| blk: {
+            const rest = localSlot(frame.ep, ch.locals_count, rest_idx).*;
+            break :blk if (rest.isHash()) rest.toHashObject().entries.items.len else 0;
+        } else 0;
+        const total = named_total + kwrest_len;
         if (total == 0) return null;
+        if (total > MAX_BUILTIN_KEYWORDS) return error.Fatal;
 
         const ctx = self.gc_allocator.create(BuiltinKeywordContext) catch return error.Fatal;
         ctx.* = .{};
@@ -9356,7 +9366,7 @@ pub const VM = struct {
                 else => return error.Fatal,
             };
             ctx.kw_keys_storage[i] = Value.fromObject(&(try self.intern(name_str)).object);
-            ctx.kw_values_storage[i] = (ep - lc + kw.param_slot)[0];
+            ctx.kw_values_storage[i] = localSlot(ep, lc, kw.param_slot).*;
             i += 1;
         }
         for (ch.optional_keywords.items) |kw| {
@@ -9366,8 +9376,19 @@ pub const VM = struct {
                 else => return error.Fatal,
             };
             ctx.kw_keys_storage[i] = Value.fromObject(&(try self.intern(name_str)).object);
-            ctx.kw_values_storage[i] = (ep - lc + kw.param_slot)[0];
+            ctx.kw_values_storage[i] = localSlot(ep, lc, kw.param_slot).*;
             i += 1;
+        }
+
+        if (ch.keyword_rest_index) |rest_idx| {
+            const rest = localSlot(ep, lc, rest_idx).*;
+            if (rest.isHash() and kwrest_len > 0) {
+                _ = try self.extractKeywordPairsFromHash(
+                    rest,
+                    ctx.kw_keys_storage[i..total],
+                    ctx.kw_values_storage[i..total],
+                );
+            }
         }
 
         ctx.kw_keys = ctx.kw_keys_storage[0..total];
@@ -9375,23 +9396,25 @@ pub const VM = struct {
         return ctx;
     }
 
+    /// Return the method frame whose lexical context applies to super. Blocks
+    /// retain their defining method's arguments and incoming block for zsuper.
+    fn enclosingMethodFrame(self: *VM, frame: *CallFrame) *CallFrame {
+        if (!CallFrame.usesEnclosingMethodContext(frame.frame_type)) return frame;
+
+        var i = self.frames.items.len;
+        while (i > 0) {
+            i -= 1;
+            if (self.frames.items[i].frame_type == .method) {
+                return &self.frames.items[i];
+            }
+        }
+        return frame;
+    }
+
     /// Call the superclass method with the given arguments
     fn callSuper(self: *VM, args: []const Value, block: ?Block) VMError!void {
         const frame = self.currentFrame();
-
-        // When super is used inside a block or synthetic helper frame, find the enclosing method
-        // frame to get the correct super_defining_class and lexical_scope.
-        var super_frame = frame;
-        if (CallFrame.usesEnclosingMethodContext(frame.frame_type)) {
-            var i: usize = self.frames.items.len;
-            while (i > 0) {
-                i -= 1;
-                if (self.frames.items[i].frame_type == .method) {
-                    super_frame = &self.frames.items[i];
-                    break;
-                }
-            }
-        }
+        const super_frame = self.enclosingMethodFrame(frame);
 
         // Use explicit frame metadata when a method body comes from a Proc (define_method/define_singleton_method).
         const method_name = super_frame.method_name orelse super_frame.chunk.name;
@@ -9466,7 +9489,7 @@ pub const VM = struct {
         switch (resolved.entry.method) {
             .chunk => |method_chunk| {
                 const kw_keys = if (super_frame.forwarded_keyword_ctx) |ctx| if (ctx.kw_values.len > 0) ctx.kw_keys else null else null;
-                const kw_values = if (frame.forwarded_keyword_ctx) |ctx| if (ctx.kw_values.len > 0) ctx.kw_values else null else null;
+                const kw_values = if (super_frame.forwarded_keyword_ctx) |ctx| if (ctx.kw_values.len > 0) ctx.kw_values else null else null;
                 try self.setupChunkCallFrame(method_chunk, receiver, args, .{
                     .kw_keys = kw_keys,
                     .kw_values = kw_values,

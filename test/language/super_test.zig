@@ -44,6 +44,35 @@ test "Bare super forwards all arguments" {
     try std.testing.expectEqual(30, result.toInteger());
 }
 
+test "bare super in a block forwards enclosing method arguments and block" {
+    const result = try evalCode(
+        \\class A
+        \\  def foo(x, y = 2, *rest, flag:, **kwargs)
+        \\    [x, y, rest, flag, kwargs, block_given? ? yield : :no_block]
+        \\  end
+        \\end
+        \\
+        \\class B < A
+        \\  def foo(x, y = 2, *rest, flag:, **kwargs)
+        \\    1.times do
+        \\      1.times { return super }
+        \\    end
+        \\  end
+        \\end
+        \\
+        \\B.new.foo(1, 3, 4, flag: true, extra: 5) { :original_block }
+    );
+    try std.testing.expect(result.isArray());
+    const values = result.toArrayObject().elements.items;
+    try std.testing.expectEqual(@as(usize, 6), values.len);
+    try std.testing.expectEqual(@as(i64, 1), values[0].toInteger());
+    try std.testing.expectEqual(@as(i64, 3), values[1].toInteger());
+    try std.testing.expectEqual(@as(i64, 4), values[2].toArrayObject().elements.items[0].toInteger());
+    try std.testing.expect(values[3].isTrue());
+    try std.testing.expectEqual(@as(i64, 5), values[4].toHashObject().entries.items[0].value.toInteger());
+    try std.testing.expectEqualSlices(u8, "original_block", values[5].toSymbolObject().name);
+}
+
 test "super() with no arguments" {
     const result = try evalCode(
         \\class A
