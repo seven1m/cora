@@ -68,6 +68,7 @@ pub fn arrayPack(vm: *VM, items: []Value, format: []const u8) VMError!Value {
             'E' => try packFloatDirective(vm, items, &arg_index, token, &out, 8, .little),
             'g' => try packFloatDirective(vm, items, &arg_index, token, &out, 4, .big),
             'G' => try packFloatDirective(vm, items, &arg_index, token, &out, 8, .big),
+            'm' => try packBase64Directive(vm, items, &arg_index, token, &out),
             'p', 'P' => try packPointerDirective(vm, items, &arg_index, token, &out, &packed_pointer_entries),
             'x' => {
                 if (!token.star) {
@@ -93,17 +94,65 @@ pub fn arrayPack(vm: *VM, items: []Value, format: []const u8) VMError!Value {
                 }
             },
             else => {
-                return vm.raiseExceptionFmt(vm.argument_error_class, "{c} is not supported", .{token.directive});
+                return vm.raiseExceptionFmt(
+                    vm.argument_error_class,
+                    "unknown pack directive '{c}' in '{s}'",
+                    .{ token.directive, format },
+                );
             },
         }
     }
 
-    const packed_value = try vm.newStringWithEncoding(out.items, false, .{ .ascii_8bit = .{} });
+    const output_encoding: enc.Encoding = if (std.mem.indexOfAny(u8, format, "mM") != null)
+        .{ .us_ascii = .{} }
+    else
+        .{ .ascii_8bit = .{} };
+    const packed_value = try vm.newStringWithEncoding(out.items, false, output_encoding);
     const packed_obj = packed_value.toStringObject();
     for (packed_pointer_entries.items) |entry| {
         try vm.registerPackedPointerTarget(packed_obj, entry.offset, entry.target);
     }
     return packed_value;
+}
+
+fn packBase64Directive(
+    vm: *VM,
+    items: []Value,
+    arg_index: *usize,
+    token: DirectiveToken,
+    out: *std.ArrayList(u8),
+) VMError!void {
+    if (arg_index.* >= items.len) {
+        return vm.raiseExceptionFmt(vm.argument_error_class, "too few arguments", .{});
+    }
+
+    const bytes = try items[arg_index.*].coerceToStr(vm, "no implicit conversion into String");
+    arg_index.* += 1;
+    if (bytes.len == 0) return;
+
+    const count = token.count orelse 1;
+    if (!token.star and count == 0) {
+        const encoded_len = std.base64.standard.Encoder.calcSize(bytes.len);
+        const encoded = vm.allocator.alloc(u8, encoded_len) catch return error.Fatal;
+        defer vm.allocator.free(encoded);
+        _ = std.base64.standard.Encoder.encode(encoded, bytes);
+        out.appendSlice(vm.allocator, encoded) catch return error.Fatal;
+        return;
+    }
+
+    const bytes_per_line = if (token.star or count < 3) 45 else (count / 3) * 3;
+    var offset: usize = 0;
+    while (offset < bytes.len) {
+        const end = @min(offset + bytes_per_line, bytes.len);
+        const chunk = bytes[offset..end];
+        const encoded_len = std.base64.standard.Encoder.calcSize(chunk.len);
+        const encoded = vm.allocator.alloc(u8, encoded_len) catch return error.Fatal;
+        defer vm.allocator.free(encoded);
+        _ = std.base64.standard.Encoder.encode(encoded, chunk);
+        out.appendSlice(vm.allocator, encoded) catch return error.Fatal;
+        out.append(vm.allocator, '\n') catch return error.Fatal;
+        offset = end;
+    }
 }
 
 pub fn stringUnpack(vm: *VM, source: *value.StringObject, base_offset: usize, format: []const u8) VMError!Value {
