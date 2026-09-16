@@ -729,7 +729,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/file/lchmod_spec.rb
 - [ ] core/file/lchown_spec.rb
 - [ ] core/file/link_spec.rb
-- [ ] core/file/lstat_spec.rb
+- [x] core/file/lstat_spec.rb
 - [ ] core/file/lutime_spec.rb
 - [ ] core/file/mkfifo_spec.rb
 - [-] core/file/mtime_spec.rb
