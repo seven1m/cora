@@ -214,6 +214,9 @@ pub fn register(vm: *VM) !void {
         const ldexp_sym = try vm.intern("ldexp");
         try math_singleton.module.methods.put(ldexp_sym, value.MethodEntry.builtin(&builtinMathLdexp, .{ .exact = 2 }));
         try math_entry.value.toModuleObject().methods.put(ldexp_sym, value.MethodEntry.builtinWithVisibility(&builtinMathLdexp, .{ .exact = 2 }, .private));
+        const lgamma_sym = try vm.intern("lgamma");
+        try math_singleton.module.methods.put(lgamma_sym, value.MethodEntry.builtin(&builtinMathLgamma, .{ .exact = 1 }));
+        try math_entry.value.toModuleObject().methods.put(lgamma_sym, value.MethodEntry.builtinWithVisibility(&builtinMathLgamma, .{ .exact = 1 }, .private));
         const pi_sym = try vm.intern("PI");
         try math_entry.value.toModuleObject().constants.put(pi_sym, .{ .value = try vm.newFloat(std.math.pi) });
         const e_sym = try vm.intern("E");
@@ -1195,6 +1198,60 @@ fn builtinMathLdexp(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
     if (f == 0.0 or !std.math.isFinite(f)) return vm.newFloat(f);
     const exp_i32: i32 = @intCast(std.math.clamp(exp_i64, @as(i64, std.math.minInt(i32)), @as(i64, std.math.maxInt(i32))));
     return vm.newFloat(std.math.ldexp(f, exp_i32));
+}
+
+fn builtinMathLgamma(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    const arg = args[0];
+    if (arg.isNil())
+        return vm.raiseExceptionFmt(vm.type_error_class, "can't convert nil into Float", .{});
+    const f: f64 = if (arg.isFloat())
+        arg.toFloatObject().val
+    else if (arg.isInteger() or arg.isBigInteger())
+        arg.integerToF64()
+    else if (arg.isRational())
+        arg.toRationalObject().numerator.integerToF64() / arg.toRationalObject().denominator.integerToF64()
+    else if (vm.isClassOrSubclassOf(vm.getClass(arg), vm.numeric_class)) blk: {
+        // Mirrors MRI's rb_num_to_dbl: non-core Numerics convert via to_f.
+        const float_val = try vm.callMethodByName(arg, "to_f", &.{}, null);
+        if (!float_val.isFloat()) {
+            return vm.raiseExceptionFmt(vm.type_error_class, "can't convert {s} into Float", .{vm.className(arg)});
+        }
+        break :blk float_val.toFloatObject().val;
+    } else
+        return vm.raiseExceptionFmt(vm.type_error_class, "can't convert {s} into Float", .{vm.className(arg)});
+    // MRI raises DomainError for -Infinity; +Infinity and NaN pass through
+    // with a sign of 1.
+    if (std.math.isNegativeInf(f))
+        return vm.raiseExceptionFmt(vm.math_domain_error_class, "Numerical argument is out of domain - lgamma", .{});
+    if (std.math.isPositiveInf(f) or std.math.isNan(f)) {
+        const result = try vm.createArray();
+        result.elements.append(vm.gc_allocator, try vm.newFloat(f)) catch return error.Fatal;
+        result.elements.append(vm.gc_allocator, Value.integer(1)) catch return error.Fatal;
+        return Value.fromObject(&result.object);
+    }
+    // Poles at zero and negative integers yield +Infinity; the sign is 1
+    // except for -0.0, matching MRI's lgamma_r behavior.
+    var sign: i64 = 1;
+    var val: f64 = undefined;
+    if (f == 0.0) {
+        val = std.math.inf(f64);
+        if (std.math.signbit(f)) sign = -1;
+    } else if (f < 0.0 and f == @trunc(f)) {
+        val = std.math.inf(f64);
+    } else {
+        val = std.math.lgamma(f64, f);
+        if (f < 0.0) {
+            // Gamma alternates sign between poles: negative on (-1, 0),
+            // positive on (-2, -1), and so on.
+            const k: i64 = @intFromFloat(@floor(-f));
+            if (@mod(k, 2) == 0) sign = -1;
+        }
+    }
+    const result = try vm.createArray();
+    result.elements.append(vm.gc_allocator, try vm.newFloat(val)) catch return error.Fatal;
+    result.elements.append(vm.gc_allocator, Value.integer(sign)) catch return error.Fatal;
+    return Value.fromObject(&result.object);
 }
 
 fn builtinComplexDenominator(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
