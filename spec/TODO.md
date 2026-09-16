@@ -777,7 +777,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/file/stat/inspect_spec.rb
 - [x] core/file/stat/mode_spec.rb
 - [x] core/file/stat/mtime_spec.rb
-- [ ] core/file/stat/new_spec.rb
+- [x] core/file/stat/new_spec.rb
 - [x] core/file/stat/nlink_spec.rb
 - [x] core/file/stat/owned_spec.rb
 - [x] core/file/stat/pipe_spec.rb
