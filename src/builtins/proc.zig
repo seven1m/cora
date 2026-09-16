@@ -46,7 +46,36 @@ pub fn register(vm: *VM) !void {
 
 pub fn builtinProcEqual(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 1);
-    return Value.boolean(receiver.raw == args[0].raw);
+    if (!args[0].isProc()) return Value.boolean(false);
+    if (vm.getClass(receiver) != vm.getClass(args[0])) return Value.boolean(false);
+
+    const lhs = receiver.toProcObject().block;
+    const rhs = args[0].toProcObject().block;
+    const equal = switch (lhs.kind) {
+        .chunk => |lhs_chunk| switch (rhs.kind) {
+            .chunk => |rhs_chunk| lhs_chunk.chunk == rhs_chunk.chunk and lhs_chunk.defining_ep == rhs_chunk.defining_ep,
+            else => false,
+        },
+        .receiver_builtin => |lhs_builtin| switch (rhs.kind) {
+            .receiver_builtin => |rhs_builtin| lhs_builtin.receiver.raw == rhs_builtin.receiver.raw and
+                lhs_builtin.func == rhs_builtin.func and
+                lhs_builtin.arity == rhs_builtin.arity,
+            else => false,
+        },
+        .symbol => |lhs_symbol| switch (rhs.kind) {
+            .symbol => |rhs_symbol| lhs_symbol == rhs_symbol,
+            else => false,
+        },
+        .builtin => |lhs_builtin| switch (rhs.kind) {
+            .builtin => |rhs_builtin| lhs_builtin == rhs_builtin,
+            else => false,
+        },
+        .callable => |lhs_callable| switch (rhs.kind) {
+            .callable => |rhs_callable| lhs_callable.raw == rhs_callable.raw,
+            else => false,
+        },
+    };
+    return Value.boolean(equal);
 }
 
 pub fn builtinProcNew(vm: *VM, _: Value, args: []Value, block: ?Block) VMError!Value {

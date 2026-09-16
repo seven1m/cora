@@ -10299,6 +10299,15 @@ pub const VM = struct {
     }
 
     pub fn allocateDupShell(self: *VM, receiver: Value) VMError!Value {
+        if (receiver.isProc()) {
+            const source = receiver.toProcObject();
+            const duplicate = try self.newProc(source.block);
+            const duplicate_obj = duplicate.toProcObject();
+            duplicate_obj.object.class = self.getClass(receiver);
+            duplicate_obj.ruby2_keywords = source.ruby2_keywords;
+            return duplicate;
+        }
+
         if (receiver.isClass()) {
             if (receiver.toClassObject() == self.basic_object_class) {
                 return self.raiseExceptionFmt(self.type_error_class, "can't copy the root class", .{});

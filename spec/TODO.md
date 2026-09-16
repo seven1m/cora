@@ -1614,7 +1614,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/proc/dup_spec.rb
 - [x] core/proc/element_reference_spec.rb
 - [x] core/proc/eql_spec.rb
-- [ ] core/proc/equal_value_spec.rb
+- [x] core/proc/equal_value_spec.rb
 - [x] core/proc/hash_spec.rb
 - [ ] core/proc/inspect_spec.rb
 - [ ] core/proc/lambda_spec.rb
