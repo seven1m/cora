@@ -192,6 +192,9 @@ pub fn register(vm: *VM) !void {
         const log10_sym = try vm.intern("log10");
         try math_singleton.module.methods.put(log10_sym, value.MethodEntry.builtin(&builtinMathLog10, .{ .exact = 1 }));
         try math_entry.value.toModuleObject().methods.put(log10_sym, value.MethodEntry.builtinWithVisibility(&builtinMathLog10, .{ .exact = 1 }, .private));
+        const log_sym = try vm.intern("log");
+        try math_singleton.module.methods.put(log_sym, value.MethodEntry.builtin(&builtinMathLog, .{ .variadic = 1 }));
+        try math_entry.value.toModuleObject().methods.put(log_sym, value.MethodEntry.builtinWithVisibility(&builtinMathLog, .{ .variadic = 1 }, .private));
         const pi_sym = try vm.intern("PI");
         try math_entry.value.toModuleObject().constants.put(pi_sym, .{ .value = try vm.newFloat(std.math.pi) });
         const e_sym = try vm.intern("E");
@@ -959,6 +962,33 @@ fn builtinMathLog10(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
     if (f < 0.0)
         return vm.raiseExceptionFmt(vm.math_domain_error_class, "Numerical argument is out of domain - \"log10\"", .{});
     return vm.newFloat(std.math.log10(f));
+}
+
+fn builtinMathLog(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCountRange(args, 1, 2);
+    var fs: [2]f64 = undefined;
+    for (args, 0..) |arg, i| {
+        fs[i] = if (arg.isFloat())
+            arg.toFloatObject().val
+        else if (arg.isInteger() or arg.isBigInteger())
+            arg.integerToF64()
+        else if (arg.isRational())
+            arg.toRationalObject().numerator.integerToF64() / arg.toRationalObject().denominator.integerToF64()
+        else if (vm.isClassOrSubclassOf(vm.getClass(arg), vm.numeric_class)) blk: {
+            // Mirrors MRI's rb_num_to_dbl: non-core Numerics convert via to_f.
+            const float_val = try vm.callMethodByName(arg, "to_f", &.{}, null);
+            if (!float_val.isFloat()) {
+                return vm.raiseExceptionFmt(vm.type_error_class, "can't convert {s} into Float", .{vm.className(arg)});
+            }
+            break :blk float_val.toFloatObject().val;
+        } else
+            return vm.raiseExceptionFmt(vm.type_error_class, "can't convert {s} into Float", .{vm.className(arg)});
+    }
+    if (fs[0] < 0.0)
+        return vm.raiseExceptionFmt(vm.math_domain_error_class, "Numerical argument is out of domain - \"log\"", .{});
+    const result = std.math.log(f64, std.math.e, fs[0]);
+    if (args.len == 2) return vm.newFloat(result / std.math.log(f64, std.math.e, fs[1]));
+    return vm.newFloat(result);
 }
 
 fn builtinComplexDenominator(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
