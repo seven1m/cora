@@ -882,6 +882,9 @@ pub fn register(vm: *VM) !void {
     const nlink_sym = try vm.intern("nlink");
     try vm.file_stat_class.module.methods.put(nlink_sym, value.MethodEntry.builtin(&builtinFileStatNlink, .{ .exact = 0 }));
 
+    const stat_inspect_sym = try vm.intern("inspect");
+    try vm.file_stat_class.module.methods.put(stat_inspect_sym, value.MethodEntry.builtin(&builtinFileStatInspect, .{ .exact = 0 }));
+
     const stat_initialize_sym = try vm.intern("initialize");
     try vm.file_stat_class.module.methods.put(stat_initialize_sym, value.MethodEntry.builtin(&builtinFileStatInitialize, .{ .exact = 1 }));
 }
@@ -2886,6 +2889,56 @@ pub fn builtinFileStatIno(vm: *VM, receiver: Value, args: []Value, _: ?Block) VM
 pub fn builtinFileStatNlink(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
     return fileStatIntegerIvar(vm, receiver, "@nlink");
+}
+
+pub fn builtinFileStatInspect(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    const stat_val = try requireFileStatReceiver(vm, receiver);
+
+    // Each piece is appended to the buffer immediately so no string slice is
+    // held across subsequent Ruby calls. Conversions mirror the ones the
+    // ruby/spec expectation uses: dev/rdev in hex, mode as zero-padded
+    // 7-digit octal (sprintf "%07o"), everything else via #inspect.
+    var buffer: std.ArrayList(u8) = .empty;
+    defer buffer.deinit(vm.allocator);
+
+    var radix16 = [_]Value{Value.integer(16)};
+    var radix8 = [_]Value{Value.integer(8)};
+
+    buffer.appendSlice(vm.allocator, "#<File::Stat dev=0x") catch return error.Fatal;
+    const dev_val = try vm.getInstanceVariable(stat_val, "@dev");
+    buffer.appendSlice(vm.allocator, (try vm.callMethodByName(dev_val, "to_s", radix16[0..], null)).toStringObject().str) catch return error.Fatal;
+    buffer.appendSlice(vm.allocator, ", ino=") catch return error.Fatal;
+    buffer.appendSlice(vm.allocator, (try vm.callMethodByName(try vm.getInstanceVariable(stat_val, "@ino"), "inspect", &.{}, null)).toStringObject().str) catch return error.Fatal;
+    buffer.appendSlice(vm.allocator, ", mode=") catch return error.Fatal;
+    const mode_val = try vm.getInstanceVariable(stat_val, "@mode");
+    const mode_oct = (try vm.callMethodByName(mode_val, "to_s", radix8[0..], null)).toStringObject().str;
+    var pad: usize = mode_oct.len;
+    while (pad < 7) : (pad += 1) buffer.append(vm.allocator, '0') catch return error.Fatal;
+    buffer.appendSlice(vm.allocator, mode_oct) catch return error.Fatal;
+    buffer.appendSlice(vm.allocator, ", nlink=") catch return error.Fatal;
+    buffer.appendSlice(vm.allocator, (try vm.callMethodByName(try vm.getInstanceVariable(stat_val, "@nlink"), "inspect", &.{}, null)).toStringObject().str) catch return error.Fatal;
+    buffer.appendSlice(vm.allocator, ", uid=") catch return error.Fatal;
+    buffer.appendSlice(vm.allocator, (try vm.callMethodByName(try vm.getInstanceVariable(stat_val, "@uid"), "inspect", &.{}, null)).toStringObject().str) catch return error.Fatal;
+    buffer.appendSlice(vm.allocator, ", gid=") catch return error.Fatal;
+    buffer.appendSlice(vm.allocator, (try vm.callMethodByName(try vm.getInstanceVariable(stat_val, "@gid"), "inspect", &.{}, null)).toStringObject().str) catch return error.Fatal;
+    buffer.appendSlice(vm.allocator, ", rdev=0x") catch return error.Fatal;
+    const rdev_val = try vm.getInstanceVariable(stat_val, "@rdev");
+    buffer.appendSlice(vm.allocator, (try vm.callMethodByName(rdev_val, "to_s", radix16[0..], null)).toStringObject().str) catch return error.Fatal;
+    buffer.appendSlice(vm.allocator, ", size=") catch return error.Fatal;
+    buffer.appendSlice(vm.allocator, (try vm.callMethodByName(try vm.getInstanceVariable(stat_val, "@size"), "inspect", &.{}, null)).toStringObject().str) catch return error.Fatal;
+    buffer.appendSlice(vm.allocator, ", blksize=") catch return error.Fatal;
+    buffer.appendSlice(vm.allocator, (try vm.callMethodByName(try vm.getInstanceVariable(stat_val, "@blksize"), "inspect", &.{}, null)).toStringObject().str) catch return error.Fatal;
+    buffer.appendSlice(vm.allocator, ", blocks=") catch return error.Fatal;
+    buffer.appendSlice(vm.allocator, (try vm.callMethodByName(try vm.getInstanceVariable(stat_val, "@blocks"), "inspect", &.{}, null)).toStringObject().str) catch return error.Fatal;
+    buffer.appendSlice(vm.allocator, ", atime=") catch return error.Fatal;
+    buffer.appendSlice(vm.allocator, (try vm.callMethodByName(try vm.getInstanceVariable(stat_val, "@atime"), "inspect", &.{}, null)).toStringObject().str) catch return error.Fatal;
+    buffer.appendSlice(vm.allocator, ", mtime=") catch return error.Fatal;
+    buffer.appendSlice(vm.allocator, (try vm.callMethodByName(try vm.getInstanceVariable(stat_val, "@mtime"), "inspect", &.{}, null)).toStringObject().str) catch return error.Fatal;
+    buffer.appendSlice(vm.allocator, ", ctime=") catch return error.Fatal;
+    buffer.appendSlice(vm.allocator, (try vm.callMethodByName(try vm.getInstanceVariable(stat_val, "@ctime"), "inspect", &.{}, null)).toStringObject().str) catch return error.Fatal;
+    buffer.append(vm.allocator, '>') catch return error.Fatal;
+    return vm.newString(buffer.items, false);
 }
 
 pub fn builtinFileStatInitialize(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
