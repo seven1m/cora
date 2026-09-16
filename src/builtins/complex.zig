@@ -7,6 +7,7 @@ const VM = vm_mod.VM;
 const VMError = vm_mod.VMError;
 const Block = vm_mod.Block;
 const Value = value.Value;
+const BigInt = std.math.big.int.Managed;
 
 pub fn register(vm: *VM) !void {
     const i_sym = try vm.intern("I");
@@ -192,6 +193,9 @@ pub fn register(vm: *VM) !void {
         const log10_sym = try vm.intern("log10");
         try math_singleton.module.methods.put(log10_sym, value.MethodEntry.builtin(&builtinMathLog10, .{ .exact = 1 }));
         try math_entry.value.toModuleObject().methods.put(log10_sym, value.MethodEntry.builtinWithVisibility(&builtinMathLog10, .{ .exact = 1 }, .private));
+        const log2_sym = try vm.intern("log2");
+        try math_singleton.module.methods.put(log2_sym, value.MethodEntry.builtin(&builtinMathLog2, .{ .exact = 1 }));
+        try math_entry.value.toModuleObject().methods.put(log2_sym, value.MethodEntry.builtinWithVisibility(&builtinMathLog2, .{ .exact = 1 }, .private));
         const log_sym = try vm.intern("log");
         try math_singleton.module.methods.put(log_sym, value.MethodEntry.builtin(&builtinMathLog, .{ .variadic = 1 }));
         try math_entry.value.toModuleObject().methods.put(log_sym, value.MethodEntry.builtinWithVisibility(&builtinMathLog, .{ .variadic = 1 }, .private));
@@ -968,6 +972,45 @@ fn builtinMathLog10(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
     if (f < 0.0)
         return vm.raiseExceptionFmt(vm.math_domain_error_class, "Numerical argument is out of domain - \"log10\"", .{});
     return vm.newFloat(std.math.log10(f));
+}
+
+fn builtinMathLog2(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    const arg = args[0];
+    const f: f64 = if (arg.isFloat())
+        arg.toFloatObject().val
+    else if (arg.isInteger() or arg.isBigInteger())
+        arg.integerToF64()
+    else if (arg.isRational())
+        arg.toRationalObject().numerator.integerToF64() / arg.toRationalObject().denominator.integerToF64()
+    else if (vm.isClassOrSubclassOf(vm.getClass(arg), vm.numeric_class)) blk: {
+        // Mirrors MRI's rb_num_to_dbl: non-core Numerics convert via to_f.
+        const float_val = try vm.callMethodByName(arg, "to_f", &.{}, null);
+        if (!float_val.isFloat()) {
+            return vm.raiseExceptionFmt(vm.type_error_class, "can't convert {s} into Float", .{vm.className(arg)});
+        }
+        break :blk float_val.toFloatObject().val;
+    } else
+        return vm.raiseExceptionFmt(vm.type_error_class, "can't convert {s} into Float", .{vm.className(arg)});
+    if (f < 0.0)
+        return vm.raiseExceptionFmt(vm.math_domain_error_class, "Numerical argument is out of domain - \"log2\"", .{});
+    if (std.math.isInf(f) and (arg.isInteger() or arg.isBigInteger())) {
+        // Huge integers overflow to infinity via integerToF64, but MRI still
+        // computes an exact log2 by decomposing the bignum: split off the top
+        // 53 bits (exactly representable as f64) and add back the shift.
+        var big = try arg.integerToManaged(vm);
+        defer big.deinit();
+        const bits = big.bitCountAbs();
+        if (bits > 53) {
+            const shift: usize = bits - 53;
+            var top = BigInt.init(vm.allocator) catch return error.Fatal;
+            defer top.deinit();
+            top.shiftRight(&big, shift) catch return error.Fatal;
+            const top_f: f64 = top.toFloat(f64, .nearest_even)[0];
+            return vm.newFloat(@as(f64, @floatFromInt(shift)) + std.math.log2(top_f));
+        }
+    }
+    return vm.newFloat(std.math.log2(f));
 }
 
 fn builtinMathLog(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {

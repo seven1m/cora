@@ -1362,7 +1362,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/math/lgamma_spec.rb
 - [x] core/math/log10_spec.rb
 - [ ] core/math/log1p_spec.rb
-- [ ] core/math/log2_spec.rb
+- [x] core/math/log2_spec.rb
 - [x] core/math/log_spec.rb
 - [x] core/math/sin_spec.rb
 - [x] core/math/sinh_spec.rb
