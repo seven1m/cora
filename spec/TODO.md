@@ -1356,7 +1356,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] core/math/exp_spec.rb
 - [x] core/math/expm1_spec.rb
 - [x] core/math/frexp_spec.rb
-- [ ] core/math/gamma_spec.rb
+- [x] core/math/gamma_spec.rb
 - [x] core/math/hypot_spec.rb
 - [ ] core/math/ldexp_spec.rb
 - [ ] core/math/lgamma_spec.rb

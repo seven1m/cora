@@ -205,6 +205,9 @@ pub fn register(vm: *VM) !void {
         const expm1_sym = try vm.intern("expm1");
         try math_singleton.module.methods.put(expm1_sym, value.MethodEntry.builtin(&builtinMathExpm1, .{ .exact = 1 }));
         try math_entry.value.toModuleObject().methods.put(expm1_sym, value.MethodEntry.builtinWithVisibility(&builtinMathExpm1, .{ .exact = 1 }, .private));
+        const gamma_sym = try vm.intern("gamma");
+        try math_singleton.module.methods.put(gamma_sym, value.MethodEntry.builtin(&builtinMathGamma, .{ .exact = 1 }));
+        try math_entry.value.toModuleObject().methods.put(gamma_sym, value.MethodEntry.builtinWithVisibility(&builtinMathGamma, .{ .exact = 1 }, .private));
         const pi_sym = try vm.intern("PI");
         try math_entry.value.toModuleObject().constants.put(pi_sym, .{ .value = try vm.newFloat(std.math.pi) });
         const e_sym = try vm.intern("E");
@@ -1086,6 +1089,43 @@ fn builtinMathExpm1(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
     } else
         return vm.raiseExceptionFmt(vm.type_error_class, "can't convert {s} into Float", .{vm.className(arg)});
     return vm.newFloat(std.math.expm1(f));
+}
+
+fn builtinMathGamma(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    const arg = args[0];
+    if (arg.isNil())
+        return vm.raiseExceptionFmt(vm.type_error_class, "can't convert nil into Float", .{});
+    const f: f64 = if (arg.isFloat())
+        arg.toFloatObject().val
+    else if (arg.isInteger() or arg.isBigInteger())
+        arg.integerToF64()
+    else if (arg.isRational())
+        arg.toRationalObject().numerator.integerToF64() / arg.toRationalObject().denominator.integerToF64()
+    else if (vm.isClassOrSubclassOf(vm.getClass(arg), vm.numeric_class)) blk: {
+        // Mirrors MRI's rb_num_to_dbl: non-core Numerics convert via to_f.
+        const float_val = try vm.callMethodByName(arg, "to_f", &.{}, null);
+        if (!float_val.isFloat()) {
+            return vm.raiseExceptionFmt(vm.type_error_class, "can't convert {s} into Float", .{vm.className(arg)});
+        }
+        break :blk float_val.toFloatObject().val;
+    } else
+        return vm.raiseExceptionFmt(vm.type_error_class, "can't convert {s} into Float", .{vm.className(arg)});
+    // Gamma has poles at negative integers (and -infinity compares equal to
+    // its own truncation); MRI raises DomainError instead of returning NaN.
+    if (f < 0.0 and f == @trunc(f))
+        return vm.raiseExceptionFmt(vm.math_domain_error_class, "Numerical argument is out of domain - \"gamma\"", .{});
+    // gamma(n) is exactly (n-1)!; 22! is the largest factorial exactly
+    // representable as f64, so compute small integer arguments with integer
+    // arithmetic instead of the Lanczos approximation.
+    if (f == @trunc(f) and f >= 1.0 and f <= 23.0) {
+        const n: u128 = @intFromFloat(f);
+        var fact: u128 = 1;
+        var i: u128 = 1;
+        while (i < n) : (i += 1) fact *= i;
+        return vm.newFloat(@floatFromInt(fact));
+    }
+    return vm.newFloat(std.math.gamma(f64, f));
 }
 
 fn builtinComplexDenominator(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
