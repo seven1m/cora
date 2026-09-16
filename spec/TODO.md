@@ -1347,7 +1347,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/math/atan2_spec.rb
 - [ ] core/math/atan_spec.rb
 - [ ] core/math/atanh_spec.rb
-- [ ] core/math/cbrt_spec.rb
+- [x] core/math/cbrt_spec.rb
 - [ ] core/math/constants_spec.rb
 - [ ] core/math/cos_spec.rb
 - [ ] core/math/cosh_spec.rb
