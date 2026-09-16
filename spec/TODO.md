@@ -1342,7 +1342,7 @@ Source baseline: ../ruby_spec compared to local spec/
 ### core/math
 - [x] core/math/acos_spec.rb
 - [ ] core/math/acosh_spec.rb
-- [ ] core/math/asin_spec.rb
+- [x] core/math/asin_spec.rb
 - [ ] core/math/asinh_spec.rb
 - [ ] core/math/atan2_spec.rb
 - [x] core/math/atan_spec.rb
