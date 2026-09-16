@@ -17,6 +17,7 @@ const env = @import("env.zig");
 const etc = @import("etc.zig");
 const exception = @import("exception.zig");
 const false_class = @import("false_class.zig");
+const gc = @import("gc.zig");
 const dir = @import("dir.zig");
 const enumerable = @import("enumerable.zig");
 const file = @import("file.zig");
@@ -105,6 +106,7 @@ pub fn registerAll(vm: *VM) !void {
     try nil_class.register(vm);
     try true_class.register(vm);
     try false_class.register(vm);
+    try gc.register(vm);
     try exception.register(vm);
     try encoding.register(vm);
     try enumerator.register(vm);
