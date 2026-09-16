@@ -211,6 +211,9 @@ pub fn register(vm: *VM) !void {
         const log1p_sym = try vm.intern("log1p");
         try math_singleton.module.methods.put(log1p_sym, value.MethodEntry.builtin(&builtinMathLog1p, .{ .exact = 1 }));
         try math_entry.value.toModuleObject().methods.put(log1p_sym, value.MethodEntry.builtinWithVisibility(&builtinMathLog1p, .{ .exact = 1 }, .private));
+        const ldexp_sym = try vm.intern("ldexp");
+        try math_singleton.module.methods.put(ldexp_sym, value.MethodEntry.builtin(&builtinMathLdexp, .{ .exact = 2 }));
+        try math_entry.value.toModuleObject().methods.put(ldexp_sym, value.MethodEntry.builtinWithVisibility(&builtinMathLdexp, .{ .exact = 2 }, .private));
         const pi_sym = try vm.intern("PI");
         try math_entry.value.toModuleObject().constants.put(pi_sym, .{ .value = try vm.newFloat(std.math.pi) });
         const e_sym = try vm.intern("E");
@@ -1154,6 +1157,44 @@ fn builtinMathLog1p(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
     if (f < -1.0)
         return vm.raiseExceptionFmt(vm.math_domain_error_class, "Numerical argument is out of domain - log1p", .{});
     return vm.newFloat(std.math.log1p(f));
+}
+
+fn builtinMathLdexp(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 2);
+    const arg = args[0];
+    if (arg.isNil())
+        return vm.raiseExceptionFmt(vm.type_error_class, "can't convert nil into Float", .{});
+    const f: f64 = if (arg.isFloat())
+        arg.toFloatObject().val
+    else if (arg.isInteger() or arg.isBigInteger())
+        arg.integerToF64()
+    else if (arg.isRational())
+        arg.toRationalObject().numerator.integerToF64() / arg.toRationalObject().denominator.integerToF64()
+    else if (vm.isClassOrSubclassOf(vm.getClass(arg), vm.numeric_class)) blk: {
+        // Mirrors MRI's rb_num_to_dbl: non-core Numerics convert via to_f.
+        const float_val = try vm.callMethodByName(arg, "to_f", &.{}, null);
+        if (!float_val.isFloat()) {
+            return vm.raiseExceptionFmt(vm.type_error_class, "can't convert {s} into Float", .{vm.className(arg)});
+        }
+        break :blk float_val.toFloatObject().val;
+    } else
+        return vm.raiseExceptionFmt(vm.type_error_class, "can't convert {s} into Float", .{vm.className(arg)});
+    // The exponent follows Integer() semantics: Float truncates via to_int
+    // (NaN/Infinity raise RangeError there), other objects convert via to_int.
+    const exp_val = try args[1].coerceToIntegerValue(
+        vm,
+        "no implicit conversion into Integer",
+        "can't convert into Integer",
+    );
+    const exp_i64: i64 = if (exp_val.isInteger())
+        exp_val.toInteger()
+    else
+        try exp_val.integerToI64(vm, "bignum too big to convert into `long`");
+    // Zero and non-finite inputs are exact regardless of exponent; this also
+    // avoids overflow quirks in std.math.ldexp for extreme exponents.
+    if (f == 0.0 or !std.math.isFinite(f)) return vm.newFloat(f);
+    const exp_i32: i32 = @intCast(std.math.clamp(exp_i64, @as(i64, std.math.minInt(i32)), @as(i64, std.math.maxInt(i32))));
+    return vm.newFloat(std.math.ldexp(f, exp_i32));
 }
 
 fn builtinComplexDenominator(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
