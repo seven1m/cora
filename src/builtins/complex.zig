@@ -9,6 +9,8 @@ const Block = vm_mod.Block;
 const Value = value.Value;
 const BigInt = std.math.big.int.Managed;
 
+extern "c" fn erf(x: f64) f64;
+
 pub fn register(vm: *VM) !void {
     const i_sym = try vm.intern("I");
     try vm.complex_class.module.constants.put(i_sym, .{ .value = try vm.newComplex(Value.integer(0), Value.integer(1)) });
@@ -217,6 +219,9 @@ pub fn register(vm: *VM) !void {
         const lgamma_sym = try vm.intern("lgamma");
         try math_singleton.module.methods.put(lgamma_sym, value.MethodEntry.builtin(&builtinMathLgamma, .{ .exact = 1 }));
         try math_entry.value.toModuleObject().methods.put(lgamma_sym, value.MethodEntry.builtinWithVisibility(&builtinMathLgamma, .{ .exact = 1 }, .private));
+        const erf_sym = try vm.intern("erf");
+        try math_singleton.module.methods.put(erf_sym, value.MethodEntry.builtin(&builtinMathErf, .{ .exact = 1 }));
+        try math_entry.value.toModuleObject().methods.put(erf_sym, value.MethodEntry.builtinWithVisibility(&builtinMathErf, .{ .exact = 1 }, .private));
         const pi_sym = try vm.intern("PI");
         try math_entry.value.toModuleObject().constants.put(pi_sym, .{ .value = try vm.newFloat(std.math.pi) });
         const e_sym = try vm.intern("E");
@@ -1252,6 +1257,29 @@ fn builtinMathLgamma(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value 
     result.elements.append(vm.gc_allocator, try vm.newFloat(val)) catch return error.Fatal;
     result.elements.append(vm.gc_allocator, Value.integer(sign)) catch return error.Fatal;
     return Value.fromObject(&result.object);
+}
+
+fn builtinMathErf(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    const arg = args[0];
+    if (arg.isNil())
+        return vm.raiseExceptionFmt(vm.type_error_class, "can't convert nil into Float", .{});
+    const f: f64 = if (arg.isFloat())
+        arg.toFloatObject().val
+    else if (arg.isInteger() or arg.isBigInteger())
+        arg.integerToF64()
+    else if (arg.isRational())
+        arg.toRationalObject().numerator.integerToF64() / arg.toRationalObject().denominator.integerToF64()
+    else if (vm.isClassOrSubclassOf(vm.getClass(arg), vm.numeric_class)) blk: {
+        // Mirrors MRI's rb_num_to_dbl: non-core Numerics convert via to_f.
+        const float_val = try vm.callMethodByName(arg, "to_f", &.{}, null);
+        if (!float_val.isFloat()) {
+            return vm.raiseExceptionFmt(vm.type_error_class, "can't convert {s} into Float", .{vm.className(arg)});
+        }
+        break :blk float_val.toFloatObject().val;
+    } else
+        return vm.raiseExceptionFmt(vm.type_error_class, "can't convert {s} into Float", .{vm.className(arg)});
+    return vm.newFloat(erf(f));
 }
 
 fn builtinComplexDenominator(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
