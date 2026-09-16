@@ -959,6 +959,7 @@ pub const VM = struct {
         self.module_class = module_class_val.toClassObject();
         self.class_class.superclass = self.module_class;
         self.class_class.module.super = &self.module_class.module;
+        self.module_class.module.subclasses.append(self.gc_allocator, &self.class_class.module) catch return error.Fatal;
 
         const numeric_name_sym = try self.intern("Numeric");
         const numeric_class_val = try self.newClass(numeric_name_sym, self.object_class);
@@ -9773,6 +9774,9 @@ pub const VM = struct {
             },
         };
         class_obj.module.origin = &class_obj.module;
+        if (superclass) |super| {
+            super.module.subclasses.append(self.gc_allocator, &class_obj.module) catch return error.Fatal;
+        }
         return Value.fromObject(&class_obj.module.object);
     }
 

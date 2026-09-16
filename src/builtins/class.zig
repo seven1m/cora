@@ -45,6 +45,9 @@ pub fn register(vm: *VM) !void {
     const class_superclass_sym = try vm.intern("superclass");
     try vm.class_class.module.methods.put(class_superclass_sym, value.MethodEntry.builtin(&builtinClassSuperclass, .{ .exact = 0 }));
 
+    const subclasses_sym = try vm.intern("subclasses");
+    try vm.class_class.module.methods.put(subclasses_sym, value.MethodEntry.builtin(&builtinClassSubclasses, .{ .exact = 0 }));
+
     const initialize_sym = try vm.intern("initialize");
     try vm.class_class.module.methods.put(initialize_sym, value.MethodEntry.builtinWithVisibility(&builtinClassInitialize, .{ .variadic = 0 }, .private));
 }
@@ -174,6 +177,18 @@ pub fn builtinClassSuperclass(vm: *VM, receiver: Value, args: []Value, _: ?Block
     return Value.fromObject(&superclass.module.object);
 }
 
+pub fn builtinClassSubclasses(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    std.debug.assert(receiver.isClass());
+
+    const result = try vm.createArray();
+    for (receiver.toClassObject().module.subclasses.items) |subclass| {
+        if (subclass.object.type_tag != .class) continue;
+        result.elements.append(vm.gc_allocator, Value.fromObject(&subclass.object)) catch return error.Fatal;
+    }
+    return Value.fromObject(&result.object);
+}
+
 pub fn builtinClassInitialize(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
     try vm.requireArgCountRange(args, 0, 1);
     std.debug.assert(receiver.isClass());
@@ -198,6 +213,7 @@ pub fn builtinClassInitialize(vm: *VM, receiver: Value, args: []Value, block: ?B
     class_ptr.module.super = &superclass.module;
     class_ptr.object_type = superclass.object_type;
     class_ptr.allocation_policy = superclass.allocation_policy;
+    superclass.module.subclasses.append(vm.gc_allocator, &class_ptr.module) catch return error.Fatal;
 
     var inherited_args = [_]Value{receiver};
     _ = try vm.callMethodByName(Value.fromObject(&superclass.module.object), "inherited", inherited_args[0..], null);

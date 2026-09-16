@@ -159,6 +159,10 @@ pub const ModuleObject = struct {
     super: ?*ModuleObject = null,
     origin: *ModuleObject,
     includer: ?*ModuleObject = null,
+    // Mirrors MRI's RCLASS_SUBCLASSES: class entries are direct subclasses;
+    // IClass entries are module inclusion sites used for propagation.
+    // TODO: These strong pointers prevent classes and modules from ever being
+    // collected. Use weak references like MRI.
     subclasses: std.ArrayList(*ModuleObject) = .empty,
     is_origin_iclass: bool = false,
 };
