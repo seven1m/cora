@@ -198,6 +198,9 @@ pub fn register(vm: *VM) !void {
         const frexp_sym = try vm.intern("frexp");
         try math_singleton.module.methods.put(frexp_sym, value.MethodEntry.builtin(&builtinMathFrexp, .{ .exact = 1 }));
         try math_entry.value.toModuleObject().methods.put(frexp_sym, value.MethodEntry.builtinWithVisibility(&builtinMathFrexp, .{ .exact = 1 }, .private));
+        const expm1_sym = try vm.intern("expm1");
+        try math_singleton.module.methods.put(expm1_sym, value.MethodEntry.builtin(&builtinMathExpm1, .{ .exact = 1 }));
+        try math_entry.value.toModuleObject().methods.put(expm1_sym, value.MethodEntry.builtinWithVisibility(&builtinMathExpm1, .{ .exact = 1 }, .private));
         const pi_sym = try vm.intern("PI");
         try math_entry.value.toModuleObject().constants.put(pi_sym, .{ .value = try vm.newFloat(std.math.pi) });
         const e_sym = try vm.intern("E");
@@ -1017,6 +1020,29 @@ fn builtinMathFrexp(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
     result.elements.append(vm.gc_allocator, try vm.newFloat(parts.significand)) catch return error.Fatal;
     result.elements.append(vm.gc_allocator, Value.integer(@as(i64, parts.exponent))) catch return error.Fatal;
     return Value.fromObject(&result.object);
+}
+
+fn builtinMathExpm1(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    const arg = args[0];
+    if (arg.isNil())
+        return vm.raiseExceptionFmt(vm.type_error_class, "can't convert nil into Float", .{});
+    const f: f64 = if (arg.isFloat())
+        arg.toFloatObject().val
+    else if (arg.isInteger() or arg.isBigInteger())
+        arg.integerToF64()
+    else if (arg.isRational())
+        arg.toRationalObject().numerator.integerToF64() / arg.toRationalObject().denominator.integerToF64()
+    else if (vm.isClassOrSubclassOf(vm.getClass(arg), vm.numeric_class)) blk: {
+        // Mirrors MRI's rb_num_to_dbl: non-core Numerics convert via to_f.
+        const float_val = try vm.callMethodByName(arg, "to_f", &.{}, null);
+        if (!float_val.isFloat()) {
+            return vm.raiseExceptionFmt(vm.type_error_class, "can't convert {s} into Float", .{vm.className(arg)});
+        }
+        break :blk float_val.toFloatObject().val;
+    } else
+        return vm.raiseExceptionFmt(vm.type_error_class, "can't convert {s} into Float", .{vm.className(arg)});
+    return vm.newFloat(std.math.expm1(f));
 }
 
 fn builtinComplexDenominator(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
