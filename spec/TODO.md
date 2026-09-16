@@ -1352,7 +1352,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] core/math/cos_spec.rb
 - [x] core/math/cosh_spec.rb
 - [x] core/math/erf_spec.rb
-- [ ] core/math/erfc_spec.rb
+- [x] core/math/erfc_spec.rb
 - [x] core/math/exp_spec.rb
 - [x] core/math/expm1_spec.rb
 - [x] core/math/frexp_spec.rb
