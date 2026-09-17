@@ -127,6 +127,9 @@ pub fn register(vm: *VM) !void {
     const entries_sym = try vm.intern("entries");
     try dir_singleton.module.methods.put(entries_sym, value.MethodEntry.builtin(&builtinDirEntries, .{ .variadic = 0 }));
 
+    const foreach_sym = try vm.intern("foreach");
+    try dir_singleton.module.methods.put(foreach_sym, value.MethodEntry.builtin(&builtinDirForeach, .{ .variadic = 1 }));
+
     const exist_sym = try vm.intern("exist?");
     try dir_singleton.module.methods.put(exist_sym, value.MethodEntry.builtin(&file_builtin.builtinFileDirectory, .{ .exact = 1 }));
 
@@ -311,7 +314,7 @@ fn encodedDirEntry(vm: *VM, name: []const u8, external_encoding: enc.Encoding) V
     return vm.newStringWithEncoding(transcoded, false, internal_encoding);
 }
 
-pub fn builtinDirEntries(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+fn collectDirEntries(vm: *VM, args: []Value) VMError!Value {
     try vm.requireArgCountRange(args, 0, 1);
     var encoding_value: ?Value = null;
     try vm.consumeKeywordArgs(.{"encoding"}, .{&encoding_value});
@@ -341,6 +344,24 @@ pub fn builtinDirEntries(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Va
     }
 
     return Value.fromObject(&result.object);
+}
+
+pub fn builtinDirEntries(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+    return collectDirEntries(vm, args);
+}
+
+pub fn builtinDirForeach(vm: *VM, _: Value, args: []Value, block: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    const entries = try collectDirEntries(vm, args);
+
+    const blk = block orelse {
+        return vm.createMethodEnumerator(entries, try vm.intern("each"), &.{});
+    };
+
+    for (entries.toArrayObject().elements.items) |entry| {
+        _ = try vm.yieldToBlock(blk, &.{entry});
+    }
+    return Value.nil();
 }
 
 fn joinPathAlloc(allocator: std.mem.Allocator, left: []const u8, right: []const u8) ![]u8 {
