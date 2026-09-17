@@ -33,6 +33,48 @@ test "require lazily loads rubygems and activates fake gem from GEM_HOME" {
     try std.testing.expectEqualSlices(u8, "", result.stderr);
 }
 
+test "RubyGems applies matching Cora gem patches once after activation" {
+    var gpa: std.heap.DebugAllocator(.{}) = .init;
+    defer _ = gpa.deinit();
+    const allocator = gpa.allocator();
+    var threaded: std.Io.Threaded = .init(allocator, .{});
+    defer threaded.deinit();
+
+    const gem_home = try std.Io.Dir.cwd().realPathFileAlloc(threaded.io(), "test/gem", allocator);
+    defer allocator.free(gem_home);
+
+    var env_map = std.process.Environ.Map.init(allocator);
+    defer env_map.deinit();
+    try env_map.put("GEM_HOME", gem_home);
+    try env_map.put("GEM_PATH", gem_home);
+
+    const code =
+        \\require "rubygems"
+        \\$patch_count = 0
+        \\Cora::GemPatches.register("fake_gem", "~> 0.1") do |spec|
+        \\  raise "patch ran before activation" unless Gem.loaded_specs[spec.name].equal?(spec)
+        \\  $patch_count += 1
+        \\end
+        \\Cora::GemPatches.register("fake_gem", ">= 1.0") { $patch_count += 100 }
+        \\require "fake_gem"
+        \\Gem.loaded_specs["fake_gem"].activate
+        \\p [$patch_count, FakeGem]
+    ;
+
+    const result = try std.process.run(allocator, threaded.io(), .{
+        .argv = &.{ "build/bin/cora", "-e", code },
+        .environ_map = &env_map,
+        .stdout_limit = .limited(1024 * 1024),
+        .stderr_limit = .limited(1024 * 1024),
+    });
+    defer allocator.free(result.stdout);
+    defer allocator.free(result.stderr);
+
+    try std.testing.expect(result.term == .exited and result.term.exited == 0);
+    try std.testing.expectEqualSlices(u8, "[1, FakeGem]\n", result.stdout);
+    try std.testing.expectEqualSlices(u8, "cora: applied compatibility patch for fake_gem-0.1.0\n", result.stderr);
+}
+
 test "require rubygems/gem_runner avoids circular require warning" {
     var gpa: std.heap.DebugAllocator(.{}) = .init;
     defer _ = gpa.deinit();
