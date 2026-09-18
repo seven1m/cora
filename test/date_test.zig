@@ -100,3 +100,22 @@ test "DateTime#gregorian preserves class, time, offset, and chronological day" {
     );
     try std.testing.expectEqualStrings("", result.stderr);
 }
+
+test "Date#strftime formats Date and DateTime civil fields" {
+    var stdout_buf: [2048]u8 = undefined;
+    var stderr_buf: [1024]u8 = undefined;
+    const result = evalCodeWithOutput(
+        \\require "date"
+        \\date = Date.new(2024, 6, 15)
+        \\datetime = DateTime.new(2024, 6, 15, 12, 34, Rational(113, 2), "+09:30")
+        \\p date.strftime("%F %T %N %z %:z %::z %Z %a %b")
+        \\p datetime.strftime("%F %T %N %z %:z %::z %Z %a %b")
+    , &stdout_buf, &stderr_buf);
+
+    try std.testing.expect(result.err == null);
+    try std.testing.expectEqualStrings(
+        "\"2024-06-15 00:00:00 000000000 +0000 +00:00 +00:00:00 +00:00 Sat Jun\"\n\"2024-06-15 12:34:56 500000000 +0930 +09:30 +09:30:00 +09:30 Sat Jun\"\n",
+        result.stdout,
+    );
+    try std.testing.expectEqualStrings("", result.stderr);
+}

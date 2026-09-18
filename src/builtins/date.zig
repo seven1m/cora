@@ -1,4 +1,5 @@
 const std = @import("std");
+const strftime_fmt = @import("strftime.zig");
 const vm_mod = @import("../vm.zig");
 const value = @import("../value.zig");
 
@@ -77,6 +78,7 @@ pub fn register(vm: *VM) !void {
     try date_class.module.methods.put(try vm.intern("amjd"), mjd_entry);
     try date_class.module.methods.put(try vm.intern("ld"), value.MethodEntry.builtin(&builtinDateLd, .{ .exact = 0 }));
     try date_class.module.methods.put(try vm.intern("day_fraction"), value.MethodEntry.builtin(&builtinDateDayFraction, .{ .exact = 0 }));
+    try date_class.module.methods.put(try vm.intern("strftime"), value.MethodEntry.builtin(&builtinDateStrftime, .{ .exact = 1 }));
     try date_class.module.methods.put(try vm.intern("start"), value.MethodEntry.builtin(&builtinDateStart, .{ .exact = 0 }));
     try date_class.module.methods.put(try vm.intern("yday"), value.MethodEntry.builtin(&builtinDateYday, .{ .exact = 0 }));
     try date_class.module.methods.put(try vm.intern("wday"), value.MethodEntry.builtin(&builtinDateWday, .{ .exact = 0 }));
@@ -610,6 +612,45 @@ fn builtinDateTimeSecondFraction(vm: *VM, receiver: Value, args: []Value, _: ?Bl
     }
     const seconds = dateTimeSeconds(date);
     return vm.newFloat(seconds - @floor(seconds));
+}
+
+fn builtinDateStrftime(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    const format = try args[0].coerceToStringValue(vm, "no implicit conversion into String");
+    const date = receiver.toDateObject();
+    const civil = dateCivil(date);
+
+    var hour: u8 = 0;
+    var minute: u8 = 0;
+    var second: u8 = 0;
+    var nanosecond: u32 = 0;
+    var utc_offset_nanos: i64 = 0;
+    if (date.kind == .datetime) {
+        const whole_seconds = try dateTimeWholeSeconds(vm, date);
+        hour = @intCast(@divFloor(whole_seconds, 3600));
+        minute = @intCast(@divFloor(@mod(whole_seconds, 3600), 60));
+        second = @intCast(@mod(whole_seconds, 60));
+        const fraction = try builtinDateTimeSecondFraction(vm, receiver, &.{}, null);
+        nanosecond = @intFromFloat(@floor(numberToF64(fraction).? * 1_000_000_000.0));
+        utc_offset_nanos = offsetNanoseconds(date.utc_offset);
+    }
+
+    const first_jd = civilToJd(civil.year, 1, 1, calendarStartInteger(date.calendar_start)).?;
+    return strftime_fmt.build(vm, .{
+        .year = Value.integer(civil.year),
+        .month = @intCast(civil.month),
+        .day = @intCast(civil.day),
+        .hour = hour,
+        .minute = minute,
+        .second = second,
+        .nanosecond = nanosecond,
+        .weekday = @intCast(@mod(date.chronological_day.toInteger() + 1, 7)),
+        .year_day = @intCast(date.chronological_day.toInteger() - first_jd + 1),
+    }, .{
+        .utc_offset_nanos = utc_offset_nanos,
+        .is_utc = false,
+        .name_style = .offset,
+    }, format.toStringObject().str);
 }
 
 fn builtinDateTimeOffset(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {

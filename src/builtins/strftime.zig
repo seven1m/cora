@@ -25,6 +25,12 @@ pub const Parts = struct {
 pub const Zone = struct {
     utc_offset_nanos: i64,
     is_utc: bool,
+    name_style: NameStyle = .time,
+};
+
+pub const NameStyle = enum {
+    time,
+    offset,
 };
 
 pub fn appendPaddedDecimal(out: *std.ArrayList(u8), allocator: std.mem.Allocator, value_in: anytype, width: usize) VMError!void {
@@ -131,7 +137,7 @@ pub fn build(vm: *VM, parts: Parts, zone: Zone, format_bytes: []const u8) VMErro
                 try appendPaddedDecimal(&out, vm.allocator, parts.second, 2);
             },
             'Z' => {
-                if (zone.is_utc) {
+                if (zone.name_style == .time and zone.is_utc) {
                     out.appendSlice(vm.allocator, "UTC") catch return error.Fatal;
                 } else {
                     const total_seconds = @divTrunc(zone.utc_offset_nanos, nanos_per_second);
@@ -140,7 +146,10 @@ pub fn build(vm: *VM, parts: Parts, zone: Zone, format_bytes: []const u8) VMErro
                     const off_h = @divTrunc(abs_seconds, seconds_per_hour);
                     const off_m = @divTrunc(@rem(abs_seconds, seconds_per_hour), seconds_per_minute);
                     var buf: [16]u8 = undefined;
-                    const text = std.fmt.bufPrint(&buf, "{c}{d:0>2}{d:0>2}", .{ sign, @as(u64, @intCast(off_h)), @as(u64, @intCast(off_m)) }) catch return error.Fatal;
+                    const text = if (zone.name_style == .offset)
+                        std.fmt.bufPrint(&buf, "{c}{d:0>2}:{d:0>2}", .{ sign, @as(u64, @intCast(off_h)), @as(u64, @intCast(off_m)) }) catch return error.Fatal
+                    else
+                        std.fmt.bufPrint(&buf, "{c}{d:0>2}{d:0>2}", .{ sign, @as(u64, @intCast(off_h)), @as(u64, @intCast(off_m)) }) catch return error.Fatal;
                     out.appendSlice(vm.allocator, text) catch return error.Fatal;
                 }
             },
