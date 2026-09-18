@@ -4257,7 +4257,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] library/yaml/unsafe_load_spec.rb
 
 ### library/zlib
-- [ ] library/zlib/adler32_spec.rb
+- [x] library/zlib/adler32_spec.rb
 - [ ] library/zlib/crc32_spec.rb
 - [ ] library/zlib/crc_table_spec.rb
 

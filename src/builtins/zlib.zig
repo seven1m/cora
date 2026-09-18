@@ -63,7 +63,46 @@ pub fn register(vm: *VM) !void {
     const zlib_singleton = try vm.getOrCreateSingletonClass(zlib_val);
     try zlib_singleton.module.methods.put(try vm.intern("__deflate"), value.MethodEntry.builtin(&builtinZlibDeflate, .{ .exact = 3 }));
     try zlib_singleton.module.methods.put(try vm.intern("__inflate"), value.MethodEntry.builtin(&builtinZlibInflate, .{ .exact = 2 }));
+    try zlib_singleton.module.methods.put(try vm.intern("adler32"), value.MethodEntry.builtin(&builtinZlibAdler32, .{ .variadic = 0 }));
     try zlib_singleton.module.methods.put(try vm.intern("zlib_version"), value.MethodEntry.builtin(&builtinZlibVersion, .{ .exact = 0 }));
+}
+
+pub fn builtinZlibAdler32(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCountRange(args, 0, 2);
+    const input: []const u8 = if (args.len >= 1)
+        (try args[0].coerceToStringValue(vm, "no implicit conversion into String")).toStringObject().str
+    else
+        "";
+    const initial: u32 = if (args.len == 2) blk: {
+        const raw = try args[1].coerceToI64ViaToInt(
+            vm,
+            "no implicit conversion into Integer",
+            "no implicit conversion into Integer",
+            "bignum too big to convert into `unsigned long'",
+        );
+        if (raw < 0) return vm.raiseExceptionFmt(vm.range_error_class, "bignum too big to convert into `unsigned long'", .{});
+        break :blk @intCast(raw & 0xFFFFFFFF);
+    } else 1;
+    return Value.integer(@intCast(adler32(input, initial)));
+}
+
+fn adler32(input: []const u8, initial: u32) u32 {
+    const mod: u32 = 65521;
+    const nmax: usize = 5552;
+    var s1: u32 = initial & 0xFFFF;
+    var s2: u32 = (initial >> 16) & 0xFFFF;
+    var offset: usize = 0;
+    while (offset < input.len) {
+        const end = @min(offset + nmax, input.len);
+        for (input[offset..end]) |b| {
+            s1 += b;
+            s2 += s1;
+        }
+        s1 %= mod;
+        s2 %= mod;
+        offset = end;
+    }
+    return (s2 << 16) | s1;
 }
 
 pub fn builtinZlibVersion(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
