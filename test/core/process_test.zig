@@ -96,6 +96,22 @@ test "Process.clock_gettime supports nanosecond unit" {
     try std.testing.expect(result.toInteger() > 0);
 }
 
+test "Process.clock_gettime supports float millisecond and microsecond units" {
+    if (builtin.os.tag == .windows) return;
+
+    const ms = try evalCode("Process.clock_gettime(Process::CLOCK_MONOTONIC, :float_millisecond)");
+    try std.testing.expect(ms.isFloat());
+    try std.testing.expect(ms.toFloatObject().val > 0);
+
+    const us = try evalCode("Process.clock_gettime(Process::CLOCK_MONOTONIC, :float_microsecond)");
+    try std.testing.expect(us.isFloat());
+    try std.testing.expect(us.toFloatObject().val > 0);
+
+    const nil_unit = try evalCode("Process.clock_gettime(Process::CLOCK_MONOTONIC, nil)");
+    try std.testing.expect(nil_unit.isFloat());
+    try std.testing.expect(nil_unit.toFloatObject().val > 0);
+}
+
 test "Process::WNOHANG exists" {
     const result = try evalCode("Process::WNOHANG");
     try std.testing.expect(result.isInteger());

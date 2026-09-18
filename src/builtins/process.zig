@@ -240,6 +240,10 @@ pub fn builtinProcessClockGettime(vm: *VM, _: Value, args: []Value, _: ?Block) V
     }
 
     const unit = args[1];
+    if (unit.isNil()) {
+        const as_float = @as(f64, @floatFromInt(seconds)) + @as(f64, @floatFromInt(nanoseconds)) / 1_000_000_000.0;
+        return vm.newFloat(as_float);
+    }
     if (!unit.isSymbol()) {
         return vm.raiseExceptionFmt(vm.argument_error_class, "unexpected unit", .{});
     }
@@ -247,6 +251,14 @@ pub fn builtinProcessClockGettime(vm: *VM, _: Value, args: []Value, _: ?Block) V
     const unit_name = unit.toSymbolObject().name;
     if (std.mem.eql(u8, unit_name, "float_second")) {
         const as_float = @as(f64, @floatFromInt(seconds)) + @as(f64, @floatFromInt(nanoseconds)) / 1_000_000_000.0;
+        return vm.newFloat(as_float);
+    }
+    if (std.mem.eql(u8, unit_name, "float_millisecond")) {
+        const as_float = @as(f64, @floatFromInt(seconds)) * 1_000.0 + @as(f64, @floatFromInt(nanoseconds)) / 1_000_000.0;
+        return vm.newFloat(as_float);
+    }
+    if (std.mem.eql(u8, unit_name, "float_microsecond")) {
+        const as_float = @as(f64, @floatFromInt(seconds)) * 1_000_000.0 + @as(f64, @floatFromInt(nanoseconds)) / 1_000.0;
         return vm.newFloat(as_float);
     }
     if (std.mem.eql(u8, unit_name, "second")) {
