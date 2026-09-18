@@ -157,6 +157,34 @@ test "super with different arguments than received" {
     try std.testing.expectEqual(30, result.toInteger()); // 10 + 20
 }
 
+test "super in an aliased prepended method uses the original method name" {
+    const result = try evalCode(
+        \\module Wrapper
+        \\  def original
+        \\    "wrapper:" + super
+        \\  end
+        \\  alias wrapped original
+        \\end
+        \\class Target
+        \\  def original
+        \\    "target"
+        \\  end
+        \\  prepend Wrapper
+        \\end
+        \\singleton = Object.new
+        \\def singleton.original
+        \\  "singleton"
+        \\end
+        \\singleton.singleton_class.prepend(Wrapper)
+        \\[Target.new.wrapped, Target.new.wrapped, singleton.wrapped, singleton.wrapped]
+    );
+    const items = result.toArrayObject().elements.items;
+    try std.testing.expectEqualStrings("wrapper:target", items[0].toStringObject().str);
+    try std.testing.expectEqualStrings("wrapper:target", items[1].toStringObject().str);
+    try std.testing.expectEqualStrings("wrapper:singleton", items[2].toStringObject().str);
+    try std.testing.expectEqualStrings("wrapper:singleton", items[3].toStringObject().str);
+}
+
 test "NoMethodError when no superclass method" {
     var stdout_buf: [8192]u8 = undefined;
     var stderr_buf: [8192]u8 = undefined;

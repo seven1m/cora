@@ -5881,7 +5881,7 @@ pub const VM = struct {
                                                     .stack_base = needed,
                                                     .self_value = receiver,
                                                     .block = null,
-                                                    .method_name = cached.method_name.name,
+                                                    .method_name = cachedMethodFrameName(cached),
                                                     .super_defining_class = cached.owner_class,
                                                 };
                                                 self.frames.items = self.frames.storage[0 .. self.frames.items.len + 1];
@@ -5898,7 +5898,7 @@ pub const VM = struct {
                                                 const call_args = try call_args_tmp.copyFrom(self, self.stack.items[(receiver_index + 1)..(receiver_index + 1 + argc)]);
                                                 self.stack.shrinkRetainingCapacity(receiver_index);
                                                 try self.setupChunkCallFrame(method_chunk, receiver, call_args, .{
-                                                    .method_name = cached.method_name.name,
+                                                    .method_name = cachedMethodFrameName(cached),
                                                     .super_defining_class = cached.owner_class,
                                                     .block = block,
                                                 });
@@ -5927,7 +5927,7 @@ pub const VM = struct {
                                             const call_args = try call_args_tmp.copyFrom(self, self.stack.items[(receiver_index + 1)..(receiver_index + 1 + argc)]);
                                             self.stack.shrinkRetainingCapacity(receiver_index);
                                             try self.setupChunkCallFrame(method_chunk, receiver, call_args, .{
-                                                .method_name = method.name.name,
+                                                .method_name = resolvedMethodFrameName(method),
                                                 .super_defining_class = method.owner_class,
                                                 .block = block,
                                             });
@@ -7458,6 +7458,8 @@ pub const VM = struct {
                                                         .stack_base = needed,
                                                         .self_value = call_receiver,
                                                         .block = null,
+                                                        .method_name = cachedMethodFrameName(cached),
+                                                        .super_defining_class = cached.owner_class,
                                                     };
                                                     self.frames.items = self.frames.storage[0 .. new_fl + 1];
 
@@ -7568,6 +7570,14 @@ pub const VM = struct {
                 .entry = entry,
             } },
         };
+    }
+
+    inline fn resolvedMethodFrameName(resolved: ResolvedMethod) []const u8 {
+        return (resolved.entry.original_name orelse resolved.name).name;
+    }
+
+    inline fn cachedMethodFrameName(cached: chunk.CallSiteCache) []const u8 {
+        return (cached.entry.original_name orelse cached.method_name).name;
     }
 
     fn lookupModuleMethodDetailed(
@@ -8270,7 +8280,7 @@ pub const VM = struct {
                 try self.setupChunkCallFrame(method_chunk, receiver, dispatch.args, .{
                     .kw_keys = dispatch.kw_keys,
                     .kw_values = dispatch.kw_values,
-                    .method_name = resolved.name.name,
+                    .method_name = resolvedMethodFrameName(resolved),
                     .super_defining_class = resolved.owner_class,
                     .block = block,
                 });
@@ -8295,7 +8305,7 @@ pub const VM = struct {
                     .kw_keys = dispatch.kw_keys,
                     .kw_values = dispatch.kw_values,
                     .block = block,
-                    .method_name = resolved.name.name,
+                    .method_name = resolvedMethodFrameName(resolved),
                     .defining_class = resolved.owner_class,
                 });
             },
@@ -8858,7 +8868,7 @@ pub const VM = struct {
                 self.setupChunkCallFrame(method_chunk, receiver, dispatch.args, .{
                     .kw_keys = dispatch.kw_keys,
                     .kw_values = dispatch.kw_values,
-                    .method_name = method.name.name,
+                    .method_name = resolvedMethodFrameName(method),
                     .super_defining_class = method.owner_class,
                     .block = block,
                 }) catch |err| return err;
@@ -8925,7 +8935,7 @@ pub const VM = struct {
                         });
 
                         const current_frame = self.currentFrame();
-                        current_frame.method_name = method.name.name;
+                        current_frame.method_name = resolvedMethodFrameName(method);
                         current_frame.super_defining_class = method.owner_class;
                         try self.copyArgumentsWithRestParam(proc_chunk, current_frame, dispatch.args, .strict);
                         try self.bindMethodBlockParam(proc_chunk, current_frame, block);
@@ -9494,7 +9504,7 @@ pub const VM = struct {
                 try self.setupChunkCallFrame(method_chunk, receiver, args, .{
                     .kw_keys = kw_keys,
                     .kw_values = kw_values,
-                    .method_name = resolved.name.name,
+                    .method_name = resolvedMethodFrameName(resolved),
                     .super_defining_class = resolved.owner_class,
                     .block = block,
                 });
@@ -9517,7 +9527,7 @@ pub const VM = struct {
                     .kw_keys = kw_keys,
                     .kw_values = kw_values,
                     .block = block,
-                    .method_name = resolved.name.name,
+                    .method_name = resolvedMethodFrameName(resolved),
                     .defining_class = resolved.owner_class,
                 });
                 try self.push(result);
