@@ -3,6 +3,7 @@ const enc = @import("../encoding.zig");
 const vm_mod = @import("../vm.zig");
 const value = @import("../value.zig");
 const onigmo = @import("../onigmo.zig");
+const warning_builtin = @import("warning.zig");
 
 const VM = vm_mod.VM;
 const VMError = vm_mod.VMError;
@@ -128,27 +129,72 @@ fn normalizeRegexpConstruction(vm: *VM, pattern: []const u8, encoding: enc.Encod
     return try vm.newRegexpWithEncoding(pattern, normalized.options, normalized.encoding);
 }
 
-fn builtinRegexpNew(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
-    try vm.requireArgCountRange(args, 1, 2);
-
-    if (args[0].isRegexp() and args.len == 1) {
-        const regexp = args[0].toRegexpObject();
-        return try vm.newRegexpWithEncoding(regexp.pattern, regexp.options, regexp.encoding);
+fn parseRegexpOptionFlags(vm: *VM, flags: []const u8) VMError!u16 {
+    var options: u16 = 0;
+    for (flags) |c| {
+        switch (c) {
+            'i' => options |= OPTION_IGNORECASE,
+            'm' => options |= OPTION_MULTILINE,
+            'x' => options |= OPTION_EXTENDED,
+            else => return vm.raiseExceptionFmt(vm.argument_error_class, "unknown regexp option: {s}", .{flags}),
+        }
     }
+    return options;
+}
 
-    const pattern_value = try args[0].coerceToStringValue(vm, "no implicit conversion into String");
-    const pattern_obj = pattern_value.toStringObject();
-    const options: u16 = if (args.len == 2)
-        @intCast(try args[1].coerceToI64ViaToInt(
+fn parseRegexpOptions(vm: *VM, arg: Value) VMError!u16 {
+    if (arg.isNil() or arg.isFalse()) return 0;
+    if (arg.isTrue()) return OPTION_IGNORECASE;
+    if (arg.isInteger() or arg.isBigInteger()) {
+        return @intCast(try arg.coerceToI64ViaToInt(
             vm,
             "no implicit conversion into Integer",
             "no implicit conversion into Integer",
             "bignum too big to convert into `long`",
-        ))
-    else
-        0;
+        ));
+    }
+    if (arg.isString()) return try parseRegexpOptionFlags(vm, arg.toStringObject().str);
 
-    return try normalizeRegexpConstruction(vm, pattern_obj.str, pattern_obj.encoding, options);
+    const verbose = vm.getGlobalValue("$VERBOSE");
+    if (verbose.isTruthy()) {
+        try warning_builtin.writeWarning(vm, "warning: expected true or false as ignorecase\n");
+    }
+    return OPTION_IGNORECASE;
+}
+
+fn builtinRegexpNew(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCountRange(args, 1, 2);
+
+    const class_ptr = if (receiver.isClass()) receiver.toClassObject() else vm.regexp_class;
+
+    var result: Value = undefined;
+    if (args[0].isRegexp()) {
+        if (args.len == 2 and !args[1].isNil() and !args[1].isFalse()) {
+            try warning_builtin.writeWarning(vm, "warning: flags ignored\n");
+        }
+        const regexp = args[0].toRegexpObject();
+        result = try vm.newRegexpWithEncoding(regexp.pattern, regexp.options, regexp.encoding);
+    } else {
+        const pattern_value = switch (try vm.probeToStringValue(args[0])) {
+            .string => |s| s,
+            .missing, .nil_result => return vm.raiseExceptionFmt(
+                vm.type_error_class,
+                "no implicit conversion of {s} into String",
+                .{vm.className(args[0])},
+            ),
+        };
+        const pattern_obj = pattern_value.toStringObject();
+        const options: u16 = if (args.len == 2) try parseRegexpOptions(vm, args[1]) else 0;
+        result = try normalizeRegexpConstruction(vm, pattern_obj.str, pattern_obj.encoding, options);
+    }
+
+    if (class_ptr != vm.regexp_class) {
+        const regexp_obj = result.toRegexpObject();
+        regexp_obj.object.class = class_ptr;
+        regexp_obj.object.flags &= ~@as(u32, value.Object.FROZEN_FLAG);
+    }
+    _ = try vm.callMethodByName(result, "initialize", args, null);
+    return result;
 }
 
 fn builtinRegexpEscape(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
