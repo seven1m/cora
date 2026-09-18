@@ -139,6 +139,16 @@ test "Time#strftime supports RubyGems formats" {
     try std.testing.expectEqualStrings("2024-06-15 12:34:56 UTC", items[4].toStringObject().str);
 }
 
+test "Time#strftime shared formatter preserves zone and name directives" {
+    const result = try evalCode(
+        \\t = Time.new(2024, 6, 15, 12, 34, 56, "+09:30")
+        \\[t.strftime("%a %b %z %:z %::z %Z"), Time.utc(2024, 6, 15).strftime("%Z %z")]
+    );
+    const items = result.toArrayObject().elements.items;
+    try std.testing.expectEqualStrings("Sat Jun +0930 +09:30 +09:30:00 +0930", items[0].toStringObject().str);
+    try std.testing.expectEqualStrings("UTC +0000", items[1].toStringObject().str);
+}
+
 test "Time.new parses RubyGems timestamp strings and rejects date-only strings" {
     var result = try evalCode("Time.new(\"2024-06-15 12:34:56\").strftime(\"%F %T %Z\")");
     try std.testing.expectEqualStrings("2024-06-15 12:34:56 UTC", result.toStringObject().str);
