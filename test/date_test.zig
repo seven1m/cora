@@ -20,6 +20,23 @@ test "require lazily registers native Date classes" {
     try std.testing.expectEqualStrings("", result.stderr);
 }
 
+test "Time#to_date is registered with Date support and preserves local civil date" {
+    var stdout_buf: [1024]u8 = undefined;
+    var stderr_buf: [1024]u8 = undefined;
+    const result = evalCodeWithOutput(
+        \\before = Time.utc(2024, 1, 2).respond_to?(:to_date)
+        \\require "date"
+        \\utc = Time.utc(2024, 1, 2, 3, 4, 5).to_date
+        \\fixed = Time.new(2024, 1, 1, 0, 30, 0, "+09:00").to_date
+        \\local = Time.local(2024, 6, 15, 12, 34, 56).to_date
+        \\p [before, utc.instance_of?(Date), [utc.year, utc.month, utc.day], [fixed.year, fixed.month, fixed.day], [local.year, local.month, local.day]]
+    , &stdout_buf, &stderr_buf);
+
+    try std.testing.expect(result.err == null);
+    try std.testing.expectEqualStrings("[false, true, [2024, 1, 2], [2024, 1, 1], [2024, 6, 15]]\n", result.stdout);
+    try std.testing.expectEqualStrings("", result.stderr);
+}
+
 test "Date allocation uses native storage with formatting equality and hashing" {
     var stdout_buf: [1024]u8 = undefined;
     var stderr_buf: [1024]u8 = undefined;

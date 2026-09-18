@@ -104,6 +104,7 @@ pub fn register(vm: *VM) !void {
     try datetime_class.module.methods.put(try vm.intern("to_time"), value.MethodEntry.builtin(&builtinDateTimeToTime, .{ .exact = 0 }));
 
     try vm.time_class.module.methods.put(try vm.intern("to_datetime"), value.MethodEntry.builtin(&builtinTimeToDateTime, .{ .exact = 0 }));
+    try vm.time_class.module.methods.put(try vm.intern("to_date"), value.MethodEntry.builtin(&builtinTimeToDate, .{ .exact = 0 }));
 }
 
 const Civil = struct {
@@ -402,6 +403,12 @@ fn builtinTimeToDateTime(vm: *VM, receiver: Value, args: []Value, _: ?Block) VME
     const offset = try vm.newRational(time.utc_offset_nanos, 86_400_000_000_000);
     const datetime_value = (try vm.resolveConstantPath("DateTime")) orelse return error.Fatal;
     return vm.newDate(datetime_value.toClassObject(), jd, fraction, offset, Value.integer(2_299_161), .datetime);
+}
+
+fn builtinTimeToDate(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    const datetime = try builtinTimeToDateTime(vm, receiver, &.{}, null);
+    return builtinDateTimeToDate(vm, datetime, &.{}, null);
 }
 
 fn builtinDateTimeNow(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
