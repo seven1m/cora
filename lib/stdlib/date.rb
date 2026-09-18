@@ -1,10 +1,13 @@
 class Date
+  class Error < ArgumentError
+  end
+
   def self._parse(string, comp=true)
     result = {}
-    s = string.to_s
+    s = string.to_str
 
     # YYYY-MM-DD HH:MM:SS[.fraction] (ISO 8601)
-    if s =~ /\A\s*(\d{4})-(\d{1,2})-(\d{1,2})(?:[T ](\d{1,2}):(\d{2})(?::(\d{2})(?:\.(\d+))?)?)?\s*\z/
+    if s =~ /\A\s*([+-]?\d{4,})-(\d{1,2})-(\d{1,2})(?:[T ](\d{1,2}):(\d{2})(?::(\d{2})(?:\.(\d+))?)?)?\s*\z/
       result[:year] = $1.to_i
       result[:mon] = $2.to_i
       result[:mday] = $3.to_i
@@ -72,7 +75,8 @@ class Date
       return result
     end
 
-    result
+    iso = _iso8601(s)
+    iso.empty? ? result : iso
   end
 
   def self._strptime(string, format)
@@ -184,4 +188,134 @@ class Date
       new(d[:year], d[:mon], d[:mday])
     end
   end
+
+  def self._iso8601(string)
+    return {} if string.nil?
+    s = string.to_str
+    result = {}
+
+    if s =~ /\A([+-]?\d{4,})-?(\d{2})-?(\d{2})(?:[T ](\d{2}):(\d{2}):(\d{2})(?:[\.,](\d+))?(Z|[+-]\d{2}:?\d{2})?)?\z/
+      result[:mday] = $3.to_i
+      result[:year] = $1.to_i
+      result[:mon] = $2.to_i
+      if $4
+        result[:hour] = $4.to_i
+        result[:min] = $5.to_i
+        result[:sec] = $6.to_i
+        result[:sec_fraction] = Rational($7.to_i, 10 ** $7.length) if $7
+        add_zone_parts(result, $8) if $8
+      end
+      return result
+    end
+
+    if s =~ /\A([+-]?\d{4,})-?(\d{3})(?:[T ](\d{2}):(\d{2}):(\d{2})(?:[\.,](\d+))?(Z|[+-]\d{2}:?\d{2})?)?\z/
+      result[:year] = $1.to_i
+      result[:yday] = $2.to_i
+      if $3
+        result[:hour] = $3.to_i
+        result[:min] = $4.to_i
+        result[:sec] = $5.to_i
+        result[:sec_fraction] = Rational($6.to_i, 10 ** $6.length) if $6
+        add_zone_parts(result, $7) if $7
+      end
+      return result
+    end
+
+    if s =~ /\A([+-]?\d{4,})-?W(\d{2})(?:-?(\d))?\z/i
+      result[:cwyear] = $1.to_i
+      result[:cweek] = $2.to_i
+      result[:cwday] = $3.to_i if $3
+      return result
+    end
+
+    {}
+  end
+
+  def self._rfc3339(string)
+    return {} if string.nil?
+    s = string.to_str
+    return {} unless s =~ /\A(\d{4})-(\d{2})-(\d{2})[Tt](\d{2}):(\d{2}):(\d{2})(?:[\.,](\d+))?(Z|[+-]\d{2}:\d{2})\z/
+
+    result = {
+      year: $1.to_i,
+      mon: $2.to_i,
+      mday: $3.to_i,
+      hour: $4.to_i,
+      min: $5.to_i,
+      sec: $6.to_i
+    }
+    result[:sec_fraction] = Rational($7.to_i, 10 ** $7.length) if $7
+    add_zone_parts(result, $8)
+    result
+  end
+
+  def self.add_zone_parts(result, zone)
+    result[:zone] = zone
+    if zone == "Z" || zone == "z"
+      result[:offset] = 0
+    else
+      sign = zone[0] == "-" ? -1 : 1
+      digits = zone.delete(":")
+      result[:offset] = sign * (digits[1, 2].to_i * 3600 + digits[3, 2].to_i * 60)
+    end
+  end
+  private_class_method :add_zone_parts
+
+  def self.today(start=ITALY)
+    time = Time.now
+    new(time.year, time.month, time.day, start)
+  end
+
+  def self.ordinal(year=-4712, yday=1, start=ITALY)
+    day = yday.to_int
+    raise Error, "invalid date" if day == 0
+    if day > 0
+      date = new(year, 1, 1, start) + day - 1
+      raise Error, "invalid date" unless date.year == year
+    else
+      date = new(year, 12, 31, start) + day + 1
+      raise Error, "invalid date" unless date.year == year
+    end
+    date
+  rescue ArgumentError
+    raise Error, "invalid date"
+  end
+
+  def self.parse(string="-4712-01-01", comp=true, start=ITALY)
+    unless string.respond_to?(:to_str)
+      raise TypeError, "no implicit conversion of #{string.class} into String"
+    end
+    parts = _parse(string.to_str, comp)
+    raise Error, "invalid date" if parts.empty?
+    return ordinal(parts[:year], parts[:yday], start) if parts[:year] && parts[:yday]
+
+    current = today(start)
+    year = parts.fetch(:year, current.year)
+    month = parts.fetch(:mon, parts[:year] ? 1 : current.month)
+    day = parts.fetch(:mday, (parts[:year] || parts[:mon]) ? 1 : current.day)
+    new(year, month, day, start)
+  rescue ArgumentError => error
+    raise error if error.is_a?(Error)
+    raise Error, "invalid date"
+  end
+
+  def to_datetime
+    DateTime.jd(jd, 0, 0, 0, Rational(0, 1), start)
+  end
+
+  def iso8601
+    strftime("%F")
+  end
+  alias xmlschema iso8601
+  alias to_s iso8601
+end
+
+class DateTime
+  def iso8601(n=0)
+    precision = n.to_int
+    fraction = precision > 0 ? ".#{strftime("%#{precision}N")}" : ""
+    "#{strftime("%FT%T")}#{fraction}#{strftime("%:z")}"
+  end
+  alias xmlschema iso8601
+  alias to_s iso8601
 end

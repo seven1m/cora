@@ -140,3 +140,33 @@ test "shared strftime supports names calendar fields ISO weeks and padding" {
     );
     try std.testing.expectEqualStrings("", result.stderr);
 }
+
+test "Date compatibility parsing construction and conversion APIs" {
+    var stdout_buf: [4096]u8 = undefined;
+    var stderr_buf: [2048]u8 = undefined;
+    const result = evalCodeWithOutput(
+        \\require "date"
+        \\date = Date.new(2024, 2, 29)
+        \\datetime = date.to_datetime
+        \\iso = Date._iso8601("2024-060")
+        \\rfc = Date._rfc3339("2024-02-29T12:34:56.5+09:30")
+        \\p [date.iso8601, date.to_s, [datetime.class, datetime.jd, datetime.hour, datetime.offset]]
+        \\p [[Date.ordinal(2024, 60).month, Date.ordinal(2024, 60).day], [Date.ordinal(2023, -1).month, Date.ordinal(2023, -1).day]]
+        \\p [Date.parse("2024-02-29").iso8601, Date.parse("20240229").iso8601, Date.parse("29 Feb 2024").iso8601, Date.parse.iso8601]
+        \\p [iso[:year], iso[:yday], rfc[:year], rfc[:mon], rfc[:mday], rfc[:hour], rfc[:min], rfc[:sec], rfc[:sec_fraction], rfc[:offset]]
+        \\p DateTime.new(2024, 2, 29, 12, 34, Rational(113, 2), "+09:30").iso8601(3)
+        \\p [Date.today.class, Date.today == Time.now.to_date]
+        \\begin
+        \\  Date.parse("not a date")
+        \\rescue => error
+        \\  p [error.class, error.message]
+        \\end
+    , &stdout_buf, &stderr_buf);
+
+    try std.testing.expect(result.err == null);
+    try std.testing.expectEqualStrings(
+        "[\"2024-02-29\", \"2024-02-29\", [DateTime, 2460370, 0, (0/1)]]\n[[2, 29], [12, 31]]\n[\"2024-02-29\", \"2024-02-29\", \"2024-02-29\", \"-4712-01-01\"]\n[2024, 60, 2024, 2, 29, 12, 34, 56, (1/2), 34200]\n\"2024-02-29T12:34:56.500+09:30\"\n[Date, true]\n[Date::Error, \"invalid date\"]\n",
+        result.stdout,
+    );
+    try std.testing.expectEqualStrings("", result.stderr);
+}
