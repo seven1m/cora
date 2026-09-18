@@ -55,3 +55,48 @@ test "Date allocation uses native storage with formatting equality and hashing" 
     try std.testing.expectEqualStrings("[\"#<Date: day=0>\", \"#<DateTime: day=0>\"]\n[true, true]\n[false, false]\n[[], []]\n", result.stdout);
     try std.testing.expectEqualStrings("", result.stderr);
 }
+
+test "Date#gregorian preserves the chronological day and converts civil fields" {
+    var stdout_buf: [2048]u8 = undefined;
+    var stderr_buf: [1024]u8 = undefined;
+    const result = evalCodeWithOutput(
+        \\require "date"
+        \\modern = Date.civil(2024, 1, 2)
+        \\julian = Date.civil(1500, 3, 1, 2_400_000)
+        \\custom = Date.civil(1500, 3, 1, 1)
+        \\public_julian = Date.civil(1500, 3, 1, Date::JULIAN)
+        \\public_gregorian = Date.civil(1500, 3, 1, Date::GREGORIAN)
+        \\julian_gregorian = julian.gregorian
+        \\custom_gregorian = custom.gregorian
+        \\p [modern.gregorian.class, modern.gregorian.equal?(modern), [modern.gregorian.year, modern.gregorian.month, modern.gregorian.day], modern.gregorian.jd == modern.jd]
+        \\p [[julian.year, julian.month, julian.day], [julian_gregorian.year, julian_gregorian.month, julian_gregorian.day], [julian.jd, julian_gregorian.jd], julian_gregorian.gregorian?]
+        \\p [[custom.year, custom.month, custom.day], [custom_gregorian.year, custom_gregorian.month, custom_gregorian.day], [custom.jd, custom_gregorian.jd], custom_gregorian.gregorian?]
+        \\p [Date::GREGORIAN, Date::JULIAN, Date::GREGORIAN.class, [public_gregorian.start, public_julian.start], [public_gregorian.year, public_gregorian.month, public_gregorian.day], [public_julian.year, public_julian.month, public_julian.day], public_gregorian.start == Date::GREGORIAN, public_julian.start == Date::JULIAN]
+        \\p [public_julian.yday, public_julian.wday, public_julian.cwyear, public_julian.cweek, public_julian.cwday, public_julian.next_day.day, (public_julian + 1).day, (public_julian >> 1).day]
+    , &stdout_buf, &stderr_buf);
+
+    try std.testing.expect(result.err == null);
+    try std.testing.expectEqualStrings(
+        "[Date, false, [2024, 1, 2], true]\n[[1500, 3, 1], [1500, 3, 11], [2268993, 2268993], true]\n[[1500, 3, 1], [1500, 3, 1], [2268983, 2268983], true]\n[-Infinity, Infinity, Float, [-Infinity, Infinity], [1500, 3, 1], [1500, 3, 1], true, true]\n[61, 0, 1500, 9, 7, 2, 2, 1]\n",
+        result.stdout,
+    );
+    try std.testing.expectEqualStrings("", result.stderr);
+}
+
+test "DateTime#gregorian preserves class, time, offset, and chronological day" {
+    var stdout_buf: [2048]u8 = undefined;
+    var stderr_buf: [1024]u8 = undefined;
+    const result = evalCodeWithOutput(
+        \\require "date"
+        \\datetime = DateTime.civil(1500, 3, 1, 12, 34, 56, "+02:00", 2_400_000)
+        \\gregorian = datetime.gregorian
+        \\p [gregorian.class, [datetime.jd, gregorian.jd], [gregorian.year, gregorian.month, gregorian.day], [gregorian.hour, gregorian.minute, gregorian.second], gregorian.offset, [datetime.start, gregorian.start], [datetime.start == Date::JULIAN, gregorian.start == Date::GREGORIAN]]
+    , &stdout_buf, &stderr_buf);
+
+    try std.testing.expect(result.err == null);
+    try std.testing.expectEqualStrings(
+        "[DateTime, [2268993, 2268993], [1500, 3, 11], [12, 34, 56], (1/12), [2400000, -Infinity], [false, true]]\n",
+        result.stdout,
+    );
+    try std.testing.expectEqualStrings("", result.stderr);
+}

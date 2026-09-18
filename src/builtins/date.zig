@@ -7,6 +7,17 @@ const VM = vm_mod.VM;
 const VMError = vm_mod.VMError;
 const Value = value.Value;
 
+// These sentinels are used only for calendar calculations. Public Date start
+// values use the MRI-compatible +/-Infinity Float values below.
+const GREGORIAN_START: i64 = std.math.minInt(i64);
+const JULIAN_START: i64 = std.math.maxInt(i64);
+const DEFAULT_CALENDAR_START: i64 = 2_299_161;
+
+const CalendarStart = struct {
+    jd: i64,
+    value: Value,
+};
+
 pub fn register(vm: *VM) !void {
     const date_name = try vm.intern("Date");
     if (vm.object_class.module.constants.contains(date_name)) return;
@@ -18,6 +29,8 @@ pub fn register(vm: *VM) !void {
 
     try date_class.module.constants.put(try vm.intern("ITALY"), .{ .value = Value.integer(2_299_161) });
     try date_class.module.constants.put(try vm.intern("ENGLAND"), .{ .value = Value.integer(2_361_222) });
+    try date_class.module.constants.put(try vm.intern("GREGORIAN"), .{ .value = try vm.newFloat(-std.math.inf(f64)) });
+    try date_class.module.constants.put(try vm.intern("JULIAN"), .{ .value = try vm.newFloat(std.math.inf(f64)) });
 
     const datetime_name = try vm.intern("DateTime");
     const datetime_value = try vm.newClass(datetime_name, date_class);
@@ -64,6 +77,7 @@ pub fn register(vm: *VM) !void {
     try date_class.module.methods.put(try vm.intern("amjd"), mjd_entry);
     try date_class.module.methods.put(try vm.intern("ld"), value.MethodEntry.builtin(&builtinDateLd, .{ .exact = 0 }));
     try date_class.module.methods.put(try vm.intern("day_fraction"), value.MethodEntry.builtin(&builtinDateDayFraction, .{ .exact = 0 }));
+    try date_class.module.methods.put(try vm.intern("start"), value.MethodEntry.builtin(&builtinDateStart, .{ .exact = 0 }));
     try date_class.module.methods.put(try vm.intern("yday"), value.MethodEntry.builtin(&builtinDateYday, .{ .exact = 0 }));
     try date_class.module.methods.put(try vm.intern("wday"), value.MethodEntry.builtin(&builtinDateWday, .{ .exact = 0 }));
     try date_class.module.methods.put(try vm.intern("cwyear"), value.MethodEntry.builtin(&builtinDateCwyear, .{ .exact = 0 }));
@@ -71,6 +85,7 @@ pub fn register(vm: *VM) !void {
     try date_class.module.methods.put(try vm.intern("cwday"), value.MethodEntry.builtin(&builtinDateCwday, .{ .exact = 0 }));
     try date_class.module.methods.put(try vm.intern("julian?"), value.MethodEntry.builtin(&builtinDateJulian, .{ .exact = 0 }));
     try date_class.module.methods.put(try vm.intern("gregorian?"), value.MethodEntry.builtin(&builtinDateGregorian, .{ .exact = 0 }));
+    try date_class.module.methods.put(try vm.intern("gregorian"), value.MethodEntry.builtin(&builtinDateGregorianConversion, .{ .exact = 0 }));
     try date_class.module.methods.put(try vm.intern("succ"), value.MethodEntry.builtin(&builtinDateSucc, .{ .exact = 0 }));
     try date_class.module.methods.put(try vm.intern("next"), value.MethodEntry.builtin(&builtinDateSucc, .{ .exact = 0 }));
     try date_class.module.methods.put(try vm.intern("+"), value.MethodEntry.builtin(&builtinDateAdd, .{ .exact = 1 }));
@@ -203,7 +218,7 @@ fn normalizeCivil(year: i64, month_arg: i64, day_arg: i64, start: i64) ?Civil {
 
 fn dateCivil(date: *value.DateObject) Civil {
     const jd = date.chronological_day.toInteger();
-    const start = date.calendar_start.toInteger();
+    const start = calendarStartInteger(date.calendar_start);
     return if (jd >= start) jdToGregorian(jd) else jdToJulian(jd);
 }
 
@@ -214,6 +229,29 @@ fn dateIntegerArg(vm: *VM, arg: Value) VMError!i64 {
         "can't convert to Integer (to_int gives non-Integer)",
         "bignum too big to convert into `long'",
     );
+}
+
+fn calendarStartInteger(start: Value) i64 {
+    if (start.isFloat()) {
+        const number = start.toFloatObject().val;
+        if (std.math.isInf(number)) return if (number < 0) GREGORIAN_START else JULIAN_START;
+    }
+    return start.toInteger();
+}
+
+fn calendarStartArg(vm: *VM, arg: Value) VMError!CalendarStart {
+    if (arg.isFloat() and std.math.isInf(arg.toFloatObject().val)) {
+        return .{
+            .jd = calendarStartInteger(arg),
+            .value = arg,
+        };
+    }
+    const jd = try dateIntegerArg(vm, arg);
+    return .{ .jd = jd, .value = Value.integer(jd) };
+}
+
+fn defaultCalendarStart() CalendarStart {
+    return .{ .jd = DEFAULT_CALENDAR_START, .value = Value.integer(DEFAULT_CALENDAR_START) };
 }
 
 fn numberToF64(value_arg: Value) ?f64 {
@@ -291,7 +329,8 @@ fn builtinDateTimeCivil(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMEr
     const second_number = numberToF64(second) orelse return vm.raiseExceptionFmt(vm.argument_error_class, "invalid date", .{});
     const offset = if (args.len >= 7) try normalizeOffset(vm, args[6]) else try vm.newRational(0, 1);
     const offset_number = numberToF64(offset) orelse return vm.raiseExceptionFmt(vm.argument_error_class, "invalid offset", .{});
-    const start = if (args.len >= 8) try dateIntegerArg(vm, args[7]) else 2_299_161;
+    const start_info = if (args.len >= 8) try calendarStartArg(vm, args[7]) else defaultCalendarStart();
+    const start = start_info.jd;
 
     if (hour < -24 or hour > 24 or minute < -60 or minute >= 60 or second_number <= -60 or second_number >= 60 or offset_number <= -1 or offset_number >= 1) {
         return vm.raiseExceptionFmt(vm.argument_error_class, "invalid date", .{});
@@ -320,7 +359,7 @@ fn builtinDateTimeCivil(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMEr
     const civil = normalizeCivil(year, month_arg, day_arg, start) orelse return vm.raiseExceptionFmt(vm.argument_error_class, "invalid date", .{});
     const jd = (civilToJd(civil.year, civil.month, civil.day, start) orelse return vm.raiseExceptionFmt(vm.argument_error_class, "invalid date", .{})) + day_adjust;
     const fraction = try dateTimeFraction(vm, hour, minute, normalized_second);
-    return vm.newDate(receiver.toClassObject(), Value.integer(jd), fraction, offset, Value.integer(start), .datetime);
+    return vm.newDate(receiver.toClassObject(), Value.integer(jd), fraction, offset, start_info.value, .datetime);
 }
 
 fn dateTimeAbsoluteDay(vm: *VM, date: *value.DateObject) VMError!Value {
@@ -422,8 +461,9 @@ fn builtinDateTimeNow(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMErro
 fn builtinDateTimeJd(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
     try vm.requireArgCountRange(args, 0, 6);
     const jd = if (args.len >= 1) try dateIntegerArg(vm, args[0]) else 0;
-    var civil_args: [8]Value = .{ Value.integer(-4712), Value.integer(1), Value.integer(1), Value.integer(0), Value.integer(0), Value.integer(0), try vm.newRational(0, 1), Value.integer(2_299_161) };
-    const start = if (args.len >= 6) try dateIntegerArg(vm, args[5]) else 2_299_161;
+    var civil_args: [8]Value = .{ Value.integer(-4712), Value.integer(1), Value.integer(1), Value.integer(0), Value.integer(0), Value.integer(0), try vm.newRational(0, 1), Value.integer(DEFAULT_CALENDAR_START) };
+    const start_info = if (args.len >= 6) try calendarStartArg(vm, args[5]) else defaultCalendarStart();
+    const start = start_info.jd;
     const civil = dateCivilForJd(jd, start);
     civil_args[0] = Value.integer(civil.year);
     civil_args[1] = Value.integer(civil.month);
@@ -432,7 +472,7 @@ fn builtinDateTimeJd(vm: *VM, receiver: Value, args: []Value, block: ?Block) VME
     if (args.len >= 3) civil_args[4] = args[2];
     if (args.len >= 4) civil_args[5] = args[3];
     if (args.len >= 5) civil_args[6] = args[4];
-    civil_args[7] = Value.integer(start);
+    civil_args[7] = start_info.value;
     return builtinDateTimeCivil(vm, receiver, &civil_args, block);
 }
 
@@ -441,34 +481,35 @@ fn builtinDateCivil(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!
     const year = if (args.len >= 1) try dateIntegerArg(vm, args[0]) else -4712;
     const month_arg = if (args.len >= 2) try dateIntegerArg(vm, args[1]) else 1;
     const day_arg = if (args.len >= 3) try dateIntegerArg(vm, args[2]) else 1;
-    const start = if (args.len >= 4) try dateIntegerArg(vm, args[3]) else 2_299_161;
+    const start_info = if (args.len >= 4) try calendarStartArg(vm, args[3]) else defaultCalendarStart();
+    const start = start_info.jd;
     const civil = normalizeCivil(year, month_arg, day_arg, start) orelse
         return vm.raiseExceptionFmt(vm.argument_error_class, "invalid date", .{});
     const jd = civilToJd(civil.year, civil.month, civil.day, start) orelse
         return vm.raiseExceptionFmt(vm.argument_error_class, "invalid date", .{});
     const zero = try vm.newRational(0, 1);
-    return vm.newDate(receiver.toClassObject(), Value.integer(jd), zero, zero, Value.integer(start), .date);
+    return vm.newDate(receiver.toClassObject(), Value.integer(jd), zero, zero, start_info.value, .date);
 }
 
 fn builtinDateFromJd(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCountRange(args, 0, 2);
     const jd = if (args.len >= 1) try dateIntegerArg(vm, args[0]) else 0;
-    const start = if (args.len == 2) try dateIntegerArg(vm, args[1]) else 2_299_161;
+    const start_info = if (args.len == 2) try calendarStartArg(vm, args[1]) else defaultCalendarStart();
     const zero = try vm.newRational(0, 1);
-    return vm.newDate(receiver.toClassObject(), Value.integer(jd), zero, zero, Value.integer(start), .date);
+    return vm.newDate(receiver.toClassObject(), Value.integer(jd), zero, zero, start_info.value, .date);
 }
 
 fn builtinDateValidDate(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCountRange(args, 3, 4);
-    for (args) |arg| {
+    for (args[0..3]) |arg| {
         if (!arg.isInteger() and !arg.isBigInteger()) return Value.boolean(false);
     }
     const year = try dateIntegerArg(vm, args[0]);
     const month = try dateIntegerArg(vm, args[1]);
     const day = try dateIntegerArg(vm, args[2]);
-    const start = if (args.len == 4) try dateIntegerArg(vm, args[3]) else 2_299_161;
-    const civil = normalizeCivil(year, month, day, start) orelse return Value.boolean(false);
-    return Value.boolean(civilToJd(civil.year, civil.month, civil.day, start) != null);
+    const start = (if (args.len == 4) calendarStartArg(vm, args[3]) else defaultCalendarStart()) catch return Value.boolean(false);
+    const civil = normalizeCivil(year, month, day, start.jd) orelse return Value.boolean(false);
+    return Value.boolean(civilToJd(civil.year, civil.month, civil.day, start.jd) != null);
 }
 
 fn builtinDateValidJd(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
@@ -585,7 +626,7 @@ fn builtinDateYday(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!V
     try vm.requireArgCount(args, 0);
     const date = receiver.toDateObject();
     const civil = dateCivil(date);
-    const first_jd = civilToJd(civil.year, 1, 1, date.calendar_start.toInteger()).?;
+    const first_jd = civilToJd(civil.year, 1, 1, calendarStartInteger(date.calendar_start)).?;
     return Value.integer(date.chronological_day.toInteger() - first_jd + 1);
 }
 
@@ -600,8 +641,9 @@ fn commercialDate(date: *value.DateObject) Commercial {
     const jd = date.chronological_day.toInteger();
     const day = @mod(jd, 7) + 1;
     const thursday_jd = jd + (4 - day);
-    const thursday = dateCivilForJd(thursday_jd, date.calendar_start.toInteger());
-    const jan4 = civilToJd(thursday.year, 1, 4, date.calendar_start.toInteger()).?;
+    const start = calendarStartInteger(date.calendar_start);
+    const thursday = dateCivilForJd(thursday_jd, start);
+    const jan4 = civilToJd(thursday.year, 1, 4, start).?;
     const week1_monday = jan4 - @mod(jan4, 7);
     return .{ .year = thursday.year, .week = @divFloor(jd - week1_monday, 7) + 1, .day = day };
 }
@@ -628,12 +670,25 @@ fn builtinDateCwday(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!
 fn builtinDateJulian(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
     const date = receiver.toDateObject();
-    return Value.boolean(date.chronological_day.toInteger() < date.calendar_start.toInteger());
+    return Value.boolean(date.chronological_day.toInteger() < calendarStartInteger(date.calendar_start));
 }
 
 fn builtinDateGregorian(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     const result = try builtinDateJulian(vm, receiver, args, null);
     return Value.boolean(!result.toBool());
+}
+
+fn builtinDateGregorianConversion(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    const date = receiver.toDateObject();
+    return vm.newDate(
+        date.object.class.?,
+        date.chronological_day,
+        date.sub_day_fraction,
+        date.utc_offset,
+        try vm.newFloat(-std.math.inf(f64)),
+        date.kind,
+    );
 }
 
 fn builtinDateSucc(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
@@ -684,7 +739,7 @@ fn shiftMonths(vm: *VM, receiver: Value, amount: i64) VMError!Value {
     const year = @divFloor(month_index, 12);
     const month = @mod(month_index, 12) + 1;
     var day = civil.day;
-    const start = date.calendar_start.toInteger();
+    const start = calendarStartInteger(date.calendar_start);
     while (day > 0) : (day -= 1) {
         if (civilToJd(year, month, day, start)) |jd| return dateWithDay(vm, date, jd);
     }
