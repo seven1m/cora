@@ -20,6 +20,8 @@ pub const Parts = struct {
     nanosecond: u32,
     weekday: u8,
     year_day: u16,
+    iso_year: Value,
+    iso_week: u8,
 };
 
 pub const Zone = struct {
@@ -44,6 +46,10 @@ pub fn appendPaddedDecimal(out: *std.ArrayList(u8), allocator: std.mem.Allocator
 }
 
 pub fn appendPaddedIntegerValue(out: *std.ArrayList(u8), vm: *VM, integer: Value, width: usize) VMError!void {
+    return appendIntegerValue(out, vm, integer, width, '0');
+}
+
+fn appendIntegerValue(out: *std.ArrayList(u8), vm: *VM, integer: Value, width: usize, pad: u8) VMError!void {
     const negative = (try vm.compareIntegerValues(integer, Value.integer(0))) == .lt;
     const magnitude = if (negative) try vm.mulIntegerValues(integer, Value.integer(-1)) else integer;
     var buf: std.Io.Writer.Allocating = .init(vm.allocator);
@@ -51,9 +57,20 @@ pub fn appendPaddedIntegerValue(out: *std.ArrayList(u8), vm: *VM, integer: Value
     magnitude.format(&buf.writer) catch return error.Fatal;
     if (negative) out.append(vm.allocator, '-') catch return error.Fatal;
     if (buf.written().len < width) {
-        for (0..width - buf.written().len) |_| out.append(vm.allocator, '0') catch return error.Fatal;
+        for (0..width - buf.written().len) |_| out.append(vm.allocator, pad) catch return error.Fatal;
     }
     out.appendSlice(vm.allocator, buf.written()) catch return error.Fatal;
+}
+
+const Padding = struct {
+    disabled: bool = false,
+    byte: ?u8 = null,
+    width: ?usize = null,
+};
+
+fn appendNumeric(out: *std.ArrayList(u8), vm: *VM, number: Value, default_width: usize, default_pad: u8, padding: Padding) VMError!void {
+    const width = if (padding.disabled) 0 else padding.width orelse default_width;
+    try appendIntegerValue(out, vm, number, width, padding.byte orelse default_pad);
 }
 
 fn appendNanosecondDigits(out: *std.ArrayList(u8), allocator: std.mem.Allocator, nanoseconds: u32, width: usize) VMError!void {
@@ -87,11 +104,21 @@ pub fn build(vm: *VM, parts: Parts, zone: Zone, format_bytes: []const u8) VMErro
         index += 1;
         if (index >= format_bytes.len) return vm.raiseExceptionFmt(vm.argument_error_class, "incomplete strftime directive", .{});
 
-        var dash_flag = false;
+        var padding: Padding = .{};
         while (index < format_bytes.len) : (index += 1) {
             switch (format_bytes[index]) {
-                '-' => dash_flag = true,
-                '0', '_' => {},
+                '-' => {
+                    padding.disabled = true;
+                    padding.byte = null;
+                },
+                '0' => {
+                    padding.disabled = false;
+                    padding.byte = '0';
+                },
+                '_' => {
+                    padding.disabled = false;
+                    padding.byte = ' ';
+                },
                 else => break,
             }
         }
@@ -105,22 +132,25 @@ pub fn build(vm: *VM, parts: Parts, zone: Zone, format_bytes: []const u8) VMErro
             saw_width = true;
             width = width * 10 + (format_bytes[index] - '0');
         }
+        if (saw_width) padding.width = width;
         if (index >= format_bytes.len) return vm.raiseExceptionFmt(vm.argument_error_class, "incomplete strftime directive", .{});
 
         const directive = format_bytes[index];
         index += 1;
         switch (directive) {
             '%' => out.append(vm.allocator, '%') catch return error.Fatal,
-            'Y' => try appendPaddedIntegerValue(&out, vm, parts.year, 4),
-            'm' => try appendPaddedDecimal(&out, vm.allocator, parts.month, 2),
-            'd' => try appendPaddedDecimal(&out, vm.allocator, parts.day, 2),
-            'e' => {
-                if (parts.day < 10) out.append(vm.allocator, ' ') catch return error.Fatal;
-                try appendPaddedDecimal(&out, vm.allocator, parts.day, 1);
-            },
-            'H' => try appendPaddedDecimal(&out, vm.allocator, parts.hour, 2),
-            'M' => try appendPaddedDecimal(&out, vm.allocator, parts.minute, 2),
-            'S' => try appendPaddedDecimal(&out, vm.allocator, parts.second, 2),
+            'Y' => try appendNumeric(&out, vm, parts.year, 4, '0', padding),
+            'm' => try appendNumeric(&out, vm, Value.integer(parts.month), 2, '0', padding),
+            'd' => try appendNumeric(&out, vm, Value.integer(parts.day), 2, '0', padding),
+            'e' => try appendNumeric(&out, vm, Value.integer(parts.day), 2, ' ', padding),
+            'H' => try appendNumeric(&out, vm, Value.integer(parts.hour), 2, '0', padding),
+            'M' => try appendNumeric(&out, vm, Value.integer(parts.minute), 2, '0', padding),
+            'S' => try appendNumeric(&out, vm, Value.integer(parts.second), 2, '0', padding),
+            'j' => try appendNumeric(&out, vm, Value.integer(parts.year_day), 3, '0', padding),
+            'u' => try appendNumeric(&out, vm, Value.integer(if (parts.weekday == 0) 7 else parts.weekday), 1, '0', padding),
+            'w' => try appendNumeric(&out, vm, Value.integer(parts.weekday), 1, '0', padding),
+            'V' => try appendNumeric(&out, vm, Value.integer(parts.iso_week), 2, '0', padding),
+            'G' => try appendNumeric(&out, vm, parts.iso_year, 4, '0', padding),
             'N' => try appendNanosecondDigits(&out, vm.allocator, parts.nanosecond, if (saw_width) width else 9),
             'F' => {
                 try appendPaddedIntegerValue(&out, vm, parts.year, 4);
@@ -157,8 +187,16 @@ pub fn build(vm: *VM, parts: Parts, zone: Zone, format_bytes: []const u8) VMErro
                 const names = [_][]const u8{ "Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat" };
                 out.appendSlice(vm.allocator, names[parts.weekday]) catch return error.Fatal;
             },
+            'A' => {
+                const names = [_][]const u8{ "Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday" };
+                out.appendSlice(vm.allocator, names[parts.weekday]) catch return error.Fatal;
+            },
             'b' => {
                 const names = [_][]const u8{ "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec" };
+                out.appendSlice(vm.allocator, names[parts.month - 1]) catch return error.Fatal;
+            },
+            'B' => {
+                const names = [_][]const u8{ "January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December" };
                 out.appendSlice(vm.allocator, names[parts.month - 1]) catch return error.Fatal;
             },
             'z' => {
@@ -169,7 +207,7 @@ pub fn build(vm: *VM, parts: Parts, zone: Zone, format_bytes: []const u8) VMErro
                     else
                         @divTrunc(zone.utc_offset_nanos - half_ns, nanos_per_second);
                 } else @divTrunc(zone.utc_offset_nanos, nanos_per_second);
-                const sign: u8 = if (total_seconds >= 0) if (dash_flag and zone.is_utc) '-' else '+' else '-';
+                const sign: u8 = if (total_seconds >= 0) if (padding.disabled and zone.is_utc) '-' else '+' else '-';
                 const abs_seconds = if (total_seconds >= 0) total_seconds else -total_seconds;
                 const off_h = @divTrunc(abs_seconds, seconds_per_hour);
                 const off_m = @divTrunc(@rem(abs_seconds, seconds_per_hour), seconds_per_minute);

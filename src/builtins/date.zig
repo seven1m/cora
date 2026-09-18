@@ -636,6 +636,7 @@ fn builtinDateStrftime(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMErr
     }
 
     const first_jd = civilToJd(civil.year, 1, 1, calendarStartInteger(date.calendar_start)).?;
+    const commercial = commercialDate(date);
     return strftime_fmt.build(vm, .{
         .year = Value.integer(civil.year),
         .month = @intCast(civil.month),
@@ -646,6 +647,8 @@ fn builtinDateStrftime(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMErr
         .nanosecond = nanosecond,
         .weekday = @intCast(@mod(date.chronological_day.toInteger() + 1, 7)),
         .year_day = @intCast(date.chronological_day.toInteger() - first_jd + 1),
+        .iso_year = Value.integer(commercial.year),
+        .iso_week = @intCast(commercial.week),
     }, .{
         .utc_offset_nanos = utc_offset_nanos,
         .is_utc = false,

@@ -119,3 +119,24 @@ test "Date#strftime formats Date and DateTime civil fields" {
     );
     try std.testing.expectEqualStrings("", result.stderr);
 }
+
+test "shared strftime supports names calendar fields ISO weeks and padding" {
+    var stdout_buf: [2048]u8 = undefined;
+    var stderr_buf: [1024]u8 = undefined;
+    const result = evalCodeWithOutput(
+        \\require "date"
+        \\format = "%A|%B|%j|%u|%w|%V|%G"
+        \\p Date.new(2024, 2, 29).strftime(format)
+        \\p Date.new(2021, 1, 1).strftime(format)
+        \\p DateTime.new(2018, 12, 31, 12).strftime(format)
+        \\p Time.utc(2021, 1, 1).strftime(format)
+        \\p Date.new(2024, 2, 3).strftime("%d|%-d|%_d|%0d|%5d|%-5d|%_5d|%05d")
+    , &stdout_buf, &stderr_buf);
+
+    try std.testing.expect(result.err == null);
+    try std.testing.expectEqualStrings(
+        "\"Thursday|February|060|4|4|09|2024\"\n\"Friday|January|001|5|5|53|2020\"\n\"Monday|December|365|1|1|01|2019\"\n\"Friday|January|001|5|5|53|2020\"\n\"03|3| 3|03|00003|3|    3|00003\"\n",
+        result.stdout,
+    );
+    try std.testing.expectEqualStrings("", result.stderr);
+}

@@ -393,6 +393,15 @@ fn timeParts(vm: *VM, adjusted_timew: Value) VMError!TimeParts {
     const year_day: u16 = @intCast(integerToI64(year_day_value));
     const weekday_value = try integerMod(vm, try vm.addIntegerValues(day_count, Value.integer(4)), 7);
     const weekday: u8 = @intCast(integerToI64(weekday_value));
+    const iso_weekday: i64 = if (weekday == 0) 7 else weekday;
+    const thursday = try vm.addIntegerValues(day_count, Value.integer(4 - iso_weekday));
+    const iso_year = (try civilFromDays(vm, thursday)).year;
+    const jan4 = try daysFromCivil(vm, iso_year, 1, 4);
+    const jan4_weekday_value = try integerMod(vm, try vm.addIntegerValues(jan4, Value.integer(4)), 7);
+    const jan4_weekday_raw = integerToI64(jan4_weekday_value);
+    const jan4_iso_weekday = if (jan4_weekday_raw == 0) 7 else jan4_weekday_raw;
+    const week1_monday = try vm.subIntegerValues(jan4, Value.integer(jan4_iso_weekday - 1));
+    const iso_week_value = try vm.addIntegerValues(try vm.divFloorIntegerValues(try vm.subIntegerValues(day_count, week1_monday), Value.integer(7)), Value.integer(1));
     return .{
         .year = civil.year,
         .month = civil.month,
@@ -403,6 +412,8 @@ fn timeParts(vm: *VM, adjusted_timew: Value) VMError!TimeParts {
         .nanosecond = nanosecond,
         .weekday = weekday,
         .year_day = year_day,
+        .iso_year = iso_year,
+        .iso_week = @intCast(integerToI64(iso_week_value)),
     };
 }
 
