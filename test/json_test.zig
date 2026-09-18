@@ -56,3 +56,20 @@ test "JSON.parse object result is not poisoned by block next" {
     try std.testing.expectEqualStrings("{\"a\" => 1}\n", result.stdout);
     try std.testing.expectEqualStrings("", result.stderr);
 }
+
+test "JSON::Coder strict conversion block handles ActiveSupport Date values" {
+    var stdout_buf: [2048]u8 = undefined;
+    var stderr_buf: [2048]u8 = undefined;
+
+    const result = evalCodeWithOutput(
+        \\require "date"
+        \\require "active_support/json"
+        \\require "active_support/core_ext/object/json"
+        \\puts ActiveSupport::JSON.encode(Date.new(2024, 2, 29))
+        \\puts ActiveSupport::JSON.encode(DateTime.new(2024, 2, 29, 12, 34, 56, "+09:30"))
+    , &stdout_buf, &stderr_buf);
+
+    try std.testing.expect(result.err == null);
+    try std.testing.expectEqualStrings("\"2024-02-29\"\n\"2024-02-29T12:34:56.000+09:30\"\n", result.stdout);
+    try std.testing.expectEqualStrings("cora: applied compatibility patch for concurrent-ruby-1.3.8\n", result.stderr);
+}

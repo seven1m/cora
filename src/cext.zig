@@ -807,6 +807,7 @@ export fn rb_type(obj_raw: VALUE) c_int {
         .module => 0x03,
         .match_data => 0x0d,
         .rational => 0x0f,
+        .proc => 0x0c,
         .typed_data => 0x0c,
         else => 0x01,
     };
