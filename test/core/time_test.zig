@@ -21,6 +21,21 @@ test "Time.utc exposes UTC date parts" {
     try std.testing.expectEqual(true, items[3].toBool());
 }
 
+test "Time.local accepts the legacy ten-argument broken-down-time form" {
+    const result = try evalCode(
+        \\time = Time.local(56.5, 34, 12, 15, 6, 2024, 6, 167, false, "UTC")
+        \\[time.year, time.month, time.day, time.hour, time.min, time.sec, time.nsec]
+    );
+    const items = result.toArrayObject().elements.items;
+    try std.testing.expectEqual(@as(i64, 2024), items[0].toInteger());
+    try std.testing.expectEqual(@as(i64, 6), items[1].toInteger());
+    try std.testing.expectEqual(@as(i64, 15), items[2].toInteger());
+    try std.testing.expectEqual(@as(i64, 12), items[3].toInteger());
+    try std.testing.expectEqual(@as(i64, 34), items[4].toInteger());
+    try std.testing.expectEqual(@as(i64, 56), items[5].toInteger());
+    try std.testing.expectEqual(@as(i64, 500_000_000), items[6].toInteger());
+}
+
 test "Time.at preserves integer and fractional epoch values" {
     var result = try evalCode("Time.at(1).to_i");
     try std.testing.expectEqual(@as(i64, 1), result.toInteger());

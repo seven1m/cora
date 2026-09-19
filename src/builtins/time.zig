@@ -1129,6 +1129,14 @@ pub fn builtinTimeUtc(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMErro
 
 pub fn builtinTimeLocal(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     std.debug.assert(receiver.isClass());
+    if (args.len == 10) {
+        // Legacy broken-down-time form:
+        // sec, min, hour, mday, mon, year, wday, yday, isdst, zone.
+        // The final four fields describe the supplied civil time and do not
+        // replace any of its date/time components.
+        var reordered = [_]Value{ args[5], args[4], args[3], args[2], args[1], args[0] };
+        return constructLocalTime(vm, receiver.toClassObject(), &reordered);
+    }
     return constructLocalTime(vm, receiver.toClassObject(), args);
 }
 
