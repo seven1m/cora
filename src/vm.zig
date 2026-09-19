@@ -59,7 +59,8 @@ const MAX_FIBER_FRAMES: usize = 2048;
 //   ep[1] = lexical scope, or tagged FrameScopeContext for eval-only metadata
 //   ep[2] = locals_count (encoded as Value.integer so BDW won't chase it)
 //   ep[3] = environment role (method boundary vs non-local block environment)
-pub const ENV_DATA_SIZE: usize = 4;
+//   ep[4] = MethodEnvironmentContext pointer for method environments, or 0
+pub const ENV_DATA_SIZE: usize = 5;
 
 const EnvironmentRole = enum(u8) { method, block, lambda, fiber, synthetic };
 const MAX_BUILTIN_KEYWORDS: usize = 256;
@@ -271,6 +272,12 @@ const FrameScopeContext = struct {
     lexical_scope: ?*LexicalScope,
     class_variable_scope: ?*LexicalScope = null,
     method_definition_target: ?Value = null,
+};
+
+const MethodEnvironmentContext = struct {
+    chunk: *Chunk,
+    method_name: []const u8,
+    defining_class: ?*ClassObject,
 };
 
 pub const Block = struct {
@@ -2061,10 +2068,32 @@ pub const VM = struct {
 
     fn setEpEnvironmentRole(ep: [*]Value, role: EnvironmentRole) void {
         ep[3] = Value.integer(@intFromEnum(role));
+        ep[4] = .{ .raw = 0 };
     }
 
     fn epEnvironmentRole(ep: [*]Value) EnvironmentRole {
         return @enumFromInt(ep[3].toInteger());
+    }
+
+    fn setMethodEnvironmentContext(self: *VM, frame: *CallFrame) VMError!void {
+        const context = self.gc_allocator.create(MethodEnvironmentContext) catch return error.Fatal;
+        context.* = .{
+            .chunk = frame.chunk,
+            .method_name = frame.method_name orelse frame.chunk.name,
+            .defining_class = frame.super_defining_class,
+        };
+        frame.ep[4] = .{ .raw = @intFromPtr(context) };
+    }
+
+    fn enclosingMethodEnvironment(frame: *const CallFrame) ?struct { ep: [*]Value, context: *MethodEnvironmentContext } {
+        var ep: ?[*]Value = frame.ep;
+        while (ep) |current| {
+            if (epEnvironmentRole(current) == .method and current[4].raw != 0) {
+                return .{ .ep = current, .context = @ptrFromInt(current[4].raw) };
+            }
+            ep = decodeEp(current[0]);
+        }
+        return null;
     }
 
     /// Get a pointer to local slot `idx` (0-based) from an ep and its locals_count.
@@ -5917,6 +5946,7 @@ pub const VM = struct {
                                                     .super_defining_class = cached.owner_class,
                                                 };
                                                 self.frames.items = self.frames.storage[0 .. self.frames.items.len + 1];
+                                                try self.setMethodEnvironmentContext(self.currentFrame());
 
                                                 if (method_chunk.lexical_scope) |scope| {
                                                     self.current_lexical_scope = scope;
@@ -7487,6 +7517,7 @@ pub const VM = struct {
                                                         .super_defining_class = cached.owner_class,
                                                     };
                                                     self.frames.items = self.frames.storage[0 .. new_fl + 1];
+                                                    try self.setMethodEnvironmentContext(self.currentFrame());
 
                                                     if (method_chunk.lexical_scope) |scope| {
                                                         self.current_lexical_scope = scope;
@@ -7741,6 +7772,7 @@ pub const VM = struct {
         const callee_frame = self.currentFrame();
         callee_frame.method_name = opts.method_name;
         callee_frame.super_defining_class = opts.super_defining_class;
+        try self.setMethodEnvironmentContext(callee_frame);
         callee_frame.forwarded_keyword_ctx = if (has_keywords)
             try self.copyKeywordContext(effective_kw_keys.?, effective_kw_values.?)
         else
@@ -8708,6 +8740,7 @@ pub const VM = struct {
                 const current_frame = self.currentFrame();
                 current_frame.method_name = method_name;
                 current_frame.super_defining_class = defining_class;
+                try self.setMethodEnvironmentContext(current_frame);
                 try self.copyArgumentsWithRestParam(proc_chunk, current_frame, args_to_bind, .strict);
                 try self.bindMethodBlockParam(proc_chunk, current_frame, block);
 
@@ -8973,6 +9006,7 @@ pub const VM = struct {
                         const current_frame = self.currentFrame();
                         current_frame.method_name = resolvedMethodFrameName(method);
                         current_frame.super_defining_class = method.owner_class;
+                        try self.setMethodEnvironmentContext(current_frame);
                         try self.copyArgumentsWithRestParam(proc_chunk, current_frame, dispatch.args, .strict);
                         try self.bindMethodBlockParam(proc_chunk, current_frame, block);
 
@@ -9456,6 +9490,26 @@ pub const VM = struct {
     fn enclosingMethodFrame(self: *VM, frame: *CallFrame) *CallFrame {
         if (!CallFrame.usesEnclosingMethodContext(frame.frame_type)) return frame;
 
+        // A block may be invoked through another Ruby method. Follow its
+        // captured environment chain so super keeps the context of the method
+        // where the block was defined, rather than the method that yielded.
+        var defining_ep = decodeEp(frame.ep[0]);
+        while (defining_ep) |ep| {
+            if (epEnvironmentRole(ep) == .method) {
+                const defining_ep_raw = @intFromPtr(ep);
+                var frame_idx = self.frames.items.len;
+                while (frame_idx > 0) {
+                    frame_idx -= 1;
+                    const candidate = &self.frames.items[frame_idx];
+                    if (candidate.frame_type == .method and @intFromPtr(candidate.ep) == defining_ep_raw) {
+                        return candidate;
+                    }
+                }
+                break;
+            }
+            defining_ep = decodeEp(ep[0]);
+        }
+
         var i = self.frames.items.len;
         while (i > 0) {
             i -= 1;
@@ -9466,49 +9520,76 @@ pub const VM = struct {
         return frame;
     }
 
+    fn activeMethodFrameForEp(self: *VM, method_ep: [*]Value) ?*CallFrame {
+        const method_ep_raw = @intFromPtr(method_ep);
+        var frame_idx = self.frames.items.len;
+        while (frame_idx > 0) {
+            frame_idx -= 1;
+            const candidate = &self.frames.items[frame_idx];
+            if (candidate.frame_type == .method and @intFromPtr(candidate.ep) == method_ep_raw) return candidate;
+        }
+        return null;
+    }
+
     /// Call the superclass method with the given arguments
     fn callSuper(self: *VM, args: []const Value, block: ?Block) VMError!void {
         const frame = self.currentFrame();
-        const super_frame = self.enclosingMethodFrame(frame);
+        const method_environment = enclosingMethodEnvironment(frame);
+        const fallback_frame = self.enclosingMethodFrame(frame);
+        const active_method_frame = if (method_environment) |environment|
+            self.activeMethodFrameForEp(environment.ep)
+        else
+            fallback_frame;
 
-        // Use explicit frame metadata when a method body comes from a Proc (define_method/define_singleton_method).
-        const method_name = super_frame.method_name orelse super_frame.chunk.name;
+        // The stored context survives when a block escapes the method that
+        // defined it.
+        const method_name = if (method_environment) |environment|
+            environment.context.method_name
+        else
+            fallback_frame.method_name orelse fallback_frame.chunk.name;
+        const defining_method_chunk = if (method_environment) |environment| environment.context.chunk else fallback_frame.chunk;
+        const explicit_defining_class = if (method_environment) |environment|
+            environment.context.defining_class
+        else
+            fallback_frame.super_defining_class;
+        const receiver = frame.self_value;
+        const forwarded_keyword_ctx = if (active_method_frame) |method_frame| method_frame.forwarded_keyword_ctx else null;
         const method_name_sym = try self.intern(method_name);
 
-        const lexical_scope = super_frame.chunk.lexical_scope;
+        const lexical_scope = defining_method_chunk.lexical_scope;
         const maybe_resolved = if (lexical_scope) |scope|
             switch (scope.scope_module) {
-                .module => |defining_module| if (super_frame.super_defining_class) |explicit_defining_class|
-                    if (explicit_defining_class.attached_object != null and
-                        explicit_defining_class.attached_object.?.eql(super_frame.self_value))
+                .module => |defining_module| if (explicit_defining_class) |defining_class|
+                    if (defining_class.attached_object != null and
+                        defining_class.attached_object.?.eql(receiver))
                         self.lookupMethodForSuperFromScope(
-                            explicit_defining_class,
-                            if (defining_module == &explicit_defining_class.module)
-                                .{ .class = explicit_defining_class }
+                            defining_class,
+                            if (defining_module == &defining_class.module)
+                                .{ .class = defining_class }
                             else
                                 .{ .module = defining_module },
                             method_name_sym,
                         ) orelse self.lookupMethodForSuperFromScope(
-                            explicit_defining_class,
-                            .{ .class = explicit_defining_class },
+                            defining_class,
+                            .{ .class = defining_class },
                             method_name_sym,
                         )
                     else
                         self.lookupMethodForSuperFromScope(
-                            explicit_defining_class,
+                            defining_class,
                             .{ .module = defining_module },
                             method_name_sym,
-                        ) orelse self.lookupMethod(explicit_defining_class, method_name_sym)
+                        ) orelse self.lookupMethod(defining_class, method_name_sym)
                 else
                     self.lookupMethodForSuperFromScope(
-                        self.getClass(super_frame.self_value),
+                        self.getClass(receiver),
                         .{ .module = defining_module },
                         method_name_sym,
                     ),
-                .class => |defining_class| if (super_frame.super_defining_class) |explicit_defining_class|
+                .class => |defining_class| if (explicit_defining_class) |method_defining_class|
                     self.lookupMethodForSuperFromScope(
-                        explicit_defining_class,
-                        .{ .class = explicit_defining_class },
+                        method_defining_class,
+                        .{ .class = method_defining_class },
                         method_name_sym,
                     )
                 else
@@ -9518,7 +9599,7 @@ pub const VM = struct {
                         method_name_sym,
                     ),
             }
-        else if (super_frame.super_defining_class) |defining_class|
+        else if (explicit_defining_class) |defining_class|
             self.lookupMethodForSuperFromScope(
                 defining_class,
                 .{ .class = defining_class },
@@ -9531,20 +9612,17 @@ pub const VM = struct {
             const msg = std.fmt.allocPrint(
                 self.gc_allocator,
                 "super: no superclass method '{s}' for {s}",
-                .{ method_name, self.getClass(super_frame.self_value).module.name.name },
+                .{ method_name, self.getClass(receiver).module.name.name },
             ) catch return error.Fatal;
             const exc = try self.createException(self.no_method_error_class, msg);
             self.setPendingException(exc);
             return error.Unwind;
         };
 
-        // Call with the same receiver (self)
-        const receiver = super_frame.self_value;
-
         switch (resolved.entry.method) {
             .chunk => |method_chunk| {
-                const kw_keys = if (super_frame.forwarded_keyword_ctx) |ctx| if (ctx.kw_values.len > 0) ctx.kw_keys else null else null;
-                const kw_values = if (super_frame.forwarded_keyword_ctx) |ctx| if (ctx.kw_values.len > 0) ctx.kw_values else null else null;
+                const kw_keys = if (forwarded_keyword_ctx) |ctx| if (ctx.kw_values.len > 0) ctx.kw_keys else null else null;
+                const kw_values = if (forwarded_keyword_ctx) |ctx| if (ctx.kw_values.len > 0) ctx.kw_values else null else null;
                 try self.setupChunkCallFrame(method_chunk, receiver, args, .{
                     .kw_keys = kw_keys,
                     .kw_values = kw_values,
@@ -9557,7 +9635,7 @@ pub const VM = struct {
                 // For builtin methods, we need a mutable copy
                 var args_copy: [256]Value = undefined;
                 @memcpy(args_copy[0..args.len], args);
-                const result = try self.invokeBuiltinMethod(fun_ptr, receiver, resolved.name.name, args_copy[0..args.len], block, super_frame.forwarded_keyword_ctx);
+                const result = try self.invokeBuiltinMethod(fun_ptr, receiver, resolved.name.name, args_copy[0..args.len], block, forwarded_keyword_ctx);
                 try self.push(result);
             },
             .cext => |cext_method| {
@@ -9565,8 +9643,8 @@ pub const VM = struct {
                 try self.push(result);
             },
             .proc => |proc_obj| {
-                const kw_keys: ?[]const Value = if (super_frame.forwarded_keyword_ctx) |ctx| if (ctx.kw_values.len > 0) ctx.kw_keys else null else null;
-                const kw_values: ?[]const Value = if (super_frame.forwarded_keyword_ctx) |ctx| if (ctx.kw_values.len > 0) ctx.kw_values else null else null;
+                const kw_keys: ?[]const Value = if (forwarded_keyword_ctx) |ctx| if (ctx.kw_values.len > 0) ctx.kw_keys else null else null;
+                const kw_values: ?[]const Value = if (forwarded_keyword_ctx) |ctx| if (ctx.kw_values.len > 0) ctx.kw_values else null else null;
                 const result = try self.callProcAsMethod(proc_obj, receiver, args, .{
                     .kw_keys = kw_keys,
                     .kw_values = kw_values,

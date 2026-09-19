@@ -216,6 +216,54 @@ test "super in an aliased prepended method uses the original method name" {
     try std.testing.expectEqualStrings("wrapper:singleton", items[3].toStringObject().str);
 }
 
+test "super in a block keeps its prepended defining method context" {
+    const result = try evalCode(
+        \\module Wrapper
+        \\  def read(value)
+        \\    with_rotation { super(value) }
+        \\  end
+        \\
+        \\  def with_rotation
+        \\    yield
+        \\  end
+        \\end
+        \\
+        \\class Target
+        \\  def read(value)
+        \\    "target:" + value
+        \\  end
+        \\
+        \\  prepend Wrapper
+        \\end
+        \\
+        \\Target.new.read("primary")
+    );
+    try std.testing.expect(result.isString());
+    try std.testing.expectEqualStrings("target:primary", result.toStringObject().str);
+}
+
+test "super in an escaped block keeps its prepended defining method context" {
+    const result = try evalCode(
+        \\module Wrapper
+        \\  def deferred_read(value)
+        \\    proc { super(value) }
+        \\  end
+        \\end
+        \\
+        \\class Target
+        \\  def deferred_read(value)
+        \\    "target:" + value
+        \\  end
+        \\  prepend Wrapper
+        \\end
+        \\
+        \\read = Target.new.deferred_read("escaped")
+        \\read.call
+    );
+    try std.testing.expect(result.isString());
+    try std.testing.expectEqualStrings("target:escaped", result.toStringObject().str);
+}
+
 test "NoMethodError when no superclass method" {
     var stdout_buf: [8192]u8 = undefined;
     var stderr_buf: [8192]u8 = undefined;
