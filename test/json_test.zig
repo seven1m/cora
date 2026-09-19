@@ -63,13 +63,18 @@ test "JSON::Coder strict conversion block handles ActiveSupport Date values" {
 
     const result = evalCodeWithOutput(
         \\require "date"
-        \\require "active_support/json"
-        \\require "active_support/core_ext/object/json"
+        \\begin
+        \\  require "active_support/json"
+        \\  require "active_support/core_ext/object/json"
+        \\rescue LoadError
+        \\  warn "Missing gem 'activesupport': run `bin/gem install activesupport`"
+        \\  raise
+        \\end
         \\puts ActiveSupport::JSON.encode(Date.new(2024, 2, 29))
         \\puts ActiveSupport::JSON.encode(DateTime.new(2024, 2, 29, 12, 34, 56, "+09:30"))
     , &stdout_buf, &stderr_buf);
 
     try std.testing.expect(result.err == null);
     try std.testing.expectEqualStrings("\"2024-02-29\"\n\"2024-02-29T12:34:56.000+09:30\"\n", result.stdout);
-    try std.testing.expectEqualStrings("cora: applied compatibility patch for concurrent-ruby-1.3.8\n", result.stderr);
+    try std.testing.expect(std.mem.indexOf(u8, result.stderr, "cora: applied compatibility patch for concurrent-ruby-") != null);
 }

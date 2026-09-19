@@ -24,5 +24,8 @@ jobs:
       - name: Build
         run: zig build
 
+      - name: Install test gems
+        run: bin/gem install activesupport
+
       - name: Test
         run: zig build test --summary all

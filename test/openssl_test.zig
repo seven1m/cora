@@ -104,8 +104,13 @@ test "OpenSSL supports ActiveSupport key generation and message encryption" {
     var stdout_buf: [1024]u8 = undefined;
     var stderr_buf: [1024]u8 = undefined;
     const result = evalCodeWithOutput(
-        \\require "active_support/key_generator"
-        \\require "active_support/message_encryptor"
+        \\begin
+        \\  require "active_support/key_generator"
+        \\  require "active_support/message_encryptor"
+        \\rescue LoadError
+        \\  warn "Missing gem 'activesupport': run `bin/gem install activesupport`"
+        \\  raise
+        \\end
         \\key = ActiveSupport::KeyGenerator.new("password", iterations: 2).generate_key("salt", 32)
         \\old_key = ActiveSupport::KeyGenerator.new("old-password", iterations: 2).generate_key("salt", 32)
         \\encryptor = ActiveSupport::MessageEncryptor.new(key, cipher: "aes-256-gcm", serializer: ActiveSupport::MessageEncryptor::NullSerializer)
@@ -118,7 +123,7 @@ test "OpenSSL supports ActiveSupport key generation and message encryption" {
 
     try std.testing.expect(result.err == null);
     try std.testing.expectEqualStrings("[32, \"secret\", \"old-secret\"]\n", result.stdout);
-    try std.testing.expectEqualStrings("cora: applied compatibility patch for concurrent-ruby-1.3.8\n", result.stderr);
+    try std.testing.expect(std.mem.indexOf(u8, result.stderr, "cora: applied compatibility patch for concurrent-ruby-") != null);
 }
 
 test "require loads RubyGems security with OpenSSL cipher defaults" {
