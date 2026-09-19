@@ -26,21 +26,16 @@ module OpenSSL
     SUPPORTED_CIPHERS = [
       "AES-128-CBC",
       "AES-192-CBC",
-      "AES-256-CBC"
+      "AES-256-CBC",
+      "AES-128-GCM",
+      "AES-192-GCM",
+      "AES-256-GCM"
     ].freeze
-
-    attr_reader :name
 
     def self.ciphers
       SUPPORTED_CIPHERS.dup
     end
 
-    def initialize(name)
-      @name = String(name).upcase
-      unless SUPPORTED_CIPHERS.include?(@name)
-        raise CipherError, "unsupported cipher algorithm (#{name})"
-      end
-    end
   end
 
   module SSL

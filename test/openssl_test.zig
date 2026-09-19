@@ -73,6 +73,50 @@ test "OpenSSL::Cipher accepts RubyGems default cipher names" {
     try std.testing.expectEqualStrings("", result.stderr);
 }
 
+test "OpenSSL::Cipher supports authenticated encryption" {
+    var stdout_buf: [1024]u8 = undefined;
+    var stderr_buf: [1024]u8 = undefined;
+    const result = evalCodeWithOutput(
+        \\require "openssl"
+        \\key = "k" * 32
+        \\encryptor = OpenSSL::Cipher.new("aes-256-gcm")
+        \\encryptor.encrypt
+        \\encryptor.key = key
+        \\iv = encryptor.random_iv
+        \\encryptor.auth_data = ""
+        \\encrypted = encryptor.update("secret") + encryptor.final
+        \\tag = encryptor.auth_tag(16)
+        \\decryptor = OpenSSL::Cipher.new("aes-256-gcm")
+        \\decryptor.decrypt
+        \\decryptor.key = key
+        \\decryptor.iv = iv
+        \\decryptor.auth_tag = tag
+        \\decryptor.auth_data = ""
+        \\puts [encryptor.authenticated?, encryptor.key_len, encryptor.iv_len, decryptor.update(encrypted) + decryptor.final].inspect
+    , &stdout_buf, &stderr_buf);
+
+    try std.testing.expect(result.err == null);
+    try std.testing.expectEqualStrings("[true, 32, 12, \"secret\"]\n", result.stdout);
+    try std.testing.expectEqualStrings("", result.stderr);
+}
+
+test "OpenSSL supports ActiveSupport key generation and message encryption" {
+    var stdout_buf: [1024]u8 = undefined;
+    var stderr_buf: [1024]u8 = undefined;
+    const result = evalCodeWithOutput(
+        \\require "active_support/key_generator"
+        \\require "active_support/message_encryptor"
+        \\key = ActiveSupport::KeyGenerator.new("password", iterations: 2).generate_key("salt", 32)
+        \\encryptor = ActiveSupport::MessageEncryptor.new(key, cipher: "aes-256-gcm", serializer: ActiveSupport::MessageEncryptor::NullSerializer)
+        \\token = encryptor.encrypt_and_sign("secret")
+        \\puts [key.bytesize, encryptor.decrypt_and_verify(token)].inspect
+    , &stdout_buf, &stderr_buf);
+
+    try std.testing.expect(result.err == null);
+    try std.testing.expectEqualStrings("[32, \"secret\"]\n", result.stdout);
+    try std.testing.expectEqualStrings("cora: applied compatibility patch for concurrent-ruby-1.3.8\n", result.stderr);
+}
+
 test "require loads RubyGems security with OpenSSL cipher defaults" {
     var gpa: std.heap.DebugAllocator(.{}) = .init;
     defer _ = gpa.deinit();

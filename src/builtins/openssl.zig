@@ -7,6 +7,7 @@ const c = @cImport({
     @cInclude("openssl/err.h");
     @cInclude("openssl/evp.h");
     @cInclude("openssl/pem.h");
+    @cInclude("openssl/rand.h");
     @cInclude("openssl/ssl.h");
     @cInclude("openssl/x509_vfy.h");
 });
@@ -32,6 +33,12 @@ const DigestAlgorithm = enum {
     sha256,
     sha384,
     sha512,
+};
+
+const NativeCipher = struct {
+    ctx: *c.EVP_CIPHER_CTX,
+    cipher: *const c.EVP_CIPHER,
+    authenticated: bool,
 };
 
 pub fn register(vm: *VM) !void {
@@ -60,6 +67,29 @@ pub fn register(vm: *VM) !void {
     try openssl_singleton.module.methods.put(try vm.intern("__ssl_socket_cipher"), value.MethodEntry.builtin(&builtinOpenSSLSslSocketCipher, .{ .exact = 1 }));
     try openssl_singleton.module.methods.put(try vm.intern("__ssl_socket_peer_cert_pem"), value.MethodEntry.builtin(&builtinOpenSSLSslSocketPeerCertPem, .{ .exact = 1 }));
     try openssl_singleton.module.methods.put(try vm.intern("__ssl_socket_post_connection_check"), value.MethodEntry.builtin(&builtinOpenSSLSslSocketPostConnectionCheck, .{ .exact = 2 }));
+
+    const cipher_name = try vm.intern("Cipher");
+    const cipher_val = try vm.newClass(cipher_name, vm.object_class);
+    const cipher_class = cipher_val.toClassObject();
+    cipher_class.builtin_alloc_func = &builtinOpenSSLCipherAllocate;
+    try vm.setConstant(openssl_mod, cipher_name, cipher_val);
+    const cipher_error_name = try vm.intern("CipherError");
+    try vm.setConstant(&cipher_class.module, cipher_error_name, try vm.newClass(cipher_error_name, openssl_error_val.toClassObject()));
+    try cipher_class.module.methods.put(try vm.intern("initialize"), value.MethodEntry.builtinWithVisibility(&builtinOpenSSLCipherInitialize, .{ .exact = 1 }, .private));
+    try cipher_class.module.methods.put(try vm.intern("name"), value.MethodEntry.builtin(&builtinOpenSSLCipherName, .{ .exact = 0 }));
+    try cipher_class.module.methods.put(try vm.intern("authenticated?"), value.MethodEntry.builtin(&builtinOpenSSLCipherAuthenticated, .{ .exact = 0 }));
+    try cipher_class.module.methods.put(try vm.intern("key_len"), value.MethodEntry.builtin(&builtinOpenSSLCipherKeyLen, .{ .exact = 0 }));
+    try cipher_class.module.methods.put(try vm.intern("iv_len"), value.MethodEntry.builtin(&builtinOpenSSLCipherIvLen, .{ .exact = 0 }));
+    try cipher_class.module.methods.put(try vm.intern("encrypt"), value.MethodEntry.builtin(&builtinOpenSSLCipherEncrypt, .{ .exact = 0 }));
+    try cipher_class.module.methods.put(try vm.intern("decrypt"), value.MethodEntry.builtin(&builtinOpenSSLCipherDecrypt, .{ .exact = 0 }));
+    try cipher_class.module.methods.put(try vm.intern("key="), value.MethodEntry.builtin(&builtinOpenSSLCipherSetKey, .{ .exact = 1 }));
+    try cipher_class.module.methods.put(try vm.intern("iv="), value.MethodEntry.builtin(&builtinOpenSSLCipherSetIv, .{ .exact = 1 }));
+    try cipher_class.module.methods.put(try vm.intern("random_iv"), value.MethodEntry.builtin(&builtinOpenSSLCipherRandomIv, .{ .exact = 0 }));
+    try cipher_class.module.methods.put(try vm.intern("auth_data="), value.MethodEntry.builtin(&builtinOpenSSLCipherSetAuthData, .{ .exact = 1 }));
+    try cipher_class.module.methods.put(try vm.intern("auth_tag="), value.MethodEntry.builtin(&builtinOpenSSLCipherSetAuthTag, .{ .exact = 1 }));
+    try cipher_class.module.methods.put(try vm.intern("auth_tag"), value.MethodEntry.builtin(&builtinOpenSSLCipherAuthTag, .{ .variadic = 0 }));
+    try cipher_class.module.methods.put(try vm.intern("update"), value.MethodEntry.builtin(&builtinOpenSSLCipherUpdate, .{ .exact = 1 }));
+    try cipher_class.module.methods.put(try vm.intern("final"), value.MethodEntry.builtin(&builtinOpenSSLCipherFinal, .{ .exact = 0 }));
 
     const digest_name = try vm.intern("Digest");
     const digest_val = try vm.newClass(digest_name, vm.object_class);
@@ -159,6 +189,13 @@ pub fn register(vm: *VM) !void {
     try kdf_singleton.module.methods.put(pbkdf2_sym, value.MethodEntry.builtin(&builtinOpenSSLKDFPbkdf2Hmac, .{ .variadic = 1 }));
     const scrypt_sym = try vm.intern("scrypt");
     try kdf_singleton.module.methods.put(scrypt_sym, value.MethodEntry.builtin(&builtinOpenSSLKDFScrypt, .{ .variadic = 1 }));
+
+    const pkcs5_name = try vm.intern("PKCS5");
+    const pkcs5_val = try vm.newModule(pkcs5_name);
+    try vm.setConstant(openssl_mod, pkcs5_name, pkcs5_val);
+    const pkcs5_singleton = try vm.getOrCreateSingletonClass(pkcs5_val);
+    try pkcs5_singleton.module.methods.put(try vm.intern("pbkdf2_hmac"), value.MethodEntry.builtin(&builtinOpenSSLPKCS5Pbkdf2Hmac, .{ .exact = 5 }));
+    try pkcs5_singleton.module.methods.put(try vm.intern("pbkdf2_hmac_sha1"), value.MethodEntry.builtin(&builtinOpenSSLPKCS5Pbkdf2HmacSha1, .{ .exact = 4 }));
 }
 
 fn opensslModule(vm: *VM) VMError!*ModuleObject {
@@ -677,6 +714,174 @@ fn requiredKeywordMessage(vm: *VM, missing: []const []const u8) VMError {
 
     return vm.raiseExceptionFmt(vm.argument_error_class, "{s}", .{out.items});
 }
+
+fn cipherState(receiver: Value) *NativeCipher {
+    return @ptrCast(@alignCast(receiver.toTypedDataObject().data));
+}
+
+fn cipherErrorClass(vm: *VM) VMError!*ClassObject {
+    const val = (try vm.resolveConstantPath("OpenSSL::Cipher::CipherError")) orelse return opensslErrorClass(vm);
+    return val.toClassObject();
+}
+
+fn raiseCipherError(vm: *VM, message: []const u8) VMError {
+    return vm.raiseExceptionFmt(try cipherErrorClass(vm), "{s}", .{message});
+}
+
+pub fn builtinOpenSSLCipherAllocate(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    const ctx = c.EVP_CIPHER_CTX_new() orelse return error.Fatal;
+    const state = vm.gc_allocator.create(NativeCipher) catch return error.Fatal;
+    state.* = .{ .ctx = ctx, .cipher = undefined, .authenticated = false };
+    const callbacks = value.TypedDataCallbacks{ .dfree = struct {
+        fn free(ptr: *anyopaque) callconv(.c) void {
+            const cipher: *NativeCipher = @ptrCast(@alignCast(ptr));
+            c.EVP_CIPHER_CTX_free(cipher.ctx);
+        }
+    }.free };
+    return vm.newTypedData(receiver.toClassObject(), state, null, callbacks);
+}
+
+pub fn builtinOpenSSLCipherInitialize(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    const raw_name = (try coerceToStringValueExact(vm, args[0])).toStringObject().str;
+    const name_z = try vm.allocCStringZ(raw_name);
+    defer vm.allocator.free(name_z);
+    const cipher = c.EVP_get_cipherbyname(name_z.ptr) orelse return raiseCipherError(vm, "unsupported cipher algorithm");
+    const state = cipherState(receiver);
+    state.cipher = cipher;
+    const mode = c.EVP_CIPHER_get_mode(cipher);
+    state.authenticated = mode == c.EVP_CIPH_GCM_MODE or mode == c.EVP_CIPH_CCM_MODE;
+    if (c.EVP_CipherInit_ex(state.ctx, cipher, null, null, null, -1) != 1) return raiseCipherError(vm, "cipher initialization failed");
+    try vm.setInstanceVariable(receiver, "@name", try vm.newString(std.mem.span(c.EVP_CIPHER_get0_name(cipher)), false));
+    return receiver;
+}
+
+pub fn builtinOpenSSLCipherName(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    return vm.getInstanceVariable(receiver, "@name");
+}
+
+pub fn builtinOpenSSLCipherAuthenticated(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    return Value.boolean(cipherState(receiver).authenticated);
+}
+
+pub fn builtinOpenSSLCipherKeyLen(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    return Value.integer(c.EVP_CIPHER_get_key_length(cipherState(receiver).cipher));
+}
+
+pub fn builtinOpenSSLCipherIvLen(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    return Value.integer(c.EVP_CIPHER_get_iv_length(cipherState(receiver).cipher));
+}
+
+fn cipherSetMode(vm: *VM, receiver: Value, encrypt: bool) VMError!Value {
+    const state = cipherState(receiver);
+    if (c.EVP_CipherInit_ex(state.ctx, state.cipher, null, null, null, if (encrypt) 1 else 0) != 1) return raiseCipherError(vm, "cipher initialization failed");
+    return receiver;
+}
+
+pub fn builtinOpenSSLCipherEncrypt(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value { try vm.requireArgCount(args, 0); return cipherSetMode(vm, receiver, true); }
+pub fn builtinOpenSSLCipherDecrypt(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value { try vm.requireArgCount(args, 0); return cipherSetMode(vm, receiver, false); }
+
+pub fn builtinOpenSSLCipherSetKey(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    const key = (try coerceToStringValueExact(vm, args[0])).toStringObject().str;
+    const state = cipherState(receiver);
+    if (key.len != @as(usize, @intCast(c.EVP_CIPHER_get_key_length(state.cipher)))) return vm.raiseExceptionFmt(vm.argument_error_class, "key must be {d} bytes", .{c.EVP_CIPHER_get_key_length(state.cipher)});
+    if (c.EVP_CipherInit_ex(state.ctx, null, null, key.ptr, null, -1) != 1) return raiseCipherError(vm, "key initialization failed");
+    return args[0];
+}
+
+pub fn builtinOpenSSLCipherSetIv(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    const iv = (try coerceToStringValueExact(vm, args[0])).toStringObject().str;
+    const state = cipherState(receiver);
+    if (iv.len != @as(usize, @intCast(c.EVP_CIPHER_get_iv_length(state.cipher)))) return vm.raiseExceptionFmt(vm.argument_error_class, "iv must be {d} bytes", .{c.EVP_CIPHER_get_iv_length(state.cipher)});
+    if (c.EVP_CipherInit_ex(state.ctx, null, null, null, iv.ptr, -1) != 1) return raiseCipherError(vm, "iv initialization failed");
+    return args[0];
+}
+
+pub fn builtinOpenSSLCipherRandomIv(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    const len: usize = @intCast(c.EVP_CIPHER_get_iv_length(cipherState(receiver).cipher));
+    const bytes = vm.allocator.alloc(u8, len) catch return error.Fatal;
+    defer vm.allocator.free(bytes);
+    if (c.RAND_bytes(bytes.ptr, @intCast(len)) != 1) return raiseCipherError(vm, "random iv generation failed");
+    var iv_arg = [_]Value{try binaryString(vm, bytes)};
+    _ = try builtinOpenSSLCipherSetIv(vm, receiver, &iv_arg, null);
+    return iv_arg[0];
+}
+
+pub fn builtinOpenSSLCipherSetAuthData(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    const data = (try coerceToStringValueExact(vm, args[0])).toStringObject().str;
+    var out_len: c_int = 0;
+    if (c.EVP_CipherUpdate(cipherState(receiver).ctx, null, &out_len, data.ptr, @intCast(data.len)) != 1) return raiseCipherError(vm, "unable to set authentication data");
+    return args[0];
+}
+
+pub fn builtinOpenSSLCipherSetAuthTag(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    const tag = (try coerceToStringValueExact(vm, args[0])).toStringObject().str;
+    if (c.EVP_CIPHER_CTX_ctrl(cipherState(receiver).ctx, c.EVP_CTRL_GCM_SET_TAG, @intCast(tag.len), @ptrCast(@constCast(tag.ptr))) != 1) return raiseCipherError(vm, "unable to set authentication tag");
+    return args[0];
+}
+
+pub fn builtinOpenSSLCipherAuthTag(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCountRange(args, 0, 1);
+    const len_i64 = if (args.len == 1) try coerceToI64Exact(vm, args[0], "bignum too big to convert into `long`") else 16;
+    if (len_i64 < 0) return vm.raiseExceptionFmt(vm.argument_error_class, "negative string size", .{});
+    const bytes = vm.allocator.alloc(u8, @intCast(len_i64)) catch return error.Fatal;
+    defer vm.allocator.free(bytes);
+    if (c.EVP_CIPHER_CTX_ctrl(cipherState(receiver).ctx, c.EVP_CTRL_GCM_GET_TAG, @intCast(len_i64), bytes.ptr) != 1) return raiseCipherError(vm, "unable to get authentication tag");
+    return binaryString(vm, bytes);
+}
+
+pub fn builtinOpenSSLCipherUpdate(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    const input = (try coerceToStringValueExact(vm, args[0])).toStringObject().str;
+    const cap = input.len + @as(usize, @intCast(c.EVP_CIPHER_get_block_size(cipherState(receiver).cipher)));
+    const output = vm.allocator.alloc(u8, cap) catch return error.Fatal;
+    defer vm.allocator.free(output);
+    var out_len: c_int = 0;
+    if (c.EVP_CipherUpdate(cipherState(receiver).ctx, output.ptr, &out_len, input.ptr, @intCast(input.len)) != 1) return raiseCipherError(vm, "cipher update failed");
+    return binaryString(vm, output[0..@intCast(out_len)]);
+}
+
+pub fn builtinOpenSSLCipherFinal(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    var output: [64]u8 = undefined;
+    var out_len: c_int = 0;
+    if (c.EVP_CipherFinal_ex(cipherState(receiver).ctx, &output, &out_len) != 1) return raiseCipherError(vm, "cipher final failed");
+    return binaryString(vm, output[0..@intCast(out_len)]);
+}
+
+fn pkcs5Pbkdf2(vm: *VM, password_value: Value, salt_value: Value, iterations_value: Value, length_value: Value, hash_value: Value) VMError!Value {
+    const password = (try coerceToStringValueExact(vm, password_value)).toStringObject().str;
+    const salt = (try coerceToStringValueExact(vm, salt_value)).toStringObject().str;
+    const iterations = try coerceToI64Exact(vm, iterations_value, "bignum too big to convert into `long`");
+    const length = try coerceToI64Exact(vm, length_value, "bignum too big to convert into `long`");
+    const alg = try resolveDigestAlgorithmFromValue(vm, hash_value);
+    if (length < 0 or iterations <= 0) return raiseCipherError(vm, "PKCS5_PBKDF2_HMAC");
+    const output = vm.allocator.alloc(u8, @intCast(length)) catch return error.Fatal;
+    defer vm.allocator.free(output);
+    const rounds: u32 = std.math.cast(u32, iterations) orelse return raiseCipherError(vm, "PKCS5_PBKDF2_HMAC");
+    const result = switch (alg) {
+        .md5 => std.crypto.pwhash.pbkdf2(output, password, salt, rounds, std.crypto.auth.hmac.HmacMd5),
+        .sha1 => std.crypto.pwhash.pbkdf2(output, password, salt, rounds, std.crypto.auth.hmac.HmacSha1),
+        .sha256 => std.crypto.pwhash.pbkdf2(output, password, salt, rounds, std.crypto.auth.hmac.sha2.HmacSha256),
+        .sha384 => std.crypto.pwhash.pbkdf2(output, password, salt, rounds, std.crypto.auth.hmac.sha2.HmacSha384),
+        .sha512 => std.crypto.pwhash.pbkdf2(output, password, salt, rounds, std.crypto.auth.hmac.sha2.HmacSha512),
+    };
+    result catch return raiseCipherError(vm, "PKCS5_PBKDF2_HMAC");
+    return binaryString(vm, output);
+}
+
+pub fn builtinOpenSSLPKCS5Pbkdf2Hmac(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value { try vm.requireArgCount(args, 5); return pkcs5Pbkdf2(vm, args[0], args[1], args[2], args[3], args[4]); }
+pub fn builtinOpenSSLPKCS5Pbkdf2HmacSha1(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value { try vm.requireArgCount(args, 4); return pkcs5Pbkdf2(vm, args[0], args[1], args[2], args[3], try vm.newString("sha1", false)); }
 
 pub fn builtinOpenSSLFixedLengthSecureCompare(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 2);
