@@ -2,6 +2,7 @@ const std = @import("std");
 const builtin = @import("builtin");
 const enc = @import("../encoding.zig");
 const encoding_builtin = @import("encoding.zig");
+const file_builtin = @import("file.zig");
 const warning_builtin = @import("warning.zig");
 const vm_mod = @import("../vm.zig");
 const value = @import("../value.zig");
@@ -53,6 +54,9 @@ pub fn register(vm: *VM) !void {
 
     const binread_sym = try vm.intern("binread");
     try io_singleton.module.methods.put(binread_sym, value.MethodEntry.builtin(&builtinIoBinread, .{ .variadic = 0 }));
+
+    const read_class_sym = try vm.intern("read");
+    try io_singleton.module.methods.put(read_class_sym, value.MethodEntry.builtin(&file_builtin.builtinFileRead, .{ .variadic = 0 }));
 
     const foreach_sym = try vm.intern("foreach");
     try io_singleton.module.methods.put(foreach_sym, value.MethodEntry.builtin(&builtinIoForeach, .{ .variadic = 0 }));
