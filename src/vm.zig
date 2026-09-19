@@ -7031,20 +7031,25 @@ pub const VM = struct {
             },
 
             .CATCH_START => {
-                // Read variable index (local_idx, not ep_offset; we compute at runtime)
-                const var_idx = readByteFrom(frame, operands, &operand_cursor);
+                const binding_kind: bytecode.CatchBinding = @enumFromInt(readByteFrom(frame, operands, &operand_cursor));
+                const binding_operand = readU16From(frame, operands, &operand_cursor);
 
                 if (self.pendingException()) |exc| {
                     self.currentRescuedExceptions().append(self.allocator, exc) catch return error.Fatal;
                     frame.active_rescue_exceptions += 1;
                 }
 
-                // Store exception in local variable if binding exists (var_idx != 255)
-                if (var_idx != 255) {
-                    if (self.pendingException()) |exc| {
-                        // Compute ep_offset from the chunk's locals_count at runtime
-                        const ep_offset = frame.chunk.locals_count - @as(u16, var_idx);
-                        (frame.ep - ep_offset)[0] = Value.fromObject(&exc.object);
+                if (self.pendingException()) |exc| {
+                    switch (binding_kind) {
+                        .none => {},
+                        .local => {
+                            const ep_offset = frame.chunk.locals_count - binding_operand;
+                            (frame.ep - ep_offset)[0] = Value.fromObject(&exc.object);
+                        },
+                        .instance_variable => {
+                            const var_name = constants[binding_operand].string;
+                            try self.setInstanceVariable(frame.self_value, var_name, Value.fromObject(&exc.object));
+                        },
                     }
                 }
 

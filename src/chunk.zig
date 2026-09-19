@@ -568,10 +568,19 @@ pub const Chunk = struct {
                 try writer.print("{s} {d}\n", .{ bytecode.opcodeName(op), idx });
             },
 
-            .PUSH_RANGE, .INTERPOLATE_STRING, .RAISE, .CATCH_START, .DUP_N, .SETN, .YIELD => {
+            .PUSH_RANGE, .INTERPOLATE_STRING, .RAISE, .DUP_N, .SETN, .YIELD => {
                 const idx = self.code.items[ip];
                 ip += 1;
                 try writer.print("{s} {d}\n", .{ bytecode.opcodeName(op), idx });
+            },
+
+            .CATCH_START => {
+                const binding_kind = self.code.items[ip];
+                const lo: u16 = self.code.items[ip + 1];
+                const hi: u16 = self.code.items[ip + 2];
+                const binding_operand = lo | (hi << 8);
+                ip += 3;
+                try writer.print("CATCH_START {d} {d}\n", .{ binding_kind, binding_operand });
             },
 
             .GET_LOCAL_DEEP, .SET_LOCAL_DEEP => {

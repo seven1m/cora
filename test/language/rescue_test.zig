@@ -78,6 +78,17 @@ test "Rescue with variable binding - capture exception" {
     try std.testing.expectEqual(@as(i64, 42), result.toInteger());
 }
 
+test "Rescue assigns exception to an instance variable" {
+    const result = try evalCode(
+        \\begin
+        \\  raise "setup failed"
+        \\rescue => @setup_exception
+        \\end
+        \\@setup_exception.message
+    );
+    try std.testing.expectEqualStrings("setup failed", result.toStringObject().str);
+}
+
 test "Nested begin/rescue" {
     const result = try evalCode(
         \\begin

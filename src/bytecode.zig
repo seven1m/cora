@@ -97,7 +97,7 @@ pub const OpCode = enum(u8) {
     RAISE, // Operand: u8 (argc)
     TRY_BEGIN, // Operand: u16 (handler_idx)
     TRY_END, // No operands
-    CATCH_START, // Operand: u8 (var_idx)
+    CATCH_START, // Operands: u8 binding kind, u16 local index or name constant index
     CATCH_END, // No operands
     ENSURE_START, // No operands
     ENSURE_END, // No operands
@@ -166,6 +166,12 @@ pub const BuiltinId = enum(u8) {
     NEW = 1,
 };
 
+pub const CatchBinding = enum(u8) {
+    none,
+    local,
+    instance_variable,
+};
+
 /// Returns the number of operand bytes for a given opcode (not counting the opcode byte itself).
 pub fn opcodeOperandSize(op: OpCode) usize {
     return switch (op) {
@@ -212,7 +218,6 @@ pub fn opcodeOperandSize(op: OpCode) usize {
         .PUSH_RANGE,
         .INTERPOLATE_STRING,
         .RAISE,
-        .CATCH_START,
         .PUSH_I8,
         .UNDEF_METHOD,
         => 1,
@@ -252,6 +257,9 @@ pub fn opcodeOperandSize(op: OpCode) usize {
         .PUSH_HASH,
         .HASH_SET_CONST_KEY,
         => 2,
+
+        // 3-byte operands (u8 + u16)
+        .CATCH_START => 3,
 
         // 3-byte operands: GET_LOCAL_DEEP / SET_LOCAL_DEEP = u16 local_idx + u8 depth
         .GET_LOCAL_DEEP, .SET_LOCAL_DEEP => 3,

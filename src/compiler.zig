@@ -1717,7 +1717,7 @@ pub const Compiler = struct {
                 const jump_over_rescue = try self.current_chunk.emitJump(.JUMP, line);
 
                 const catch_byte_offset = self.current_chunk.currentOffset();
-                try self.current_chunk.emitOpU8(.CATCH_START, 255, line);
+                try self.current_chunk.emitOpU8U16(.CATCH_START, @intFromEnum(bytecode.CatchBinding.none), 0, line);
                 try self.current_chunk.emitOp(.PUSH_NIL, line);
                 try self.current_chunk.emitOp(.CATCH_END, line);
                 const catch_end_byte_offset = self.current_chunk.currentOffset();
@@ -1837,7 +1837,7 @@ pub const Compiler = struct {
         const jump_over_rescue = try self.current_chunk.emitJump(.JUMP, line);
 
         const catch_byte_offset = self.current_chunk.currentOffset();
-        try self.current_chunk.emitOpU8(.CATCH_START, 255, line);
+        try self.current_chunk.emitOpU8U16(.CATCH_START, @intFromEnum(bytecode.CatchBinding.none), 0, line);
         try self.current_chunk.emitOp(.PUSH_NIL, line);
         try self.current_chunk.emitOp(.CATCH_END, line);
         const catch_end_byte_offset = self.current_chunk.currentOffset();
@@ -4592,7 +4592,9 @@ pub const Compiler = struct {
             // If no exception types, it's a bare rescue (catches StandardError)
 
             // Handle variable binding (rescue => e)
-            var var_idx: u8 = 255; // 255 means no binding
+            var binding_kind: bytecode.CatchBinding = .none;
+            var binding_operand: u16 = 0;
+            var var_idx: ?u16 = null;
             if (rescue_node.reference) |reference_ptr| {
                 const reference = try self.parser.asNode(@ptrCast(reference_ptr));
                 switch (reference) {
@@ -4601,12 +4603,21 @@ pub const Compiler = struct {
                         // Add to locals
                         try self.addLocal(var_name);
                         var_idx = @intCast(self.locals.items.len - 1);
+                        binding_kind = .local;
+                        binding_operand = var_idx.?;
                     },
                     .local_variable_write => |var_write| {
                         const var_name = try self.parser.getLocalVariableName(var_write.name);
                         // Add to locals
                         try self.addLocal(var_name);
                         var_idx = @intCast(self.locals.items.len - 1);
+                        binding_kind = .local;
+                        binding_operand = var_idx.?;
+                    },
+                    .instance_variable_target => |var_target| {
+                        const var_name = try self.parser.getConstantName(@intCast(var_target.name));
+                        binding_kind = .instance_variable;
+                        binding_operand = @intCast(try self.current_chunk.addConstant(.{ .string = var_name }));
                     },
                     else => {
                         std.debug.print("Error: unsupported rescue reference node\n", .{});
@@ -4615,8 +4626,12 @@ pub const Compiler = struct {
                 }
             }
 
-            // Emit CATCH_START with variable index
-            try self.current_chunk.emitOpU8(.CATCH_START, var_idx, line);
+            try self.current_chunk.emitOpU8U16(
+                .CATCH_START,
+                @intFromEnum(binding_kind),
+                binding_operand,
+                line,
+            );
 
             // Compile rescue body
             {
@@ -4649,7 +4664,7 @@ pub const Compiler = struct {
                 .exception_type_exprs = exception_type_exprs,
                 .catch_byte_offset = catch_byte_offset,
                 .catch_end_byte_offset = catch_end_byte_offset,
-                .var_idx = if (var_idx == 255) null else var_idx,
+                .var_idx = var_idx,
             });
 
             // Move to next rescue clause
@@ -4754,10 +4769,8 @@ pub const Compiler = struct {
         const exception_type_exprs: std.ArrayList(chunk.RescueHandler.TypeExpression) = .empty;
 
         // No variable binding for rescue modifier
-        const var_idx: u8 = 255; // 255 means no binding
-
         // Emit CATCH_START with no variable binding
-        try self.current_chunk.emitOpU8(.CATCH_START, var_idx, line);
+        try self.current_chunk.emitOpU8U16(.CATCH_START, @intFromEnum(bytecode.CatchBinding.none), 0, line);
 
         // Compile the rescue expression (fallback value)
         {
