@@ -8,6 +8,11 @@ const Block = vm_mod.Block;
 const Value = value.Value;
 
 pub fn register(vm: *VM) !void {
+    const object_space_val = Value.fromObject(&vm.object_space_module.object);
+    const object_space_singleton = try vm.getOrCreateSingletonClass(object_space_val);
+    try object_space_singleton.module.methods.put(try vm.intern("define_finalizer"), value.MethodEntry.builtin(&builtinDefineFinalizer, .{ .variadic = 1 }));
+    try object_space_singleton.module.methods.put(try vm.intern("undefine_finalizer"), value.MethodEntry.builtin(&builtinUndefineFinalizer, .{ .exact = 1 }));
+
     const weak_map_class = vm.weak_map_class;
 
     const initialize_sym = try vm.intern("initialize");
@@ -24,6 +29,23 @@ pub fn register(vm: *VM) !void {
 
     const values_sym = try vm.intern("values");
     try weak_map_class.module.methods.put(values_sym, value.MethodEntry.builtin(&builtinWeakMapValues, .{ .exact = 0 }));
+}
+
+fn builtinDefineFinalizer(vm: *VM, _: Value, args: []Value, block: ?Block) VMError!Value {
+    try vm.requireArgCountRange(args, 1, 2);
+    const callback = if (args.len == 2)
+        args[1]
+    else
+        try vm.procValueForBlock(try vm.requireBlock(block));
+    if (!try vm.respondsToMethodByName(callback, "call", false)) {
+        return vm.raiseExceptionFmt(vm.argument_error_class, "wrong type argument {s} (should be callable)", .{vm.className(callback)});
+    }
+    return vm.registerObjectFinalizer(args[0], callback);
+}
+
+fn builtinUndefineFinalizer(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    return vm.unregisterObjectFinalizers(args[0]);
 }
 
 fn builtinWeakMapInitialize(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {

@@ -478,6 +478,8 @@ pub fn main(init: std.process.Init) !void {
         else => return err,
     }
 
+    try virtual_machine.runObjectFinalizers(true);
+
     if (result) |_| {
         // Success - program executed without unhandled exceptions
     } else |err| switch (err) {

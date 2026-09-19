@@ -33,6 +33,7 @@ pub fn register(vm: *VM) !void {
 fn builtinGCStart(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
     bdwgc.c.GC_gcollect();
+    try vm.runObjectFinalizers(false);
     return Value.nil();
 }
 

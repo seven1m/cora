@@ -1567,10 +1567,10 @@ Source baseline: ../ruby_spec compared to local spec/
 ### core/objectspace
 - [ ] core/objectspace/_id2ref_spec.rb
 - [ ] core/objectspace/count_objects_spec.rb
-- [ ] core/objectspace/define_finalizer_spec.rb
+- [-] core/objectspace/define_finalizer_spec.rb
 - [ ] core/objectspace/each_object_spec.rb
 - [ ] core/objectspace/garbage_collect_spec.rb
-- [ ] core/objectspace/undefine_finalizer_spec.rb
+- [x] core/objectspace/undefine_finalizer_spec.rb
 
 ### core/objectspace/weakkeymap
 - [ ] core/objectspace/weakkeymap/clear_spec.rb

@@ -496,6 +496,17 @@ fn encodingKey(encoding_value: enc.Encoding) SymbolEncodingTag {
 }
 
 pub const VM = struct {
+    pub const FinalizerGroup = struct {
+        vm: *VM,
+        target_addr: usize,
+        object_id: i64,
+        callbacks: std.ArrayList(Value) = .empty,
+        list_index: usize,
+        active: bool = true,
+        pending: bool = false,
+        ran: bool = false,
+        next_pending: ?*FinalizerGroup = null,
+    };
     allocator: std.mem.Allocator,
     gc_allocator: std.mem.Allocator,
     gc_allocator_atomic: std.mem.Allocator,
@@ -673,6 +684,9 @@ pub const VM = struct {
     indexed_yield_ctx: ?*IndexedYieldContext = null,
 
     at_exit_handlers: std.ArrayList(Value) = .empty,
+    finalizers: std.ArrayList(*FinalizerGroup) = .empty,
+    finalizers_by_target: std.AutoHashMap(usize, *FinalizerGroup),
+    pending_finalizers: ?*FinalizerGroup = null,
     skip_at_exit_handlers: bool = false,
     io_objects: std.ArrayList(*value.IoObject) = .empty,
     closed_fds: std.ArrayList(i32) = .empty,
@@ -746,6 +760,7 @@ pub const VM = struct {
             .canonical_fstrings = .empty,
             .packed_pointer_targets = std.AutoHashMap(*StringObject, PackedPointerTargets).init(gc_allocator),
             .errno_classes = std.AutoHashMap(c_int, *ClassObject).init(gc_allocator),
+            .finalizers_by_target = std.AutoHashMap(usize, *FinalizerGroup).init(allocator),
             .loaded_files = std.StringHashMap(void).init(gc_allocator),
             .loaded_feature_realpaths = std.StringHashMap(void).init(gc_allocator),
             .require_in_progress = std.StringHashMap(*value.ThreadObject).init(allocator),
@@ -2704,6 +2719,12 @@ pub const VM = struct {
         self.expanded_load_path.deinit(self.allocator);
         if (self.load_path_snapshot_cwd) |cwd| self.allocator.free(cwd);
         self.cext_handles.deinit(self.allocator);
+        for (self.finalizers.items) |group| {
+            group.callbacks.deinit(self.allocator);
+            self.allocator.destroy(group);
+        }
+        self.finalizers.deinit(self.allocator);
+        self.finalizers_by_target.deinit();
         if (self.ruby_executable_path) |path| {
             self.allocator.free(path);
         }
@@ -4017,6 +4038,13 @@ pub const VM = struct {
         // prematurely collected.
         if (inside_real_coroutine) {
             self.pushMainStackForGc();
+        }
+
+        for (self.finalizers.items) |group| {
+            if (group.ran or group.callbacks.items.len == 0) continue;
+            const start: *anyopaque = @ptrCast(group.callbacks.items.ptr);
+            const end: *anyopaque = @ptrFromInt(@intFromPtr(start) + group.callbacks.items.len * @sizeOf(Value));
+            bdwgc.c.GC_push_all_eager(start, end);
         }
     }
 
@@ -11557,6 +11585,122 @@ pub const VM = struct {
     pub fn guardNotFrozen(self: *VM, receiver: Value) VMError!void {
         if (receiver.isFrozen()) {
             return self.raiseExceptionFmt(self.frozen_error_class, "can't modify frozen {s}", .{self.className(receiver)});
+        }
+    }
+
+    fn objectFinalizerCallback(_: *anyopaque, data: ?*anyopaque) callconv(.c) void {
+        const group: *FinalizerGroup = @ptrCast(@alignCast(data.?));
+        if (!group.active or group.ran or group.pending) return;
+        group.pending = true;
+        group.next_pending = group.vm.pending_finalizers;
+        group.vm.pending_finalizers = group;
+    }
+
+    pub fn registerObjectFinalizer(self: *VM, target: Value, callback: Value) VMError!Value {
+        if (target.isSymbol() or target.isInteger() or target.isFloat() or target.isBool() or target.isNil()) {
+            return self.raiseExceptionFmt(self.argument_error_class, "cannot define finalizer for {s}", .{self.className(target)});
+        }
+        try self.guardNotFrozen(target);
+        const object = target.getObjectPointer() orelse
+            return self.raiseExceptionFmt(self.argument_error_class, "cannot define finalizer for {s}", .{self.className(target)});
+        const target_addr = @intFromPtr(object);
+
+        if (self.finalizers_by_target.get(target_addr)) |group| {
+            for (group.callbacks.items) |registered| {
+                if (registered.eql(callback)) return self.finalizerResult(registered);
+            }
+            group.callbacks.append(self.allocator, callback) catch return error.Fatal;
+            return self.finalizerResult(callback);
+        }
+
+        const group = self.allocator.create(FinalizerGroup) catch return error.Fatal;
+        group.* = .{
+            .vm = self,
+            .target_addr = target_addr,
+            .object_id = target.objectId(),
+            .list_index = self.finalizers.items.len,
+        };
+        group.callbacks.append(self.allocator, callback) catch return error.Fatal;
+        self.finalizers.append(self.allocator, group) catch return error.Fatal;
+        self.finalizers_by_target.put(target_addr, group) catch return error.Fatal;
+        _ = bdwgc.registerFinalizer(object, objectFinalizerCallback, @ptrCast(group));
+        return self.finalizerResult(callback);
+    }
+
+    fn finalizerResult(self: *VM, callback: Value) VMError!Value {
+        const result = try self.createArray();
+        result.elements.append(self.gc_allocator, Value.integer(0)) catch return error.Fatal;
+        result.elements.append(self.gc_allocator, callback) catch return error.Fatal;
+        return Value.fromObject(&result.object);
+    }
+
+    pub fn unregisterObjectFinalizers(self: *VM, target: Value) VMError!Value {
+        try self.guardNotFrozen(target);
+        const object = target.getObjectPointer() orelse return target;
+        _ = bdwgc.unregisterFinalizer(object);
+        const target_addr = @intFromPtr(object);
+        if (self.finalizers_by_target.fetchRemove(target_addr)) |removed| {
+            const group = removed.value;
+            group.active = false;
+            if (group.pending) {
+                var link = &self.pending_finalizers;
+                while (link.*) |pending| {
+                    if (pending == group) {
+                        link.* = group.next_pending;
+                        break;
+                    }
+                    link = &pending.next_pending;
+                }
+            }
+            self.discardFinalizerGroup(group);
+        }
+        return target;
+    }
+
+    fn runObjectFinalizerGroup(self: *VM, group: *FinalizerGroup) VMError!void {
+        if (!group.active or group.ran) return;
+        group.active = false;
+        group.pending = false;
+        _ = self.finalizers_by_target.remove(group.target_addr);
+        var args = [_]Value{Value.integer(group.object_id)};
+        for (group.callbacks.items) |callback| {
+            _ = self.callMethodByName(callback, "call", &args, null) catch |err| switch (err) {
+                error.Unwind => {
+                    self.pending_unwind = null;
+                    continue;
+                },
+                else => return err,
+            };
+        }
+        group.ran = true;
+    }
+
+    fn discardFinalizerGroup(self: *VM, group: *FinalizerGroup) void {
+        const removed = self.finalizers.swapRemove(group.list_index);
+        std.debug.assert(removed == group);
+        if (group.list_index < self.finalizers.items.len) {
+            self.finalizers.items[group.list_index].list_index = group.list_index;
+        }
+        group.callbacks.deinit(self.allocator);
+        self.allocator.destroy(group);
+    }
+
+    pub fn runObjectFinalizers(self: *VM, all: bool) VMError!void {
+        if (all) {
+            self.pending_finalizers = null;
+            while (self.finalizers.items.len != 0) {
+                const group = self.finalizers.items[self.finalizers.items.len - 1];
+                try self.runObjectFinalizerGroup(group);
+                self.discardFinalizerGroup(group);
+            }
+            return;
+        }
+
+        while (self.pending_finalizers) |group| {
+            self.pending_finalizers = group.next_pending;
+            group.next_pending = null;
+            try self.runObjectFinalizerGroup(group);
+            self.discardFinalizerGroup(group);
         }
     }
 
