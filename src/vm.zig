@@ -7126,14 +7126,7 @@ pub const VM = struct {
                 const saved_kw_ctx = frame.forwarded_keyword_ctx;
                 frame.forwarded_keyword_ctx = null;
                 if (kw_key_slice) |keys| {
-                    const ctx = self.gc_allocator.create(BuiltinKeywordContext) catch return error.Fatal;
-                    ctx.* = .{
-                        .kw_keys_storage = undefined,
-                        .kw_values_storage = undefined,
-                    };
-                    @memcpy(ctx.kw_keys_storage[0..keys.len], keys);
-                    @memcpy(ctx.kw_values_storage[0..kw_value_slice.?.len], kw_value_slice.?);
-                    frame.forwarded_keyword_ctx = ctx;
+                    frame.forwarded_keyword_ctx = try self.copyKeywordContext(keys, kw_value_slice.?);
                 }
                 defer frame.forwarded_keyword_ctx = saved_kw_ctx;
 

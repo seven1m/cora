@@ -157,6 +157,37 @@ test "super with different arguments than received" {
     try std.testing.expectEqual(30, result.toInteger()); // 10 + 20
 }
 
+test "super forwards explicit and splatted keyword arguments" {
+    const result = try evalCode(
+        \\module Wrapper
+        \\  def forwarded(value, **options)
+        \\    super(value, **options)
+        \\  end
+        \\
+        \\  def explicit(value)
+        \\    super(value, purpose: :login)
+        \\  end
+        \\end
+        \\
+        \\class Target
+        \\  prepend Wrapper
+        \\
+        \\  def forwarded(value, **options)
+        \\    [value, options]
+        \\  end
+        \\
+        \\  def explicit(value, **options)
+        \\    [value, options]
+        \\  end
+        \\end
+        \\
+        \\target = Target.new
+        \\target.forwarded(1, purpose: :login) == [1, { purpose: :login }] &&
+        \\  target.explicit(2) == [2, { purpose: :login }]
+    );
+    try std.testing.expect(result.isTrue());
+}
+
 test "super in an aliased prepended method uses the original method name" {
     const result = try evalCode(
         \\module Wrapper
