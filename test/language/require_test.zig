@@ -69,6 +69,29 @@ test "stdlib require loads monitor by default" {
     try std.testing.expectEqualSlices(u8, "1\n", result.stdout);
 }
 
+test "MonitorMixin initializes included classes and extended objects" {
+    var gpa: std.heap.DebugAllocator(.{}) = .init;
+    defer _ = gpa.deinit();
+    const allocator = gpa.allocator();
+    var threaded: std.Io.Threaded = .init(allocator, .{});
+    defer threaded.deinit();
+
+    const result = try std.process.run(allocator, threaded.io(), .{
+        .argv = &.{
+            "build/bin/cora",
+            "-e",
+            "require \"monitor\"; klass = Class.new { include MonitorMixin }; puts klass.new.synchronize { 1 }; object = Object.new; object.extend(MonitorMixin); puts object.synchronize { 2 }",
+        },
+        .stdout_limit = .limited(1024 * 1024),
+        .stderr_limit = .limited(1024 * 1024),
+    });
+    defer allocator.free(result.stdout);
+    defer allocator.free(result.stderr);
+
+    try std.testing.expect(result.term == .exited and result.term.exited == 0);
+    try std.testing.expectEqualSlices(u8, "1\n2\n", result.stdout);
+}
+
 test "dash r with separate argument requires library before eval" {
     var gpa: std.heap.DebugAllocator(.{}) = .init;
     defer _ = gpa.deinit();

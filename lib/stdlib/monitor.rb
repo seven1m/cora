@@ -49,6 +49,11 @@ module MonitorMixin
     end
   end
 
+  def self.extend_object(object)
+    super
+    object.__send__(:mon_initialize)
+  end
+
   def mon_initialize
     @mon_mutex = Thread::Mutex.new
     @mon_owner = nil
@@ -101,6 +106,13 @@ module MonitorMixin
     ensure
       mon_exit
     end
+  end
+
+  private
+
+  def initialize(*args, &block)
+    super(*args, &block)
+    mon_initialize
   end
 end
 
