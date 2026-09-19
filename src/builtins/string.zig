@@ -4006,9 +4006,26 @@ const TrResult = struct {
 fn trParseArg(
     vm: *VM,
     arg: Value,
-) VMError![]const u8 {
+) VMError!*value.StringObject {
     const coerced = try arg.coerceToStringValue(vm, "no implicit conversion into String");
-    return coerced.toStringObject().str;
+    return coerced.toStringObject();
+}
+
+const TrCodepoint = struct {
+    codepoint: u32,
+    escaped: bool,
+};
+
+fn trNextCodepoint(bytes: []const u8, index: *usize) ?TrCodepoint {
+    var escaped = false;
+    if (index.* < bytes.len and bytes[index.*] == '\\' and index.* + 1 < bytes.len) {
+        index.* += 1;
+        escaped = true;
+    }
+    return .{
+        .codepoint = nextCodepointSimple(bytes, index) orelse return null,
+        .escaped = escaped,
+    };
 }
 
 fn trExpandSource(
@@ -4028,17 +4045,16 @@ fn trExpandSource(
 
     while (i < source.len) {
         var next_i = i;
-        const first_cp = nextCodepointSimple(source, &next_i);
-        if (first_cp == null) break;
+        const first = trNextCodepoint(source, &next_i) orelse break;
         i = next_i;
 
         if (i < source.len and source[i] == '-' and i + 1 < source.len) {
             i += 1;
-            const last_cp_opt = nextCodepointSimple(source, &i);
-            if (last_cp_opt) |last_cp| {
-                if (first_cp.? <= last_cp) {
-                    var cp = first_cp.?;
-                    while (cp <= last_cp) : (cp += 1) {
+            const last = trNextCodepoint(source, &i);
+            if (last) |last_cp| {
+                if (first.codepoint <= last_cp.codepoint) {
+                    var cp = first.codepoint;
+                    while (cp <= last_cp.codepoint) : (cp += 1) {
                         chars.append(vm.allocator, cp) catch return error.Fatal;
                     }
                     continue;
@@ -4046,13 +4062,13 @@ fn trExpandSource(
                     return vm.raiseExceptionFmt(vm.argument_error_class, "invalid range in string transliteration", .{});
                 }
             } else {
-                chars.append(vm.allocator, first_cp.?) catch return error.Fatal;
+                chars.append(vm.allocator, first.codepoint) catch return error.Fatal;
                 chars.append(vm.allocator, '-') catch return error.Fatal;
                 break;
             }
         }
 
-        chars.append(vm.allocator, first_cp.?) catch return error.Fatal;
+        chars.append(vm.allocator, first.codepoint) catch return error.Fatal;
     }
 
     if (negated) {
@@ -4148,9 +4164,53 @@ fn trBuildTranslationTable(
     return table;
 }
 
+fn trDeleteExpanded(
+    vm: *VM,
+    string_obj: *value.StringObject,
+    from_expanded: []const u32,
+    is_negated: bool,
+) VMError!TrResult {
+    var selected: std.AutoHashMap(u32, void) = .init(vm.allocator);
+    defer selected.deinit();
+    const selected_codepoints = if (is_negated) from_expanded[1..] else from_expanded;
+    for (selected_codepoints) |cp| {
+        selected.put(cp, {}) catch return error.Fatal;
+    }
+
+    var out: std.ArrayList(u8) = .empty;
+    defer out.deinit(vm.gc_allocator_atomic);
+    var modified = false;
+    var idx: usize = 0;
+    while (idx < string_obj.str.len) {
+        const start = idx;
+        const cp = nextCodepointSimple(string_obj.str, &idx) orelse break;
+        const delete = if (is_negated) !selected.contains(cp) else selected.contains(cp);
+        if (delete) {
+            modified = true;
+        } else {
+            out.appendSlice(vm.gc_allocator_atomic, string_obj.str[start..idx]) catch return error.Fatal;
+        }
+    }
+
+    if (!modified) return .{ .bytes = string_obj.str, .modified = false };
+    return .{
+        .bytes = out.toOwnedSlice(vm.gc_allocator_atomic) catch return error.Fatal,
+        .modified = true,
+    };
+}
+
 fn stringTrCompute(vm: *VM, string_obj: *value.StringObject, from_arg: Value, to_arg: Value) VMError!TrResult {
-    const from_str = try trParseArg(vm, from_arg);
-    const to_str = try trParseArg(vm, to_arg);
+    const from_obj = try trParseArg(vm, from_arg);
+    const to_obj = try trParseArg(vm, to_arg);
+    const from_str = from_obj.str;
+    const to_str = to_obj.str;
+
+    if (resolveStringConcatEncoding(string_obj.encoding, string_obj.str, from_obj.encoding, from_str) == null) {
+        return vm.raiseEncodingCompatibilityError(string_obj.encoding, from_obj.encoding);
+    }
+    if (resolveStringConcatEncoding(string_obj.encoding, string_obj.str, to_obj.encoding, to_str) == null) {
+        return vm.raiseEncodingCompatibilityError(string_obj.encoding, to_obj.encoding);
+    }
 
     if (from_str.len == 0) {
         return .{ .bytes = string_obj.str, .modified = false };
@@ -4162,6 +4222,10 @@ fn stringTrCompute(vm: *VM, string_obj: *value.StringObject, from_arg: Value, to
     defer to_expanded.deinit(vm.allocator);
 
     const is_negated = from_str[0] == '^' and from_expanded.items.len > 1;
+
+    if (to_expanded.items.len == 0) {
+        return trDeleteExpanded(vm, string_obj, from_expanded.items, is_negated);
+    }
 
     if (is_negated) {
         if (from_expanded.items.len == 0) return .{ .bytes = string_obj.str, .modified = false };
@@ -4235,8 +4299,17 @@ fn stringTrCompute(vm: *VM, string_obj: *value.StringObject, from_arg: Value, to
 }
 
 fn stringTrSCompute(vm: *VM, string_obj: *value.StringObject, from_arg: Value, to_arg: Value) VMError!TrResult {
-    const from_str = try trParseArg(vm, from_arg);
-    const to_str = try trParseArg(vm, to_arg);
+    const from_obj = try trParseArg(vm, from_arg);
+    const to_obj = try trParseArg(vm, to_arg);
+    const from_str = from_obj.str;
+    const to_str = to_obj.str;
+
+    if (resolveStringConcatEncoding(string_obj.encoding, string_obj.str, from_obj.encoding, from_str) == null) {
+        return vm.raiseEncodingCompatibilityError(string_obj.encoding, from_obj.encoding);
+    }
+    if (resolveStringConcatEncoding(string_obj.encoding, string_obj.str, to_obj.encoding, to_str) == null) {
+        return vm.raiseEncodingCompatibilityError(string_obj.encoding, to_obj.encoding);
+    }
 
     if (from_str.len == 0) {
         return .{ .bytes = string_obj.str, .modified = false };
@@ -4248,6 +4321,10 @@ fn stringTrSCompute(vm: *VM, string_obj: *value.StringObject, from_arg: Value, t
     defer to_expanded.deinit(vm.allocator);
 
     const is_negated = from_str[0] == '^' and from_expanded.items.len > 1;
+
+    if (to_expanded.items.len == 0) {
+        return trDeleteExpanded(vm, string_obj, from_expanded.items, is_negated);
+    }
 
     var table: std.AutoHashMap(u32, u32) = .init(vm.allocator);
     defer table.deinit();
