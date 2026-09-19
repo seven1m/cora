@@ -19,6 +19,7 @@ to explore just-in-time compilation, and to possibly look into gradual typing or
 
 Some gems that are known to work, though I haven't tested each thoroughly:
 
+- activesupport
 - rake
 - rubygems and bundler
 - psych and yaml
