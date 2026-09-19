@@ -788,6 +788,12 @@ pub fn register(vm: *VM) !void {
     const sort_by_bang_sym = try vm.intern("sort_by!");
     try vm.array_class.module.methods.put(sort_by_bang_sym, value.MethodEntry.builtin(&builtinArraySortByBang, .{ .exact = 0 }));
 
+    const shuffle_sym = try vm.intern("shuffle");
+    try vm.array_class.module.methods.put(shuffle_sym, value.MethodEntry.builtin(&builtinArrayShuffle, .{ .exact = 0 }));
+
+    const shuffle_bang_sym = try vm.intern("shuffle!");
+    try vm.array_class.module.methods.put(shuffle_bang_sym, value.MethodEntry.builtin(&builtinArrayShuffleBang, .{ .exact = 0 }));
+
     const max_sym = try vm.intern("max");
     try vm.array_class.module.methods.put(max_sym, value.MethodEntry.builtin(&builtinArrayMax, .{ .exact = 0 }));
 
@@ -3126,6 +3132,45 @@ pub fn builtinArraySortByBang(vm: *VM, receiver: Value, args: []Value, block: ?B
         array.elements.items[i] = pair_val.toArrayObject().elements.items[1];
     }
 
+    return receiver;
+}
+
+fn arrayShuffle(vm: *VM, receiver: Value) VMError!void {
+    const random = (try vm.consumeKeywordArg("random")) orelse Value.fromObject(&vm.random_class.module.object);
+    try vm.validateKeywordArgsConsumed();
+
+    const elements = receiver.toArrayObject().elements.items;
+    var remaining = elements.len;
+    while (remaining > 1) {
+        var rand_args = [_]Value{Value.integer(@intCast(remaining))};
+        const raw_index = try vm.callMethodByName(random, "rand", rand_args[0..], null);
+        const index_value = try raw_index.coerceToIntegerValue(
+            vm,
+            "no implicit conversion into Integer",
+            "can't convert to Integer (to_int gives non-Integer)",
+        );
+        const index = try index_value.integerToI64(vm, "bignum too big to convert into `long'");
+        if (index < 0 or index >= remaining) {
+            return vm.raiseExceptionFmt(vm.range_error_class, "random number too big {d}", .{index});
+        }
+        remaining -= 1;
+        std.mem.swap(Value, &elements[remaining], &elements[@intCast(index)]);
+    }
+}
+
+pub fn builtinArrayShuffle(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    const result = try vm.createArray();
+    result.elements.appendSlice(vm.gc_allocator, receiver.toArrayObject().elements.items) catch return error.Fatal;
+    const result_value = Value.fromObject(&result.object);
+    try arrayShuffle(vm, result_value);
+    return result_value;
+}
+
+pub fn builtinArrayShuffleBang(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    try vm.guardNotFrozen(receiver);
+    try arrayShuffle(vm, receiver);
     return receiver;
 }
 

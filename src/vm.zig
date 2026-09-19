@@ -502,6 +502,62 @@ fn encodingKey(encoding_value: enc.Encoding) SymbolEncodingTag {
     return std.meta.activeTag(encoding_value);
 }
 
+pub const RubyRandom = struct {
+    state: [624]u32,
+    index: usize,
+
+    pub fn init(seed: u64) RubyRandom {
+        var self: RubyRandom = undefined;
+        if (seed <= std.math.maxInt(u32)) {
+            self.state[0] = @intCast(seed);
+            for (1..624) |i| self.state[i] = 1812433253 *% (self.state[i - 1] ^ (self.state[i - 1] >> 30)) +% @as(u32, @intCast(i));
+            self.index = 624;
+            return self;
+        }
+        self.state[0] = 19650218;
+        for (1..624) |i| self.state[i] = 1812433253 *% (self.state[i - 1] ^ (self.state[i - 1] >> 30)) +% @as(u32, @intCast(i));
+        const keys = [_]u32{ @truncate(seed), @truncate(seed >> 32) };
+        const key_len: usize = if (keys[1] == 0) 1 else 2;
+        var i: usize = 1;
+        var j: usize = 0;
+        var count: usize = @max(624, key_len);
+        while (count > 0) : (count -= 1) {
+            self.state[i] = (self.state[i] ^ ((self.state[i - 1] ^ (self.state[i - 1] >> 30)) *% 1664525)) +% keys[j] +% @as(u32, @intCast(j));
+            i += 1; j += 1;
+            if (i == 624) { self.state[0] = self.state[623]; i = 1; }
+            if (j == key_len) j = 0;
+        }
+        count = 623;
+        while (count > 0) : (count -= 1) {
+            self.state[i] = (self.state[i] ^ ((self.state[i - 1] ^ (self.state[i - 1] >> 30)) *% 1566083941)) -% @as(u32, @intCast(i));
+            i += 1;
+            if (i == 624) { self.state[0] = self.state[623]; i = 1; }
+        }
+        self.state[0] = 0x80000000;
+        self.index = 624;
+        return self;
+    }
+
+    pub fn next(self: *RubyRandom) u32 {
+        if (self.index == 624) {
+            for (0..624) |i| {
+                const y = (self.state[i] & 0x80000000) | (self.state[(i + 1) % 624] & 0x7fffffff);
+                self.state[i] = self.state[(i + 397) % 624] ^ (y >> 1) ^ (if (y & 1 != 0) @as(u32, 0x9908b0df) else 0);
+            }
+            self.index = 0;
+        }
+        var y = self.state[self.index]; self.index += 1;
+        y ^= y >> 11; y ^= (y << 7) & 0x9d2c5680; y ^= (y << 15) & 0xefc60000; y ^= y >> 18;
+        return y;
+    }
+
+    pub fn below(self: *RubyRandom, limit: u32) u32 {
+        var mask = limit - 1;
+        mask |= mask >> 1; mask |= mask >> 2; mask |= mask >> 4; mask |= mask >> 8; mask |= mask >> 16;
+        while (true) { const n = self.next() & mask; if (n < limit) return n; }
+    }
+};
+
 pub const VM = struct {
     pub const FinalizerGroup = struct {
         vm: *VM,
@@ -717,8 +773,9 @@ pub const VM = struct {
     method_state_version: u64 = 1,
     integer_changed: bool = false,
     random_counter: u64 = 0,
-    default_random: std.Random.DefaultPrng = std.Random.DefaultPrng.init(0),
+    default_random: RubyRandom,
     default_random_seed: Value = Value.nil(),
+    random_states: std.AutoHashMap(usize, RubyRandom),
     recursion_guard: RecursionGuard = .{},
     disable_gems: bool = false,
     rubygems_loaded_on_miss: bool = false,
@@ -771,6 +828,8 @@ pub const VM = struct {
             .packed_pointer_targets = std.AutoHashMap(*StringObject, PackedPointerTargets).init(gc_allocator),
             .errno_classes = std.AutoHashMap(c_int, *ClassObject).init(gc_allocator),
             .finalizers_by_target = std.AutoHashMap(usize, *FinalizerGroup).init(allocator),
+            .random_states = std.AutoHashMap(usize, RubyRandom).init(allocator),
+            .default_random = RubyRandom.init(0),
             .loaded_files = std.StringHashMap(void).init(gc_allocator),
             .loaded_feature_realpaths = std.StringHashMap(void).init(gc_allocator),
             .require_in_progress = std.StringHashMap(*value.ThreadObject).init(allocator),
@@ -2724,6 +2783,7 @@ pub const VM = struct {
     }
 
     pub fn deinit(self: *VM) void {
+        self.random_states.deinit();
         self.unregisterPushOtherRootsForGc();
         if (self.gc_vm_root_registered) {
             self.unregisterVmRootForGc();

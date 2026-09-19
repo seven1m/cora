@@ -62,7 +62,7 @@ fn ensureDefaultRandom(vm: *VM) void {
     if (!vm.default_random_seed.isNil()) return;
     const seed = nextSeed(vm) & (@as(u64, std.math.maxInt(i64)) >> 1);
     vm.default_random_seed = Value.integer(@intCast(seed));
-    vm.default_random = std.Random.DefaultPrng.init(seed);
+    vm.default_random = vm_mod.RubyRandom.init(seed);
 }
 
 pub fn srand(vm: *VM, args: []Value) VMError!Value {
@@ -74,13 +74,13 @@ pub fn srand(vm: *VM, args: []Value) VMError!Value {
     else
         try args[0].coerceToIntegerValue(vm, "no implicit conversion into Integer", "can't convert to Integer (to_int gives non-Integer)");
     vm.default_random_seed = seed;
-    vm.default_random = std.Random.DefaultPrng.init(seed.hash());
+    vm.default_random = vm_mod.RubyRandom.init(seed.hash());
     return previous;
 }
 
 fn randomFloat(vm: *VM) VMError!Value {
     ensureDefaultRandom(vm);
-    const n = vm.default_random.random().int(U53);
+    const n: U53 = (@as(U53, @intCast(vm.default_random.next() >> 5)) << 26) | @as(U53, @intCast(vm.default_random.next() >> 6));
     return try vm.newFloat(@as(f64, @floatFromInt(n)) / @as(f64, @floatFromInt(std.math.maxInt(U53))));
 }
 
@@ -90,7 +90,7 @@ fn randomIntegerBelow(vm: *VM, limit: i64) VMError!Value {
     }
 
     ensureDefaultRandom(vm);
-    const random_value = vm.default_random.random().intRangeLessThan(u64, 0, @intCast(limit));
+    const random_value = vm.default_random.below(@intCast(limit));
     return Value.integer(@intCast(random_value));
 }
 
@@ -171,11 +171,20 @@ pub fn builtinRandomInitialize(vm: *VM, receiver: Value, args: []Value, _: ?Bloc
         break :blk args[0];
     };
     try vm.setInstanceVariable(receiver, "@seed", seed);
+    vm.random_states.put(receiver.raw, vm_mod.RubyRandom.init(seed.hash())) catch return error.Fatal;
     return receiver;
 }
 
-pub fn builtinRandomRand(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
-    return randomNumberFromArgs(vm, args);
+pub fn builtinRandomRand(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCountRange(args, 0, 1);
+    const state = vm.random_states.getPtr(receiver.raw) orelse return randomNumberFromArgs(vm, args);
+    if (args.len == 0 or args[0].isNil()) {
+        const n: U53 = (@as(U53, @intCast(state.next() >> 5)) << 26) | @as(U53, @intCast(state.next() >> 6));
+        return vm.newFloat(@as(f64, @floatFromInt(n)) / @as(f64, @floatFromInt(std.math.maxInt(U53))));
+    }
+    const limit = try args[0].integerArgToI64(vm, "no implicit conversion into Integer", "integer too big");
+    if (limit <= 0 or limit > std.math.maxInt(u32)) return vm.raiseExceptionFmt(vm.argument_error_class, "invalid argument - {d}", .{limit});
+    return Value.integer(state.below(@intCast(limit)));
 }
 
 pub fn builtinRandomBytes(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
