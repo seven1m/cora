@@ -278,6 +278,12 @@ fn setSslStateOnReceiver(vm: *VM, receiver: Value, state: ?*NativeSslSocket) VME
         const obj = try vm.newTypedData(vm.object_class, @ptrCast(ptr), null, callbacks);
         try vm.setInstanceVariable(receiver, "@__ssl_native", obj);
     } else {
+        const typed_val = try vm.getInstanceVariable(receiver, "@__ssl_native");
+        if (typed_val.isTypedData()) {
+            const typed = typed_val.toTypedDataObject();
+            typed.callbacks.dfree = null;
+            destroySslState(@ptrCast(@alignCast(typed.data)));
+        }
         try vm.setInstanceVariable(receiver, "@__ssl_native", Value.nil());
     }
 }
