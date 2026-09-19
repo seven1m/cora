@@ -41,22 +41,39 @@ pub fn register(vm: *VM) !void {
     const tcp_socket_class = tcp_socket_val.toClassObject();
     try vm.object_class.module.constants.put(tcp_socket_name, .{ .value = tcp_socket_val });
 
+    const unix_socket_name = try vm.intern("UNIXSocket");
+    const unix_socket_val = try vm.newClassWithType(unix_socket_name, basic_socket_class, .io);
+    const unix_socket_class = unix_socket_val.toClassObject();
+    try vm.object_class.module.constants.put(unix_socket_name, .{ .value = unix_socket_val });
+
+    const unix_server_name = try vm.intern("UNIXServer");
+    const unix_server_val = try vm.newClassWithType(unix_server_name, unix_socket_class, .io);
+    const unix_server_class = unix_server_val.toClassObject();
+    try vm.object_class.module.constants.put(unix_server_name, .{ .value = unix_server_val });
+
     const basic_socket_singleton = try vm.getOrCreateSingletonClass(basic_socket_val);
     const socket_singleton = try vm.getOrCreateSingletonClass(socket_val);
     const tcp_server_singleton = try vm.getOrCreateSingletonClass(tcp_server_val);
     const tcp_socket_singleton = try vm.getOrCreateSingletonClass(tcp_socket_val);
+    const unix_socket_singleton = try vm.getOrCreateSingletonClass(unix_socket_val);
+    const unix_server_singleton = try vm.getOrCreateSingletonClass(unix_server_val);
     const new_sym = try vm.intern("new");
     try tcp_server_singleton.module.methods.put(new_sym, value.MethodEntry.builtin(&builtinTCPServerNew, .{ .variadic = 0 }));
     try tcp_socket_singleton.module.methods.put(new_sym, value.MethodEntry.builtin(&builtinTCPSocketOpen, .{ .variadic = 0 }));
+    try unix_socket_singleton.module.methods.put(new_sym, value.MethodEntry.builtin(&builtinUNIXSocketOpen, .{ .exact = 1 }));
+    try unix_server_singleton.module.methods.put(new_sym, value.MethodEntry.builtin(&builtinUNIXServerOpen, .{ .exact = 1 }));
 
     const accept_sym = try vm.intern("accept");
     try tcp_server_class.module.methods.put(accept_sym, value.MethodEntry.builtin(&builtinTCPServerAccept, .{ .exact = 0 }));
+    try unix_server_class.module.methods.put(accept_sym, value.MethodEntry.builtin(&builtinUNIXServerAccept, .{ .exact = 0 }));
 
     const accept_nonblock_sym = try vm.intern("accept_nonblock");
     try tcp_server_class.module.methods.put(accept_nonblock_sym, value.MethodEntry.builtin(&builtinTCPServerAcceptNonblock, .{ .exact = 0 }));
 
     const open_sym = try vm.intern("open");
     try tcp_socket_singleton.module.methods.put(open_sym, value.MethodEntry.builtin(&builtinTCPSocketOpen, .{ .variadic = 0 }));
+    try unix_socket_singleton.module.methods.put(open_sym, value.MethodEntry.builtin(&builtinUNIXSocketOpen, .{ .exact = 1 }));
+    try unix_server_singleton.module.methods.put(open_sym, value.MethodEntry.builtin(&builtinUNIXServerOpen, .{ .exact = 1 }));
 
     const for_fd_sym = try vm.intern("for_fd");
     try tcp_server_singleton.module.methods.put(for_fd_sym, value.MethodEntry.builtin(&builtinTCPServerForFd, .{ .exact = 1 }));
@@ -148,6 +165,75 @@ fn tcpServerClass(vm: *VM) VMError!*ClassObject {
     const tcp_server_name = try vm.intern("TCPServer");
     const tcp_server_entry = vm.object_class.module.constants.get(tcp_server_name) orelse return error.Fatal;
     return tcp_server_entry.value.toClassObject();
+}
+
+fn unixSocketClass(vm: *VM) VMError!*ClassObject {
+    const name = try vm.intern("UNIXSocket");
+    const entry = vm.object_class.module.constants.get(name) orelse return error.Fatal;
+    return entry.value.toClassObject();
+}
+
+fn unixServerClass(vm: *VM) VMError!*ClassObject {
+    const name = try vm.intern("UNIXServer");
+    const entry = vm.object_class.module.constants.get(name) orelse return error.Fatal;
+    return entry.value.toClassObject();
+}
+
+fn unixAddress(vm: *VM, path: []const u8) VMError!std.posix.sockaddr.un {
+    var address = std.mem.zeroes(std.posix.sockaddr.un);
+    address.family = std.posix.AF.UNIX;
+    if (@hasField(std.posix.sockaddr.un, "len")) address.len = @sizeOf(std.posix.sockaddr.un);
+    if (path.len >= address.path.len) {
+        return vm.raiseExceptionFmt(vm.argument_error_class, "too long unix socket path ({d} bytes given but {d} bytes max)", .{ path.len, address.path.len - 1 });
+    }
+    if (std.mem.indexOfScalar(u8, path, 0) != null) {
+        return vm.raiseExceptionFmt(vm.argument_error_class, "unix socket path contains null byte", .{});
+    }
+    @memcpy(address.path[0..path.len], path);
+    address.path[path.len] = 0;
+    return address;
+}
+
+fn newUnixIo(vm: *VM, class_obj: *ClassObject, fd: c_int, path: ?[]const u8) VMError!Value {
+    const saved_path = if (path) |bytes| vm.gc_allocator.dupe(u8, bytes) catch return error.Fatal else null;
+    return vm.newIo(class_obj, @intCast(fd), .{
+        .owns_fd = true,
+        .readable = true,
+        .writable = true,
+        .path = saved_path,
+    });
+}
+
+fn openUnixSocket(vm: *VM, path_value: Value) VMError!Value {
+    const path = try path_value.coerceToStr(vm, "no implicit conversion into String");
+    var address = try unixAddress(vm, path);
+    const fd = std.c.socket(std.posix.AF.UNIX, std.posix.SOCK.STREAM, 0);
+    if (fd < 0) return socketError(vm, "socket() failed", .{});
+    errdefer _ = std.c.close(fd);
+
+    while (std.c.connect(fd, @ptrCast(&address), @sizeOf(std.posix.sockaddr.un)) != 0) {
+        const errno_code = std.posix.errno(-1);
+        if (errno_code == .INTR) {
+            try vm.checkAsyncEvents();
+            continue;
+        }
+        return vm.raiseErrnoFmt(errno_code, "connect(2) for {s}", .{path});
+    }
+    return newUnixIo(vm, try unixSocketClass(vm), fd, null);
+}
+
+fn openUnixServer(vm: *VM, path_value: Value) VMError!Value {
+    const path = try path_value.coerceToStr(vm, "no implicit conversion into String");
+    var address = try unixAddress(vm, path);
+    const fd = std.c.socket(std.posix.AF.UNIX, std.posix.SOCK.STREAM, 0);
+    if (fd < 0) return socketError(vm, "socket() failed", .{});
+    errdefer _ = std.c.close(fd);
+
+    if (std.c.bind(fd, @ptrCast(&address), @sizeOf(std.posix.sockaddr.un)) != 0) {
+        return socketError(vm, "bind(2) for {s}", .{path});
+    }
+    if (std.c.listen(fd, 128) != 0) return socketError(vm, "listen(2)", .{});
+    return newUnixIo(vm, try unixServerClass(vm), fd, path);
 }
 
 fn basicSocketDefaultReverseLookup(vm: *VM) VMError!Value {
@@ -530,6 +616,52 @@ fn connectTCPSocket(vm: *VM, host_value: Value, port_value: Value) VMError!Value
 pub fn builtinTCPServerNew(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
     const listeners = (try createTcpListeners(vm, args, try tcpServerClass(vm), false)).toArrayObject();
     return listeners.elements.items[0];
+}
+
+pub fn builtinUNIXSocketOpen(vm: *VM, _: Value, args: []Value, block: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    const socket = try openUnixSocket(vm, args[0]);
+    if (block) |blk| {
+        const yielded = vm.yieldToBlock(blk, &[_]Value{socket}) catch |err| {
+            _ = vm.callMethodByName(socket, "close", &.{}, null) catch {};
+            return err;
+        };
+        _ = vm.callMethodByName(socket, "close", &.{}, null) catch {};
+        return yielded;
+    }
+    return socket;
+}
+
+pub fn builtinUNIXServerOpen(vm: *VM, _: Value, args: []Value, block: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    const server = try openUnixServer(vm, args[0]);
+    if (block) |blk| {
+        const yielded = vm.yieldToBlock(blk, &[_]Value{server}) catch |err| {
+            _ = vm.callMethodByName(server, "close", &.{}, null) catch {};
+            return err;
+        };
+        _ = vm.callMethodByName(server, "close", &.{}, null) catch {};
+        return yielded;
+    }
+    return server;
+}
+
+pub fn builtinUNIXServerAccept(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    if (!receiver.isIo()) return vm.raiseExceptionFmt(vm.type_error_class, "not a UNIXServer", .{});
+    const io = receiver.toIoObject();
+    if (io.closed) return vm.raiseExceptionFmt(vm.io_error_class, "closed stream", .{});
+
+    while (true) {
+        const client_fd = std.c.accept(io.fd, null, null);
+        if (client_fd >= 0) return newUnixIo(vm, try unixSocketClass(vm), client_fd, null);
+        const errno_code = std.posix.errno(-1);
+        if (errno_code == .INTR) {
+            try vm.checkAsyncEvents();
+            continue;
+        }
+        return vm.raiseErrnoFmt(errno_code, "accept(2)", .{});
+    }
 }
 
 pub fn builtinTCPServerAccept(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {

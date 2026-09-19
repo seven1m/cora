@@ -74,10 +74,8 @@ describe "File.ftype" do
     end
 
     it "returns 'socket' when the file is a socket" do
-      CORAFIXME "UNIXServer is not implemented yet", exception: NameError, message: /UNIXServer/ do
-        FileSpecs.socket do |socket|
-          File.ftype(socket).should == 'socket'
-        end
+      FileSpecs.socket do |socket|
+        File.ftype(socket).should == 'socket'
       end
     end
   end

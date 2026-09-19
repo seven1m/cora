@@ -9,19 +9,17 @@ describe :file_socket, shared: true do
   end
 
   it "returns true if the file is a socket" do
-    CORAFIXME "UNIXServer is not implemented yet", exception: NameError, message: /UNIXServer/ do
-      require 'socket'
+    require 'socket'
 
-      # We need a really short name here.
-      # On Linux the path length is limited to 107, see unix(7).
-      name = tmp("s")
-      server = UNIXServer.new(name)
+    # We need a really short name here.
+    # On Linux the path length is limited to 107, see unix(7).
+    name = tmp("s")
+    server = UNIXServer.new(name)
 
-      @object.send(@method, name).should == true
+    @object.send(@method, name).should == true
 
-      server.close
-      rm_r name
-    end
+    server.close
+    rm_r name
   end
 
   it "accepts an object that has a #to_path method" do

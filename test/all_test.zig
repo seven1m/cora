@@ -17,6 +17,7 @@ const open3_test = @import("open3_test.zig");
 const rbconfig_test = @import("rbconfig_test.zig");
 const rubygems_test = @import("rubygems_test.zig");
 const singleton_test = @import("singleton_test.zig");
+const socket_test = @import("socket_test.zig");
 const strscan_test = @import("strscan_test.zig");
 const tempfile_test = @import("tempfile_test.zig");
 const time_test = @import("time_test.zig");
@@ -206,4 +207,5 @@ comptime {
     _ = language_splat_call_test;
     _ = language_xstring_test;
     _ = language_visibility_test;
+    _ = socket_test;
 }

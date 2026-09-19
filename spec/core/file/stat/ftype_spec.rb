@@ -56,10 +56,8 @@ describe "File::Stat#ftype" do
     end
 
     it "returns 'socket' when the file is a socket" do
-      CORAFIXME "UNIXServer is not implemented yet", exception: NameError, message: /UNIXServer/ do
-        FileSpecs.socket do |socket|
-          File.lstat(socket).ftype.should == 'socket'
-        end
+      FileSpecs.socket do |socket|
+        File.lstat(socket).ftype.should == 'socket'
       end
     end
   end
