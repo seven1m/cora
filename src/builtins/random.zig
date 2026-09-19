@@ -35,6 +35,8 @@ pub fn register(vm: *VM) !void {
     const random_singleton = try vm.getOrCreateSingletonClass(random_val);
 
     try random_singleton.module.methods.put(rand_sym, value.MethodEntry.builtin(&builtinRandomSingletonRand, .{ .variadic = 0 }));
+    const srand_sym = try vm.intern("srand");
+    try random_singleton.module.methods.put(srand_sym, value.MethodEntry.builtin(&builtinRandomSingletonSrand, .{ .variadic = 0 }));
     try random_singleton.module.methods.put(bytes_sym, value.MethodEntry.builtin(&builtinRandomSingletonBytes, .{ .exact = 1 }));
     try random_singleton.module.methods.put(seed_sym, value.MethodEntry.builtin(&builtinRandomSingletonSeed, .{ .exact = 0 }));
     try random_singleton.module.methods.put(random_number_sym, value.MethodEntry.builtin(&builtinRandomSingletonRandomNumber, .{ .variadic = 0 }));
@@ -56,9 +58,29 @@ fn nextPrng(vm: *VM) std.Random.DefaultPrng {
     return std.Random.DefaultPrng.init(nextSeed(vm));
 }
 
+fn ensureDefaultRandom(vm: *VM) void {
+    if (!vm.default_random_seed.isNil()) return;
+    const seed = nextSeed(vm) & (@as(u64, std.math.maxInt(i64)) >> 1);
+    vm.default_random_seed = Value.integer(@intCast(seed));
+    vm.default_random = std.Random.DefaultPrng.init(seed);
+}
+
+pub fn srand(vm: *VM, args: []Value) VMError!Value {
+    try vm.requireArgCountRange(args, 0, 1);
+    ensureDefaultRandom(vm);
+    const previous = vm.default_random_seed;
+    const seed = if (args.len == 0)
+        Value.integer(@intCast(nextSeed(vm) & (@as(u64, std.math.maxInt(i64)) >> 1)))
+    else
+        try args[0].coerceToIntegerValue(vm, "no implicit conversion into Integer", "can't convert to Integer (to_int gives non-Integer)");
+    vm.default_random_seed = seed;
+    vm.default_random = std.Random.DefaultPrng.init(seed.hash());
+    return previous;
+}
+
 fn randomFloat(vm: *VM) VMError!Value {
-    var prng = nextPrng(vm);
-    const n = prng.random().int(U53);
+    ensureDefaultRandom(vm);
+    const n = vm.default_random.random().int(U53);
     return try vm.newFloat(@as(f64, @floatFromInt(n)) / @as(f64, @floatFromInt(std.math.maxInt(U53))));
 }
 
@@ -67,8 +89,8 @@ fn randomIntegerBelow(vm: *VM, limit: i64) VMError!Value {
         return vm.raiseExceptionFmt(vm.argument_error_class, "invalid argument - {d}", .{limit});
     }
 
-    var prng = nextPrng(vm);
-    const random_value = prng.random().intRangeLessThan(u64, 0, @intCast(limit));
+    ensureDefaultRandom(vm);
+    const random_value = vm.default_random.random().intRangeLessThan(u64, 0, @intCast(limit));
     return Value.integer(@intCast(random_value));
 }
 
@@ -170,6 +192,10 @@ pub fn builtinRandomSeed(vm: *VM, receiver: Value, args: []Value, _: ?Block) VME
 
 pub fn builtinRandomSingletonRand(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
     return randomNumberFromArgs(vm, args);
+}
+
+pub fn builtinRandomSingletonSrand(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+    return srand(vm, args);
 }
 
 pub fn builtinRandomSingletonRandomNumber(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {

@@ -1268,7 +1268,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/kernel/sleep_spec.rb
 - [ ] core/kernel/spawn_spec.rb
 - [x] core/kernel/sprintf_spec.rb
-- [ ] core/kernel/srand_spec.rb
+- [x] core/kernel/srand_spec.rb
 - [ ] core/kernel/sub_spec.rb
 - [ ] core/kernel/syscall_spec.rb
 - [ ] core/kernel/system_spec.rb

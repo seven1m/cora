@@ -17,6 +17,7 @@ const warning_builtin = @import("warning.zig");
 const zlib_builtin = @import("zlib.zig");
 const process_builtin = @import("process.zig");
 const string_builtin = @import("string.zig");
+const random_builtin = @import("random.zig");
 
 const VM = vm_mod.VM;
 const VMError = vm_mod.VMError;
@@ -325,6 +326,10 @@ pub fn register(vm: *VM) !void {
 
     const rand_sym = try vm.intern("rand");
     try vm.kernel_module.methods.put(rand_sym, value.MethodEntry.builtin(&builtinKernelRand, .{ .variadic = 0 }));
+    const srand_sym = try vm.intern("srand");
+    try vm.kernel_module.methods.put(srand_sym, value.MethodEntry.builtinWithVisibility(&builtinKernelSrand, .{ .variadic = 0 }, .private));
+    try kernel_singleton.module.methods.put(rand_sym, value.MethodEntry.builtin(&builtinKernelRand, .{ .variadic = 0 }));
+    try kernel_singleton.module.methods.put(srand_sym, value.MethodEntry.builtin(&builtinKernelSrand, .{ .variadic = 0 }));
 
     const raise_sym = try vm.intern("raise");
     try vm.kernel_module.methods.put(raise_sym, MethodEntry.builtin(&builtinKernelRaise, .{ .variadic = 0 }));
@@ -2860,26 +2865,11 @@ pub fn builtinProcessStatusToI(vm: *VM, receiver: Value, args: []Value, _: ?Bloc
 }
 
 pub fn builtinKernelRand(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
-    try vm.requireArgCountRange(args, 0, 1);
+    return random_builtin.builtinRandomSingletonRand(vm, Value.nil(), args, null);
+}
 
-    if (args.len == 0) {
-        var prng = std.Random.DefaultPrng.init(@intCast(std.Io.Clock.boot.now(vm.io).nanoseconds));
-        const n = prng.random().int(u53);
-        return try vm.newFloat(@as(f64, @floatFromInt(n)) / @as(f64, @floatFromInt(std.math.maxInt(u53))));
-    }
-
-    if (!args[0].isInteger()) {
-        return vm.raiseExceptionFmt(vm.type_error_class, "no implicit conversion into Integer", .{});
-    }
-
-    const limit = args[0].toInteger();
-    if (limit <= 0) {
-        return vm.raiseExceptionFmt(vm.argument_error_class, "invalid argument - {d}", .{limit});
-    }
-
-    var prng = std.Random.DefaultPrng.init(@intCast(std.Io.Clock.boot.now(vm.io).nanoseconds));
-    const random_value = prng.random().intRangeLessThan(u64, 0, @intCast(limit));
-    return Value.integer(@intCast(random_value));
+pub fn builtinKernelSrand(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+    return random_builtin.srand(vm, args);
 }
 
 fn sleepSecondsArg(vm: *VM, arg: Value) VMError!f64 {
