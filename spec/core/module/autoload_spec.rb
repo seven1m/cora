@@ -65,6 +65,20 @@ describe "Module#autoload" do
     ModuleSpecs::Autoload::X.should == :x
   end
 
+  it "loads the registered constant when it is opened as a class" do
+    ModuleSpecs::Autoload.autoload :E, fixture(__FILE__, "autoload_e.rb")
+    class ModuleSpecs::Autoload::E
+    end
+    ModuleSpecs::Autoload::E.new.loaded.should == :autoload_e
+  end
+
+  it "loads the registered constant when it is opened as a module" do
+    ModuleSpecs::Autoload.autoload :F, fixture(__FILE__, "autoload_f.rb")
+    module ModuleSpecs::Autoload::F
+    end
+    ModuleSpecs::Autoload::F.loaded.should == :autoload_f
+  end
+
   it "does not load the file when the constant is already set" do
     ModuleSpecs::Autoload.autoload :I, fixture(__FILE__, "autoload_i.rb")
     @remove << :I

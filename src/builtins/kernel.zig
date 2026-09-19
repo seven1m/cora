@@ -678,7 +678,9 @@ pub fn builtinKernelRequire(vm: *VM, _: Value, args: []Value, _: ?Block) VMError
     }
     while (vm.requireInProgressOwner(identity_path)) |in_progress_owner| {
         if (in_progress_owner == owner_thread) {
-            try warning_builtin.writeWarning(vm, "warning: loading in progress, circular require considered harmful\n");
+            if (vm.getGlobalValue("$VERBOSE").isTruthy()) {
+                try warning_builtin.writeWarning(vm, "warning: loading in progress, circular require considered harmful\n");
+            }
             vm.allocator.free(absolute_path);
             vm.allocator.free(identity_path);
             return Value.boolean(false);
@@ -899,7 +901,9 @@ pub fn builtinKernelRequireRelative(vm: *VM, _: Value, args: []Value, _: ?Block)
     }
     while (vm.requireInProgressOwner(identity_path_value)) |in_progress_owner| {
         if (in_progress_owner == owner_thread) {
-            try warning_builtin.writeWarning(vm, "warning: loading in progress, circular require considered harmful\n");
+            if (vm.getGlobalValue("$VERBOSE").isTruthy()) {
+                try warning_builtin.writeWarning(vm, "warning: loading in progress, circular require considered harmful\n");
+            }
             vm.allocator.free(resolved_path_value);
             vm.allocator.free(identity_path_value);
             return Value.boolean(false);

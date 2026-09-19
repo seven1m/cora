@@ -2306,12 +2306,15 @@ pub const VM = struct {
     }
 
     fn triggerAutoload(self: *VM, module_obj: *value.ModuleObject, name_sym: *value.SymbolObject) VMError!TriggerAutoloadResult {
-        const feature = autoloadTableForModule(module_obj).get(name_sym) orelse return .missing;
+        const autoloads = autoloadTableForModule(module_obj);
+        const feature = autoloads.get(name_sym) orelse return .missing;
+        _ = autoloads.remove(name_sym);
+        errdefer autoloads.put(name_sym, feature) catch {};
+
         const require_arg = try self.newString(feature, false);
         var require_args = [_]Value{require_arg};
         _ = try self.callMethodByName(try self.autoloadRequireReceiver(), "require", require_args[0..], null);
         if (module_obj.constants.get(name_sym)) |loaded| {
-            self.clearAutoload(module_obj, name_sym);
             return .{ .loaded = loaded.value };
         }
         return .attempted;
@@ -9092,7 +9095,7 @@ pub const VM = struct {
             const name_sym = try self.intern(child_name);
             return .{
                 .owner_module = owner_module,
-                .existing_value = if (owner_module.constants.get(name_sym)) |entry| entry.value else null,
+                .existing_value = try self.constantForDefinition(owner_module, name_sym),
                 .name_sym = name_sym,
             };
         }
@@ -9102,8 +9105,16 @@ pub const VM = struct {
 
         return .{
             .owner_module = owner_module,
-            .existing_value = if (owner_module.constants.get(name_sym)) |entry| entry.value else null,
+            .existing_value = try self.constantForDefinition(owner_module, name_sym),
             .name_sym = name_sym,
+        };
+    }
+
+    fn constantForDefinition(self: *VM, owner_module: *value.ModuleObject, name_sym: *value.SymbolObject) VMError!?Value {
+        if (owner_module.constants.get(name_sym)) |entry| return entry.value;
+        return switch (try self.triggerAutoload(owner_module, name_sym)) {
+            .loaded => |loaded| loaded,
+            .missing, .attempted => null,
         };
     }
 
@@ -9121,7 +9132,7 @@ pub const VM = struct {
         const name_sym = try self.intern(name);
         return .{
             .owner_module = owner_module,
-            .existing_value = if (owner_module.constants.get(name_sym)) |entry| entry.value else null,
+            .existing_value = try self.constantForDefinition(owner_module, name_sym),
             .name_sym = name_sym,
         };
     }
