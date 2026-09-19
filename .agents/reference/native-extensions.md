@@ -162,8 +162,9 @@ non-local return. The C frame returns normally and the caller in
 `src/vm.zig` checks `cext_pending_control_flow` to continue unwinding the
 Ruby stack.
 
-Keyword arguments are rejected with `ArgumentError` from the C dispatch path
-(`"C extensions do not accept keyword arguments"`).
+Explicit keyword arguments are passed to C methods as a trailing hash.
+`rb_scan_args` preserves the positional argument count and extracts that hash
+for formats containing the `:` directive.
 
 ### Testing C Extensions
 

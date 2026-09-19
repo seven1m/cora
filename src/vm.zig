@@ -734,6 +734,7 @@ pub const VM = struct {
 
     cext_handles: std.ArrayList(std.DynLib) = .empty,
     cext_jmp_buf: ?*[200]u8 = null,
+    cext_keyword_hash: ?Value = null,
 
     var active_gc_roots_vm: ?*VM = null;
     var previous_gc_push_other_roots: bdwgc.c.GC_push_other_roots_proc = null;
@@ -7961,6 +7962,7 @@ pub const VM = struct {
         receiver: Value,
         args: []const Value,
         block: ?Block,
+        keyword_hash: ?Value,
     ) VMError!Value {
         const pending_unwind_before = self.pendingUnwind();
         // Push a frame so that rb_yield / rb_funcall can find the block
@@ -7999,6 +8001,9 @@ pub const VM = struct {
         const prev_jmp = self.cext_jmp_buf;
         self.cext_jmp_buf = &jmp_buf;
         defer self.cext_jmp_buf = prev_jmp;
+        const previous_keyword_hash = self.cext_keyword_hash;
+        self.cext_keyword_hash = keyword_hash;
+        defer self.cext_keyword_hash = previous_keyword_hash;
 
         if (__sigsetjmp(&jmp_buf, 0) == 0) {
             // First pass: call the C function.
@@ -8321,7 +8326,7 @@ pub const VM = struct {
                 return self.invokeBuiltinMethod(fun_ptr, receiver, resolved.name.name, @constCast(dispatch.args), block, dispatch_keyword_ctx);
             },
             .cext => |cext_method| {
-                const result = try self.dispatchCExtMethod(cext_method, receiver, @constCast(dispatch.args), block);
+                const result = try self.dispatchCExtMethod(cext_method, receiver, @constCast(dispatch.args), block, null);
                 return result;
             },
             .proc => |proc_obj| {
@@ -8935,12 +8940,19 @@ pub const VM = struct {
                 try self.push(result);
             },
             .cext => |cext_method| {
+                var cext_args_temp: TempValueSlice = .{};
+                defer cext_args_temp.deinit(self.allocator);
+                var cext_args = @constCast(dispatch.args);
+                var keyword_hash: ?Value = null;
                 if (dispatch_kwargc > 0) {
-                    const exc = try self.createException(self.argument_error_class, "C extensions do not accept keyword arguments");
-                    self.setPendingException(exc);
-                    return error.Unwind;
+                    const kw_hash = try self.createHashFromKeywordPairs(dispatch_kw_keys.?, dispatch_kw_values.?);
+                    const combined = try cext_args_temp.initUninitialized(self, dispatch.args.len + 1);
+                    @memcpy(combined[0..dispatch.args.len], dispatch.args);
+                    combined[dispatch.args.len] = kw_hash;
+                    cext_args = combined;
+                    keyword_hash = kw_hash;
                 }
-                const result = try self.dispatchCExtMethod(cext_method, receiver, @constCast(dispatch.args), block);
+                const result = try self.dispatchCExtMethod(cext_method, receiver, cext_args, block, keyword_hash);
                 try self.push(result);
             },
             .proc => |proc_obj| {
@@ -9549,7 +9561,7 @@ pub const VM = struct {
                 try self.push(result);
             },
             .cext => |cext_method| {
-                const result = try self.dispatchCExtMethod(cext_method, receiver, args, null);
+                const result = try self.dispatchCExtMethod(cext_method, receiver, args, null, null);
                 try self.push(result);
             },
             .proc => |proc_obj| {

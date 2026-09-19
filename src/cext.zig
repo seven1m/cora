@@ -1096,6 +1096,7 @@ export fn rb_jump_tag(state: c_int) void {
 // ─── Argument scanning ──────────────────────────────────────────────────────
 
 export fn rb_scan_args(argc: c_int, argv: [*c]const VALUE, fmt: [*c]const u8, ...) c_int {
+    const vm = getVM();
     const fmt_slice = if (fmt != null) std.mem.span(fmt) else "";
     var required: usize = 0;
     var optional: usize = 0;
@@ -1110,11 +1111,12 @@ export fn rb_scan_args(argc: c_int, argv: [*c]const VALUE, fmt: [*c]const u8, ..
     var ap = @cVaStart();
     defer @cVaEnd(&ap);
 
+    const positional_argc = argc - @as(c_int, if (vm.cext_keyword_hash != null) 1 else 0);
     var consumed: usize = 0;
     var i: usize = 0;
     while (i < required) : (i += 1) {
         const out: *VALUE = @cVaArg(&ap, *VALUE);
-        if (@as(usize, @intCast(argc)) > consumed and argv != null) {
+        if (@as(usize, @intCast(positional_argc)) > consumed and argv != null) {
             out.* = argv[consumed];
             consumed += 1;
         } else {
@@ -1125,7 +1127,7 @@ export fn rb_scan_args(argc: c_int, argv: [*c]const VALUE, fmt: [*c]const u8, ..
     i = 0;
     while (i < optional) : (i += 1) {
         const out: *VALUE = @cVaArg(&ap, *VALUE);
-        if (@as(usize, @intCast(argc)) > consumed and argv != null) {
+        if (@as(usize, @intCast(positional_argc)) > consumed and argv != null) {
             out.* = argv[consumed];
             consumed += 1;
         } else {
@@ -1133,7 +1135,12 @@ export fn rb_scan_args(argc: c_int, argv: [*c]const VALUE, fmt: [*c]const u8, ..
         }
     }
 
-    return argc;
+    if (std.mem.indexOfScalar(u8, fmt_slice, ':') != null) {
+        const out: *VALUE = @cVaArg(&ap, *VALUE);
+        out.* = if (vm.cext_keyword_hash) |hash| hash.raw else Value.NIL.raw;
+    }
+
+    return positional_argc;
 }
 
 // ─── Encoding ───────────────────────────────────────────────────────────────

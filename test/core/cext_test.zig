@@ -306,3 +306,21 @@ test "C extension StringValueCStr provides a trailing null byte" {
     );
     try std.testing.expectEqual(@as(i64, 5), result.toInteger());
 }
+
+test "C extension variadic methods receive keyword arguments through rb_scan_args" {
+    const result = try evalCode(
+        \\$LOAD_PATH << "build/cext"
+        \\require "fixture.so"
+        \\a = CoraCExt.scan_keywords("one", exception: false)
+        \\b = CoraCExt.scan_keywords("one", 2, exception: true)
+        \\[a[0], a[1], a[2], a[3][:exception], b[0], b[2], b[3][:exception]]
+    );
+    const values = result.toArrayObject().elements.items;
+    try std.testing.expectEqual(@as(i64, 1), values[0].toInteger());
+    try std.testing.expectEqualStrings("one", values[1].toStringObject().str);
+    try std.testing.expect(values[2].isNil());
+    try std.testing.expect(!values[3].toBool());
+    try std.testing.expectEqual(@as(i64, 2), values[4].toInteger());
+    try std.testing.expectEqual(@as(i64, 2), values[5].toInteger());
+    try std.testing.expect(values[6].toBool());
+}

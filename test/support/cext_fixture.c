@@ -156,6 +156,15 @@ cext_undef_class_new(VALUE self, VALUE klass)
     return Qnil;
 }
 
+static VALUE
+cext_scan_keywords(int argc, VALUE *argv, VALUE self)
+{
+    (void)self;
+    VALUE required, optional, keywords;
+    int positional = rb_scan_args(argc, argv, "11:", &required, &optional, &keywords);
+    return rb_ary_new3(4, INT2NUM(positional), required, optional, keywords);
+}
+
 void Init_fixture(void)
 {
     VALUE mCoraCExt = rb_define_module("CoraCExt");
@@ -175,6 +184,7 @@ void Init_fixture(void)
     rb_define_module_function(mCoraCExt, "class_of", cext_class_of, 1);
     rb_define_module_function(mCoraCExt, "obj_class", cext_obj_class, 1);
     rb_define_module_function(mCoraCExt, "undef_class_new", cext_undef_class_new, 1);
+    rb_define_module_function(mCoraCExt, "scan_keywords", cext_scan_keywords, -1);
 
     rb_define_method(rb_cString, "cora_cext_test", cora_cext_test, 0);
     rb_define_method(rb_cString, "cext_yield", cext_simple_yield, 1);
