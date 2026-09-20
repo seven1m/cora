@@ -377,6 +377,7 @@ VALUE  rb_ary_push(VALUE ary, VALUE item);
 VALUE  rb_ary_new_from_values(long n, const VALUE *elts);
 
 ID     rb_intern(const char *name);
+ID     rb_intern2(const char *name, long len);
 VALUE  rb_const_get(VALUE klass, ID id);
 VALUE  rb_const_get_at(VALUE klass, ID id);
 void   rb_define_const(VALUE klass, const char *name, VALUE val);

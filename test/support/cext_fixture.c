@@ -105,6 +105,13 @@ cext_str_new_length(VALUE self, VALUE length)
     return rb_str_new("abc", NUM2LONG(length));
 }
 
+static VALUE
+cext_intern_length(VALUE self)
+{
+    (void)self;
+    return ID2SYM(rb_intern2("abcdef", 3));
+}
+
 typedef struct {
     int value;
 } cora_cext_data;
@@ -179,6 +186,7 @@ void Init_fixture(void)
     rb_define_module_function(mCoraCExt, "yield_break_then_value", cext_yield_break_then_value, 1);
     rb_define_module_function(mCoraCExt, "yield_next_then_call_to_s", cext_yield_next_then_call_to_s, 1);
     rb_define_module_function(mCoraCExt, "str_new_length", cext_str_new_length, 1);
+    rb_define_module_function(mCoraCExt, "intern_length", cext_intern_length, 0);
     rb_define_module_function(mCoraCExt, "typed_data_round_trip", cext_typed_data_round_trip, 0);
     rb_define_module_function(mCoraCExt, "string_value_cstr_length", cext_string_value_cstr_length, 1);
     rb_define_module_function(mCoraCExt, "class_of", cext_class_of, 1);

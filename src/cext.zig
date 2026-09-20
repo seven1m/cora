@@ -678,6 +678,13 @@ export fn rb_intern(name: [*c]const u8) VALUE {
     return Value.fromObject(&sym.object).raw;
 }
 
+export fn rb_intern2(name: [*c]const u8, len: c_long) VALUE {
+    if (name == null or len < 0) return 0;
+    const vm = getVM();
+    const sym = vm.intern(name[0..@intCast(len)]) catch return 0;
+    return Value.fromObject(&sym.object).raw;
+}
+
 fn symName(id: VALUE) []const u8 {
     const val = Value{ .raw = id };
     if (val.isSymbol()) return val.toSymbolObject().name;

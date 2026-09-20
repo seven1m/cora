@@ -272,6 +272,16 @@ test "C extension rb_str_new rejects negative lengths" {
     try std.testing.expectEqualStrings("negative string size (or size too big)", elems[1].toStringObject().str);
 }
 
+test "C extension rb_intern2 honors the explicit length" {
+    const result = try evalCode(
+        \\$LOAD_PATH << "build/cext"
+        \\require "fixture.so"
+        \\CoraCExt.intern_length
+    );
+    try std.testing.expect(result.isSymbol());
+    try std.testing.expectEqualStrings("abc", result.toSymbolObject().name);
+}
+
 test "C extension NUM2LONG rejects out-of-range integers" {
     const result = try evalCode(
         \\$LOAD_PATH << "build/cext"
