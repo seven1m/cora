@@ -23,6 +23,7 @@ Some gems that are known to work, though I haven't tested each thoroughly:
 - activesupport
 - bundler
 - erb
+- minitest
 - psych/yaml
 - rack
 - rake
