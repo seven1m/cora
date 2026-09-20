@@ -3866,6 +3866,15 @@ pub const Compiler = struct {
         post_count: u8,
     };
 
+    fn processNumberedParameters(self: *Compiler, params: *prism.NumberedParametersNode) !u8 {
+        var number: u8 = 1;
+        while (number <= params.maximum) : (number += 1) {
+            const name = try std.fmt.allocPrint(self.allocator, "_{d}", .{number});
+            try self.addLocal(name);
+        }
+        return params.maximum;
+    }
+
     /// Process all parameters for a chunk (required, optional, rest, post-rest, keywords)
     fn processAllParameters(
         self: *Compiler,
@@ -4289,9 +4298,9 @@ pub const Compiler = struct {
                     try self.compileDestructuredRequiredParams(params, line);
                     try self.compileInlineParamDefaults(params, block_chunk_ptr, line);
                 }
-            } else {
-                return error.UnsupportedNode;
-            }
+            } else if (params_node == .numbered_parameters) {
+                param_count = try self.processNumberedParameters(params_node.numbered_parameters);
+            } else return error.UnsupportedNode;
         }
 
         // Store parameter metadata on chunk
@@ -4403,9 +4412,9 @@ pub const Compiler = struct {
                     try self.compileDestructuredRequiredParams(params, line);
                     try self.compileInlineParamDefaults(params, lambda_chunk_ptr, line);
                 }
-            } else {
-                return error.UnsupportedNode;
-            }
+            } else if (params_node == .numbered_parameters) {
+                param_count = try self.processNumberedParameters(params_node.numbered_parameters);
+            } else return error.UnsupportedNode;
         }
 
         // Store parameter metadata on chunk

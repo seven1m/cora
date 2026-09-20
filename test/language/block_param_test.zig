@@ -3,6 +3,21 @@ const test_helper = @import("../test_helper.zig");
 
 const evalCode = test_helper.evalCode;
 
+test "numbered parameters bind through the highest referenced number" {
+    const result = try evalCode(
+        \\values = [10, 20, 30]
+        \\block_result = values.then { [_1, _3] }
+        \\numbered_lambda = -> { _2 }
+        \\[block_result, numbered_lambda.arity, numbered_lambda.call(1, 2)]
+    );
+    const values = result.toArrayObject().elements.items;
+    const block_result = values[0].toArrayObject().elements.items;
+    try std.testing.expectEqual(@as(i64, 10), block_result[0].toInteger());
+    try std.testing.expectEqual(@as(i64, 30), block_result[1].toInteger());
+    try std.testing.expectEqual(@as(i64, 2), values[1].toInteger());
+    try std.testing.expectEqual(@as(i64, 2), values[2].toInteger());
+}
+
 test "block parameter receives Proc when block passed" {
     const result = try evalCode(
         \\def foo(&block)
