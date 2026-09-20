@@ -1238,9 +1238,9 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] core/kernel/not_match_spec.rb
 - [x] core/kernel/object_id_spec.rb
 - [ ] core/kernel/open_spec.rb
-- [ ] core/kernel/p_spec.rb
+- [x] core/kernel/p_spec.rb
 - [ ] core/kernel/pp_spec.rb
-- [ ] core/kernel/print_spec.rb
+- [x] core/kernel/print_spec.rb
 - [ ] core/kernel/printf_spec.rb
 - [ ] core/kernel/private_methods_spec.rb
 - [ ] core/kernel/proc_spec.rb
@@ -1249,7 +1249,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/kernel/public_methods_spec.rb
 - [x] core/kernel/public_send_spec.rb
 - [ ] core/kernel/putc_spec.rb
-- [ ] core/kernel/puts_spec.rb
+- [x] core/kernel/puts_spec.rb
 - [ ] core/kernel/raise_spec.rb
 - [ ] core/kernel/rand_spec.rb
 - [ ] core/kernel/readline_spec.rb

@@ -205,10 +205,10 @@ pub fn register(vm: *VM) !void {
     try vm.kernel_module.methods.put(kernel_float_convert_sym, value.MethodEntry.builtinWithVisibility(&builtinKernelFloatConvert, .{ .exact = 1 }, .private));
 
     const puts_sym = try vm.intern("puts");
-    try vm.kernel_module.methods.put(puts_sym, MethodEntry.builtin(&builtinKernelPuts, .{ .variadic = 0 }));
+    try vm.kernel_module.methods.put(puts_sym, MethodEntry.builtinWithVisibility(&builtinKernelPuts, .{ .variadic = 0 }, .private));
 
     const print_sym = try vm.intern("print");
-    try vm.kernel_module.methods.put(print_sym, MethodEntry.builtin(&builtinKernelPrint, .{ .variadic = 0 }));
+    try vm.kernel_module.methods.put(print_sym, MethodEntry.builtinWithVisibility(&builtinKernelPrint, .{ .variadic = 0 }, .private));
 
     const printf_sym = try vm.intern("printf");
     try vm.kernel_module.methods.put(printf_sym, MethodEntry.builtinWithVisibility(&builtinKernelPrintf, .{ .variadic = 1 }, .private));
@@ -322,6 +322,8 @@ pub fn register(vm: *VM) !void {
     try kernel_singleton.module.methods.put(kernel_hash_convert_sym, value.MethodEntry.builtin(&builtinKernelHashConvert, .{ .exact = 1 }));
     try kernel_singleton.module.methods.put(printf_sym, MethodEntry.builtin(&builtinKernelPrintf, .{ .variadic = 1 }));
     try kernel_singleton.module.methods.put(sprintf_sym, MethodEntry.builtin(&builtinKernelSprintf, .{ .variadic = 1 }));
+    try kernel_singleton.module.methods.put(puts_sym, MethodEntry.builtin(&builtinKernelPuts, .{ .variadic = 0 }));
+    try kernel_singleton.module.methods.put(print_sym, MethodEntry.builtin(&builtinKernelPrint, .{ .variadic = 0 }));
     try kernel_singleton.module.methods.put(format_sym, MethodEntry.builtin(&builtinKernelSprintf, .{ .variadic = 1 }));
     try kernel_singleton.module.methods.put(autoload_sym, MethodEntry.builtin(&builtinKernelSingletonAutoload, .{ .exact = 2 }));
     try kernel_singleton.module.methods.put(autoload_q_sym, MethodEntry.builtin(&builtinKernelSingletonAutoloadQ, .{ .variadic = 0 }));
@@ -334,7 +336,7 @@ pub fn register(vm: *VM) !void {
     try vm.kernel_module.methods.put(hash_sym, MethodEntry.builtin(&builtinKernelHash, .{ .exact = 0 }));
 
     const p_sym = try vm.intern("p");
-    try vm.kernel_module.methods.put(p_sym, MethodEntry.builtin(&builtinKernelP, .{ .variadic = 0 }));
+    try vm.kernel_module.methods.put(p_sym, MethodEntry.builtinWithVisibility(&builtinKernelP, .{ .variadic = 0 }, .private));
 
     const rand_sym = try vm.intern("rand");
     try vm.kernel_module.methods.put(rand_sym, value.MethodEntry.builtin(&builtinKernelRand, .{ .variadic = 0 }));
@@ -342,6 +344,7 @@ pub fn register(vm: *VM) !void {
     try vm.kernel_module.methods.put(srand_sym, value.MethodEntry.builtinWithVisibility(&builtinKernelSrand, .{ .variadic = 0 }, .private));
     try kernel_singleton.module.methods.put(rand_sym, value.MethodEntry.builtin(&builtinKernelRand, .{ .variadic = 0 }));
     try kernel_singleton.module.methods.put(srand_sym, value.MethodEntry.builtin(&builtinKernelSrand, .{ .variadic = 0 }));
+    try kernel_singleton.module.methods.put(p_sym, MethodEntry.builtin(&builtinKernelP, .{ .variadic = 0 }));
 
     const raise_sym = try vm.intern("raise");
     try vm.kernel_module.methods.put(raise_sym, MethodEntry.builtinWithVisibility(&builtinKernelRaise, .{ .variadic = 0 }, .private));
@@ -1197,7 +1200,9 @@ pub fn builtinKernelSystem(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!
 
 pub fn builtinKernelPrint(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
     const stdout_target = vm.getGlobalValue("$stdout");
-    _ = try vm.callMethodByName(stdout_target, "print", args, null);
+    var default_args = [_]Value{vm.getGlobalValue("$_")};
+    const print_args = if (args.len == 0) default_args[0..] else args;
+    _ = try vm.callMethodByName(stdout_target, "print", print_args, null);
     _ = try vm.callMethodByName(stdout_target, "flush", &[_]Value{}, null);
     return Value.nil();
 }
@@ -2789,7 +2794,6 @@ pub fn builtinKernelDir(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Val
 pub fn builtinKernelP(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
     const stdout_target = vm.getGlobalValue("$stdout");
     if (args.len == 0) {
-        _ = try vm.callMethodByName(stdout_target, "puts", &[_]Value{}, null);
         return Value.nil();
     }
 
