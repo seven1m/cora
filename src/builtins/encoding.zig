@@ -1,6 +1,7 @@
 const std = @import("std");
 const vm_mod = @import("../vm.zig");
 const value = @import("../value.zig");
+const enc = @import("../encoding.zig");
 const converter = @import("encoding/converter.zig");
 
 const VM = vm_mod.VM;
@@ -172,6 +173,9 @@ pub fn register(vm: *VM) !void {
     const list_sym = try vm.intern("list");
     try encoding_singleton.module.methods.put(list_sym, value.MethodEntry.builtin(&builtinEncodingList, .{ .exact = 0 }));
 
+    const aliases_sym = try vm.intern("aliases");
+    try encoding_singleton.module.methods.put(aliases_sym, value.MethodEntry.builtin(&builtinEncodingAliases, .{ .exact = 0 }));
+
     const default_internal_sym = try vm.intern("default_internal");
     try encoding_singleton.module.methods.put(default_internal_sym, value.MethodEntry.builtin(&builtinEncodingDefaultInternal, .{ .exact = 0 }));
 
@@ -233,7 +237,12 @@ pub fn builtinEncodingFind(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!
         return arg;
     }
 
-    const name_str = try arg.coerceToStr(vm, "no implicit conversion into String");
+    const name_value = try arg.coerceToStringValue(vm, "no implicit conversion into String");
+    const name_obj = name_value.toStringObject();
+    const name_str = name_obj.str;
+    if (!name_obj.encoding.isAsciiCompatible() or !enc.isAsciiOnly(name_str)) {
+        return vm.raiseExceptionFmt(vm.argument_error_class, "invalid encoding name (non ASCII)", .{});
+    }
 
     // Normalize: uppercase and replace - with _
     var normalized: [32]u8 = undefined;
@@ -289,7 +298,19 @@ pub fn builtinEncodingFind(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!
         };
     }
 
-    return vm.raiseExceptionFmt(vm.encoding_converter_not_found_error_class, "unknown encoding name - {s}", .{name_str});
+    return vm.raiseExceptionFmt(vm.argument_error_class, "unknown encoding name - {s}", .{name_str});
+}
+
+pub fn builtinEncodingAliases(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    const aliases = try vm.createHash();
+    for (encoding_name_map.keys()) |name| {
+        var find_args = [_]Value{try vm.newString(name, false)};
+        const encoding_value = try builtinEncodingFind(vm, Value.nil(), &find_args, null);
+        const canonical_name = encoding_value.toEncodingObject().encoding.name();
+        try vm.hashSetEntry(aliases, try vm.newString(name, false), try vm.newString(canonical_name, false));
+    }
+    return Value.fromObject(&aliases.object);
 }
 
 pub fn builtinEncodingList(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
