@@ -239,6 +239,7 @@ class StringIO
 
   def set_encoding(enc)
     @external_encoding = Encoding.find(enc)
+    @string.force_encoding(@external_encoding) unless @string.frozen?
     self
   end
 

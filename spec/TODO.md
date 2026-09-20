@@ -3906,7 +3906,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] library/stringio/rewind_spec.rb
 - [ ] library/stringio/seek_spec.rb
 - [ ] library/stringio/set_encoding_by_bom_spec.rb
-- [ ] library/stringio/set_encoding_spec.rb
+- [x] library/stringio/set_encoding_spec.rb
 - [x] library/stringio/size_spec.rb
 - [x] library/stringio/string_spec.rb
 - [ ] library/stringio/stringio_spec.rb
