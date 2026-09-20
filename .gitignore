@@ -3,6 +3,7 @@ build
 zig-pkg
 spec/tmp
 spec/.total-specs
+test/gems/
 .gem
 .direnv
 

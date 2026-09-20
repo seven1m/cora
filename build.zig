@@ -878,6 +878,11 @@ pub fn build(b: *std.Build) void {
     const test_step = b.step("test", "Run tests");
     test_step.dependOn(&test_run.step);
 
+    const test_gems_cmd = b.addSystemCommand(&.{ "sh", "test/run_gem_tests.sh" });
+    test_gems_cmd.step.dependOn(b.getInstallStep());
+    const test_gems_step = b.step("test-gems", "Clone and run third-party gem test suites");
+    test_gems_step.dependOn(&test_gems_cmd.step);
+
     const watch_cmd = b.addSystemCommand(&.{
         "sh",
         "-c",
