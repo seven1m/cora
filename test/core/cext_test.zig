@@ -83,6 +83,15 @@ test "C extension call and block helpers invoke Ruby code" {
     try std.testing.expectEqualStrings("Integer!", values[1].toStringObject().str);
 }
 
+test "C extension creates exceptions from C strings" {
+    const result = try evalCode(
+        \\$LOAD_PATH << "build/cext"
+        \\require "fixture.so"
+        \\CoraCExt.exception_message
+    );
+    try std.testing.expectEqualStrings("from C", result.toStringObject().str);
+}
+
 test "C extension can undefine new on one class singleton" {
     const result = try evalCode(
         \\$LOAD_PATH << "build/cext"

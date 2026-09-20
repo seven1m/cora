@@ -195,6 +195,14 @@ cext_call_helpers(VALUE self, VALUE object)
 }
 
 static VALUE
+cext_exception_message(VALUE self)
+{
+    (void)self;
+    VALUE exception = rb_exc_new2(rb_eRuntimeError, "from C");
+    return rb_funcall(exception, rb_intern("message"), 0);
+}
+
+static VALUE
 cext_undef_class_new(VALUE self, VALUE klass)
 {
     (void)self;
@@ -235,6 +243,7 @@ void Init_fixture(void)
     rb_define_module_function(mCoraCExt, "ivar_access", cext_ivar_access, 1);
     rb_define_module_function(mCoraCExt, "array_mutation", cext_array_mutation, 0);
     rb_define_module_function(mCoraCExt, "call_helpers", cext_call_helpers, 1);
+    rb_define_module_function(mCoraCExt, "exception_message", cext_exception_message, 0);
     rb_define_module_function(mCoraCExt, "undef_class_new", cext_undef_class_new, 1);
     rb_define_module_function(mCoraCExt, "scan_keywords", cext_scan_keywords, -1);
 

@@ -574,6 +574,7 @@ VALUE rb_rational_new2(VALUE num, VALUE den);
 
 VALUE rb_assoc_new(VALUE car, VALUE cdr);
 VALUE rb_exc_new3(VALUE klass, VALUE str);
+#define rb_exc_new2(klass, message) rb_exc_new3((klass), rb_str_new_cstr(message))
 VALUE rb_str_resize(VALUE str, long len);
 VALUE rb_hash_lookup2(VALUE hash, VALUE key, VALUE def);
 size_t rb_absint_size(VALUE val, int *nlz_bits_ret);
