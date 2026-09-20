@@ -2060,7 +2060,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] core/string/rpartition_spec.rb
 - [-] core/string/rstrip_spec.rb
 - [x] core/string/scan_spec.rb
-- [ ] core/string/scrub_spec.rb
+- [x] core/string/scrub_spec.rb
 - [x] core/string/setbyte_spec.rb
 - [x] core/string/size_spec.rb
 - [-] core/string/slice_spec.rb

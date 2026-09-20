@@ -152,6 +152,11 @@ pub fn register(vm: *VM) !void {
     const string_valid_encoding_sym = try vm.intern("valid_encoding?");
     try vm.string_class.module.methods.put(string_valid_encoding_sym, value.MethodEntry.builtin(&builtinStringValidEncoding, .{ .exact = 0 }));
 
+    const string_scrub_sym = try vm.intern("scrub");
+    try vm.string_class.module.methods.put(string_scrub_sym, value.MethodEntry.builtin(&builtinStringScrub, .{ .variadic = 0 }));
+    const string_scrub_bang_sym = try vm.intern("scrub!");
+    try vm.string_class.module.methods.put(string_scrub_bang_sym, value.MethodEntry.builtin(&builtinStringScrubBang, .{ .variadic = 0 }));
+
     const string_ascii_only_sym = try vm.intern("ascii_only?");
     try vm.string_class.module.methods.put(string_ascii_only_sym, value.MethodEntry.builtin(&builtinStringAsciiOnly, .{ .exact = 0 }));
 
@@ -2245,6 +2250,84 @@ pub fn builtinStringEncoding(vm: *VM, receiver: Value, args: []Value, _: ?Block)
     try vm.requireArgCount(args, 0);
     const string_obj = receiver.toStringObject();
     return vm.encodingToValue(string_obj.encoding);
+}
+
+fn appendScrubReplacement(
+    vm: *VM,
+    out: *std.ArrayList(u8),
+    replacement: Value,
+    target_encoding: enc.Encoding,
+) VMError!void {
+    const replacement_obj = replacement.toStringObject();
+    if (!replacement_obj.encoding.isValid(replacement_obj.str)) {
+        return vm.raiseExceptionFmt(vm.argument_error_class, "replacement must be valid byte sequence", .{});
+    }
+    try appendReplacementForEncode(vm, out, replacement, target_encoding);
+}
+
+fn stringScrub(vm: *VM, receiver: Value, args: []Value, block: ?Block, bang: bool) VMError!Value {
+    try vm.requireArgCountRange(args, 0, 1);
+    const string_obj = receiver.toStringObject();
+    const source = string_obj.str;
+    const encoding = string_obj.encoding;
+
+    const replacement = if (args.len == 1)
+        try args[0].coerceToStringValue(vm, "no implicit conversion into String")
+    else
+        null;
+    if (replacement) |replacement_value| {
+        const replacement_obj = replacement_value.toStringObject();
+        if (!replacement_obj.encoding.isValid(replacement_obj.str)) {
+            return vm.raiseExceptionFmt(vm.argument_error_class, "replacement must be valid byte sequence", .{});
+        }
+    }
+
+    if (encoding.isValid(source)) {
+        if (bang) return receiver;
+        return vm.newStringWithEncoding(source, false, encoding);
+    }
+    if (bang) try vm.guardNotFrozen(receiver);
+
+    var out: std.ArrayList(u8) = .empty;
+    defer out.deinit(vm.gc_allocator_atomic);
+
+    var index: usize = 0;
+    while (index < source.len) {
+        const start = index;
+        const parsed = encoding.nextCodepoint(source, &index);
+        if (parsed.len == 0) break;
+        if (parsed.valid) {
+            out.appendSlice(vm.gc_allocator_atomic, source[start..index]) catch return error.Fatal;
+            continue;
+        }
+
+        if (block) |blk| {
+            const invalid = try vm.newStringWithEncoding(source[start..index], false, encoding);
+            const yielded = try vm.yieldToBlock(blk, &[_]Value{invalid});
+            const yielded_string = try yielded.coerceToStringValue(vm, "no implicit conversion into String");
+            try appendScrubReplacement(vm, &out, yielded_string, encoding);
+        } else if (replacement) |replacement_value| {
+            try appendScrubReplacement(vm, &out, replacement_value, encoding);
+        } else {
+            try appendDefaultReplacementForEncode(vm, &out, encoding);
+        }
+    }
+
+    const scrubbed = out.toOwnedSlice(vm.gc_allocator_atomic) catch return error.Fatal;
+    if (bang) {
+        string_obj.str = scrubbed;
+        string_obj.validity = .valid;
+        return receiver;
+    }
+    return vm.newStringWithEncoding(scrubbed, false, encoding);
+}
+
+pub fn builtinStringScrub(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
+    return stringScrub(vm, receiver, args, block, false);
+}
+
+pub fn builtinStringScrubBang(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
+    return stringScrub(vm, receiver, args, block, true);
 }
 
 fn replacementValueForEncode(
