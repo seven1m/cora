@@ -774,6 +774,11 @@ export fn rb_proc_call_with_block(recv_raw: VALUE, argc: c_int, argv: [*c]const 
     return rb_funcallv(recv_raw, rb_intern("call"), argc, argv);
 }
 
+export fn rb_apply(recv_raw: VALUE, mid: VALUE, args_raw: VALUE) VALUE {
+    const args = (Value{ .raw = args_raw }).toArrayObject().elements.items;
+    return rb_funcallv(recv_raw, mid, @intCast(args.len), @ptrCast(args.ptr));
+}
+
 export fn rb_attr_get(obj_raw: VALUE, id: VALUE) VALUE {
     const vm = getVM();
     const name = symName(id);
@@ -1393,6 +1398,16 @@ export fn Check_TypedStruct(obj_raw: VALUE, ty: ?*const anyopaque) ?*anyopaque {
 
 // ─── Yield ─────────────────────────────────────────────────────────────────
 
+export fn rb_block_given_p() c_int {
+    return @intFromBool(getVM().currentFrame().block != null);
+}
+
+export fn rb_block_proc() VALUE {
+    const vm = getVM();
+    const block = vm.currentFrame().block orelse return Value.nil().raw;
+    return (vm.newProc(block) catch return 0).raw;
+}
+
 export fn rb_yield(val_raw: VALUE) VALUE {
     const vm = getVM();
     const pending_unwind_before = vm.pendingUnwind();
@@ -1800,6 +1815,11 @@ export fn rb_class_name(klass_raw: VALUE) VALUE {
     const vm = getVM();
     const result = vm.callMethodByName(Value{ .raw = klass_raw }, "name", &[_]Value{}, null) catch return 0;
     return result.raw;
+}
+
+export fn rb_class2name(klass_raw: VALUE) [*c]const u8 {
+    var name = rb_class_name(klass_raw);
+    return rb_string_value_cstr(&name);
 }
 
 export fn rb_convert_type(obj_raw: VALUE, t: c_int, tname: [*c]const u8, method: [*c]const u8) VALUE {

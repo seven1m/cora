@@ -72,6 +72,17 @@ test "C extension deletes and stores array elements" {
     try std.testing.expectEqual(@as(i64, 4), array[2].toInteger());
 }
 
+test "C extension call and block helpers invoke Ruby code" {
+    const result = try evalCode(
+        \\$LOAD_PATH << "build/cext"
+        \\require "fixture.so"
+        \\CoraCExt.call_helpers(5) { |value| value * 2 }
+    );
+    const values = result.toArrayObject().elements.items;
+    try std.testing.expectEqual(@as(i64, 24), values[0].toInteger());
+    try std.testing.expectEqualStrings("Integer!", values[1].toStringObject().str);
+}
+
 test "C extension can undefine new on one class singleton" {
     const result = try evalCode(
         \\$LOAD_PATH << "build/cext"

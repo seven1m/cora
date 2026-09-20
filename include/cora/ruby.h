@@ -403,6 +403,9 @@ VALUE  rb_funcallv_public(VALUE recv, ID mid, int argc, const VALUE *argv);
 #define rb_funcall2 rb_funcallv
 #define rb_funcall3 rb_funcallv
 VALUE  rb_proc_call_with_block(VALUE recv, int argc, const VALUE *argv, VALUE block);
+VALUE  rb_apply(VALUE recv, ID mid, VALUE args);
+int    rb_block_given_p(void);
+VALUE  rb_block_proc(void);
 VALUE  rb_yield(VALUE val);
 VALUE  rb_yield_values(int n, ...);
 
@@ -500,6 +503,7 @@ int   rb_hash_foreach(VALUE hash, int (*func)(VALUE, VALUE, VALUE), VALUE arg);
 
 VALUE rb_str_append(VALUE str, VALUE str2);
 VALUE rb_str_cat(VALUE str, const char *ptr, long len);
+#define rb_str_buf_cat rb_str_cat
 VALUE rb_str_dup(VALUE str);
 VALUE rb_str_to_inum(VALUE str, int base, int badcheck);
 VALUE rb_str_subseq(VALUE str, long beg, long len);
@@ -516,6 +520,7 @@ VALUE rb_ary_freeze(VALUE ary);
 VALUE rb_ary_new2(long len);
 VALUE rb_inspect(VALUE obj);
 VALUE rb_class_name(VALUE klass);
+const char *rb_class2name(VALUE klass);
 VALUE rb_convert_type(VALUE obj, int type, const char *tname, const char *method);
 VALUE rb_check_convert_type(VALUE obj, int type, const char *tname, const char *method);
 VALUE rb_check_string_type(VALUE obj);

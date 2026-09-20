@@ -184,6 +184,17 @@ cext_array_mutation(VALUE self)
 }
 
 static VALUE
+cext_call_helpers(VALUE self, VALUE object)
+{
+    VALUE args = rb_ary_new3(1, INT2NUM(7));
+    VALUE applied = rb_apply(object, rb_intern("+"), args);
+    VALUE block_result = rb_block_given_p() ? rb_funcall(rb_block_proc(), rb_intern("call"), 1, applied) : Qnil;
+    VALUE name = rb_str_new2(rb_class2name(CLASS_OF(object)));
+    rb_str_buf_cat(name, "!", 1);
+    return rb_ary_new3(2, block_result, name);
+}
+
+static VALUE
 cext_undef_class_new(VALUE self, VALUE klass)
 {
     (void)self;
@@ -223,6 +234,7 @@ void Init_fixture(void)
     rb_define_module_function(mCoraCExt, "obj_class", cext_obj_class, 1);
     rb_define_module_function(mCoraCExt, "ivar_access", cext_ivar_access, 1);
     rb_define_module_function(mCoraCExt, "array_mutation", cext_array_mutation, 0);
+    rb_define_module_function(mCoraCExt, "call_helpers", cext_call_helpers, 1);
     rb_define_module_function(mCoraCExt, "undef_class_new", cext_undef_class_new, 1);
     rb_define_module_function(mCoraCExt, "scan_keywords", cext_scan_keywords, -1);
 
