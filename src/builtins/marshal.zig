@@ -25,6 +25,7 @@ const Tag = struct {
     const hash_default: u8 = '}';
     const float: u8 = 'f';
     const bignum: u8 = 'l';
+    const object: u8 = 'o';
     const ivar: u8 = 'I';
     const user_defined_object: u8 = 'u';
     const user_marshaled_object: u8 = 'U';
@@ -229,9 +230,54 @@ fn dumpValue(state: *DumpState, val: Value) VMError!void {
             try dumpUserMarshaledObject(state, val, dumped);
             return;
         }
+
+        const object = val.getObjectPointer().?;
+        if (object.type_tag == .instance or object.type_tag == .exception) {
+            try dumpObject(state, val);
+            return;
+        }
     }
 
     return state.vm.raiseExceptionFmt(state.vm.type_error_class, "can't dump {s}", .{state.vm.className(val)});
+}
+
+fn dumpObject(state: *DumpState, val: Value) VMError!void {
+    const key: usize = @intCast(val.raw);
+    if (state.object_refs.get(key)) |idx| {
+        try appendByte(state, Tag.object_link);
+        try dumpPackedInt(state, @intCast(idx));
+        return;
+    }
+
+    const object = val.getObjectPointer().?;
+    const class_path = (try marshalClassPath(state.vm, object.class.?)) orelse {
+        return state.vm.raiseExceptionFmt(state.vm.type_error_class, "can't dump anonymous class", .{});
+    };
+
+    state.object_refs.put(key, state.object_count) catch return error.Fatal;
+    state.object_count += 1;
+
+    try appendByte(state, Tag.object);
+    try dumpSymbolValue(state, try state.vm.intern(class_path));
+
+    const ivar_count = if (object.instance_variables) |ivars| ivars.count() else 0;
+    const internal_count: usize = if (val.isException()) 2 else 0;
+    try dumpPackedInt(state, @intCast(ivar_count + internal_count));
+
+    if (val.isException()) {
+        const exception = val.toExceptionObject();
+        try dumpSymbolValue(state, try state.vm.intern("mesg"));
+        try dumpValue(state, Value.fromObject(&exception.message.object));
+        try dumpSymbolValue(state, try state.vm.intern("bt"));
+        try dumpValue(state, if (exception.backtrace) |backtrace| Value.fromObject(&backtrace.object) else Value.nil());
+    }
+
+    if (object.instance_variables) |ivars| {
+        for (ivars.keys(), ivars.values()) |name, ivar_value| {
+            try dumpSymbolValue(state, name);
+            try dumpValue(state, ivar_value);
+        }
+    }
 }
 
 fn dumpUserMarshaledObject(state: *DumpState, val: Value, dumped: Value) VMError!void {
@@ -492,11 +538,64 @@ fn loadValue(state: *LoadState) VMError!Value {
         Tag.hash_default => try loadHash(state, true),
         Tag.float => try loadFloat(state),
         Tag.bignum => try loadBignum(state),
+        Tag.object => try loadObject(state),
         Tag.ivar => try loadIvarWrapped(state),
         Tag.user_defined_object => try loadUserDefinedObject(state),
         Tag.user_marshaled_object => try loadUserMarshaledObject(state),
         else => state.vm.raiseExceptionFmt(state.vm.argument_error_class, "unsupported marshal type", .{}),
     };
+}
+
+fn loadObject(state: *LoadState) VMError!Value {
+    const class_name_value = try loadValue(state);
+    if (!class_name_value.isSymbol()) {
+        return state.vm.raiseExceptionFmt(state.vm.argument_error_class, "invalid marshal object class", .{});
+    }
+
+    const class_path = class_name_value.toSymbolObject().name;
+    const class_value = (try state.vm.resolveConstantPath(class_path)) orelse {
+        return state.vm.raiseExceptionFmt(state.vm.argument_error_class, "undefined class/module {s}", .{class_path});
+    };
+    if (!class_value.isClass()) {
+        return state.vm.raiseExceptionFmt(state.vm.argument_error_class, "undefined class/module {s}", .{class_path});
+    }
+
+    const object = try state.vm.newObjectForClass(class_value.toClassObject());
+    state.object_refs.append(state.vm.allocator, object) catch return error.Fatal;
+
+    const ivar_count = try loadPackedInt(state);
+    if (ivar_count < 0) {
+        return state.vm.raiseExceptionFmt(state.vm.argument_error_class, "negative ivar count", .{});
+    }
+
+    var i: i64 = 0;
+    while (i < ivar_count) : (i += 1) {
+        const name_value = try loadValue(state);
+        if (!name_value.isSymbol()) {
+            return state.vm.raiseExceptionFmt(state.vm.argument_error_class, "invalid instance variable name", .{});
+        }
+        const name = name_value.toSymbolObject().name;
+        const ivar_value = try loadValue(state);
+
+        if (object.isException() and std.mem.eql(u8, name, "mesg")) {
+            if (!ivar_value.isString()) {
+                return state.vm.raiseExceptionFmt(state.vm.argument_error_class, "invalid exception message", .{});
+            }
+            object.toExceptionObject().message = ivar_value.toStringObject();
+        } else if (object.isException() and std.mem.eql(u8, name, "bt")) {
+            if (ivar_value.isNil()) {
+                object.toExceptionObject().backtrace = null;
+            } else if (ivar_value.isArray()) {
+                object.toExceptionObject().backtrace = ivar_value.toArrayObject();
+            } else {
+                return state.vm.raiseExceptionFmt(state.vm.argument_error_class, "invalid exception backtrace", .{});
+            }
+        } else {
+            try state.vm.setInstanceVariable(object, name, ivar_value);
+        }
+    }
+
+    return object;
 }
 
 fn loadUserDefinedObject(state: *LoadState) VMError!Value {

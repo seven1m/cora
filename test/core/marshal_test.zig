@@ -86,6 +86,35 @@ test "Marshal round trips nested objects using marshal_dump and marshal_load" {
     try std.testing.expect(result.isTruthy());
 }
 
+test "Marshal round trips ordinary objects and preserves links" {
+    const result = try evalCode(
+        \\class MarshalPlainObject
+        \\  attr_reader :value
+        \\  def initialize(value)
+        \\    @value = value
+        \\  end
+        \\end
+        \\obj = MarshalPlainObject.new("value")
+        \\copy, linked = Marshal.load(Marshal.dump([obj, obj]))
+        \\copy.class == MarshalPlainObject && copy.value == "value" && copy.equal?(linked)
+    );
+    try std.testing.expect(result.isTruthy());
+}
+
+test "Marshal round trips exceptions" {
+    const result = try evalCode(
+        \\error = RuntimeError.new("boom")
+        \\error.set_backtrace(["first:1", "second:2"])
+        \\error.instance_variable_set(:@extra, 7)
+        \\copy = Marshal.load(Marshal.dump(error))
+        \\copy.class == RuntimeError &&
+        \\  copy.message == "boom" &&
+        \\  copy.backtrace == ["first:1", "second:2"] &&
+        \\  copy.instance_variable_get(:@extra) == 7
+    );
+    try std.testing.expect(result.isTruthy());
+}
+
 test "Marshal round trips RubyGems Requirement defaults" {
     const result = try evalCode(
         \\$LOAD_PATH.unshift(File.expand_path("build/ext/rubygems/lib", Dir.pwd))
