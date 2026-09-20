@@ -2279,9 +2279,26 @@ fn ioWriteBytes(vm: *VM, io: *IoObject, bytes: []const u8) VMError!usize {
     const fd: std.posix.fd_t = @intCast(io.fd);
     var total: usize = 0;
     while (total < bytes.len) {
+        try vm.checkAsyncEvents();
         const n = std.c.write(fd, bytes[total..].ptr, bytes[total..].len);
-        if (n < 0) return vm.raiseExceptionFmt(vm.io_error_class, "write failed", .{});
-        if (n == 0) break;
+        if (n < 0) {
+            const errno_code: std.posix.E = @enumFromInt(std.c._errno().*);
+            switch (errno_code) {
+                .INTR => {
+                    try vm.checkAsyncEvents();
+                    continue;
+                },
+                .AGAIN => {
+                    _ = try waitWritable(vm, io, -1);
+                    continue;
+                },
+                else => return vm.raiseErrnoFmt(errno_code, "write failed", .{}),
+            }
+        }
+        if (n == 0) {
+            _ = try waitWritable(vm, io, -1);
+            continue;
+        }
         total += @intCast(n);
     }
     return total;

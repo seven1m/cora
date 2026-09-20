@@ -797,3 +797,15 @@ test "Dir.home and File.expand_path fall back to passwd lookup when HOME is unse
     try std.testing.expectEqualSlices(u8, passwd_home, result.toArrayObject().elements.items[1].toStringObject().str);
     try std.testing.expectEqualSlices(u8, passwd_home, result.toArrayObject().elements.items[2].toStringObject().str);
 }
+
+test "IO write yields while a nonblocking pipe is full" {
+    const result = try evalCode(
+        \\reader, writer = IO.pipe
+        \\payload = "x" * (1024 * 1024)
+        \\thread = Thread.new { writer.write(payload); writer.close }
+        \\received = reader.read
+        \\thread.join
+        \\received.bytesize
+    );
+    try std.testing.expectEqual(@as(i64, 1024 * 1024), result.toInteger());
+}
