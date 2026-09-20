@@ -14,6 +14,11 @@ class Set
     end
   end
 
+  def initialize_dup(original)
+    super
+    @hash = original.instance_variable_get(:@hash).dup
+  end
+
   def each(&block)
     return enum_for(:each) unless block
 
@@ -89,11 +94,29 @@ class Set
   end
 
   def merge(enum)
-    enum.each do |obj|
+    each_from(enum) do |obj|
       add(obj)
     end
     self
   end
+
+  def subtract(enum)
+    each_from(enum) do |obj|
+      delete(obj)
+    end
+    self
+  end
+
+  def |(enum)
+    dup.merge(enum)
+  end
+  alias + |
+  alias union |
+
+  def -(enum)
+    dup.subtract(enum)
+  end
+  alias difference -
 
   def &(other)
     other = other.to_set unless other.is_a?(Set)
@@ -102,6 +125,18 @@ class Set
       result.add(obj) if other.include?(obj)
     end
     result
+  end
+
+  private
+
+  def each_from(enum, &block)
+    if enum.respond_to?(:each_entry)
+      enum.each_entry(&block)
+    elsif enum.respond_to?(:each)
+      enum.each(&block)
+    else
+      raise ArgumentError, "value must be enumerable"
+    end
   end
 end
 

@@ -1890,7 +1890,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/set/constructor_spec.rb
 - [ ] core/set/delete_if_spec.rb
 - [ ] core/set/delete_spec.rb
-- [ ] core/set/difference_spec.rb
+- [x] core/set/difference_spec.rb
 - [ ] core/set/disjoint_spec.rb
 - [ ] core/set/divide_spec.rb
 - [ ] core/set/each_spec.rb
@@ -1923,8 +1923,8 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/set/map_spec.rb
 - [ ] core/set/member_spec.rb
 - [ ] core/set/merge_spec.rb
-- [ ] core/set/minus_spec.rb
-- [ ] core/set/plus_spec.rb
+- [x] core/set/minus_spec.rb
+- [x] core/set/plus_spec.rb
 - [ ] core/set/pretty_print_cycle_spec.rb
 - [ ] core/set/proper_subset_spec.rb
 - [ ] core/set/proper_superset_spec.rb
@@ -1939,11 +1939,11 @@ Source baseline: ../ruby_spec compared to local spec/
 
 ### core/set
 - [ ] core/set/subset_spec.rb
-- [ ] core/set/subtract_spec.rb
+- [x] core/set/subtract_spec.rb
 - [ ] core/set/superset_spec.rb
 - [ ] core/set/to_a_spec.rb
 - [ ] core/set/to_s_spec.rb
-- [ ] core/set/union_spec.rb
+- [x] core/set/union_spec.rb
 
 ### core/signal
 - [x] core/signal/list_spec.rb
