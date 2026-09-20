@@ -116,7 +116,7 @@ fn collectSingletonMethods(vm: *VM, receiver: Value, include_super: bool) VMErro
                 if (node != &klass.module and node.object.type_tag == .class) break;
                 try method_reflection.collectMethodsFromTable(
                     vm,
-                    &node.methods,
+                    &ancestry.methodTableOwner(node).methods,
                     .public_and_protected,
                     &names,
                     &seen,

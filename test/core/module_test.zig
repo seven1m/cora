@@ -864,6 +864,22 @@ test "Module instance method APIs include included module methods by default" {
     try std.testing.expect(result.isTruthy());
 }
 
+test "Module instance method APIs see methods added after inclusion" {
+    const result = try evalCode(
+        \\module GrowingMixin
+        \\end
+        \\class GrowingHost
+        \\  include GrowingMixin
+        \\end
+        \\100.times do |i|
+        \\  GrowingMixin.define_method("method_#{i}") {}
+        \\end
+        \\methods = GrowingHost.public_instance_methods
+        \\methods.include?(:method_0) && methods.include?(:method_99)
+    );
+    try std.testing.expect(result.isTrue());
+}
+
 test "Module private accepts methods from included modules" {
     const result = try evalCode(
         \\module Mixin
