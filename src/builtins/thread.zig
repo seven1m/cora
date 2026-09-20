@@ -43,6 +43,12 @@ pub fn register(vm: *VM) !void {
     const each_caller_location_sym = try vm.intern("each_caller_location");
     try thread_singleton.module.methods.put(each_caller_location_sym, value.MethodEntry.builtin(&builtinThreadEachCallerLocation, .{ .variadic = 0 }));
 
+    const class_abort_on_exception_sym = try vm.intern("abort_on_exception");
+    try thread_singleton.module.methods.put(class_abort_on_exception_sym, value.MethodEntry.builtin(&builtinThreadClassAbortOnException, .{ .exact = 0 }));
+
+    const class_abort_on_exception_set_sym = try vm.intern("abort_on_exception=");
+    try thread_singleton.module.methods.put(class_abort_on_exception_set_sym, value.MethodEntry.builtin(&builtinThreadClassAbortOnExceptionSet, .{ .exact = 1 }));
+
     // Instance methods
     const join_sym = try vm.intern("join");
     try vm.thread_class.module.methods.put(join_sym, value.MethodEntry.builtin(&builtinThreadJoin, .{ .variadic = 0 }));
@@ -152,6 +158,12 @@ pub fn register(vm: *VM) !void {
     const report_on_exception_set_sym = try vm.intern("report_on_exception=");
     try vm.thread_class.module.methods.put(report_on_exception_set_sym, value.MethodEntry.builtin(&builtinThreadReportOnExceptionSet, .{ .exact = 1 }));
 
+    const abort_on_exception_sym = try vm.intern("abort_on_exception");
+    try vm.thread_class.module.methods.put(abort_on_exception_sym, value.MethodEntry.builtin(&builtinThreadAbortOnException, .{ .exact = 0 }));
+
+    const abort_on_exception_set_sym = try vm.intern("abort_on_exception=");
+    try vm.thread_class.module.methods.put(abort_on_exception_set_sym, value.MethodEntry.builtin(&builtinThreadAbortOnExceptionSet, .{ .exact = 1 }));
+
     const add_sym = try vm.intern("add");
     try vm.thread_group_class.module.methods.put(add_sym, value.MethodEntry.builtin(&builtinThreadGroupAdd, .{ .exact = 1 }));
 
@@ -212,6 +224,17 @@ fn builtinThreadPass(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value 
     try vm.requireArgCount(args, 0);
     try vm.threadYield();
     return Value.nil();
+}
+
+fn builtinThreadClassAbortOnException(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    return Value.boolean(vm.thread_abort_on_exception);
+}
+
+fn builtinThreadClassAbortOnExceptionSet(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    vm.thread_abort_on_exception = args[0].isTruthy();
+    return args[0];
 }
 
 fn builtinThreadStop(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
@@ -813,6 +836,17 @@ fn builtinThreadReportOnException(vm: *VM, receiver: Value, args: []Value, _: ?B
 fn builtinThreadReportOnExceptionSet(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 1);
     receiver.toThreadObject().report_on_exception = args[0].isTruthy();
+    return args[0];
+}
+
+fn builtinThreadAbortOnException(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    return Value.boolean(receiver.toThreadObject().abort_on_exception);
+}
+
+fn builtinThreadAbortOnExceptionSet(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    receiver.toThreadObject().abort_on_exception = args[0].isTruthy();
     return args[0];
 }
 

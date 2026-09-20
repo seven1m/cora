@@ -663,6 +663,7 @@ pub const VM = struct {
     current_thread: ?*value.ThreadObject = null,
     thread_list: std.ArrayList(*value.ThreadObject) = .empty,
     runnable_queue: std.ArrayList(*value.ThreadObject) = .empty,
+    thread_abort_on_exception: bool = false,
     thread_owned_mutexes: std.AutoHashMap(*value.ThreadObject, std.ArrayList(*value.MutexObject)) = undefined,
     mutex_waiters: std.AutoHashMap(*value.MutexObject, std.ArrayList(*value.ThreadObject)) = undefined,
     fiber_active_catches: std.AutoHashMap(*value.FiberObject, std.ArrayList(Value)) = undefined,
@@ -907,6 +908,7 @@ pub const VM = struct {
             .current_thread = null,
             .thread_list = .empty,
             .runnable_queue = .empty,
+            .thread_abort_on_exception = false,
             .thread_owned_mutexes = std.AutoHashMap(*value.ThreadObject, std.ArrayList(*value.MutexObject)).init(allocator),
             .mutex_waiters = std.AutoHashMap(*value.MutexObject, std.ArrayList(*value.ThreadObject)).init(allocator),
             .fiber_active_catches = std.AutoHashMap(*value.FiberObject, std.ArrayList(Value)).init(allocator),
@@ -4654,6 +4656,11 @@ pub const VM = struct {
                         } else {
                             thread.terminated_normally = false;
                             thread.exception = exc;
+                            if (thread.abort_on_exception or self.thread_abort_on_exception) {
+                                if (self.main_thread) |main_thread| {
+                                    if (main_thread != thread) main_thread.async_exception = exc;
+                                }
+                            }
                         }
                     } else {
                         thread.terminated_normally = false;
@@ -5092,6 +5099,15 @@ pub const VM = struct {
         self.current_fiber = caller_fiber;
         self.restoreFiberState(caller_fiber);
         try self.setCurrentStackBaseForGc(caller_stack_base);
+
+        if (caller_thread.async_exception) |exc| {
+            caller_thread.async_exception = null;
+            try self.captureAndSetExceptionBacktrace(exc);
+            const exc_val = Value.fromObject(&exc.object);
+            const raised_val = try self.callMethodByName(exc_val, "exception", &.{}, null);
+            self.setPendingException(raised_val.toExceptionObject());
+            return error.Unwind;
+        }
     }
 
     fn yieldCurrentThreadCoroutine(self: *VM, thread: *value.ThreadObject) VMError!void {

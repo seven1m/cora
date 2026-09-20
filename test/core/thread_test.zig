@@ -274,6 +274,41 @@ test "Thread#priority and Thread#priority=" {
     try std.testing.expectEqual(@as(i64, 2), result.toInteger());
 }
 
+test "Thread abort_on_exception class and instance settings" {
+    const result = try evalCode(
+        \\original = Thread.abort_on_exception
+        \\Thread.abort_on_exception = true
+        \\thread = Thread.new { Thread.pass }
+        \\thread.abort_on_exception = true
+        \\values = [original, Thread.abort_on_exception, thread.abort_on_exception]
+        \\thread.join
+        \\Thread.abort_on_exception = original
+        \\values
+    );
+    const values = result.toArrayObject().elements.items;
+    try std.testing.expect(values[0].isFalse());
+    try std.testing.expect(values[1].isTrue());
+    try std.testing.expect(values[2].isTrue());
+}
+
+test "Thread.abort_on_exception propagates child exceptions to the main thread" {
+    const result = try evalCode(
+        \\original = Thread.abort_on_exception
+        \\message = nil
+        \\begin
+        \\  Thread.abort_on_exception = true
+        \\  Thread.new { raise "child failure" }
+        \\  loop { Thread.pass }
+        \\rescue RuntimeError => error
+        \\  message = error.message
+        \\ensure
+        \\  Thread.abort_on_exception = original
+        \\end
+        \\message
+    );
+    try std.testing.expectEqualStrings("child failure", result.toStringObject().str);
+}
+
 test "Thread#inspect" {
     const result = try evalCode(
         \\t = Thread.new { 1 }
