@@ -163,6 +163,19 @@ test "alias can target inherited private methods in class_eval" {
     try std.testing.expect(result.isTrue());
 }
 
+test "alias in a module can target Object instance methods" {
+    const result = try evalCode(
+        \\module Introspection
+        \\  alias responds_without_extension? respond_to?
+        \\end
+        \\class Subject
+        \\  include Introspection
+        \\end
+        \\Subject.new.responds_without_extension?(:to_s)
+    );
+    try std.testing.expect(result.isTrue());
+}
+
 test "alias global variable copies value" {
     const result = try evalCode(
         \\$bar = 42

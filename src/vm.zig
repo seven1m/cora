@@ -6842,7 +6842,11 @@ pub const VM = struct {
                     };
                 } else if (current_self.isModule()) blk: {
                     const resolved = self.lookupModuleMethodDetailed(self.object_class, current_self.toModuleObject(), old_name_sym);
-                    break :blk switch (resolved) {
+                    const with_object_fallback = switch (resolved) {
+                        .not_found => self.lookupMethodDetailed(self.object_class, old_name_sym),
+                        else => resolved,
+                    };
+                    break :blk switch (with_object_fallback) {
                         .found => |found| found.entry,
                         else => null,
                     };

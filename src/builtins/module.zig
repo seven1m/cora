@@ -635,7 +635,10 @@ fn resolveModuleMethodLookup(module_obj: *value.ModuleObject, owner_class: *Clas
 
 fn resolveInstanceMethodLookup(vm: *VM, receiver: Value, name_sym: *SymbolObject) InstanceMethodLookupResult {
     if (receiver.isModule()) {
-        return resolveModuleMethodLookup(receiver.toModuleObject(), vm.object_class, name_sym);
+        return switch (resolveModuleMethodLookup(receiver.toModuleObject(), vm.object_class, name_sym)) {
+            .not_found => resolveModuleMethodLookup(&vm.object_class.module, vm.object_class, name_sym),
+            else => |result| result,
+        };
     }
 
     if (receiver.isClass()) {
