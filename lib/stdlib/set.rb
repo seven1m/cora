@@ -24,6 +24,18 @@ class Set
   def include?(obj)
     @hash.key?(obj)
   end
+  alias member? include?
+
+  def compare_by_identity
+    raise FrozenError, "can't modify frozen Set: Set[]" if frozen?
+
+    @hash.compare_by_identity
+    self
+  end
+
+  def compare_by_identity?
+    @hash.compare_by_identity?
+  end
 
   def add(obj)
     @hash[obj] = true
@@ -64,7 +76,10 @@ class Set
   end
 
   def ==(other)
-    other.is_a?(Set) && size == other.size && all? { |object| other.include?(object) }
+    other.is_a?(Set) &&
+      compare_by_identity? == other.compare_by_identity? &&
+      size == other.size &&
+      all? { |object| other.include?(object) }
   end
   alias eql? ==
 
