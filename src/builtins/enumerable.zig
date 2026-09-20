@@ -43,6 +43,8 @@ pub fn register(vm: *VM) !void {
     try enumerable_val.toModuleObject().methods.put(with_object_sym, each_with_object_entry);
     const each_slice_sym = try vm.intern("each_slice");
     try enumerable_val.toModuleObject().methods.put(each_slice_sym, value.MethodEntry.builtin(&builtinEnumerableEachSlice, .{ .exact = 1 }));
+    const each_cons_sym = try vm.intern("each_cons");
+    try enumerable_val.toModuleObject().methods.put(each_cons_sym, value.MethodEntry.builtin(&builtinEnumerableEachCons, .{ .exact = 1 }));
     const find_sym = try vm.intern("find");
     try enumerable_val.toModuleObject().methods.put(find_sym, value.MethodEntry.builtin(&builtinEnumerableFind, .{ .variadic = 0 }));
     const detect_sym = try vm.intern("detect");
@@ -601,6 +603,52 @@ fn builtinEnumerableEachSlice(vm: *VM, receiver: Value, args: []Value, block: ?B
         }
         const yield_args = [_]Value{Value.fromObject(&slice_ary.object)};
         _ = try vm.yieldToBlock(blk, &yield_args);
+    }
+
+    return receiver;
+}
+
+fn builtinEnumerableEachCons(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    const n_value = if (try vm.checkCallMethodByName(args[0], "to_int", false, &.{}, null)) |coerced|
+        coerced
+    else
+        args[0];
+
+    if (!n_value.isInteger()) {
+        return vm.raiseExceptionFmt(vm.type_error_class, "no implicit conversion of {s} into Integer", .{vm.className(n_value)});
+    }
+
+    const n = n_value.toInteger();
+    if (n <= 0) {
+        return vm.raiseExceptionFmt(vm.argument_error_class, "invalid size", .{});
+    }
+
+    const blk = block orelse {
+        const method_name = try vm.intern("each_cons");
+        if (try vm.checkCallMethodByName(receiver, "size", false, &.{}, null)) |size_val| {
+            if (size_val.isInteger()) {
+                const size = size_val.toInteger();
+                return vm.createMethodEnumeratorWithSize(receiver, method_name, args, Value.integer(@max(size - n + 1, 0)));
+            }
+        }
+        return vm.createMethodEnumerator(receiver, method_name, args);
+    };
+
+    const n_usize: usize = @intCast(n);
+    const enum_value = try vm.createMethodEnumerator(receiver, try vm.intern("each"), &.{});
+    var window: std.ArrayList(Value) = .empty;
+    defer window.deinit(vm.allocator);
+
+    while (try enumerableNextElement(vm, enum_value)) |element| {
+        window.append(vm.allocator, element) catch return error.Fatal;
+        if (window.items.len < n_usize) continue;
+
+        const group = try vm.createArray();
+        group.elements.appendSlice(vm.gc_allocator, window.items) catch return error.Fatal;
+        const yield_args = [_]Value{Value.fromObject(&group.object)};
+        _ = try vm.yieldToBlock(blk, &yield_args);
+        _ = window.orderedRemove(0);
     }
 
     return receiver;
