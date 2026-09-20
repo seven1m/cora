@@ -123,6 +123,19 @@ test "C extension concatenates and encodes strings" {
     try std.testing.expectEqual(@as(i64, 0), values[1].toInteger());
 }
 
+test "C extension creates strings and copies their encoding" {
+    const result = try evalCode(
+        \\$LOAD_PATH << "build/cext"
+        \\require "fixture.so"
+        \\CoraCExt.string_encoding_creation.map { |string| [string.bytes, string.encoding] }
+    );
+    for (result.toArrayObject().elements.items) |entry| {
+        const values = entry.toArrayObject().elements.items;
+        try std.testing.expectEqual(@as(i64, 128), values[0].toArrayObject().elements.items[0].toInteger());
+        try std.testing.expect(values[1].toEncodingObject().encoding.eql(.{ .ascii_8bit = .{} }));
+    }
+}
+
 test "C extension can undefine new on one class singleton" {
     const result = try evalCode(
         \\$LOAD_PATH << "build/cext"

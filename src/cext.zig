@@ -312,8 +312,16 @@ export fn rb_usascii_str_new_cstr(ptr: [*c]const u8) VALUE {
 }
 
 export fn rb_enc_str_new(ptr: [*c]const u8, len: c_long, enc_ptr: ?*anyopaque) VALUE {
-    _ = enc_ptr;
-    return rb_str_new(ptr, len);
+    const vm = getVM();
+    if (len < 0) {
+        rb_raise(rb_eArgError, "negative string size (or size too big)");
+        return 0;
+    }
+    const opaque_ptr: *anyopaque = enc_ptr orelse @ptrCast(@constCast(&encoding_instances[0]));
+    const encoding: *const enc.Encoding = @ptrCast(@alignCast(opaque_ptr));
+    const bytes: []const u8 = if (ptr == null) "" else ptr[0..@intCast(len)];
+    const result = vm.newStringWithEncoding(bytes, false, encoding.*) catch return 0;
+    return result.raw;
 }
 
 export fn rb_utf8_str_new(ptr: [*c]const u8, len: c_long) VALUE {
@@ -2011,7 +2019,13 @@ export fn rb_marshal_load(source_raw: VALUE) VALUE {
 // ─── Encoding ────────────────────────────────────────────────────────────────
 
 export fn rb_enc_copy(dest_raw: VALUE, src_raw: VALUE) VALUE {
-    _ = src_raw;
+    const dest = Value{ .raw = dest_raw };
+    const src = Value{ .raw = src_raw };
+    if (dest.isString() and src.isString()) {
+        const dest_obj = dest.toStringObject();
+        dest_obj.encoding = src.toStringObject().encoding;
+        dest_obj.validity = .unknown;
+    }
     return dest_raw;
 }
 

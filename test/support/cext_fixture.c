@@ -224,6 +224,17 @@ cext_string_encoding_helpers(VALUE self)
 }
 
 static VALUE
+cext_string_encoding_creation(VALUE self)
+{
+    (void)self;
+    const char byte = (char)0x80;
+    VALUE source = rb_enc_str_new(&byte, 1, rb_ascii8bit_encoding());
+    VALUE copied = rb_str_new(&byte, 1);
+    rb_enc_copy(copied, source);
+    return rb_assoc_new(source, copied);
+}
+
+static VALUE
 cext_undef_class_new(VALUE self, VALUE klass)
 {
     (void)self;
@@ -267,6 +278,7 @@ void Init_fixture(void)
     rb_define_module_function(mCoraCExt, "exception_message", cext_exception_message, 0);
     rb_define_module_function(mCoraCExt, "integer_pack", cext_integer_pack, 1);
     rb_define_module_function(mCoraCExt, "string_encoding_helpers", cext_string_encoding_helpers, 0);
+    rb_define_module_function(mCoraCExt, "string_encoding_creation", cext_string_encoding_creation, 0);
     rb_define_module_function(mCoraCExt, "undef_class_new", cext_undef_class_new, 1);
     rb_define_module_function(mCoraCExt, "scan_keywords", cext_scan_keywords, -1);
 
