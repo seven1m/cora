@@ -33,6 +33,8 @@ test "zlib gzip reader writer roundtrip through ruby io-like objects" {
         \\    @data << bytes
         \\    bytes.bytesize
         \\  end
+        \\  def close
+        \\  end
         \\end
         \\class Source
         \\  def initialize(data)
