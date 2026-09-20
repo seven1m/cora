@@ -346,10 +346,12 @@ pub fn maxStackDepth(allocator: std.mem.Allocator, code: []const u8) !u16 {
                 next_depth -= 1;
             },
             .CALL => {
-                if (ip + 3 >= code.len) return error.InvalidBytecode;
+                if (ip + 6 >= code.len) return error.InvalidBytecode;
                 const argc: usize = code[ip + 3];
-                if (next_depth < argc + 1) return error.InvalidBytecode;
-                next_depth -= argc;
+                const block_chunk_id = @as(u16, code[ip + 5]) | (@as(u16, code[ip + 6]) << 8);
+                const block_arg_count: usize = if (block_chunk_id == std.math.maxInt(u16)) 1 else 0;
+                if (next_depth < argc + 1 + block_arg_count) return error.InvalidBytecode;
+                next_depth -= argc + block_arg_count;
             },
             .RETURN => {
                 if (next_depth == 0) return error.InvalidBytecode;

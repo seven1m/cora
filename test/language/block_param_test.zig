@@ -13,6 +13,23 @@ test "block parameter receives Proc when block passed" {
     try std.testing.expect(result.isProc());
 }
 
+test "block argument calls balance stack depth across conditional branches" {
+    const result = try evalCode(
+        \\def fetch_value(values, key, &block)
+        \\  key = key.to_s
+        \\  if block
+        \\    values.fetch(key, &block)
+        \\  else
+        \\    values[key]
+        \\  end
+        \\end
+        \\[fetch_value({ "name" => "Cora" }, :name), fetch_value({}, :name) { "missing" }]
+    );
+    const values = result.toArrayObject().elements.items;
+    try std.testing.expectEqualStrings("Cora", values[0].toStringObject().str);
+    try std.testing.expectEqualStrings("missing", values[1].toStringObject().str);
+}
+
 test "block parameter receives nil when no block" {
     const result = try evalCode(
         \\def foo(&block)
