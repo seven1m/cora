@@ -1472,20 +1472,33 @@ pub const Compiler = struct {
                                     try self.compileNode(expr, line);
                                     try self.current_chunk.emitOp(.ARRAY_CONCAT_ARRAY, line);
                                 } else if (arg_node == .keyword_hash) {
+                                    // Keep keyword arguments in a separate merged hash above
+                                    // the positional splat array. SUPER_KW pops this hash before
+                                    // expanding the positional array.
+                                    try self.current_chunk.emitOpU16(.PUSH_HASH, 0, line);
                                     const kw_hash = arg_node.keyword_hash;
                                     var j: usize = 0;
                                     while (j < kw_hash.elements.size) : (j += 1) {
                                         const elem = try self.parser.asNode(kw_hash.elements.nodes[j]);
-                                        if (elem == .assoc_splat) {
-                                            // **splat after splat: compile as hash append
-                                            const expr = try self.parser.asNode(elem.assoc_splat.value orelse return error.UnsupportedNode);
-                                            try self.compileNode(expr, line);
-                                            kw_hash_mode = true;
-                                        } else {
-                                            try self.compileNode(arg_node, line);
-                                            argc += 1;
+                                        switch (elem) {
+                                            .assoc => |assoc| {
+                                                const key_node = try self.parser.asNode(@ptrCast(assoc.key));
+                                                if (key_node != .symbol) return error.UnsupportedNode;
+                                                const symbol_name = prismStringSlice(key_node.symbol.unescaped);
+                                                const symbol_idx = try self.current_chunk.addConstant(.{ .string = symbol_name });
+                                                const value_node = try self.parser.asNode(@ptrCast(assoc.value));
+                                                try self.compileNode(value_node, line);
+                                                try self.current_chunk.emitOpU16(.HASH_SET_CONST_KEY, @intCast(symbol_idx), line);
+                                            },
+                                            .assoc_splat => |assoc_splat| {
+                                                const expr = try self.parser.asNode(assoc_splat.value orelse return error.UnsupportedNode);
+                                                try self.compileNode(expr, line);
+                                                try self.current_chunk.emitOp(.HASH_MERGE_KW, line);
+                                            },
+                                            else => return error.UnsupportedNode,
                                         }
                                     }
+                                    kw_hash_mode = true;
                                 } else {
                                     try self.compileNode(arg_node, line);
                                     try self.current_chunk.emitOp(.ARRAY_APPEND, line);

@@ -232,6 +232,28 @@ test "super forwards explicit and splatted keyword arguments" {
     try std.testing.expect(result.isTrue());
 }
 
+test "super keeps positional splats separate from mixed keyword arguments" {
+    const result = try evalCode(
+        \\class ReferenceDefinition
+        \\  def references(*names, **options)
+        \\    [names, options]
+        \\  end
+        \\end
+        \\class SQLiteReferenceDefinition < ReferenceDefinition
+        \\  def references(*args, **options)
+        \\    super(*args, type: :integer, **options)
+        \\  end
+        \\end
+        \\names, options = SQLiteReferenceDefinition.new.references(:author, index: true)
+        \\[names, options == { type: :integer, index: true }]
+    );
+    const values = result.toArrayObject().elements.items;
+    const names = values[0].toArrayObject().elements.items;
+    try std.testing.expectEqual(@as(usize, 1), names.len);
+    try std.testing.expectEqualStrings("author", names[0].toSymbolObject().name);
+    try std.testing.expect(values[1].isTrue());
+}
+
 test "super in an aliased prepended method uses the original method name" {
     const result = try evalCode(
         \\module Wrapper
