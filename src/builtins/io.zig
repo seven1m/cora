@@ -989,7 +989,8 @@ pub fn builtinIoInternalEncoding(vm: *VM, receiver: Value, args: []Value, _: ?Bl
 pub fn builtinIoSetEncoding(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCountRange(args, 1, 2);
     _ = try requireIoReceiver(vm, receiver);
-    try ensureIoOpen(vm, receiver.toIoObject());
+    const io = receiver.toIoObject();
+    try ensureIoOpen(vm, io);
 
     const external = if (args[0].isNil()) Value.nil() else try resolveIoEncodingValue(vm, args[0]);
     try vm.setInstanceVariable(receiver, "@external_encoding", external);
@@ -1010,8 +1011,9 @@ pub fn builtinIoSize(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError
 
 pub fn builtinIoBinmode(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
-    _ = try requireIoReceiver(vm, receiver);
-    try ensureIoOpen(vm, receiver.toIoObject());
+    const io = try requireIoReceiver(vm, receiver);
+    try ensureIoOpen(vm, io);
+    io.binary = true;
     const binary_encoding = Value.fromObject(&vm.encoding_ascii_8bit.object);
     try vm.setInstanceVariable(receiver, "@external_encoding", binary_encoding);
     try vm.setInstanceVariable(receiver, "@internal_encoding", Value.nil());
@@ -1022,12 +1024,7 @@ pub fn builtinIoBinmodeQ(vm: *VM, receiver: Value, args: []Value, _: ?Block) VME
     try vm.requireArgCount(args, 0);
     _ = try requireIoReceiver(vm, receiver);
     try ensureIoOpen(vm, receiver.toIoObject());
-    const ext = try vm.getInstanceVariable(receiver, "@external_encoding");
-    if (ext.isEncoding()) {
-        const encoding_obj = ext.toEncodingObject();
-        return Value.boolean(encoding_obj.encoding == .ascii_8bit);
-    }
-    return Value.boolean(false);
+    return Value.boolean(receiver.toIoObject().binary);
 }
 
 pub fn builtinIoSync(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
@@ -1630,6 +1627,7 @@ pub fn builtinIoInitialize(vm: *VM, receiver: Value, args: []Value, _: ?Block) V
     io.readable = parsed.mode.readable;
     io.writable = parsed.mode.writable;
     io.append = parsed.mode.append;
+    io.binary = parsed.mode.binary;
     io.path = null;
     io.path_encoding = null;
 
@@ -1671,6 +1669,7 @@ fn builtinIoInitializeCopy(vm: *VM, receiver: Value, args: []Value, _: ?Block) V
     io.readable = source.readable;
     io.writable = source.writable;
     io.append = source.append;
+    io.binary = source.binary;
     io.path = source.path;
     io.path_encoding = source.path_encoding;
     io.lineno = source.lineno;
@@ -1708,6 +1707,7 @@ fn builtinIoReopen(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!V
         io.readable = other.readable;
         io.writable = other.writable;
         io.append = other.append;
+        io.binary = other.binary;
         io.path = other.path;
         io.path_encoding = other.path_encoding;
         const receiver_object = receiver.getObjectPointer().?;
@@ -1724,6 +1724,7 @@ fn builtinIoReopen(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!V
             .readable = io.readable,
             .writable = io.writable,
             .append = io.append,
+            .binary = io.binary,
             .create = io.writable or io.append,
             .truncate = io.writable and !io.readable and !io.append,
         };
@@ -1751,6 +1752,7 @@ fn builtinIoReopen(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!V
     io.readable = mode.readable;
     io.writable = mode.writable;
     io.append = mode.append;
+    io.binary = mode.binary;
     io.path = vm.gc_allocator.dupe(u8, path) catch return error.Fatal;
     io.path_encoding = path_value.toStringObject().encoding;
     return receiver;

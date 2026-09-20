@@ -555,6 +555,7 @@ pub const IoObject = struct {
     readable: bool,
     writable: bool,
     append: bool,
+    binary: bool = false,
     path: ?[]const u8,
     path_encoding: ?Encoding = null,
     lineno: i64 = 0,
