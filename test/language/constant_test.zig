@@ -152,3 +152,21 @@ test "Unknown constant raises NameError" {
     try std.testing.expect(std.mem.indexOf(u8, result.stderr, "NameError") != null);
     try std.testing.expect(std.mem.indexOf(u8, result.stderr, "uninitialized constant UnknownConstant") != null);
 }
+
+test "Unknown constant NameError includes lexical namespace and name" {
+    const result = try evalCode(
+        \\$constant_error_ok = false
+        \\module Outer
+        \\  class Inner
+        \\    begin
+        \\      Missing
+        \\    rescue NameError => error
+        \\      $constant_error_ok = error.message == "uninitialized constant Outer::Inner::Missing" && error.name == :Missing
+        \\    end
+        \\  end
+        \\end
+        \\$constant_error_ok
+    );
+
+    try std.testing.expect(result.isTrue());
+}

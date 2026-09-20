@@ -2474,6 +2474,18 @@ pub const VM = struct {
         object_autoload_attempted: bool = false,
     };
 
+    fn raiseUninitializedLexicalConstant(self: *VM, scope: ?*LexicalScope, name_sym: *value.SymbolObject) VMError {
+        if (scope) |lexical_scope| {
+            const module_obj = lexical_scope.getModule();
+            if (module_obj != &self.object_class.module) {
+                if (module_obj.classpath) |classpath| {
+                    return self.raiseNameErrorFmt(name_sym, "uninitialized constant {s}::{s}", .{ classpath.str, name_sym.name });
+                }
+            }
+        }
+        return self.raiseNameErrorFmt(name_sym, "uninitialized constant {s}", .{name_sym.name});
+    }
+
     fn autoloadRequireReceiver(self: *VM) VMError!Value {
         return self.main_self;
     }
@@ -5537,9 +5549,10 @@ pub const VM = struct {
                 const constant = constants[idx];
                 const name_sym = try self.intern(constant.string);
                 var lexical_lookup = LexicalConstantLookupResult{};
+                const lexical_scope = constantLexicalScope(epLexScope(frame.ep));
 
                 // Walk lexical scope chain first
-                if (constantLexicalScope(epLexScope(frame.ep))) |scope| {
+                if (lexical_scope) |scope| {
                     lexical_lookup = try self.findConstantInLexicalScope(scope, name_sym);
                     if (lexical_lookup.value) |val| {
                         try self.push(val);
@@ -5561,7 +5574,7 @@ pub const VM = struct {
                             },
                         }
                     }
-                    return self.raiseExceptionFmt(self.name_error_class, "uninitialized constant {s}", .{constant.string});
+                    return self.raiseUninitializedLexicalConstant(lexical_scope, name_sym);
                 }
             },
 
