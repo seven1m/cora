@@ -19,6 +19,17 @@ test "for loop - basic array iteration" {
     try std.testing.expectEqual(@as(i64, 3), values[2].toInteger());
 }
 
+test "for loop - assigns its index in the enclosing scope" {
+    const result = try evalCode(
+        \\x = :before
+        \\for x in [:first, :last]
+        \\end
+        \\x
+    );
+    try std.testing.expect(result.isSymbol());
+    try std.testing.expectEqualStrings("last", result.toSymbolObject().name);
+}
+
 test "for loop - returns nil" {
     const result = try evalCode(
         \\for x in [1]

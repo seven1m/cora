@@ -116,7 +116,6 @@ module MakeMakefile
     args.delete_if {|a| /\A--(?:top(?:src)?|src|cur)dir(?=\z|=)/ =~ a}
     for arg in args.concat(ARGV)
       arg, val = arg.split('=', 2)
-      next unless arg
       arg.tr!('_', '-')
       if arg.sub!(/\A(?!--)/, '--')
         val or next

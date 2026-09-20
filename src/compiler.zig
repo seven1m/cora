@@ -5051,17 +5051,19 @@ pub const Compiler = struct {
         const saved_locals = self.locals;
         self.locals = .empty;
 
-        // Register loop variable(s) as locals of the block
+        // A for loop does not introduce a local scope. Reserve a private block
+        // parameter and copy each yielded value into the enclosing local(s).
         const index_node = try self.parser.asNode(@ptrCast(for_node.index));
+        _ = try self.resolveOrCreateLocalSlot("");
         switch (index_node) {
             .local_variable_target => |var_target| {
                 const var_name = try self.parser.getLocalVariableName(var_target.name);
-                _ = try self.resolveOrCreateLocalSlot(var_name);
+                try self.current_chunk.emitOpU16(.GET_LOCAL, 0, line);
+                const slot = try self.resolveOrCreateLocalSlot(var_name);
+                try self.emitSetLocalSlot(slot, line);
+                try self.current_chunk.emitOp(.POP, line);
             },
-            .multi_target => {
-                // Dummy local for the iteration value; sub-variables created by compileNestedMultiTarget
-                _ = try self.resolveOrCreateLocalSlot("");
-            },
+            .multi_target => {},
             else => return error.UnsupportedNode,
         }
 
