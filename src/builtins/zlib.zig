@@ -64,6 +64,7 @@ pub fn register(vm: *VM) !void {
     try zlib_singleton.module.methods.put(try vm.intern("__deflate"), value.MethodEntry.builtin(&builtinZlibDeflate, .{ .exact = 3 }));
     try zlib_singleton.module.methods.put(try vm.intern("__inflate"), value.MethodEntry.builtin(&builtinZlibInflate, .{ .exact = 2 }));
     try zlib_singleton.module.methods.put(try vm.intern("adler32"), value.MethodEntry.builtin(&builtinZlibAdler32, .{ .variadic = 0 }));
+    try zlib_singleton.module.methods.put(try vm.intern("crc32"), value.MethodEntry.builtin(&builtinZlibCrc32, .{ .variadic = 0 }));
     try zlib_singleton.module.methods.put(try vm.intern("zlib_version"), value.MethodEntry.builtin(&builtinZlibVersion, .{ .exact = 0 }));
 }
 
@@ -103,6 +104,35 @@ fn adler32(input: []const u8, initial: u32) u32 {
         offset = end;
     }
     return (s2 << 16) | s1;
+}
+
+pub fn builtinZlibCrc32(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCountRange(args, 0, 2);
+    const input: []const u8 = if (args.len >= 1)
+        (try args[0].coerceToStringValue(vm, "no implicit conversion into String")).toStringObject().str
+    else
+        "";
+    const initial: u32 = if (args.len == 2) blk: {
+        const raw = try args[1].coerceToI64ViaToInt(
+            vm,
+            "no implicit conversion into Integer",
+            "no implicit conversion into Integer",
+            "bignum too big to convert into `unsigned long'",
+        );
+        break :blk @truncate(@as(u64, @bitCast(raw)));
+    } else 0;
+    return Value.integer(@intCast(crc32(input, initial)));
+}
+
+fn crc32(input: []const u8, initial: u32) u32 {
+    var crc = initial ^ 0xFFFFFFFF;
+    for (input) |byte| {
+        crc ^= byte;
+        for (0..8) |_| {
+            crc = if ((crc & 1) != 0) (crc >> 1) ^ 0xEDB88320 else crc >> 1;
+        }
+    }
+    return crc ^ 0xFFFFFFFF;
 }
 
 pub fn builtinZlibVersion(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
