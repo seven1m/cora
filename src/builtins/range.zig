@@ -48,6 +48,9 @@ pub fn register(vm: *VM) !void {
     const each_sym = try vm.intern("each");
     try vm.range_class.module.methods.put(each_sym, value.MethodEntry.builtin(&builtinRangeEach, .{ .exact = 0 }));
 
+    const step_sym = try vm.intern("step");
+    try vm.range_class.module.methods.put(step_sym, value.MethodEntry.builtin(&builtinRangeStep, .{ .variadic = 0 }));
+
     const size_sym = try vm.intern("size");
     try vm.range_class.module.methods.put(size_sym, value.MethodEntry.builtin(&builtinRangeSize, .{ .exact = 0 }));
 
@@ -556,6 +559,159 @@ pub fn builtinRangeEach(vm: *VM, receiver: Value, args: []Value, block: ?Block) 
         visitEach,
     );
     return receiver;
+}
+
+fn rangeStepSize(vm: *VM, receiver: Value, method_args: ?*value.ArrayObject) VMError!Value {
+    const range_obj = receiver.toRangeObject();
+    if (range_obj.begin.isNil() or range_obj.end.isNil()) return vm.newFloat(std.math.inf(f64));
+    if (!isNumericValue(vm, range_obj.begin) or !isNumericValue(vm, range_obj.end)) return Value.nil();
+
+    const step = if (method_args) |args| args.elements.items[0] else Value.integer(1);
+    if (!isNumericValue(vm, step)) return Value.nil();
+    const begin_f = rangeStepToF64(range_obj.begin);
+    const end_f = rangeStepToF64(range_obj.end);
+    const step_f = rangeStepToF64(step);
+    if (step_f == 0.0 or (end_f - begin_f) * step_f < 0.0) return Value.integer(0);
+    const span = (end_f - begin_f) / step_f;
+    var count = if (range_obj.exclude_end)
+        @ceil(span)
+    else
+        @floor(span + 1.0e-12) + 1.0;
+    if (range_obj.exclude_end and span > 0.0) {
+        const nearest = @round(span);
+        if (@abs(span - nearest) <= 1.0e-12) {
+            const candidate = begin_f + step_f * nearest;
+            if ((step_f > 0.0 and candidate < end_f) or (step_f < 0.0 and candidate > end_f)) count = nearest + 1.0;
+        }
+    }
+    if (count <= 0.0) return Value.integer(0);
+    if (count <= @as(f64, @floatFromInt(std.math.maxInt(i64)))) return Value.integer(@intFromFloat(count));
+    return vm.newFloat(count);
+}
+
+fn rangeStepToF64(number: Value) f64 {
+    if (number.isFloat()) return number.toFloatObject().val;
+    return number.integerToF64();
+}
+
+pub fn builtinRangeStep(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
+    try vm.requireArgCountRange(args, 0, 1);
+    const range_obj = receiver.toRangeObject();
+    const step = if (args.len == 1) args[0] else Value.integer(1);
+
+    const numeric_range = !range_obj.begin.isNil() and isNumericValue(vm, range_obj.begin) and
+        (range_obj.end.isNil() or isNumericValue(vm, range_obj.end));
+    var step_is_zero = false;
+    if (isNumericValue(vm, step)) {
+        const zero = try vm.callMethodByName(step, "zero?", &.{}, null);
+        step_is_zero = zero.isTruthy();
+        if (step_is_zero and (numeric_range or block == null)) return vm.raiseExceptionFmt(vm.argument_error_class, "step can't be 0", .{});
+    }
+
+    const blk = block orelse {
+        if (range_obj.begin.isNil() and (!isNumericValue(vm, range_obj.end) or !isNumericValue(vm, step))) {
+            return vm.raiseExceptionFmt(vm.argument_error_class, "#step for non-numeric beginless ranges is meaningless", .{});
+        }
+        const method_args = if (args.len == 1) args else &.{};
+        const kind = value.EnumeratorObject.Kind{ .method = .{ .receiver = receiver, .method_name = try vm.intern("step") } };
+        var stored_args: ?*value.ArrayObject = null;
+        if (method_args.len == 1) {
+            stored_args = try vm.createArray();
+            stored_args.?.elements.append(vm.gc_allocator, step) catch return error.Fatal;
+        }
+        const class = if (isNumericValue(vm, range_obj.begin) or isNumericValue(vm, range_obj.end))
+            vm.enumerator_arithmetic_sequence_class
+        else
+            vm.enumerator_class;
+        return vm.newEnumeratorOfClass(class, kind, stored_args, null, &rangeStepSize);
+    };
+
+    if (range_obj.begin.isNil()) {
+        return vm.raiseExceptionFmt(vm.argument_error_class, "#step iteration for beginless ranges is meaningless", .{});
+    }
+    if (step_is_zero) return receiver;
+
+    if (numeric_range and isNumericValue(vm, step)) {
+        return rangeStepNumeric(vm, receiver, range_obj, step, blk);
+    }
+
+    var add_args = [_]Value{step};
+    const use_succ = !isNumericValue(vm, range_obj.begin) and step.isInteger();
+    const first_next = if (use_succ)
+        try rangeStepSucc(vm, range_obj.begin, step.toInteger())
+    else
+        try vm.callMethodByName(range_obj.begin, "+", &add_args, null);
+    var direction: i64 = if (range_obj.end.isNil()) 0 else try rLess(vm, range_obj.begin, range_obj.end);
+    const step_direction = try rLess(vm, range_obj.begin, first_next);
+    if (direction == r_less_stop or step_direction == r_less_stop or step_direction == 0 or
+        (direction < 0 and step_direction > 0) or (direction > 0 and step_direction < 0)) return receiver;
+    if (direction == 0) direction = step_direction;
+
+    var current = range_obj.begin;
+    var index: i64 = 0;
+    while (true) {
+        const cmp = if (range_obj.end.isNil()) @as(i64, 0) else try rLess(vm, current, range_obj.end);
+        if (!range_obj.end.isNil()) {
+            const past = if (direction < 0) cmp > 0 or (range_obj.exclude_end and cmp == 0) else cmp < 0 or (range_obj.exclude_end and cmp == 0);
+            if (past) break;
+        }
+        _ = try vm.yieldToBlock(blk, &.{current});
+        if (!range_obj.end.isNil() and !range_obj.exclude_end and cmp == 0) return receiver;
+        index += 1;
+        if (isNumericValue(vm, range_obj.begin) and isNumericValue(vm, step)) {
+            var mul_args = [_]Value{Value.integer(index)};
+            const offset = try vm.callMethodByName(step, "*", &mul_args, null);
+            var offset_args = [_]Value{offset};
+            current = try vm.callMethodByName(range_obj.begin, "+", &offset_args, null);
+        } else if (use_succ) {
+            current = try rangeStepSucc(vm, current, step.toInteger());
+        } else {
+            var next_args = [_]Value{step};
+            current = try vm.callMethodByName(current, "+", &next_args, null);
+        }
+    }
+    return receiver;
+}
+
+fn rangeStepNumeric(vm: *VM, receiver: Value, range_obj: *value.RangeObject, step: Value, block: Block) VMError!Value {
+    const begin_f = rangeStepToF64(range_obj.begin);
+    const step_f = rangeStepToF64(step);
+    const end_f = if (range_obj.end.isNil()) 0.0 else rangeStepToF64(range_obj.end);
+    const yields_float = range_obj.begin.isFloat() or (!range_obj.end.isNil() and range_obj.end.isFloat()) or step.isFloat();
+    if (!range_obj.end.isNil() and (end_f - begin_f) * step_f < 0.0) return receiver;
+
+    var index: i64 = 0;
+    while (true) : (index += 1) {
+        var current_f = begin_f + step_f * @as(f64, @floatFromInt(index));
+        if (!range_obj.end.isNil()) {
+            const tolerance = @abs(step_f) * 1.0e-12;
+            if (!range_obj.exclude_end and @abs(current_f - end_f) <= tolerance) current_f = end_f;
+            if (range_obj.exclude_end and step_f > 0.0 and current_f > end_f and current_f - end_f <= tolerance) {
+                current_f = std.math.nextAfter(f64, end_f, -std.math.inf(f64));
+            }
+            const past = if (step_f > 0.0)
+                current_f > end_f or (range_obj.exclude_end and current_f >= end_f)
+            else
+                current_f < end_f or (range_obj.exclude_end and current_f <= end_f);
+            if (past) break;
+        }
+        const current = if (yields_float)
+            try vm.newFloat(current_f)
+        else
+            Value.integer(@intFromFloat(current_f));
+        _ = try vm.yieldToBlock(block, &.{current});
+    }
+    return receiver;
+}
+
+fn rangeStepSucc(vm: *VM, start: Value, count: i64) VMError!Value {
+    if (count <= 0) return vm.raiseExceptionFmt(vm.argument_error_class, "step can't be negative", .{});
+    var current = start;
+    var remaining = count;
+    while (remaining > 0) : (remaining -= 1) {
+        current = try vm.callMethodByName(current, "succ", &.{}, null);
+    }
+    return current;
 }
 
 /// MRI `range_size`: element count for Integer bounds, Float::INFINITY for

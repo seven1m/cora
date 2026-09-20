@@ -1800,7 +1800,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] core/range/range_spec.rb
 - [ ] core/range/reverse_each_spec.rb
 - [x] core/range/size_spec.rb
-- [ ] core/range/step_spec.rb
+- [x] core/range/step_spec.rb
 - [x] core/range/to_a_spec.rb
 - [x] core/range/to_s_spec.rb
 - [ ] core/range/to_set_spec.rb

@@ -746,6 +746,7 @@ pub const VM = struct {
 
     enumerator_class: *value.ClassObject,
     enumerator_chain_class: *value.ClassObject,
+    enumerator_arithmetic_sequence_class: *value.ClassObject,
     yielder_class: *value.ClassObject,
     method_class: *value.ClassObject,
     unbound_method_class: *value.ClassObject,
@@ -983,6 +984,7 @@ pub const VM = struct {
             .stop_iteration_class = undefined,
             .enumerator_class = undefined,
             .enumerator_chain_class = undefined,
+            .enumerator_arithmetic_sequence_class = undefined,
             .yielder_class = undefined,
             .method_class = undefined,
             .unbound_method_class = undefined,
@@ -1584,6 +1586,10 @@ pub const VM = struct {
         const enumerator_chain_class_val = try self.newClass(enumerator_chain_name_sym, self.enumerator_class);
         self.enumerator_chain_class = enumerator_chain_class_val.toClassObject();
 
+        const arithmetic_sequence_name_sym = try self.intern("ArithmeticSequence");
+        const arithmetic_sequence_class_val = try self.newClass(arithmetic_sequence_name_sym, self.enumerator_class);
+        self.enumerator_arithmetic_sequence_class = arithmetic_sequence_class_val.toClassObject();
+
         const yielder_name_sym = try self.intern("Yielder");
         const yielder_class_val = try self.newClass(yielder_name_sym, self.object_class);
         self.yielder_class = yielder_class_val.toClassObject();
@@ -1824,6 +1830,7 @@ pub const VM = struct {
         try self.registerErrnoClass(.NETDOWN, enetdown_class_val.toClassObject());
         self.object_class.module.constants.put(enumerator_name_sym, .{ .value = enumerator_class_val }) catch return error.Fatal;
         self.enumerator_class.module.constants.put(enumerator_chain_name_sym, .{ .value = enumerator_chain_class_val }) catch return error.Fatal;
+        self.enumerator_class.module.constants.put(arithmetic_sequence_name_sym, .{ .value = arithmetic_sequence_class_val }) catch return error.Fatal;
         self.enumerator_class.module.constants.put(yielder_name_sym, .{ .value = yielder_class_val }) catch return error.Fatal;
         self.object_class.module.constants.put(encoding_name_sym, .{ .value = encoding_class_val }) catch return error.Fatal;
         const ruby_engine_sym = try self.intern("RUBY_ENGINE");

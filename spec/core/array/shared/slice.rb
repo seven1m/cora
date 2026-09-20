@@ -512,7 +512,7 @@ describe :array_slice, shared: true do
     end
 
     it "has endless range and positive steps" do
-      CORAFIXME "Range#step is not implemented yet", exception: NoMethodError, message: /undefined method 'step'/ do
+      CORAFIXME "Array slicing with Enumerator::ArithmeticSequence is not implemented yet", exception: TypeError do
         @array.send(@method, eval("(0..).step(1)")).should == [0, 1, 2, 3, 4, 5]
         @array.send(@method, eval("(0..).step(2)")).should == [0, 2, 4]
         @array.send(@method, eval("(0..).step(10)")).should == [0]
@@ -528,7 +528,7 @@ describe :array_slice, shared: true do
     end
 
     it "has beginless range and positive steps" do
-      CORAFIXME "Range#step is not implemented yet", exception: NoMethodError, message: /undefined method 'step'/ do
+      CORAFIXME "Array slicing with Enumerator::ArithmeticSequence is not implemented yet", exception: TypeError do
         # end with zero index
         @array.send(@method, (..0).step(1)).should == [0]
         @array.send(@method, (...0).step(1)).should == []
@@ -562,7 +562,7 @@ describe :array_slice, shared: true do
     end
 
     it "has endless range and negative steps" do
-      CORAFIXME "Range#step is not implemented yet", exception: NoMethodError, message: /undefined method 'step'/ do
+      CORAFIXME "Array slicing with Enumerator::ArithmeticSequence is not implemented yet", exception: TypeError do
         @array.send(@method, eval("(0..).step(-1)")).should == [0]
         @array.send(@method, eval("(0..).step(-2)")).should == [0]
         @array.send(@method, eval("(0..).step(-10)")).should == [0]
@@ -576,7 +576,7 @@ describe :array_slice, shared: true do
     end
 
     it "has closed range and positive steps" do
-      CORAFIXME "Range#step is not implemented yet", exception: NoMethodError, message: /undefined method 'step'/ do
+      CORAFIXME "Array slicing with Enumerator::ArithmeticSequence is not implemented yet", exception: TypeError do
         # start and end with 0
         @array.send(@method, eval("(0..0).step(1)")).should == [0]
         @array.send(@method, eval("(0...0).step(1)")).should == []
@@ -630,7 +630,7 @@ describe :array_slice, shared: true do
     end
 
     it "has closed range and negative steps" do
-      CORAFIXME "Range#step is not implemented yet", exception: NoMethodError, message: /undefined method 'step'/ do
+      CORAFIXME "Array slicing with Enumerator::ArithmeticSequence is not implemented yet", exception: TypeError do
         # start and end with 0
         @array.send(@method, eval("(0..0).step(-1)")).should == [0]
         @array.send(@method, eval("(0...0).step(-1)")).should == []
@@ -684,7 +684,7 @@ describe :array_slice, shared: true do
     end
 
     it "has inverted closed range and positive steps" do
-      CORAFIXME "Range#step is not implemented yet", exception: NoMethodError, message: /undefined method 'step'/ do
+      CORAFIXME "Array slicing with Enumerator::ArithmeticSequence is not implemented yet", exception: TypeError do
         # start and end with positive index
         @array.send(@method, eval("(3..1).step(1)")).should == []
         @array.send(@method, eval("(3...1).step(1)")).should == []
@@ -728,7 +728,7 @@ describe :array_slice, shared: true do
     end
 
     it "has range with bounds outside of array" do
-      CORAFIXME "Range#step is not implemented yet", exception: NoMethodError, message: /undefined method 'step'/ do
+      CORAFIXME "Array slicing with Enumerator::ArithmeticSequence is not implemented yet", exception: TypeError do
         # end is equal to array's length
         @array.send(@method, (0..6).step(1)).should == [0, 1, 2, 3, 4, 5]
         -> { @array.send(@method, (0..6).step(2)) }.should raise_error(RangeError)
@@ -746,7 +746,7 @@ describe :array_slice, shared: true do
     end
 
     it "has endless range with start outside of array's bounds" do
-      CORAFIXME "Range#step is not implemented yet", exception: NoMethodError, message: /undefined method 'step'/ do
+      CORAFIXME "Array slicing with Enumerator::ArithmeticSequence is not implemented yet", exception: TypeError do
         @array.send(@method, eval("(6..).step(1)")).should == []
         @array.send(@method, eval("(7..).step(1)")).should == nil
 
@@ -772,7 +772,7 @@ describe :array_slice, shared: true do
 
   describe "can be sliced with Enumerator::ArithmeticSequence" do
     it "with infinite/inverted ranges and negative steps" do
-      CORAFIXME "Range#step is not implemented yet", exception: NoMethodError, message: /undefined method 'step'/ do
+      CORAFIXME "Array slicing with Enumerator::ArithmeticSequence is not implemented yet", exception: TypeError do
         @array = [0, 1, 2, 3, 4, 5]
         @array.send(@method, (2..).step(-1)).should == [2, 1, 0]
         @array.send(@method, (2..).step(-2)).should == [2, 0]
