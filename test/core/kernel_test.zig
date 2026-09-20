@@ -345,6 +345,17 @@ test "builtin Method#arity and UnboundMethod#arity match MRI-visible arities" {
     }
 }
 
+test "Kernel#warn reports its keyword parameters" {
+    const result = try evalCode(
+        \\Kernel.instance_method(:warn).parameters == [
+        \\  [:rest, :msgs],
+        \\  [:key, :uplevel],
+        \\  [:key, :category]
+        \\]
+    );
+    try std.testing.expect(result.isTrue());
+}
+
 test "BasicObject#initialize is private and Class#new dispatches through method_missing after undef_method" {
     var result = try evalCode("Object.new.respond_to?(:initialize, true)");
     try std.testing.expect(result.isBool());

@@ -275,18 +275,26 @@ pub fn parametersForResolvedMethod(vm: *VM, resolved: vm_mod.ResolvedMethod) VME
                 try appendParameterDescriptor(vm, out, "rest", null);
             },
         },
-        .builtin => |builtin_method| switch (builtin_method.arity) {
-            .exact => |count| {
-                for (0..count) |_| {
-                    try appendParameterDescriptor(vm, out, "req", null);
+        .builtin => |builtin_method| {
+            if (builtin_method.parameters) |parameters| {
+                for (parameters) |parameter| {
+                    try appendParameterDescriptor(vm, out, @tagName(parameter.kind), parameter.name);
                 }
-            },
-            .variadic => |required| {
-                for (0..required) |_| {
-                    try appendParameterDescriptor(vm, out, "req", null);
+            } else {
+                switch (builtin_method.arity) {
+                    .exact => |count| {
+                        for (0..count) |_| {
+                            try appendParameterDescriptor(vm, out, "req", null);
+                        }
+                    },
+                    .variadic => |required| {
+                        for (0..required) |_| {
+                            try appendParameterDescriptor(vm, out, "req", null);
+                        }
+                        try appendParameterDescriptor(vm, out, "rest", null);
+                    },
                 }
-                try appendParameterDescriptor(vm, out, "rest", null);
-            },
+            }
         },
         .cext => |cext_method| {
             const arity: i32 = @intCast(cext_method.argc);

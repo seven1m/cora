@@ -228,6 +228,17 @@ pub const MethodEntry = struct {
         };
     }
 
+    pub fn keywordBuiltinWithParameters(
+        function: *const fn (*VM, Value, []Value, ?Block) VMError!Value,
+        arity: BuiltinArity,
+        parameters: []const vm_mod.BuiltinParameter,
+    ) MethodEntry {
+        return .{
+            .method = .{ .builtin = .{ .function = function, .arity = arity, .parameters = parameters } },
+            .accepts_keywords = true,
+        };
+    }
+
     pub fn builtinWithVisibility(
         function: *const fn (*VM, Value, []Value, ?Block) VMError!Value,
         arity: BuiltinArity,

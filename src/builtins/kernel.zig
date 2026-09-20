@@ -26,6 +26,12 @@ const Value = value.Value;
 const ClassObject = value.ClassObject;
 const ModuleObject = value.ModuleObject;
 const MethodEntry = value.MethodEntry;
+
+const warn_parameters = [_]vm_mod.BuiltinParameter{
+    .{ .kind = .rest, .name = "msgs" },
+    .{ .kind = .key, .name = "uplevel" },
+    .{ .kind = .key, .name = "category" },
+};
 const SymbolObject = value.SymbolObject;
 const MethodListFilter = method_reflection.MethodListFilter;
 
@@ -216,7 +222,9 @@ pub fn register(vm: *VM) !void {
     try vm.kernel_module.methods.put(open_sym, MethodEntry.builtinWithVisibility(&builtinKernelOpen, .{ .variadic = 0 }, .private));
 
     const warn_sym = try vm.intern("warn");
-    try vm.kernel_module.methods.put(warn_sym, MethodEntry.builtinWithVisibility(&builtinKernelWarn, .{ .variadic = 0 }, .private));
+    var warn_entry = MethodEntry.keywordBuiltinWithParameters(&builtinKernelWarn, .{ .variadic = 0 }, &warn_parameters);
+    warn_entry.visibility = .private;
+    try vm.kernel_module.methods.put(warn_sym, warn_entry);
 
     const catch_sym = try vm.intern("catch");
     try vm.kernel_module.methods.put(catch_sym, MethodEntry.builtinWithVisibility(&builtinKernelCatch, .{ .variadic = 0 }, .private));
@@ -314,7 +322,7 @@ pub fn register(vm: *VM) !void {
     try kernel_singleton.module.methods.put(format_sym, MethodEntry.builtin(&builtinKernelSprintf, .{ .variadic = 1 }));
     try kernel_singleton.module.methods.put(autoload_sym, MethodEntry.builtin(&builtinKernelSingletonAutoload, .{ .exact = 2 }));
     try kernel_singleton.module.methods.put(autoload_q_sym, MethodEntry.builtin(&builtinKernelSingletonAutoloadQ, .{ .variadic = 0 }));
-    try kernel_singleton.module.methods.put(warn_sym, MethodEntry.builtin(&builtinKernelWarn, .{ .variadic = 0 }));
+    try kernel_singleton.module.methods.put(warn_sym, MethodEntry.keywordBuiltinWithParameters(&builtinKernelWarn, .{ .variadic = 0 }, &warn_parameters));
     try kernel_singleton.module.methods.put(catch_sym, MethodEntry.builtin(&builtinKernelCatch, .{ .variadic = 0 }));
     try kernel_singleton.module.methods.put(throw_sym, MethodEntry.builtin(&builtinKernelThrow, .{ .variadic = 1 }));
     try kernel_singleton.module.methods.put(require_sym, value.MethodEntry.builtin(&builtinKernelRequire, .{ .exact = 1 }));

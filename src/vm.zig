@@ -216,9 +216,15 @@ pub const VMError = error{
     CyclicInclude,
 };
 
+pub const BuiltinParameter = struct {
+    kind: enum { req, opt, rest, keyreq, key, keyrest, nokey, block },
+    name: ?[]const u8 = null,
+};
+
 pub const BuiltinMethod = struct {
     function: *const fn (*VM, Value, []Value, ?Block) VMError!Value,
     arity: value.BuiltinArity = .{ .exact = 0 },
+    parameters: ?[]const BuiltinParameter = null,
 };
 
 pub const CExtMethod = struct {
