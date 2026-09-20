@@ -174,6 +174,16 @@ cext_ivar_access(VALUE self, VALUE object)
 }
 
 static VALUE
+cext_array_mutation(VALUE self)
+{
+    (void)self;
+    VALUE array = rb_ary_new3(3, INT2NUM(1), INT2NUM(2), INT2NUM(1));
+    VALUE deleted = rb_ary_delete(array, INT2NUM(1));
+    rb_ary_store(array, 2, INT2NUM(4));
+    return rb_assoc_new(deleted, array);
+}
+
+static VALUE
 cext_undef_class_new(VALUE self, VALUE klass)
 {
     (void)self;
@@ -212,6 +222,7 @@ void Init_fixture(void)
     rb_define_module_function(mCoraCExt, "class_of", cext_class_of, 1);
     rb_define_module_function(mCoraCExt, "obj_class", cext_obj_class, 1);
     rb_define_module_function(mCoraCExt, "ivar_access", cext_ivar_access, 1);
+    rb_define_module_function(mCoraCExt, "array_mutation", cext_array_mutation, 0);
     rb_define_module_function(mCoraCExt, "undef_class_new", cext_undef_class_new, 1);
     rb_define_module_function(mCoraCExt, "scan_keywords", cext_scan_keywords, -1);
 

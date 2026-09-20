@@ -671,6 +671,16 @@ export fn rb_ary_entry(ary_raw: VALUE, offset: c_long) VALUE {
     return arr.elements.items[idx].raw;
 }
 
+export fn rb_ary_delete(ary_raw: VALUE, item_raw: VALUE) VALUE {
+    const argv = [_]VALUE{item_raw};
+    return rb_funcallv(ary_raw, rb_intern("delete"), 1, &argv);
+}
+
+export fn rb_ary_store(ary_raw: VALUE, index: c_long, value_raw: VALUE) void {
+    const argv = [_]VALUE{ LONG2NUM(index), value_raw };
+    _ = rb_funcallv(ary_raw, rb_intern("[]="), 2, &argv);
+}
+
 export fn rb_ary_const_ptr(ary_raw: VALUE) ?[*]const VALUE {
     const val = Value{ .raw = ary_raw };
     const arr = val.toArrayObject();

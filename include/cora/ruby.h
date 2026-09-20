@@ -217,6 +217,8 @@ double rb_cstr_to_dbl(const char *str, int badcheck);
 
 /* array macros */
 VALUE rb_ary_entry(VALUE ary, long offset);
+VALUE rb_ary_delete(VALUE ary, VALUE item);
+void  rb_ary_store(VALUE ary, long index, VALUE value);
 long  RARRAY_LEN(VALUE ary);
 const VALUE *rb_ary_const_ptr(VALUE ary);
 #define RARRAY_CONST_PTR(a) rb_ary_const_ptr(a)

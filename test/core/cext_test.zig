@@ -57,6 +57,21 @@ test "C extension accesses and detects instance variables" {
     try std.testing.expect(!values[2].toBool());
 }
 
+test "C extension deletes and stores array elements" {
+    const result = try evalCode(
+        \\$LOAD_PATH << "build/cext"
+        \\require "fixture.so"
+        \\CoraCExt.array_mutation
+    );
+    const values = result.toArrayObject().elements.items;
+    try std.testing.expectEqual(@as(i64, 1), values[0].toInteger());
+    const array = values[1].toArrayObject().elements.items;
+    try std.testing.expectEqual(@as(usize, 3), array.len);
+    try std.testing.expectEqual(@as(i64, 2), array[0].toInteger());
+    try std.testing.expect(array[1].isNil());
+    try std.testing.expectEqual(@as(i64, 4), array[2].toInteger());
+}
+
 test "C extension can undefine new on one class singleton" {
     const result = try evalCode(
         \\$LOAD_PATH << "build/cext"
