@@ -18,6 +18,26 @@ test "Required keyword missing raises error" {
         std.mem.indexOf(u8, result.stderr, "keyword") != null);
 }
 
+test "Keyword errors inspect keyword names" {
+    const result = try evalCode(
+        \\def required_keyword(value:); end
+        \\missing = begin
+        \\  required_keyword
+        \\rescue ArgumentError => error
+        \\  error.message
+        \\end
+        \\unknown = begin
+        \\  required_keyword(value: 1, extra: 2)
+        \\rescue ArgumentError => error
+        \\  error.message
+        \\end
+        \\[missing, unknown]
+    );
+    const messages = result.toArrayObject().elements.items;
+    try std.testing.expectEqualStrings("missing keyword: :value", messages[0].toStringObject().str);
+    try std.testing.expectEqualStrings("unknown keyword: :extra", messages[1].toStringObject().str);
+}
+
 test "Optional keyword with default" {
     const result = try evalCode("def bar(y: 100); y; end\nbar()");
     try std.testing.expectEqual(100, result.toInteger());

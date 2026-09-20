@@ -7911,13 +7911,6 @@ pub const VM = struct {
             return error.Unwind;
         }
 
-        if (!has_keywords and method_chunk.required_keywords.items.len > 0) {
-            const msg = "missing required keyword arguments";
-            const exc = try self.createException(self.argument_error_class, msg);
-            self.setPendingException(exc);
-            return error.Unwind;
-        }
-
         try self.pushFrame(method_chunk, receiver, opts.block);
         const callee_frame = self.currentFrame();
         callee_frame.method_name = opts.method_name;
@@ -8443,10 +8436,10 @@ pub const VM = struct {
             if (!ctx.consumed[i]) {
                 const key = ctx.kw_keys[i];
                 if (key.isSymbol()) {
-                    return self.raiseExceptionFmt(self.argument_error_class, "unknown keyword: {s}", .{key.toSymbolObject().name});
+                    return self.raiseExceptionFmt(self.argument_error_class, "unknown keyword: :{s}", .{key.toSymbolObject().name});
                 }
                 if (key.isString()) {
-                    return self.raiseExceptionFmt(self.argument_error_class, "unknown keyword: {s}", .{key.toStringObject().str});
+                    return self.raiseExceptionFmt(self.argument_error_class, "unknown keyword: \"{s}\"", .{key.toStringObject().str});
                 }
                 return self.raiseExceptionFmt(self.argument_error_class, "unknown keyword", .{});
             }
@@ -13224,7 +13217,7 @@ pub const VM = struct {
             }
 
             if (!found) {
-                const msg = std.fmt.allocPrint(self.gc_allocator, "missing keyword: {s}", .{req_name}) catch return error.Fatal;
+                const msg = std.fmt.allocPrint(self.gc_allocator, "missing keyword: :{s}", .{req_name}) catch return error.Fatal;
                 const exc = try self.createException(self.argument_error_class, msg);
                 self.setPendingException(exc);
                 return error.Unwind;
@@ -13274,7 +13267,7 @@ pub const VM = struct {
                 if (!is_matched) {
                     const key = kw_keys[i];
                     const msg = if (key.isSymbol())
-                        std.fmt.allocPrint(self.gc_allocator, "unknown keyword: {s}", .{key.toSymbolObject().name}) catch return error.Fatal
+                        std.fmt.allocPrint(self.gc_allocator, "unknown keyword: :{s}", .{key.toSymbolObject().name}) catch return error.Fatal
                     else if (key.isString())
                         std.fmt.allocPrint(self.gc_allocator, "unknown keyword: \"{s}\"", .{key.toStringObject().str}) catch return error.Fatal
                     else

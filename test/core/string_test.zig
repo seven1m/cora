@@ -397,5 +397,5 @@ test "Builtin methods reject keywords unless consumed" {
         &stderr_buf,
     );
     try std.testing.expectEqual(error.UnhandledException, result.err.?);
-    try std.testing.expect(std.mem.indexOf(u8, result.stderr, "unknown keyword: nope") != null);
+    try std.testing.expect(std.mem.indexOf(u8, result.stderr, "unknown keyword: :nope") != null);
 }
