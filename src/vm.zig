@@ -1314,6 +1314,9 @@ pub const VM = struct {
         const standard_error_class_val = try self.newClass(standard_error_name_sym, self.exception_class);
         self.standard_error_class = standard_error_class_val.toClassObject();
 
+        const no_matching_pattern_error_name_sym = try self.intern("NoMatchingPatternError");
+        const no_matching_pattern_error_class_val = try self.newClass(no_matching_pattern_error_name_sym, self.standard_error_class);
+
         const system_call_error_name_sym = try self.intern("SystemCallError");
         const system_call_error_class_val = try self.newClass(system_call_error_name_sym, self.standard_error_class);
         self.system_call_error_class = system_call_error_class_val.toClassObject();
@@ -1682,6 +1685,7 @@ pub const VM = struct {
         self.object_class.module.constants.put(signal_exception_name_sym, .{ .value = signal_exception_class_val }) catch return error.Fatal;
         self.object_class.module.constants.put(interrupt_name_sym, .{ .value = interrupt_class_val }) catch return error.Fatal;
         self.object_class.module.constants.put(standard_error_name_sym, .{ .value = standard_error_class_val }) catch return error.Fatal;
+        self.object_class.module.constants.put(no_matching_pattern_error_name_sym, .{ .value = no_matching_pattern_error_class_val }) catch return error.Fatal;
         self.object_class.module.constants.put(system_call_error_name_sym, .{ .value = system_call_error_class_val }) catch return error.Fatal;
         self.object_class.module.constants.put(runtime_error_name_sym, .{ .value = runtime_error_class_val }) catch return error.Fatal;
         self.object_class.module.constants.put(syntax_error_name_sym, .{ .value = syntax_error_class_val }) catch return error.Fatal;

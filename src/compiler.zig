@@ -1139,6 +1139,12 @@ pub const Compiler = struct {
                 }
             },
 
+            .match_required => |match_required_node| {
+                try self.compileMatchRequired(match_required_node, line);
+            },
+
+            .array_pattern => return error.UnsupportedNode,
+
             .rescue => {
                 std.debug.print("Error: rescue node should be handled by begin node\n", .{});
                 return error.UnsupportedNode;
@@ -5131,6 +5137,93 @@ pub const Compiler = struct {
         try self.recordBlockCallHandler(chunk_id, call_byte_offset);
         try self.current_chunk.emitOp(.POP, line);
         try self.current_chunk.emitOp(.PUSH_NIL, line);
+    }
+
+    fn emitNoMatchingPatternRaise(self: *Compiler, message: []const u8, line: u32) !void {
+        try self.current_chunk.emitOp(.POP, line);
+        try self.current_chunk.emitOp(.POP, line);
+        try self.current_chunk.emitOp(.PUSH_SELF, line);
+
+        const class_idx = try self.current_chunk.addConstant(.{ .string = "NoMatchingPatternError" });
+        try self.current_chunk.emitOpU16(.GET_CONST, @intCast(class_idx), line);
+        const message_idx = try self.current_chunk.addConstant(.{ .string = message });
+        try self.current_chunk.emitOpU16(.PUSH_CSTRING, @intCast(message_idx), line);
+
+        const raise_idx = try self.current_chunk.addConstant(.{ .string = "raise" });
+        try self.current_chunk.emitCall(
+            @intCast(raise_idx),
+            2,
+            bytecode.encodeCallFlags(.implicit_self, false),
+            0,
+            line,
+        );
+    }
+
+    fn compileMatchRequired(self: *Compiler, match_node: *prism.MatchRequiredNode, line: u32) !void {
+        const value_node = try self.parser.asNode(@ptrCast(match_node.value));
+        const pattern_node = try self.parser.asNode(@ptrCast(match_node.pattern));
+        if (pattern_node != .array_pattern) return error.UnsupportedNode;
+
+        const pattern = pattern_node.array_pattern;
+        if (pattern.constant != null or pattern.rest != null or pattern.posts.size != 0) {
+            return error.UnsupportedNode;
+        }
+
+        try self.compileNode(value_node, line);
+        try self.current_chunk.emitOp(.DUP, line);
+        const deconstruct_idx = try self.current_chunk.addConstant(.{ .string = "deconstruct" });
+        try self.current_chunk.emitCall(
+            @intCast(deconstruct_idx),
+            0,
+            bytecode.encodeCallFlags(.explicit, false),
+            0,
+            line,
+        );
+
+        try self.current_chunk.emitOp(.DUP, line);
+        const length_idx = try self.current_chunk.addConstant(.{ .string = "length" });
+        try self.current_chunk.emitCall(
+            @intCast(length_idx),
+            0,
+            bytecode.encodeCallFlags(.explicit, false),
+            0,
+            line,
+        );
+        const required_count: i64 = @intCast(pattern.requireds.size);
+        const count_idx = try self.current_chunk.addConstant(.{ .integer = required_count });
+        try self.current_chunk.emitOpU16(.PUSH_CONST, @intCast(count_idx), line);
+        const equal_idx = try self.current_chunk.addConstant(.{ .string = "==" });
+        try self.current_chunk.emitCall(
+            @intCast(equal_idx),
+            1,
+            bytecode.encodeCallFlags(.explicit, false),
+            0,
+            line,
+        );
+        const length_matches = try self.current_chunk.emitJump(.JUMP_IF_TRUE, line);
+        try self.emitNoMatchingPatternRaise("length mismatch", line);
+        try self.current_chunk.patchJump(length_matches);
+
+        var i: usize = 0;
+        while (i < pattern.requireds.size) : (i += 1) {
+            try self.extractArrayElement(@intCast(i), line);
+            const required_node = try self.parser.asNode(pattern.requireds.nodes[i]);
+            try self.compileNode(required_node, line);
+            try self.current_chunk.emitOp(.SWAP, line);
+            const case_equal_idx = try self.current_chunk.addConstant(.{ .string = "===" });
+            try self.current_chunk.emitCall(
+                @intCast(case_equal_idx),
+                1,
+                bytecode.encodeCallFlags(.explicit, false),
+                0,
+                line,
+            );
+            const element_matches = try self.current_chunk.emitJump(.JUMP_IF_TRUE, line);
+            try self.emitNoMatchingPatternRaise("pattern does not match", line);
+            try self.current_chunk.patchJump(element_matches);
+        }
+
+        try self.current_chunk.emitOp(.POP, line);
     }
 
     fn compileUntilStatement(self: *Compiler, until_node: *prism.UntilNode, line: u32) anyerror!void {

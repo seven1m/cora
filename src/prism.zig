@@ -137,6 +137,8 @@ pub const IndexAndWriteNode = c.pm_index_and_write_node_t;
 pub const IndexOrWriteNode = c.pm_index_or_write_node_t;
 pub const IndexOperatorWriteNode = c.pm_index_operator_write_node_t;
 pub const CallTargetNode = c.pm_call_target_node_t;
+pub const MatchRequiredNode = c.pm_match_required_node_t;
+pub const ArrayPatternNode = c.pm_array_pattern_node_t;
 
 pub const REGEXP_FLAGS_IGNORE_CASE = c.PM_REGULAR_EXPRESSION_FLAGS_IGNORE_CASE;
 pub const REGEXP_FLAGS_EXTENDED = c.PM_REGULAR_EXPRESSION_FLAGS_EXTENDED;
@@ -279,6 +281,8 @@ pub const Node = union(enum) {
     index_operator_write: *IndexOperatorWriteNode,
     call_target: *CallTargetNode,
     match_write: *c.pm_match_write_node_t,
+    match_required: *MatchRequiredNode,
+    array_pattern: *ArrayPatternNode,
 };
 
 /// Parser wraps Prism's parser and AST lifecycle
@@ -942,6 +946,14 @@ pub const Parser = struct {
 
         if (node_type == c.PM_MATCH_WRITE_NODE) {
             return Node{ .match_write = @ptrCast(raw) };
+        }
+
+        if (node_type == c.PM_MATCH_REQUIRED_NODE) {
+            return Node{ .match_required = @ptrCast(raw) };
+        }
+
+        if (node_type == c.PM_ARRAY_PATTERN_NODE) {
+            return Node{ .array_pattern = @ptrCast(raw) };
         }
 
         var stdout_buffer: [8192]u8 = undefined;

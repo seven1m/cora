@@ -91,6 +91,7 @@ const language_rescue_test = @import("language/rescue_test.zig");
 const core_ruby_constants_test = @import("core/ruby_constants_test.zig");
 const language_rest_parameter_test = @import("language/rest_parameter_test.zig");
 const language_optional_parameter_test = @import("language/optional_parameter_test.zig");
+const language_pattern_matching_test = @import("language/pattern_matching_test.zig");
 const language_keyword_parameter_test = @import("language/keyword_parameter_test.zig");
 const language_retry_test = @import("language/retry_test.zig");
 const language_string_interpolation_test = @import("language/string_interpolation_test.zig");
@@ -187,6 +188,7 @@ comptime {
     _ = language_proc_test;
     _ = language_raise_test;
     _ = language_range_test;
+    _ = language_pattern_matching_test;
     _ = language_regexp_test;
     _ = language_redo_test;
     _ = language_return_test;
