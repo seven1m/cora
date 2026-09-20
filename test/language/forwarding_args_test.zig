@@ -88,6 +88,43 @@ test "mixed forwarding excludes method parameters from the forwarded rest" {
     try std.testing.expectEqualStrings("rest", items[1].toSymbolObject().name);
 }
 
+test "forwarding arguments from a nested block uses the enclosing method arguments" {
+    const result = try evalCode(
+        \\def target(a, b, c, on_duplicate:)
+        \\  [a, b, c, on_duplicate, yield]
+        \\end
+        \\def wrapper(value, ...)
+        \\  1.times { return target(:relation, :connection, value, ...) }
+        \\end
+        \\wrapper([], on_duplicate: :raise) { :original_block }
+    );
+    const values = result.toArrayObject().elements.items;
+    try std.testing.expectEqual(@as(usize, 5), values.len);
+    try std.testing.expectEqualStrings("relation", values[0].toSymbolObject().name);
+    try std.testing.expectEqualStrings("connection", values[1].toSymbolObject().name);
+    try std.testing.expect(values[2].isArray());
+    try std.testing.expectEqualStrings("raise", values[3].toSymbolObject().name);
+    try std.testing.expectEqualStrings("original_block", values[4].toSymbolObject().name);
+}
+
+test "pure forwarding from nested blocks preserves positional and keyword arguments" {
+    const result = try evalCode(
+        \\def target(*args, enabled:)
+        \\  [args, enabled]
+        \\end
+        \\def wrapper(...)
+        \\  1.times { return 1.times { return target(...) } }
+        \\end
+        \\wrapper(1, 2, enabled: true)
+    );
+    const values = result.toArrayObject().elements.items;
+    const positional = values[0].toArrayObject().elements.items;
+    try std.testing.expectEqual(@as(usize, 2), positional.len);
+    try std.testing.expectEqual(@as(i64, 1), positional[0].toInteger());
+    try std.testing.expectEqual(@as(i64, 2), positional[1].toInteger());
+    try std.testing.expect(values[1].isTrue());
+}
+
 test "Proc ruby2_keywords preserves keywords through rest argument splats" {
     const result = try evalCode(
         \\class KeywordTarget

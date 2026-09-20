@@ -6216,15 +6216,16 @@ pub const VM = struct {
                 const call_flags = readByteFrom(frame, operands, &operand_cursor);
                 const block_chunk_id = readU16From(frame, operands, &operand_cursor);
                 const call_style: ReceiverCallStyle = bytecode.decodeReceiverCallStyle(call_flags);
+                const forwarding_frame = self.enclosingMethodFrame(frame);
 
                 var block = try self.resolveBlock(block_chunk_id, frame);
                 if (block == null) {
-                    block = frame.block;
+                    block = forwarding_frame.block;
                 }
 
                 var fwd_buf: [256]Value = undefined;
-                const fwd_args = self.getForwardingArguments(frame, &fwd_buf, false);
-                const fwd_kw_ctx = try self.buildForwardingKeywordContext(frame);
+                const fwd_args = self.getForwardingArguments(forwarding_frame, &fwd_buf, false);
+                const fwd_kw_ctx = try self.buildForwardingKeywordContext(forwarding_frame);
                 const kw_keys: ?[]Value = if (fwd_kw_ctx) |ctx|
                     if (ctx.kw_values.len > 0) @constCast(ctx.kw_keys) else null
                 else
@@ -6251,15 +6252,16 @@ pub const VM = struct {
                 const block_chunk_id = readU16From(frame, operands, &operand_cursor);
                 const prefix_argc = readByteFrom(frame, operands, &operand_cursor);
                 const call_style: ReceiverCallStyle = bytecode.decodeReceiverCallStyle(call_flags);
+                const forwarding_frame = self.enclosingMethodFrame(frame);
 
                 var block = try self.resolveBlock(block_chunk_id, frame);
                 if (block == null) {
-                    block = frame.block;
+                    block = forwarding_frame.block;
                 }
 
                 var fwd_buf: [256]Value = undefined;
-                const fwd_args = self.getForwardingArguments(frame, &fwd_buf, false);
-                const fwd_kw_ctx = try self.buildForwardingKeywordContext(frame);
+                const fwd_args = self.getForwardingArguments(forwarding_frame, &fwd_buf, false);
+                const fwd_kw_ctx = try self.buildForwardingKeywordContext(forwarding_frame);
                 const kw_keys: ?[]Value = if (fwd_kw_ctx) |ctx|
                     if (ctx.kw_values.len > 0) @constCast(ctx.kw_keys) else null
                 else
