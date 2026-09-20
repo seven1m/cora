@@ -759,6 +759,7 @@ pub const VM = struct {
     encoding_us_ascii: *value.EncodingObject,
     encoding_shift_jis: *value.EncodingObject,
     encoding_windows_31j: *value.EncodingObject,
+    encoding_windows_1252: *value.EncodingObject,
     encoding_euc_jp: *value.EncodingObject,
     encoding_gb18030: *value.EncodingObject,
     encoding_cp437: *value.EncodingObject,
@@ -995,6 +996,7 @@ pub const VM = struct {
             .encoding_us_ascii = undefined,
             .encoding_shift_jis = undefined,
             .encoding_windows_31j = undefined,
+            .encoding_windows_1252 = undefined,
             .encoding_euc_jp = undefined,
             .encoding_gb18030 = undefined,
             .encoding_cp437 = undefined,
@@ -1606,6 +1608,7 @@ pub const VM = struct {
         self.encoding_us_ascii = try self.createEncodingObject(.{ .us_ascii = .{} });
         self.encoding_shift_jis = try self.createEncodingObject(.{ .shift_jis = .{} });
         self.encoding_windows_31j = try self.createEncodingObject(.{ .windows_31j = .{} });
+        self.encoding_windows_1252 = try self.createEncodingObject(.{ .windows_1252 = .{} });
         self.encoding_euc_jp = try self.createEncodingObject(.{ .euc_jp = .{} });
         self.encoding_gb18030 = try self.createEncodingObject(.{ .gb18030 = .{} });
         self.encoding_cp437 = try self.createEncodingObject(.{ .cp437 = .{} });
@@ -1906,6 +1909,8 @@ pub const VM = struct {
         const shift_jis_mixed_const_sym = try self.intern("Shift_JIS");
         const sjis_const_sym = try self.intern("SJIS");
         const windows_31j_const_sym = try self.intern("Windows_31J");
+        const windows_1252_const_sym = try self.intern("Windows_1252");
+        const windows_1252_upper_const_sym = try self.intern("WINDOWS_1252");
         const euc_jp_const_sym = try self.intern("EUC_JP");
         const gb18030_const_sym = try self.intern("GB18030");
         const euc_kr_const_sym = try self.intern("EUC_KR");
@@ -1939,6 +1944,7 @@ pub const VM = struct {
         const us_ascii_val = Value.fromObject(&self.encoding_us_ascii.object);
         const shift_jis_val = Value.fromObject(&self.encoding_shift_jis.object);
         const windows_31j_val = Value.fromObject(&self.encoding_windows_31j.object);
+        const windows_1252_val = Value.fromObject(&self.encoding_windows_1252.object);
         const euc_jp_val = Value.fromObject(&self.encoding_euc_jp.object);
         const cp437_val = Value.fromObject(&self.encoding_cp437.object);
         const cp866_val = Value.fromObject(&self.encoding_cp866.object);
@@ -1964,6 +1970,8 @@ pub const VM = struct {
         self.encoding_class.module.constants.put(shift_jis_mixed_const_sym, .{ .value = shift_jis_val }) catch return error.Fatal;
         self.encoding_class.module.constants.put(sjis_const_sym, .{ .value = windows_31j_val }) catch return error.Fatal;
         self.encoding_class.module.constants.put(windows_31j_const_sym, .{ .value = windows_31j_val }) catch return error.Fatal;
+        self.encoding_class.module.constants.put(windows_1252_const_sym, .{ .value = windows_1252_val }) catch return error.Fatal;
+        self.encoding_class.module.constants.put(windows_1252_upper_const_sym, .{ .value = windows_1252_val }) catch return error.Fatal;
         self.encoding_class.module.constants.put(euc_jp_const_sym, .{ .value = euc_jp_val }) catch return error.Fatal;
         self.encoding_class.module.constants.put(gb18030_const_sym, .{ .value = Value.fromObject(&self.encoding_gb18030.object) }) catch return error.Fatal;
         self.encoding_class.module.constants.put(euc_kr_const_sym, .{ .value = shift_jis_val }) catch return error.Fatal;
@@ -10342,6 +10350,7 @@ pub const VM = struct {
             .us_ascii => onigmo.ENCODING_ASCII,
             .shift_jis => onigmo.ENCODING_SHIFT_JIS,
             .windows_31j => onigmo.ENCODING_WINDOWS_31J,
+            .windows_1252 => onigmo.ENCODING_WINDOWS_1252,
             .euc_jp => onigmo.ENCODING_EUC_JP,
             .iso_8859_1 => onigmo.ENCODING_ISO_8859_1,
             .iso_8859_9 => onigmo.ENCODING_ISO_8859_9,
@@ -11190,6 +11199,7 @@ pub const VM = struct {
             .us_ascii => Value.fromObject(&self.encoding_us_ascii.object),
             .shift_jis => Value.fromObject(&self.encoding_shift_jis.object),
             .windows_31j => Value.fromObject(&self.encoding_windows_31j.object),
+            .windows_1252 => Value.fromObject(&self.encoding_windows_1252.object),
             .euc_jp => Value.fromObject(&self.encoding_euc_jp.object),
             .gb18030 => Value.fromObject(&self.encoding_gb18030.object),
             .cp437 => Value.fromObject(&self.encoding_cp437.object),

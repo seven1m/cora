@@ -872,6 +872,7 @@ fn marshalEncodingName(encoding: enc.Encoding) []const u8 {
         .utf8 => "UTF-8",
         .shift_jis => "Shift_JIS",
         .windows_31j => "Windows-31J",
+        .windows_1252 => "Windows-1252",
         .euc_jp => "EUC-JP",
         .gb18030 => "GB18030",
         .iso_8859_1 => "ISO-8859-1",
