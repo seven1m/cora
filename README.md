@@ -19,15 +19,16 @@ to explore just-in-time compilation, and to possibly look into gradual typing or
 
 Some gems that are known to work, though I haven't tested each thoroughly:
 
-- activemodel
+- activerecord
 - activesupport
-- rake
-- rubygems and bundler
-- psych and yaml
-- rack and rackup
-- webrick
-- sinatra
+- bundler
 - erb
+- psych/yaml
+- rack
+- rake
+- sinatra
+- sqlite3
+- webrick
 
 Cora has over on 10,000 ruby specs passing, which by my math is about a third of the way to being a complete Ruby.
 
