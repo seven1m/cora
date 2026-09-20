@@ -12,6 +12,13 @@ test "Thread.new creates and runs a thread" {
     try std.testing.expectEqual(@as(i64, 42), result.toInteger());
 }
 
+test "Thread.handle_interrupt validates masks and yields" {
+    const result = try evalCode(
+        \\Thread.handle_interrupt(Object => :immediate) { 42 }
+    );
+    try std.testing.expectEqual(@as(i64, 42), result.toInteger());
+}
+
 test "Thread#join waits for completion" {
     const result = try evalCode(
         \\x = 0

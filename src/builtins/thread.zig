@@ -40,6 +40,9 @@ pub fn register(vm: *VM) !void {
     const kill_class_sym = try vm.intern("kill");
     try thread_singleton.module.methods.put(kill_class_sym, value.MethodEntry.builtin(&builtinThreadKillClass, .{ .exact = 1 }));
 
+    const handle_interrupt_sym = try vm.intern("handle_interrupt");
+    try thread_singleton.module.methods.put(handle_interrupt_sym, value.MethodEntry.builtin(&builtinThreadHandleInterrupt, .{ .exact = 1 }));
+
     const each_caller_location_sym = try vm.intern("each_caller_location");
     try thread_singleton.module.methods.put(each_caller_location_sym, value.MethodEntry.builtin(&builtinThreadEachCallerLocation, .{ .variadic = 0 }));
 
@@ -272,6 +275,29 @@ fn builtinThreadKillClass(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!V
         }
     }
     return args[0];
+}
+
+fn builtinThreadHandleInterrupt(vm: *VM, _: Value, args: []Value, block: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    const blk = block orelse return vm.raiseExceptionFmt(vm.local_jump_error_class, "no block given", .{});
+    if (!args[0].isHash()) {
+        return vm.raiseExceptionFmt(vm.type_error_class, "wrong argument type {s} (expected Hash)", .{vm.className(args[0])});
+    }
+
+    for (args[0].toHashObject().entries.items) |entry| {
+        if (!entry.key.isClass() and !entry.key.isModule()) {
+            return vm.raiseExceptionFmt(vm.type_error_class, "class or module required for rescue clause", .{});
+        }
+        if (!entry.value.isSymbol()) {
+            return vm.raiseExceptionFmt(vm.argument_error_class, "unknown mask signature", .{});
+        }
+        const mode = entry.value.toSymbolObject().name;
+        if (!std.mem.eql(u8, mode, "immediate") and !std.mem.eql(u8, mode, "on_blocking") and !std.mem.eql(u8, mode, "never")) {
+            return vm.raiseExceptionFmt(vm.argument_error_class, "unknown mask signature", .{});
+        }
+    }
+
+    return vm.yieldToBlock(blk, &.{});
 }
 
 // =============================================================================
