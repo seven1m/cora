@@ -1000,6 +1000,7 @@ fn openFileWithMode(vm: *VM, path: Value, mode: FileMode, create_mode: std.c.mod
                 .readable = mode.read,
                 .writable = mode.write,
                 .append = mode.append,
+                .binary = mode.binary,
                 .path = path_copy,
                 .path_encoding = path_obj.encoding,
             });
