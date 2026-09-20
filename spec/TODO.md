@@ -3910,7 +3910,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] library/stringio/size_spec.rb
 - [x] library/stringio/string_spec.rb
 - [ ] library/stringio/stringio_spec.rb
-- [ ] library/stringio/sync_spec.rb
+- [x] library/stringio/sync_spec.rb
 - [ ] library/stringio/sysread_spec.rb
 - [ ] library/stringio/syswrite_spec.rb
 - [x] library/stringio/tell_spec.rb

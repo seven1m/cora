@@ -19,6 +19,14 @@ class StringIO
 
   attr_accessor :lineno
 
+  def sync
+    true
+  end
+
+  def sync=(value)
+    value
+  end
+
   def initialize(string = nil, mode = nil, **kwargs)
     if block_given?
       warn "warning: StringIO::new() does not take block; use StringIO::open() instead"
