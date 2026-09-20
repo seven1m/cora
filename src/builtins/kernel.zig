@@ -2320,7 +2320,61 @@ pub fn builtinKernelToS(vm: *VM, receiver: Value, _: []Value, _: ?Block) VMError
 }
 
 pub fn builtinKernelInspect(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
-    return builtinKernelToS(vm, receiver, args, null);
+    try vm.requireArgCount(args, 0);
+
+    const object = receiver.getObjectPointer() orelse return builtinKernelToS(vm, receiver, args, null);
+    const ivars = object.instance_variables orelse return builtinKernelToS(vm, receiver, args, null);
+    if (ivars.count() == 0) return builtinKernelToS(vm, receiver, args, null);
+
+    var selected_names: ?[]const Value = null;
+    if (try vm.checkCallMethodByName(receiver, "instance_variables_to_inspect", true, &.{}, null)) |selected| {
+        if (!selected.isNil()) {
+            if (!selected.isArray()) {
+                return vm.raiseExceptionFmt(
+                    vm.type_error_class,
+                    "Expected #instance_variables_to_inspect to return an Array or nil, but it returned {s}",
+                    .{vm.className(selected)},
+                );
+            }
+            selected_names = selected.toArrayObject().elements.items;
+        }
+    }
+
+    const base = try builtinKernelToS(vm, receiver, &.{}, null);
+    const base_bytes = base.toStringObject().str;
+    if (try vm.enterRecursionGuard(.object_inspect, receiver, Value.nil())) {
+        const recursive = std.fmt.allocPrint(vm.gc_allocator, "{s} ...>", .{base_bytes[0 .. base_bytes.len - 1]}) catch return error.Fatal;
+        return vm.newString(recursive, false);
+    }
+    defer vm.leaveRecursionGuard(.object_inspect, receiver, Value.nil());
+
+    var buf: std.Io.Writer.Allocating = .init(vm.allocator);
+    defer buf.deinit();
+    const writer = &buf.writer;
+    writer.writeAll(base_bytes[0 .. base_bytes.len - 1]) catch return error.Fatal;
+    var emitted_ivar = false;
+
+    if (selected_names) |names| {
+        for (names) |name_value| {
+            if (!name_value.isSymbol()) continue;
+            const name = name_value.toSymbolObject();
+            const ivar_value = ivars.get(name) orelse continue;
+            const inspected = try ivar_value.inspect(vm);
+            writer.print("{s}{s}={s}", .{ if (emitted_ivar) ", " else " ", name.name, inspected.toStringObject().str }) catch return error.Fatal;
+            emitted_ivar = true;
+        }
+    } else {
+        for (ivars.keys(), ivars.values()) |name, ivar_value| {
+            const inspected = try ivar_value.inspect(vm);
+            writer.print("{s}{s}={s}", .{ if (emitted_ivar) ", " else " ", name.name, inspected.toStringObject().str }) catch return error.Fatal;
+            emitted_ivar = true;
+        }
+    }
+    writer.writeAll(">") catch return error.Fatal;
+
+    const out = buf.toOwnedSlice() catch return error.Fatal;
+    defer vm.allocator.free(out);
+    return vm.newString(out, false);
 }
 
 pub fn builtinKernelCaseEqual(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {

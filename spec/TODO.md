@@ -1218,7 +1218,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] core/kernel/initialize_clone_spec.rb
 - [x] core/kernel/initialize_copy_spec.rb
 - [x] core/kernel/initialize_dup_spec.rb
-- [ ] core/kernel/inspect_spec.rb
+- [x] core/kernel/inspect_spec.rb
 - [x] core/kernel/instance_of_spec.rb
 - [x] core/kernel/instance_variable_defined_spec.rb
 - [x] core/kernel/instance_variable_get_spec.rb

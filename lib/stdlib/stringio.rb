@@ -437,6 +437,10 @@ class StringIO
 
   private
 
+  def instance_variables_to_inspect
+    []
+  end
+
   def parse_mode_string!(mode_str)
     mode_str = String(mode_str)
 
