@@ -1330,12 +1330,12 @@ export fn rb_enc_left_char_head(str: [*c]const u8, start: [*c]const u8, end: [*c
 // ─── Memory ─────────────────────────────────────────────────────────────────
 
 export fn xmalloc(size: usize) ?*anyopaque {
-    return bdwgc.mallocUncollectable(size) catch @panic("xmalloc: out of memory");
+    return bdwgc.c.GC_malloc(size) orelse @panic("xmalloc: out of memory");
 }
 
 export fn xcalloc(n: usize, size: usize) ?*anyopaque {
     const total = std.math.mul(usize, n, size) catch @panic("xcalloc: allocation size overflow");
-    const ptr = bdwgc.mallocUncollectable(total) catch @panic("xcalloc: out of memory");
+    const ptr = bdwgc.c.GC_malloc(total) orelse @panic("xcalloc: out of memory");
     @memset(@as([*]u8, @ptrCast(ptr))[0..total], 0);
     return ptr;
 }
@@ -1347,7 +1347,10 @@ export fn xrealloc(ptr: ?*anyopaque, size: usize) ?*anyopaque {
 }
 
 export fn xfree(ptr: ?*anyopaque) void {
-    if (ptr) |allocation| bdwgc.free(allocation);
+    // xmalloc allocations are collectible.  In particular, a typed-data
+    // wrapper and its data can become unreachable in the same collection, so
+    // its dfree callback must not explicitly free data the collector owns.
+    _ = ptr;
 }
 
 export fn ruby_xmalloc(size: usize) ?*anyopaque {
