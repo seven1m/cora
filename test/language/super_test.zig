@@ -395,6 +395,27 @@ test "bare super forwards correctly with side-effect locals in defaults" {
     try std.testing.expectEqual(30, result.toInteger());
 }
 
+test "super falls back to method_missing when no superclass method exists" {
+    const result = try evalCode(
+        \\class Parent
+        \\  def method_missing(name, value:, &block)
+        \\    [name, value, block.call]
+        \\  end
+        \\end
+        \\class Child < Parent
+        \\  def create(value:, &block)
+        \\    super
+        \\  end
+        \\end
+        \\Child.new.create(value: 42) { :ok }
+    );
+    const elements = result.toArrayObject().elements.items;
+    try std.testing.expectEqual(@as(usize, 3), elements.len);
+    try std.testing.expectEqualStrings("create", elements[0].toSymbolObject().name);
+    try std.testing.expectEqual(@as(i64, 42), elements[1].toInteger());
+    try std.testing.expectEqualStrings("ok", elements[2].toSymbolObject().name);
+}
+
 test "super reaches included module after defining class" {
     const result = try evalCode(
         \\module HeaderMethods

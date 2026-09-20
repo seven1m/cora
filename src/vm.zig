@@ -8458,11 +8458,7 @@ pub const VM = struct {
                 });
             },
             .missing => |missing_name| {
-                const kw_hash = if (keyword_ctx) |ctx|
-                    if (ctx.kw_values.len > 0) try self.materializeKeywordHashForContext(ctx) else null
-                else
-                    null;
-                return self.invokeMethodMissing(receiver, missing_name, @constCast(dispatch.args), kw_hash, block);
+                return self.invokeMethodMissing(receiver, missing_name, @constCast(dispatch.args), keyword_ctx, block);
             },
             .undefined => unreachable,
         }
@@ -8489,7 +8485,7 @@ pub const VM = struct {
         receiver: Value,
         missing_method_sym: *SymbolObject,
         args: []Value,
-        kw_hash: ?Value,
+        keyword_ctx: ?*BuiltinKeywordContext,
         block: ?Block,
     ) VMError!Value {
         if (std.mem.eql(u8, missing_method_sym.name, "method_missing")) {
@@ -8502,19 +8498,13 @@ pub const VM = struct {
             return self.raiseNoMethod(receiver, missing_method_sym.name);
         }
 
-        var missing_args: [258]Value = undefined;
+        var missing_args: [257]Value = undefined;
         missing_args[0] = Value.fromObject(&missing_method_sym.object);
         for (args, 0..) |arg, i| {
             missing_args[i + 1] = arg;
         }
 
-        var missing_argc: usize = 1 + args.len;
-        if (kw_hash) |hash| {
-            missing_args[missing_argc] = hash;
-            missing_argc += 1;
-        }
-
-        return self.invokeResolvedMethod(resolved.?, receiver, missing_args[0..missing_argc], block);
+        return self.invokeResolvedMethodWithKeywords(resolved.?, receiver, missing_args[0 .. 1 + args.len], block, keyword_ctx);
     }
 
     fn callMethodByNameInternal(
@@ -8529,11 +8519,7 @@ pub const VM = struct {
         const resolved = try self.findMethod(receiver, method_name_sym);
 
         if (resolved == null) {
-            const kw_hash = if (keyword_ctx) |ctx|
-                if (ctx.kw_values.len > 0) try self.materializeKeywordHashForContext(ctx) else null
-            else
-                null;
-            return self.invokeMethodMissing(receiver, method_name_sym, args, kw_hash, block);
+            return self.invokeMethodMissing(receiver, method_name_sym, args, keyword_ctx, block);
         }
 
         return self.invokeResolvedMethodWithKeywords(resolved.?, receiver, args, block, keyword_ctx);
@@ -8557,11 +8543,7 @@ pub const VM = struct {
             return self.invokeResolvedMethodWithKeywords(r, receiver, args, block, keyword_ctx);
         }
 
-        const kw_hash = if (keyword_ctx) |ctx|
-            if (ctx.kw_values.len > 0) try self.materializeKeywordHashForContext(ctx) else null
-        else
-            null;
-        return self.invokeMethodMissing(receiver, method_name_sym, args, kw_hash, block);
+        return self.invokeMethodMissing(receiver, method_name_sym, args, keyword_ctx, block);
     }
 
     /// Call a method by name string (not from bytecode constant pool)
@@ -8990,8 +8972,8 @@ pub const VM = struct {
         const should_fallback = resolved == null or !self.isMethodCallable(receiver, resolved.?, call_style);
         const kwargc: usize = if (kw_values) |vals| vals.len else 0;
         if (should_fallback) {
-            const kw_hash = if (kwargc > 0) try self.createHashFromKeywordPairs(kw_keys.?, kw_values.?) else null;
-            const result = try self.invokeMethodMissing(receiver, method_name_sym, @constCast(args), kw_hash, block);
+            const keyword_ctx = if (kwargc > 0) (try self.copyKeywordContext(kw_keys.?, kw_values.?)).? else null;
+            const result = try self.invokeMethodMissing(receiver, method_name_sym, @constCast(args), keyword_ctx, block);
             try self.push(result);
             return;
         }
@@ -9704,14 +9686,9 @@ pub const VM = struct {
             null;
 
         const resolved = maybe_resolved orelse {
-            const msg = std.fmt.allocPrint(
-                self.gc_allocator,
-                "super: no superclass method '{s}' for {s}",
-                .{ method_name, self.getClass(receiver).module.name.name },
-            ) catch return error.Fatal;
-            const exc = try self.createException(self.no_method_error_class, msg);
-            self.setPendingException(exc);
-            return error.Unwind;
+            const result = try self.invokeMethodMissing(receiver, method_name_sym, @constCast(args), keyword_ctx, block);
+            try self.push(result);
+            return;
         };
 
         switch (resolved.entry.method) {
