@@ -188,7 +188,13 @@ fn arrayJoinAppendElement(
     };
     const to_s_value = try vm.callMethodByName(elem, "to_s", &[_]Value{}, null);
     if (!to_s_value.isString()) {
-        return vm.raiseExceptionFmt(vm.type_error_class, "to_s did not return String", .{});
+        const fallback = std.fmt.allocPrint(
+            vm.gc_allocator,
+            "#<{s}:0x{x}>",
+            .{ vm.className(elem), elem.objectId() },
+        ) catch return error.Fatal;
+        try arrayJoinAppendString(vm, state, try vm.newString(fallback, false));
+        return;
     }
     try arrayJoinAppendString(vm, state, to_s_value);
 }

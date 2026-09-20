@@ -582,3 +582,12 @@ test "Array#pack cursor directives" {
     try std.testing.expect(result.isString());
     try std.testing.expectEqualSlices(u8, "\x01\x00\x00\x02", result.toStringObject().str);
 }
+
+test "Array#join falls back to default representation for invalid to_s result" {
+    const result = try evalCode(
+        \\object = Object.new
+        \\def object.to_s = nil
+        \\[object].join.match?(/#<Object:0x[0-9a-f]+>/)
+    );
+    try std.testing.expect(result.isTrue());
+}
