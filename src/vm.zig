@@ -6880,6 +6880,12 @@ pub const VM = struct {
                 if (entry) |resolved_entry| {
                     var alias_entry = resolved_entry;
                     if (alias_entry.original_name == null) alias_entry.original_name = old_name_sym;
+                    if (alias_entry.original_defining_class == null and current_self.isClass()) {
+                        switch (self.lookupMethodDetailed(current_self.toClassObject(), old_name_sym)) {
+                            .found => |found| alias_entry.original_defining_class = found.owner_class,
+                            else => {},
+                        }
+                    }
                     methods.put(new_name_sym, alias_entry) catch return error.Fatal;
                     self.markIntegerChangedForReceiver(current_self);
                     self.bumpMethodStateVersion();
@@ -7708,7 +7714,7 @@ pub const VM = struct {
             .undefined => .undefined,
             else => .{ .found = .{
                 .name = method_name,
-                .owner_class = owner_class,
+                .owner_class = entry.original_defining_class orelse owner_class,
                 .entry = entry,
             } },
         };

@@ -202,6 +202,8 @@ pub const MethodEntry = struct {
     ruby2_keywords: bool = false,
     accepts_keywords: bool = false,
     original_name: ?*SymbolObject = null,
+    // Aliased methods start `super` lookup after their original definition site.
+    original_defining_class: ?*ClassObject = null,
 
     pub fn builtin(function: *const fn (*VM, Value, []Value, ?Block) VMError!Value, arity: BuiltinArity) MethodEntry {
         return .{

@@ -1880,6 +1880,9 @@ pub fn builtinModuleAliasMethod(vm: *VM, receiver: Value, args: []Value, _: ?Blo
         .found => |found| {
             var alias_entry = found.resolved.entry;
             if (alias_entry.original_name == null) alias_entry.original_name = old_name_sym;
+            if (alias_entry.original_defining_class == null) {
+                alias_entry.original_defining_class = found.resolved.owner_class;
+            }
             methods.put(new_name_sym, alias_entry) catch return error.Fatal;
             vm.markIntegerChangedForReceiver(receiver);
             vm.bumpMethodStateVersion();

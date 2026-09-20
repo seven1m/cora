@@ -102,6 +102,29 @@ test "alias_method returns new name as symbol" {
     try std.testing.expectEqualSlices(u8, "hi", result.toSymbolObject().name);
 }
 
+test "inherited alias preserves the original owner for super" {
+    const result = try evalCode(
+        \\class AliasSuperBase
+        \\  def value
+        \\    [:base]
+        \\  end
+        \\end
+        \\class AliasSuperMiddle < AliasSuperBase
+        \\  def value
+        \\    [:middle, super]
+        \\  end
+        \\end
+        \\class AliasSuperChild < AliasSuperMiddle
+        \\  alias_method :aliased_value, :value
+        \\end
+        \\AliasSuperChild.new.aliased_value
+    );
+    const items = result.toArrayObject().elements.items;
+    try std.testing.expectEqual(@as(usize, 2), items.len);
+    try std.testing.expectEqualStrings("middle", items[0].toSymbolObject().name);
+    try std.testing.expectEqualStrings("base", items[1].toArrayObject().elements.items[0].toSymbolObject().name);
+}
+
 test "alias_method coerces names via to_str" {
     const result = try evalCode(
         \\class Baz
