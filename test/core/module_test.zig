@@ -13,6 +13,25 @@ test "Modules" {
     try std.testing.expectEqualSlices(u8, "Foo", result.toModuleObject().name.name);
 }
 
+test "instances of Module subclasses are modules" {
+    const result = try evalCode(
+        \\class ConfiguredModule < Module
+        \\  attr_reader :setting
+        \\  def initialize(setting)
+        \\    @setting = setting
+        \\    include Enumerable
+        \\  end
+        \\end
+        \\mod = ConfiguredModule.new(:enabled)
+        \\[mod.class, mod.is_a?(Module), mod.setting, mod.ancestors.include?(Enumerable)]
+    );
+    const values = result.toArrayObject().elements.items;
+    try std.testing.expectEqualStrings("ConfiguredModule", values[0].toClassObject().module.name.name);
+    try std.testing.expect(values[1].isTrue());
+    try std.testing.expectEqualStrings("enabled", values[2].toSymbolObject().name);
+    try std.testing.expect(values[3].isTrue());
+}
+
 test "module definition evaluates a local namespace target" {
     const result = try evalCode(
         \\owner = Module.new

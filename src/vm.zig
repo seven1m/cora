@@ -9939,9 +9939,13 @@ pub const VM = struct {
     }
 
     pub fn newModule(self: *VM, name: *SymbolObject) VMError!Value {
+        return self.newModuleForClass(name, self.module_class);
+    }
+
+    pub fn newModuleForClass(self: *VM, name: *SymbolObject, class_obj: *ClassObject) VMError!Value {
         const module_obj = self.gc_allocator.create(value.ModuleObject) catch return error.Fatal;
         module_obj.* = .{
-            .object = .{ .type_tag = .module, .flags = 0, .class = self.module_class, .singleton_class = null, .instance_variables = null },
+            .object = .{ .type_tag = .module, .flags = 0, .class = class_obj, .singleton_class = null, .instance_variables = null },
             .name = name,
             .methods = std.AutoHashMap(*SymbolObject, MethodEntry).init(self.gc_allocator),
             .constants = std.AutoHashMap(*value.SymbolObject, value.ConstEntry).init(self.gc_allocator),
@@ -10397,6 +10401,10 @@ pub const VM = struct {
     pub fn newObjectForClass(self: *VM, class_obj: *ClassObject) VMError!Value {
         if (self.findBuiltinAllocFunc(class_obj)) |alloc_fn| {
             return alloc_fn(self, Value.fromObject(&class_obj.module.object), &.{}, null);
+        }
+        if (class_obj != self.module_class and self.isClassOrSubclassOf(class_obj, self.module_class)) {
+            const anonymous_name = try self.intern("<anonymous>");
+            return self.newModuleForClass(anonymous_name, class_obj);
         }
         if (self.isClassOrSubclassOf(class_obj, self.exception_class)) {
             const exc = try self.createException(class_obj, "");
