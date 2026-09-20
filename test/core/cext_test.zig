@@ -112,6 +112,17 @@ test "C extension packs signed 64-bit integers" {
     try std.testing.expectEqualStrings("-9223372036854775808", rows[1].toArrayObject().elements.items[1].toStringObject().str);
 }
 
+test "C extension concatenates and encodes strings" {
+    const result = try evalCode(
+        \\$LOAD_PATH << "build/cext"
+        \\require "fixture.so"
+        \\CoraCExt.string_encoding_helpers
+    );
+    const values = result.toArrayObject().elements.items;
+    try std.testing.expectEqualStrings("leftright", values[0].toStringObject().str);
+    try std.testing.expectEqual(@as(i64, 0), values[1].toInteger());
+}
+
 test "C extension can undefine new on one class singleton" {
     const result = try evalCode(
         \\$LOAD_PATH << "build/cext"

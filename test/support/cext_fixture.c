@@ -215,6 +215,15 @@ cext_integer_pack(VALUE self, VALUE integer)
 }
 
 static VALUE
+cext_string_encoding_helpers(VALUE self)
+{
+    (void)self;
+    VALUE joined = rb_str_plus(rb_str_new_cstr("left"), rb_str_new_cstr("right"));
+    VALUE encoded = rb_str_encode(joined, rb_enc_from_encoding(rb_utf8_encoding()), 0, Qnil);
+    return rb_assoc_new(encoded, INT2NUM(rb_enc_get_index(encoded)));
+}
+
+static VALUE
 cext_undef_class_new(VALUE self, VALUE klass)
 {
     (void)self;
@@ -257,6 +266,7 @@ void Init_fixture(void)
     rb_define_module_function(mCoraCExt, "call_helpers", cext_call_helpers, 1);
     rb_define_module_function(mCoraCExt, "exception_message", cext_exception_message, 0);
     rb_define_module_function(mCoraCExt, "integer_pack", cext_integer_pack, 1);
+    rb_define_module_function(mCoraCExt, "string_encoding_helpers", cext_string_encoding_helpers, 0);
     rb_define_module_function(mCoraCExt, "undef_class_new", cext_undef_class_new, 1);
     rb_define_module_function(mCoraCExt, "scan_keywords", cext_scan_keywords, -1);
 

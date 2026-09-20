@@ -385,6 +385,8 @@ VALUE  rb_str_buf_new(long len);
 void   rb_str_set_len(VALUE str, long len);
 VALUE  rb_str_tmp_new(long len);
 VALUE  rb_str_catf(VALUE str, const char *fmt, ...);
+VALUE  rb_str_plus(VALUE str1, VALUE str2);
+VALUE  rb_str_encode(VALUE str, VALUE to, int ecflags, VALUE ecopts);
 VALUE  rb_str_intern(VALUE str);
 VALUE  rb_str_concat(VALUE str, VALUE str2);
 VALUE  rb_str_substr(VALUE str, long beg, long len);
@@ -474,6 +476,7 @@ int          rb_enc_str_coderange(VALUE obj);
 
 int           rb_encoding_get(VALUE str);
 rb_encoding  *rb_enc_from_index(int idx);
+VALUE         rb_enc_from_encoding(rb_encoding *encoding);
 rb_encoding  *rb_enc_get(VALUE obj);
 unsigned int  rb_enc_codepoint_len(const char *p, const char *e, int *len_p, rb_encoding *enc);
 int           rb_isspace(unsigned int c);

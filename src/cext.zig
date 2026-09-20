@@ -231,6 +231,12 @@ export fn rb_enc_from_index(idx: c_int) ?*anyopaque {
     return @constCast(&encoding_instances[0]);
 }
 
+export fn rb_enc_from_encoding(enc_opaque: ?*anyopaque) VALUE {
+    const ptr = enc_opaque orelse return Value.nil().raw;
+    const encoding_value: *const enc.Encoding = @ptrCast(@alignCast(ptr));
+    return getVM().encodingToValue(encoding_value.*).raw;
+}
+
 export fn rb_enc_codepoint_len(p: [*]const u8, e: [*]const u8, len_p: *c_int, enc_opaque: ?*anyopaque) c_uint {
     if (@intFromPtr(p) >= @intFromPtr(e)) {
         len_p.* = 0;
@@ -447,6 +453,18 @@ export fn rb_string_value(ptr: *VALUE) VALUE {
 export fn rb_str_cat2(str_raw: VALUE, ptr: [*c]const u8) VALUE {
     if (ptr == null) return str_raw;
     return rb_str_cat(str_raw, ptr, @intCast(std.mem.span(ptr).len));
+}
+
+export fn rb_str_plus(str1_raw: VALUE, str2_raw: VALUE) VALUE {
+    const argv = [_]VALUE{str2_raw};
+    return rb_funcallv(str1_raw, rb_intern("+"), 1, &argv);
+}
+
+export fn rb_str_encode(str_raw: VALUE, to_raw: VALUE, ecflags: c_int, ecopts_raw: VALUE) VALUE {
+    _ = ecflags;
+    _ = ecopts_raw;
+    const argv = [_]VALUE{to_raw};
+    return rb_funcallv(str_raw, rb_intern("encode"), 1, &argv);
 }
 
 export fn rb_str_dump(str_raw: VALUE) VALUE {
