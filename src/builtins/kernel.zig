@@ -1242,13 +1242,13 @@ fn isUsableRubyFrame(frame: *const vm_mod.CallFrame) bool {
     return true;
 }
 
-fn backtraceLocationForFrame(vm: *VM, index: usize) BacktraceLocation {
-    const frame = &vm.frames.items[index];
+fn backtraceLocationForFrame(vm: *VM, source_frames: []const vm_mod.CallFrame, index: usize) BacktraceLocation {
+    const frame = &source_frames[index];
     if (frame.frame_type == .builtin) {
         var next = index;
         while (next > 0) {
             next -= 1;
-            const candidate = &vm.frames.items[next];
+            const candidate = &source_frames[next];
             if (isUsableRubyFrame(candidate)) {
                 return .{
                     .frame = frame,
@@ -1266,14 +1266,18 @@ fn backtraceLocationForFrame(vm: *VM, index: usize) BacktraceLocation {
     };
 }
 
-fn collectBacktraceLocations(vm: *VM) VMError!std.ArrayList(BacktraceLocation) {
+fn collectBacktraceLocationsFromFrames(vm: *VM, source_frames: []const vm_mod.CallFrame) VMError!std.ArrayList(BacktraceLocation) {
     var frames: std.ArrayList(BacktraceLocation) = .empty;
-    var i = vm.frames.items.len;
+    var i = source_frames.len;
     while (i > 0) {
         i -= 1;
-        frames.append(vm.gc_allocator, backtraceLocationForFrame(vm, i)) catch return error.Fatal;
+        frames.append(vm.gc_allocator, backtraceLocationForFrame(vm, source_frames, i)) catch return error.Fatal;
     }
     return frames;
+}
+
+fn collectBacktraceLocations(vm: *VM) VMError!std.ArrayList(BacktraceLocation) {
+    return collectBacktraceLocationsFromFrames(vm, vm.frames.items);
 }
 
 fn backtraceLocationStart(frames: []const BacktraceLocation) usize {
@@ -1487,10 +1491,8 @@ fn builtinKernelCaller(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Valu
     }
 }
 
-fn builtinKernelCallerLocations(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
-    try vm.requireArgCountRange(args, 0, 2);
-
-    var frames = try collectBacktraceLocations(vm);
+pub fn callerLocationsForFrames(vm: *VM, source_frames: []const vm_mod.CallFrame, args: []Value) VMError!Value {
+    var frames = try collectBacktraceLocationsFromFrames(vm, source_frames);
     defer frames.deinit(vm.gc_allocator);
     const frame_start = backtraceLocationStart(frames.items);
     const caller_frames = frames.items[frame_start..];
@@ -1515,6 +1517,11 @@ fn builtinKernelCallerLocations(vm: *VM, _: Value, args: []Value, _: ?Block) VME
             return Value.fromObject(&result.object);
         },
     }
+}
+
+pub fn builtinKernelCallerLocations(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCountRange(args, 0, 2);
+    return callerLocationsForFrames(vm, vm.frames.items, args);
 }
 
 fn warningSupportsKeywordCategory(method: vm_mod.ResolvedMethod) bool {

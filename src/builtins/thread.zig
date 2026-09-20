@@ -1,6 +1,7 @@
 const std = @import("std");
 const vm_mod = @import("../vm.zig");
 const value = @import("../value.zig");
+const kernel_builtin = @import("kernel.zig");
 
 const VM = vm_mod.VM;
 const VMError = vm_mod.VMError;
@@ -38,6 +39,9 @@ pub fn register(vm: *VM) !void {
 
     const kill_class_sym = try vm.intern("kill");
     try thread_singleton.module.methods.put(kill_class_sym, value.MethodEntry.builtin(&builtinThreadKillClass, .{ .exact = 1 }));
+
+    const each_caller_location_sym = try vm.intern("each_caller_location");
+    try thread_singleton.module.methods.put(each_caller_location_sym, value.MethodEntry.builtin(&builtinThreadEachCallerLocation, .{ .variadic = 0 }));
 
     // Instance methods
     const join_sym = try vm.intern("join");
@@ -724,6 +728,30 @@ fn builtinThreadBacktrace(vm: *VM, receiver: Value, args: []Value, _: ?Block) VM
 
     if (try vm.captureThreadBacktrace(thread)) |backtrace| {
         return Value.fromObject(&backtrace.object);
+    }
+    return Value.nil();
+}
+
+fn builtinThreadEachCallerLocation(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
+    try vm.requireArgCountRange(args, 0, 1);
+    if (try vm.consumeKeywordArgHash()) |keywords| {
+        const first = keywords.toHashObject().entries.items[0].key;
+        const name = try vm.callMethodByName(first, "inspect", &.{}, null);
+        return vm.raiseExceptionFmt(vm.argument_error_class, "unknown keyword: {s}", .{name.toStringObject().str});
+    }
+    const blk = block orelse return vm.raiseExceptionFmt(vm.local_jump_error_class, "no block given", .{});
+
+    const enumerator_block = switch (blk.kind) {
+        .receiver_builtin => true,
+        else => false,
+    };
+    const locations = if (enumerator_block and vm.current_fiber.caller != null)
+        try kernel_builtin.callerLocationsForFrames(vm, vm.current_fiber.caller.?.frames.items, args)
+    else
+        try kernel_builtin.builtinKernelCallerLocations(vm, receiver, args, null);
+    if (locations.isNil()) return Value.nil();
+    for (locations.toArrayObject().elements.items) |location| {
+        _ = try vm.yieldToBlock(blk, &.{location});
     }
     return Value.nil();
 }
