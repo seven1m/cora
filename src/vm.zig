@@ -7035,9 +7035,12 @@ pub const VM = struct {
                 }
 
                 const current_self = frame.self_value;
-                const methods = current_self.getModuleMethods() orelse self.object_class.module.methods;
                 const target_is_class = current_self.isClass();
                 const target_is_module = current_self.isModule();
+                const methods = if (target_is_class or target_is_module)
+                    current_self.getModuleMethods().?
+                else
+                    (try self.getOrCreateSingletonClass(current_self)).module.origin.methods;
 
                 for (args[0..argc]) |arg| {
                     const name_sym = try self.coerceToMethodNameSymbol(arg);
@@ -7046,7 +7049,7 @@ pub const VM = struct {
                     else if (target_is_module) blk: {
                         const entry = methods.get(name_sym) orelse break :blk false;
                         break :blk entry.method != .undefined;
-                    } else self.lookupMethod(self.object_class, name_sym) != null;
+                    } else (try self.findMethod(current_self, name_sym)) != null;
 
                     if (!exists) {
                         const msg = std.fmt.allocPrint(

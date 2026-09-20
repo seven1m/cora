@@ -56,3 +56,16 @@ test "undef keyword works in singleton class scope" {
     try std.testing.expectEqual(error.UnhandledException, result.err.?);
     try std.testing.expect(std.mem.indexOf(u8, result.stderr, "NoMethodError") != null);
 }
+
+test "undef keyword in instance_eval masks an inherited method on one object" {
+    const result = try evalCode(
+        \\first = "first"
+        \\second = "second"
+        \\first.instance_eval { undef :to_s }
+        \\[first.respond_to?(:to_s), second.respond_to?(:to_s)]
+    );
+
+    const items = result.toArrayObject().elements.items;
+    try std.testing.expectEqual(false, items[0].toBool());
+    try std.testing.expectEqual(true, items[1].toBool());
+}
