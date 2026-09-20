@@ -85,6 +85,9 @@ pub fn register(vm: *VM) !void {
     const internal_encoding_sym = try vm.intern("internal_encoding");
     try vm.io_class.module.methods.put(internal_encoding_sym, value.MethodEntry.builtin(&builtinIoInternalEncoding, .{ .exact = 0 }));
 
+    const set_encoding_sym = try vm.intern("set_encoding");
+    try vm.io_class.module.methods.put(set_encoding_sym, value.MethodEntry.builtin(&builtinIoSetEncoding, .{ .variadic = 1 }));
+
     const rdonly_sym = try vm.intern("RDONLY");
     try vm.io_class.module.constants.put(rdonly_sym, .{ .value = Value.integer(0) });
     const wronly_sym = try vm.intern("WRONLY");
@@ -978,6 +981,22 @@ pub fn builtinIoInternalEncoding(vm: *VM, receiver: Value, args: []Value, _: ?Bl
     const explicit = try vm.getInstanceVariable(receiver, "@internal_encoding");
     if (!explicit.isNil()) return explicit;
     return if (vm.default_internal_encoding) |encoding| Value.fromObject(&encoding.object) else Value.nil();
+}
+
+pub fn builtinIoSetEncoding(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCountRange(args, 1, 2);
+    _ = try requireIoReceiver(vm, receiver);
+    try ensureIoOpen(vm, receiver.toIoObject());
+
+    const external = if (args[0].isNil()) Value.nil() else try resolveIoEncodingValue(vm, args[0]);
+    try vm.setInstanceVariable(receiver, "@external_encoding", external);
+
+    const internal = if (args.len == 2 and !args[1].isNil())
+        try resolveIoEncodingValue(vm, args[1])
+    else
+        Value.nil();
+    try vm.setInstanceVariable(receiver, "@internal_encoding", internal);
+    return receiver;
 }
 
 pub fn builtinIoBinmode(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {

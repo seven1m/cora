@@ -321,6 +321,24 @@ test "File.open with block closes file automatically" {
     try std.testing.expectEqual(true, result.toBool());
 }
 
+test "IO#set_encoding updates an open file" {
+    var path_buf: [128]u8 = undefined;
+    const path = try uniquePath(&path_buf);
+    const source = try std.fmt.allocPrint(std.testing.allocator,
+        \\path = "{s}"
+        \\File.write(path, "content")
+        \\File.open(path) do |file|
+        \\  result = file.set_encoding(Encoding::BINARY)
+        \\  [result.equal?(file), file.external_encoding.name]
+        \\end
+    , .{path});
+    defer std.testing.allocator.free(source);
+
+    const result = try evalCode(source);
+    const items = result.toArrayObject().elements.items;
+    try std.testing.expectEqual(true, items[0].toBool());
+    try std.testing.expectEqualSlices(u8, "ASCII-8BIT", items[1].toStringObject().str);
+}
 test "File.open accepts integer mode flags" {
     var path_buf: [128]u8 = undefined;
     const path = try uniquePath(&path_buf);
