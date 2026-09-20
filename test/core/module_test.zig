@@ -212,6 +212,40 @@ test "define_method uses the visibility at the enclosing method definition" {
     try std.testing.expectEqual(@as(i64, 42), values[1].toInteger());
 }
 
+test "define_method does not inherit private visibility from a different module" {
+    const result = try evalCode(
+        \\class DynamicMethodModule < Module
+        \\  private
+        \\  def install
+        \\    define_method(:dynamic) { 42 }
+        \\  end
+        \\end
+        \\mod = DynamicMethodModule.new
+        \\mod.send(:install)
+        \\class DynamicMethodTarget; end
+        \\DynamicMethodTarget.include(mod)
+        \\[mod.public_instance_methods(false), DynamicMethodTarget.new.dynamic]
+    );
+    const values = result.toArrayObject().elements.items;
+    const methods = values[0].toArrayObject().elements.items;
+    try std.testing.expectEqual(@as(usize, 1), methods.len);
+    try std.testing.expectEqualStrings("dynamic", methods[0].toSymbolObject().name);
+    try std.testing.expectEqual(@as(i64, 42), values[1].toInteger());
+}
+
+test "define_method uses private visibility in the target module definition context" {
+    const result = try evalCode(
+        \\class PrivateDynamicMethod
+        \\  private
+        \\  define_method(:dynamic) { 42 }
+        \\end
+        \\[PrivateDynamicMethod.public_method_defined?(:dynamic), PrivateDynamicMethod.private_method_defined?(:dynamic)]
+    );
+    const values = result.toArrayObject().elements.items;
+    try std.testing.expect(values[0].isFalse());
+    try std.testing.expect(values[1].isTrue());
+}
+
 test "Module const_get resolves nested constant paths" {
     var result = try evalCode(
         \\module A

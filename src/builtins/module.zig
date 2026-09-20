@@ -1644,12 +1644,17 @@ pub fn builtinModuleDefineMethod(vm: *VM, receiver: Value, args: []Value, block:
     try vm.requireArgCountRange(args, 1, 2);
     const name_str = try vm.coerceToMethodNameString(args[0]);
     const name_sym = try vm.intern(name_str);
-    const visibility = currentDefaultVisibility(vm);
 
     const methods = receiver.getModuleMethods() orelse {
         unreachable; // receiver is not a Module
     };
-    const module_function_mode = if (vm.current_lexical_scope) |scope| scope.module_function_mode else false;
+    const receiver_module = receiver.getModuleObject() orelse unreachable;
+    const active_definition_scope = if (vm.current_lexical_scope) |scope|
+        if (scope.getModule() == receiver_module) scope else null
+    else
+        null;
+    const visibility = if (active_definition_scope) |scope| scope.default_method_visibility else .public;
+    const module_function_mode = if (active_definition_scope) |scope| scope.module_function_mode else false;
     const requested_visibility: MethodVisibility = if (module_function_mode) .private else visibility;
     const effective_visibility = vm_mod.methodDefinitionVisibility(name_str, requested_visibility);
 
