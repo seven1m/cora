@@ -258,6 +258,11 @@ test "String#<< appends string and codepoint" {
     try std.testing.expectEqualSlices(u8, "UTF-8", result.toStringObject().str);
 }
 
+test "String#% does not parse text after a conversion as a named reference" {
+    const result = try evalCode("'<title>%s</title>' % ['Rack']");
+    try std.testing.expectEqualSlices(u8, "<title>Rack</title>", result.toStringObject().str);
+}
+
 test "String#start_with? and #end_with?" {
     var result = try evalCode("'|abc'.start_with?('|')");
     try std.testing.expect(result.isBool());

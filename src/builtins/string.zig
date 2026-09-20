@@ -624,8 +624,6 @@ fn parseStringPercentSpec(vm: *VM, format: []const u8, index: *usize) VMError!St
             else => return malformedStringPercent(vm),
         }
         index.* += 1;
-
-        spec.name = spec.name orelse parseStringPercentName(format, index);
     }
 
     if (spec.conversion == '%' and spec.arg_number != null) {
