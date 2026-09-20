@@ -85,6 +85,7 @@ typedef struct { int _; } rb_encoding;
 #define INTEGER_PACK_LSBYTE_FIRST      0x20
 #define INTEGER_PACK_NATIVE_BYTE_ORDER 0x40
 #define INTEGER_PACK_2COMP             0x80
+#define HAVE_RB_INTEGER_PACK 1
 
 #define T_NONE     0x00
 #define T_OBJECT   0x01
