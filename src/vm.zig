@@ -6483,8 +6483,13 @@ pub const VM = struct {
 
                 // Look up the chunk by ID
                 if (self.program.child_chunks.get(chunk_idx)) |chunk_ptr| {
-                    // Capture the current lexical scope for this method
-                    chunk_ptr.lexical_scope = self.current_lexical_scope;
+                    // Snapshot mutable lexical state such as default visibility.
+                    // A later `private` or `module_function` in the enclosing
+                    // class body must not retroactively change this method.
+                    chunk_ptr.lexical_scope = if (self.current_lexical_scope) |scope|
+                        try self.cloneLexicalScope(scope, scope.parent)
+                    else
+                        null;
                     const module_function_mode = if (self.current_lexical_scope) |scope| scope.module_function_mode else false;
                     const requested_visibility: MethodVisibility = if (module_function_mode) .private else self.currentDefaultMethodVisibility();
                     const visibility = methodDefinitionVisibility(method_name, requested_visibility);

@@ -192,6 +192,26 @@ test "Module define_method forwards blocks to proc-backed methods" {
     try std.testing.expectEqual(@as(i64, 15), result.toArrayObject().elements.items[1].toInteger());
 }
 
+test "define_method uses the visibility at the enclosing method definition" {
+    const result = try evalCode(
+        \\class VisibilityInstaller
+        \\  class << self
+        \\    def install(target)
+        \\      target.define_method(:dynamic) { 42 }
+        \\    end
+        \\    private
+        \\  end
+        \\end
+        \\class VisibilityTarget
+        \\end
+        \\VisibilityInstaller.send(:install, VisibilityTarget)
+        \\[VisibilityTarget.public_method_defined?(:dynamic), VisibilityTarget.new.dynamic]
+    );
+    const values = result.toArrayObject().elements.items;
+    try std.testing.expect(values[0].isTrue());
+    try std.testing.expectEqual(@as(i64, 42), values[1].toInteger());
+}
+
 test "Module const_get resolves nested constant paths" {
     var result = try evalCode(
         \\module A
