@@ -252,6 +252,7 @@ const ReceiverCallStyle = bytecode.ReceiverCallStyle;
 pub const ResolvedMethod = struct {
     name: *SymbolObject,
     owner_class: *ClassObject,
+    defining_node: ?*ModuleObject = null,
     entry: MethodEntry,
 };
 
@@ -289,7 +290,7 @@ const FrameScopeContext = struct {
 const MethodEnvironmentContext = struct {
     chunk: *Chunk,
     method_name: []const u8,
-    defining_class: ?*ClassObject,
+    defining_node: ?*ModuleObject,
 };
 
 pub const Block = struct {
@@ -339,7 +340,7 @@ pub const CallFrame = struct {
     block: ?Block = null,
     frame_type: FrameType = .method,
     method_name: ?[]const u8 = null,
-    super_defining_class: ?*ClassObject = null,
+    super_defining_node: ?*ModuleObject = null,
     active_rescue_exceptions: usize = 0,
     forwarded_keyword_ctx: ?*BuiltinKeywordContext = null,
     provided_optional_count: u16 = 0,
@@ -2163,7 +2164,7 @@ pub const VM = struct {
         context.* = .{
             .chunk = frame.chunk,
             .method_name = frame.method_name orelse frame.chunk.name,
-            .defining_class = frame.super_defining_class,
+            .defining_node = frame.super_defining_node,
         };
         frame.ep[4] = .{ .raw = @intFromPtr(context) };
     }
@@ -3437,6 +3438,7 @@ pub const VM = struct {
                 return .{
                     .name = method_name_sym,
                     .owner_class = cached.owner_class,
+                    .defining_node = cached.defining_node,
                     .entry = cached.entry,
                 };
             }
@@ -3449,6 +3451,7 @@ pub const VM = struct {
                 .method_name = method_name_sym,
                 .method_state_version = self.method_state_version,
                 .owner_class = r.owner_class,
+                .defining_node = r.defining_node,
                 .entry = r.entry,
             };
         }
@@ -6028,7 +6031,7 @@ pub const VM = struct {
                                                     .self_value = receiver,
                                                     .block = null,
                                                     .method_name = cachedMethodFrameName(cached),
-                                                    .super_defining_class = cached.owner_class,
+                                                    .super_defining_node = cached.defining_node,
                                                 };
                                                 self.frames.items = self.frames.storage[0 .. self.frames.items.len + 1];
                                                 try self.setMethodEnvironmentContext(self.currentFrame());
@@ -6046,7 +6049,7 @@ pub const VM = struct {
                                                 self.stack.shrinkRetainingCapacity(receiver_index);
                                                 try self.setupChunkCallFrame(method_chunk, receiver, call_args, .{
                                                     .method_name = cachedMethodFrameName(cached),
-                                                    .super_defining_class = cached.owner_class,
+                                                    .super_defining_node = cached.defining_node,
                                                     .block = block,
                                                 });
                                             }
@@ -6075,7 +6078,7 @@ pub const VM = struct {
                                             self.stack.shrinkRetainingCapacity(receiver_index);
                                             try self.setupChunkCallFrame(method_chunk, receiver, call_args, .{
                                                 .method_name = resolvedMethodFrameName(method),
-                                                .super_defining_class = method.owner_class,
+                                                .super_defining_node = method.defining_node,
                                                 .block = block,
                                             });
                                         }
@@ -6880,9 +6883,9 @@ pub const VM = struct {
                 if (entry) |resolved_entry| {
                     var alias_entry = resolved_entry;
                     if (alias_entry.original_name == null) alias_entry.original_name = old_name_sym;
-                    if (alias_entry.original_defining_class == null and current_self.isClass()) {
+                    if (alias_entry.original_defining_node == null and current_self.isClass()) {
                         switch (self.lookupMethodDetailed(current_self.toClassObject(), old_name_sym)) {
-                            .found => |found| alias_entry.original_defining_class = found.owner_class,
+                            .found => |found| alias_entry.original_defining_node = found.defining_node,
                             else => {},
                         }
                     }
@@ -7606,7 +7609,7 @@ pub const VM = struct {
                                                         .self_value = call_receiver,
                                                         .block = null,
                                                         .method_name = cachedMethodFrameName(cached),
-                                                        .super_defining_class = cached.owner_class,
+                                                        .super_defining_node = cached.defining_node,
                                                     };
                                                     self.frames.items = self.frames.storage[0 .. new_fl + 1];
                                                     try self.setMethodEnvironmentContext(self.currentFrame());
@@ -7705,19 +7708,33 @@ pub const VM = struct {
     }
 
     fn resolveLookupEntry(
-        _: *VM,
+        self: *VM,
         method_name: *SymbolObject,
         owner_class: *ClassObject,
+        defining_node: *ModuleObject,
         entry: MethodEntry,
     ) LookupMethodResult {
+        const resolved_defining_node = entry.original_defining_node orelse defining_node;
+        const resolved_owner_class = if (entry.original_defining_node) |original_node|
+            self.ownerClassForDefiningNode(original_node) orelse owner_class
+        else
+            owner_class;
         return switch (entry.method) {
             .undefined => .undefined,
             else => .{ .found = .{
                 .name = method_name,
-                .owner_class = entry.original_defining_class orelse owner_class,
+                .owner_class = resolved_owner_class,
+                .defining_node = resolved_defining_node,
                 .entry = entry,
             } },
         };
+    }
+
+    fn ownerClassForDefiningNode(_: *VM, node: *ModuleObject) ?*ClassObject {
+        if (node.object.type_tag == .class) return @fieldParentPtr("module", node);
+        const includer = node.includer orelse return null;
+        if (includer.object.type_tag == .class) return @fieldParentPtr("module", includer);
+        return null;
     }
 
     inline fn resolvedMethodFrameName(resolved: ResolvedMethod) []const u8 {
@@ -7737,7 +7754,7 @@ pub const VM = struct {
         var current: ?*ModuleObject = module_obj;
         while (current) |node| : (current = node.super) {
             if (ancestry.methodTableOwner(node).methods.get(method_name)) |entry| {
-                return self.resolveLookupEntry(method_name, owner_class, entry);
+                return self.resolveLookupEntry(method_name, owner_class, node, entry);
             }
         }
 
@@ -7752,7 +7769,7 @@ pub const VM = struct {
                 owner_class = @fieldParentPtr("module", node);
             }
             if (ancestry.methodTableOwner(node).methods.get(method_name)) |entry| {
-                return self.resolveLookupEntry(method_name, owner_class, entry);
+                return self.resolveLookupEntry(method_name, owner_class, node, entry);
             }
         }
 
@@ -7805,7 +7822,7 @@ pub const VM = struct {
         kw_keys: ?[]const Value = null,
         kw_values: ?[]const Value = null,
         method_name: ?[]const u8 = null,
-        super_defining_class: ?*ClassObject = null,
+        super_defining_node: ?*ModuleObject = null,
         block: ?Block = null,
     };
 
@@ -7863,7 +7880,7 @@ pub const VM = struct {
         try self.pushFrame(method_chunk, receiver, opts.block);
         const callee_frame = self.currentFrame();
         callee_frame.method_name = opts.method_name;
-        callee_frame.super_defining_class = opts.super_defining_class;
+        callee_frame.super_defining_node = opts.super_defining_node;
         try self.setMethodEnvironmentContext(callee_frame);
         callee_frame.forwarded_keyword_ctx = if (has_keywords)
             try self.copyKeywordContext(effective_kw_keys.?, effective_kw_values.?)
@@ -8435,7 +8452,7 @@ pub const VM = struct {
                     .kw_keys = dispatch.kw_keys,
                     .kw_values = dispatch.kw_values,
                     .method_name = resolvedMethodFrameName(resolved),
-                    .super_defining_class = resolved.owner_class,
+                    .super_defining_node = resolved.defining_node,
                     .block = block,
                 });
 
@@ -8460,7 +8477,7 @@ pub const VM = struct {
                     .kw_values = dispatch.kw_values,
                     .block = block,
                     .method_name = resolvedMethodFrameName(resolved),
-                    .defining_class = resolved.owner_class,
+                    .defining_node = resolved.defining_node,
                 });
             },
             .missing => |missing_name| {
@@ -8764,7 +8781,7 @@ pub const VM = struct {
         kw_values: ?[]const Value = null,
         block: ?Block = null,
         method_name: ?[]const u8 = null,
-        defining_class: ?*ClassObject = null,
+        defining_node: ?*ModuleObject = null,
     };
 
     fn callProcAsMethod(
@@ -8778,7 +8795,7 @@ pub const VM = struct {
         const kw_values = opts.kw_values;
         const block = opts.block;
         const method_name = opts.method_name;
-        const defining_class = opts.defining_class;
+        const defining_node = opts.defining_node;
         return switch (proc_obj.block.kind) {
             .receiver_builtin => |builtin_data| builtin_data.func(self, builtin_data.receiver, @constCast(args)),
             .symbol => |sym| self.invokeSymbolProc(sym, args, block),
@@ -8814,7 +8831,7 @@ pub const VM = struct {
 
                 const current_frame = self.currentFrame();
                 current_frame.method_name = method_name;
-                current_frame.super_defining_class = defining_class;
+                current_frame.super_defining_node = defining_node;
                 try self.setMethodEnvironmentContext(current_frame);
                 try self.copyArgumentsWithRestParam(proc_chunk, current_frame, args_to_bind, .strict);
                 try self.bindMethodBlockParam(proc_chunk, current_frame, block);
@@ -9011,7 +9028,7 @@ pub const VM = struct {
                     .kw_keys = dispatch.kw_keys,
                     .kw_values = dispatch.kw_values,
                     .method_name = resolvedMethodFrameName(method),
-                    .super_defining_class = method.owner_class,
+                    .super_defining_node = method.defining_node,
                     .block = block,
                 }) catch |err| return err;
             },
@@ -9085,7 +9102,7 @@ pub const VM = struct {
 
                         const current_frame = self.currentFrame();
                         current_frame.method_name = resolvedMethodFrameName(method);
-                        current_frame.super_defining_class = method.owner_class;
+                        current_frame.super_defining_node = method.defining_node;
                         try self.setMethodEnvironmentContext(current_frame);
                         try self.copyArgumentsWithRestParam(proc_chunk, current_frame, dispatch.args, .strict);
                         try self.bindMethodBlockParam(proc_chunk, current_frame, block);
@@ -9324,7 +9341,7 @@ pub const VM = struct {
 
             if (found_owner.*) {
                 if (ancestry.methodTableOwner(node).methods.get(method_name)) |entry| {
-                    return self.resolveLookupEntry(method_name, current_owner_class, entry);
+                    return self.resolveLookupEntry(method_name, current_owner_class, node, entry);
                 }
             } else if (matches_owner) {
                 found_owner.* = true;
@@ -9351,6 +9368,34 @@ pub const VM = struct {
             .found => |resolved| resolved,
             .undefined, .not_found => null,
         };
+    }
+
+    fn lookupMethodAfterDefiningNode(
+        self: *VM,
+        receiver: Value,
+        defining_node: *ModuleObject,
+        method_name: *value.SymbolObject,
+    ) ?ResolvedMethod {
+        const start_class = self.getDispatchClass(receiver);
+        var current: ?*ModuleObject = &start_class.module;
+        var owner_class = start_class;
+        var found_defining_node = false;
+        while (current) |node| : (current = node.super) {
+            if (node.object.type_tag == .class) {
+                owner_class = @fieldParentPtr("module", node);
+            }
+            if (found_defining_node) {
+                if (ancestry.methodTableOwner(node).methods.get(method_name)) |entry| {
+                    return switch (self.resolveLookupEntry(method_name, owner_class, node, entry)) {
+                        .found => |resolved| resolved,
+                        .undefined, .not_found => null,
+                    };
+                }
+            } else if (node == defining_node) {
+                found_defining_node = true;
+            }
+        }
+        return null;
     }
 
     pub fn blockArity(self: *VM, block: Block) VMError!i64 {
@@ -9632,64 +9677,34 @@ pub const VM = struct {
         else
             fallback_frame.method_name orelse fallback_frame.chunk.name;
         const defining_method_chunk = if (method_environment) |environment| environment.context.chunk else fallback_frame.chunk;
-        const explicit_defining_class = if (method_environment) |environment|
-            environment.context.defining_class
+        const explicit_defining_node = if (method_environment) |environment|
+            environment.context.defining_node
         else
-            fallback_frame.super_defining_class;
+            fallback_frame.super_defining_node;
         const receiver = frame.self_value;
         const method_name_sym = try self.intern(method_name);
 
         const lexical_scope = defining_method_chunk.lexical_scope;
-        const maybe_resolved = if (lexical_scope) |scope|
-            switch (scope.scope_module) {
-                .module => |defining_module| if (explicit_defining_class) |defining_class|
-                    if (defining_class.attached_object != null and
-                        defining_class.attached_object.?.eql(receiver))
-                        self.lookupMethodForSuperFromScope(
-                            defining_class,
-                            if (defining_module == &defining_class.module)
-                                .{ .class = defining_class }
-                            else
-                                .{ .module = defining_module },
-                            method_name_sym,
-                        ) orelse self.lookupMethodForSuperFromScope(
-                            defining_class,
-                            .{ .class = defining_class },
-                            method_name_sym,
-                        )
-                    else
-                        self.lookupMethodForSuperFromScope(
-                            defining_class,
-                            .{ .module = defining_module },
-                            method_name_sym,
-                        ) orelse self.lookupMethod(defining_class, method_name_sym)
-                else
+        var maybe_resolved = if (explicit_defining_node) |defining_node|
+            self.lookupMethodAfterDefiningNode(receiver, defining_node, method_name_sym)
+        else
+            null;
+        if (maybe_resolved == null) {
+            maybe_resolved = if (lexical_scope) |scope| switch (scope.scope_module) {
+                .module => |defining_module|
                     self.lookupMethodForSuperFromScope(
                         self.getClass(receiver),
                         .{ .module = defining_module },
                         method_name_sym,
-                    ),
-                .class => |defining_class| if (explicit_defining_class) |method_defining_class|
-                    self.lookupMethodForSuperFromScope(
-                        method_defining_class,
-                        .{ .class = method_defining_class },
-                        method_name_sym,
-                    )
-                else
+                    ) orelse self.lookupMethod(self.getClass(receiver), method_name_sym),
+                .class => |defining_class|
                     self.lookupMethodForSuperFromScope(
                         defining_class,
                         .{ .class = defining_class },
                         method_name_sym,
                     ),
-            }
-        else if (explicit_defining_class) |defining_class|
-            self.lookupMethodForSuperFromScope(
-                defining_class,
-                .{ .class = defining_class },
-                method_name_sym,
-            )
-        else
-            null;
+            } else null;
+        }
 
         const resolved = maybe_resolved orelse {
             const result = try self.invokeMethodMissing(receiver, method_name_sym, @constCast(args), keyword_ctx, block);
@@ -9705,7 +9720,7 @@ pub const VM = struct {
                     .kw_keys = kw_keys,
                     .kw_values = kw_values,
                     .method_name = resolvedMethodFrameName(resolved),
-                    .super_defining_class = resolved.owner_class,
+                    .super_defining_node = resolved.defining_node,
                     .block = block,
                 });
             },
@@ -9728,7 +9743,7 @@ pub const VM = struct {
                     .kw_values = kw_values,
                     .block = block,
                     .method_name = resolvedMethodFrameName(resolved),
-                    .defining_class = resolved.owner_class,
+                    .defining_node = resolved.defining_node,
                 });
                 try self.push(result);
             },

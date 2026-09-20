@@ -623,6 +623,7 @@ fn resolveModuleMethodLookup(module_obj: *value.ModuleObject, owner_class: *Clas
                     .resolved = .{
                         .name = name_sym,
                         .owner_class = owner_class,
+                        .defining_node = entry.original_defining_node orelse node,
                         .entry = entry,
                     },
                     .owner = ancestry.visibleValue(node),
@@ -653,6 +654,7 @@ fn resolveInstanceMethodLookup(vm: *VM, receiver: Value, name_sym: *SymbolObject
                         .resolved = .{
                             .name = name_sym,
                             .owner_class = owner_class,
+                            .defining_node = entry.original_defining_node orelse node,
                             .entry = entry,
                         },
                         .owner = ancestry.visibleValue(node),
@@ -1880,8 +1882,8 @@ pub fn builtinModuleAliasMethod(vm: *VM, receiver: Value, args: []Value, _: ?Blo
         .found => |found| {
             var alias_entry = found.resolved.entry;
             if (alias_entry.original_name == null) alias_entry.original_name = old_name_sym;
-            if (alias_entry.original_defining_class == null) {
-                alias_entry.original_defining_class = found.resolved.owner_class;
+            if (alias_entry.original_defining_node == null) {
+                alias_entry.original_defining_node = found.resolved.defining_node;
             }
             methods.put(new_name_sym, alias_entry) catch return error.Fatal;
             vm.markIntegerChangedForReceiver(receiver);

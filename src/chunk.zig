@@ -5,6 +5,7 @@ const enc = @import("encoding.zig");
 const LexicalScope = @import("value.zig").LexicalScope;
 const MethodEntry = @import("value.zig").MethodEntry;
 const ClassObject = @import("value.zig").ClassObject;
+const ModuleObject = @import("value.zig").ModuleObject;
 const SymbolObject = @import("value.zig").SymbolObject;
 const OpCode = bytecode.OpCode;
 
@@ -76,6 +77,7 @@ pub const CallSiteCache = struct {
     method_name: *SymbolObject,
     method_state_version: u64,
     owner_class: *ClassObject,
+    defining_node: ?*ModuleObject = null,
     entry: MethodEntry,
 };
 
