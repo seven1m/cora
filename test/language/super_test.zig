@@ -66,6 +66,28 @@ test "bare super forwards explicit parameters before forwarding parameters" {
     try std.testing.expectEqual(@as(usize, 1), values[1].toHashObject().entries.items.len);
 }
 
+test "bare super forwards mutations to keyword rest arguments" {
+    const result = try evalCode(
+        \\class KeywordParent
+        \\  def initialize(**options)
+        \\    @options = options
+        \\  end
+        \\  attr_reader :options
+        \\end
+        \\class KeywordChild < KeywordParent
+        \\  def initialize(**options)
+        \\    options.delete(:internal)
+        \\    super
+        \\  end
+        \\end
+        \\KeywordChild.new(internal: true, visible: true).options
+    );
+    const entries = result.toHashObject().entries.items;
+    try std.testing.expectEqual(@as(usize, 1), entries.len);
+    try std.testing.expectEqualStrings("visible", entries[0].key.toSymbolObject().name);
+    try std.testing.expect(entries[0].value.isTrue());
+}
+
 test "bare super in a block forwards enclosing method arguments and block" {
     const result = try evalCode(
         \\class A

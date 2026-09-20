@@ -7154,7 +7154,7 @@ pub const VM = struct {
                     positional_argc = argc;
                 }
 
-                try self.callSuper(args[0..positional_argc], block);
+                try self.callSuper(args[0..positional_argc], block, null);
             },
 
             .SUPER_KW => {
@@ -7224,15 +7224,11 @@ pub const VM = struct {
                     positional_argc = argc;
                 }
 
-                // Build keyword context and temporarily set on frame for callSuper
-                const saved_kw_ctx = frame.forwarded_keyword_ctx;
-                frame.forwarded_keyword_ctx = null;
-                if (kw_key_slice) |keys| {
-                    frame.forwarded_keyword_ctx = try self.copyKeywordContext(keys, kw_value_slice.?);
-                }
-                defer frame.forwarded_keyword_ctx = saved_kw_ctx;
-
-                try self.callSuper(args[0..positional_argc], block);
+                const keyword_ctx = if (kw_key_slice) |keys|
+                    try self.copyKeywordContext(keys, kw_value_slice.?)
+                else
+                    null;
+                try self.callSuper(args[0..positional_argc], block, keyword_ctx);
             },
 
             .FORWARDING_SUPER => {
@@ -7252,14 +7248,8 @@ pub const VM = struct {
 
                 // Build forwarding keyword context from actual param slot values
                 // (includes defaults that were applied, not just what was explicitly passed).
-                const saved_kw_ctx = forwarding_frame.forwarded_keyword_ctx;
                 const fwd_kw_ctx = try self.buildForwardingKeywordContext(forwarding_frame);
-                if (fwd_kw_ctx) |ctx| {
-                    forwarding_frame.forwarded_keyword_ctx = ctx;
-                }
-                defer forwarding_frame.forwarded_keyword_ctx = saved_kw_ctx;
-
-                try self.callSuper(fwd_args, block);
+                try self.callSuper(fwd_args, block, fwd_kw_ctx);
             },
         }
     }
@@ -9615,14 +9605,10 @@ pub const VM = struct {
     }
 
     /// Call the superclass method with the given arguments
-    fn callSuper(self: *VM, args: []const Value, block: ?Block) VMError!void {
+    fn callSuper(self: *VM, args: []const Value, block: ?Block, keyword_ctx: ?*BuiltinKeywordContext) VMError!void {
         const frame = self.currentFrame();
         const method_environment = enclosingMethodEnvironment(frame);
         const fallback_frame = self.enclosingMethodFrame(frame);
-        const active_method_frame = if (method_environment) |environment|
-            self.activeMethodFrameForEp(environment.ep)
-        else
-            fallback_frame;
 
         // The stored context survives when a block escapes the method that
         // defined it.
@@ -9636,7 +9622,6 @@ pub const VM = struct {
         else
             fallback_frame.super_defining_class;
         const receiver = frame.self_value;
-        const forwarded_keyword_ctx = if (active_method_frame) |method_frame| method_frame.forwarded_keyword_ctx else null;
         const method_name_sym = try self.intern(method_name);
 
         const lexical_scope = defining_method_chunk.lexical_scope;
@@ -9704,8 +9689,8 @@ pub const VM = struct {
 
         switch (resolved.entry.method) {
             .chunk => |method_chunk| {
-                const kw_keys = if (forwarded_keyword_ctx) |ctx| if (ctx.kw_values.len > 0) ctx.kw_keys else null else null;
-                const kw_values = if (forwarded_keyword_ctx) |ctx| if (ctx.kw_values.len > 0) ctx.kw_values else null else null;
+                const kw_keys = if (keyword_ctx) |ctx| if (ctx.kw_values.len > 0) ctx.kw_keys else null else null;
+                const kw_values = if (keyword_ctx) |ctx| if (ctx.kw_values.len > 0) ctx.kw_values else null else null;
                 try self.setupChunkCallFrame(method_chunk, receiver, args, .{
                     .kw_keys = kw_keys,
                     .kw_values = kw_values,
@@ -9718,7 +9703,7 @@ pub const VM = struct {
                 // For builtin methods, we need a mutable copy
                 var args_copy: [256]Value = undefined;
                 @memcpy(args_copy[0..args.len], args);
-                const result = try self.invokeBuiltinMethod(fun_ptr, receiver, resolved.name.name, args_copy[0..args.len], block, forwarded_keyword_ctx);
+                const result = try self.invokeBuiltinMethod(fun_ptr, receiver, resolved.name.name, args_copy[0..args.len], block, keyword_ctx);
                 try self.push(result);
             },
             .cext => |cext_method| {
@@ -9726,8 +9711,8 @@ pub const VM = struct {
                 try self.push(result);
             },
             .proc => |proc_obj| {
-                const kw_keys: ?[]const Value = if (forwarded_keyword_ctx) |ctx| if (ctx.kw_values.len > 0) ctx.kw_keys else null else null;
-                const kw_values: ?[]const Value = if (forwarded_keyword_ctx) |ctx| if (ctx.kw_values.len > 0) ctx.kw_values else null else null;
+                const kw_keys: ?[]const Value = if (keyword_ctx) |ctx| if (ctx.kw_values.len > 0) ctx.kw_keys else null else null;
+                const kw_values: ?[]const Value = if (keyword_ctx) |ctx| if (ctx.kw_values.len > 0) ctx.kw_values else null else null;
                 const result = try self.callProcAsMethod(proc_obj, receiver, args, .{
                     .kw_keys = kw_keys,
                     .kw_values = kw_values,
