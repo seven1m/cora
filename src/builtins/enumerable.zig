@@ -121,6 +121,8 @@ pub fn register(vm: *VM) !void {
     try enumerable_val.toModuleObject().methods.put(to_h_sym, value.MethodEntry.builtin(&builtinEnumerableToH, .{ .variadic = 0 }));
     const chain_sym = try vm.intern("chain");
     try enumerable_val.toModuleObject().methods.put(chain_sym, value.MethodEntry.builtin(&builtinEnumerableChain, .{ .variadic = 0 }));
+    const chunk_while_sym = try vm.intern("chunk_while");
+    try enumerable_val.toModuleObject().methods.put(chunk_while_sym, value.MethodEntry.builtin(&builtinEnumerableChunkWhile, .{ .exact = 0 }));
 }
 
 fn builtinEnumerableChain(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
@@ -132,6 +134,17 @@ fn builtinEnumerableChain(vm: *VM, receiver: Value, args: []Value, _: ?Block) VM
     return vm.newEnumeratorOfClass(
         vm.enumerator_chain_class,
         .{ .chain = .{ .sources = sources } },
+        null,
+        null,
+        null,
+    );
+}
+
+fn builtinEnumerableChunkWhile(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    const predicate = try vm.newProc(try vm.requireBlock(block));
+    return vm.newEnumerator(
+        .{ .chunk_while = .{ .receiver = receiver, .predicate = predicate.toProcObject() } },
         null,
         null,
         null,
@@ -329,7 +342,8 @@ fn builtinEnumerableReject(vm: *VM, receiver: Value, args: []Value, block: ?Bloc
     return Value.fromObject(&out.object);
 }
 
-fn builtinEnumerableFilterMap(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {    try vm.requireArgCount(args, 0);
+fn builtinEnumerableFilterMap(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
     const blk = block orelse {
         const method_name = try vm.intern("filter_map");
         if (try vm.checkCallMethodByName(receiver, "size", false, &.{}, null)) |size| {

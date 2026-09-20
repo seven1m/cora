@@ -604,6 +604,10 @@ pub const EnumeratorObject = struct {
         chain: struct {
             sources: *ArrayObject,
         },
+        chunk_while: struct {
+            receiver: Value,
+            predicate: *ProcObject,
+        },
     };
 };
 

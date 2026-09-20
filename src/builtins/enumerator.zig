@@ -110,6 +110,9 @@ fn builtinEnumeratorEach(vm: *VM, receiver: Value, args: []Value, block: ?Block)
             .chain => {
                 return vm.newEnumeratorOfClass(enum_obj.object.class.?, enum_obj.kind, null, enum_obj.size, enum_obj.size_fn);
             },
+            .chunk_while => {
+                return vm.newEnumerator(enum_obj.kind, null, enum_obj.size, enum_obj.size_fn);
+            },
         }
     };
 
@@ -142,6 +145,7 @@ fn builtinEnumeratorEach(vm: *VM, receiver: Value, args: []Value, block: ?Block)
             }
             return receiver;
         },
+        .chunk_while => |chunk_while| return enumerateChunkWhile(vm, receiver, chunk_while.receiver, chunk_while.predicate, blk),
     }
 }
 
@@ -277,6 +281,14 @@ fn builtinEnumeratorInspect(vm: *VM, receiver: Value, args: []Value, _: ?Block) 
             ) catch return error.Fatal;
             return try vm.newString(msg, false);
         },
+        .chunk_while => {
+            const msg = std.fmt.allocPrint(
+                vm.gc_allocator,
+                "#<Enumerator:0x{x}>",
+                .{@intFromPtr(enum_obj)},
+            ) catch return error.Fatal;
+            return try vm.newString(msg, false);
+        },
     }
 }
 
@@ -295,6 +307,7 @@ fn builtinEnumeratorSize(vm: *VM, receiver: Value, args: []Value, _: ?Block) VME
             .method => |m| return size_fn(vm, m.receiver, enum_obj.method_args),
             .generator => return Value.nil(),
             .chain => return Value.nil(),
+            .chunk_while => return Value.nil(),
         }
     }
 
@@ -413,7 +426,51 @@ fn enumeratorFiberBody(vm: *VM, args: []Value) VMError!Value {
             }
             return enum_val;
         },
+        .chunk_while => |chunk_while| return enumerateChunkWhile(vm, enum_val, chunk_while.receiver, chunk_while.predicate, yield_block),
     }
+}
+
+fn enumerateChunkWhile(
+    vm: *VM,
+    enum_value: Value,
+    source: Value,
+    predicate: *value.ProcObject,
+    block: Block,
+) VMError!Value {
+    const source_enum = try vm.createMethodEnumerator(source, try vm.intern("each"), &.{});
+    const first_values = fetchNextYieldValues(vm, source_enum.toEnumeratorObject()) catch |err| {
+        if (err == error.Unwind and vm.pendingException() != null and vm.pendingException().?.object.class == vm.stop_iteration_class) {
+            vm.setPendingException(null);
+            return enum_value;
+        }
+        return err;
+    };
+
+    var previous = collapseYieldValues(first_values);
+    var chunk = try vm.createArray();
+    chunk.elements.append(vm.gc_allocator, previous) catch return error.Fatal;
+
+    while (true) {
+        const next_values = fetchNextYieldValues(vm, source_enum.toEnumeratorObject()) catch |err| {
+            if (err == error.Unwind and vm.pendingException() != null and vm.pendingException().?.object.class == vm.stop_iteration_class) {
+                vm.setPendingException(null);
+                break;
+            }
+            return err;
+        };
+        const current = collapseYieldValues(next_values);
+        var predicate_args = [_]Value{ previous, current };
+        const keep = try vm.callProcObject(predicate, &predicate_args, null, null, null, null);
+        if (!keep.isTruthy()) {
+            _ = try vm.yieldToBlock(block, &.{Value.fromObject(&chunk.object)});
+            chunk = try vm.createArray();
+        }
+        chunk.elements.append(vm.gc_allocator, current) catch return error.Fatal;
+        previous = current;
+    }
+
+    _ = try vm.yieldToBlock(block, &.{Value.fromObject(&chunk.object)});
+    return enum_value;
 }
 
 fn enumeratorFiberYieldBlock(vm: *VM, _: Value, args: []Value) VMError!Value {
