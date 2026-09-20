@@ -83,6 +83,7 @@ module Zlib
       @window_bits = window_bits
       @buffer = +""
       @closed = false
+      @delivered = 0
     end
 
     def <<(string)
@@ -93,13 +94,35 @@ module Zlib
 
     def inflate(string = nil)
       self << string if string
-      result = Zlib.__inflate(@buffer, Zlib.container_for_window_bits(@window_bits))
-      @buffer = +""
-      result
+      begin
+        result = Zlib.__inflate(@buffer, Zlib.container_for_window_bits(@window_bits))
+        result = result.byteslice(@delivered, result.bytesize - @delivered) || +""
+        @buffer = +""
+        @delivered = 0
+        result
+      rescue Zlib::DataError
+        parsed = inflate_stored_gzip
+        raise unless parsed
+
+        result = parsed.byteslice(@delivered, parsed.bytesize - @delivered) || +""
+        @delivered = parsed.bytesize
+        result
+      end
     end
 
     def finish
-      inflate
+      return +"" if @buffer.empty?
+
+      begin
+        result = Zlib.__inflate(@buffer, Zlib.container_for_window_bits(@window_bits))
+      rescue Zlib::DataError
+        result = inflate_stored_gzip
+        raise unless result
+      end
+      result = result.byteslice(@delivered, result.bytesize - @delivered) || +""
+      @buffer = +""
+      @delivered = 0
+      result
     end
 
     def close
@@ -111,6 +134,30 @@ module Zlib
 
     def ensure_open
       raise Zlib::StreamError, "stream is closed" if @closed
+    end
+
+    def inflate_stored_gzip
+      return nil unless @window_bits >= MAX_WBITS + 16
+      return +"" if @buffer.bytesize < 10
+      return nil unless @buffer.getbyte(0) == 0x1f && @buffer.getbyte(1) == 0x8b
+
+      output = +"".b
+      offset = 10
+      while offset < @buffer.bytesize
+        header = @buffer.getbyte(offset)
+        return nil unless ((header >> 1) & 3).zero?
+        return output if offset + 5 > @buffer.bytesize
+
+        length = @buffer.getbyte(offset + 1) | (@buffer.getbyte(offset + 2) << 8)
+        inverse = @buffer.getbyte(offset + 3) | (@buffer.getbyte(offset + 4) << 8)
+        return nil unless (length ^ inverse) == 0xffff
+        return output if offset + 5 + length > @buffer.bytesize
+
+        output << @buffer.byteslice(offset + 5, length)
+        offset += 5 + length
+        break if (header & 1) == 1
+      end
+      output
     end
   end
 
@@ -129,6 +176,7 @@ module Zlib
     def initialize(io, **_kwargs)
       @io = io
       data = io.read
+      @mtime = Time.at(data.byteslice(4, 4).unpack1("V"))
       @data = Zlib.__inflate(String(data || ""), GZIP)
       @data_len = @data.bytesize
       @position = 0
@@ -169,6 +217,8 @@ module Zlib
     def pos=(new_pos)
       @position = new_pos.to_i
     end
+
+    attr_reader :mtime
 
     def seek(offset, whence = IO::SEEK_SET)
       new_pos = case whence
@@ -223,12 +273,18 @@ module Zlib
       @buffer = +""
       @closed = false
       @mtime = nil
+      @emitted = false
+      @crc = 0
+      @size = 0
+      @failed = false
     end
 
     def write(data)
       ensure_open
       string = String(data)
       @buffer << string
+      @crc = Zlib.crc32(string, @crc)
+      @size = (@size + string.bytesize) & 0xffffffff
       string.size
     end
 
@@ -237,22 +293,81 @@ module Zlib
       self
     end
 
-    def flush
+    def flush(*_args)
+      ensure_open
+      begin
+        output = +"".b
+        output << gzip_header unless @emitted
+        output << stored_blocks(@buffer, false)
+        @io.write(output)
+        @buffer.clear
+      rescue Exception
+        @failed = true
+        raise
+      end
       self
     end
 
-    def close
-      return nil if @closed
 
+    def finish
+      ensure_open
+
+      if @failed
+        @closed = true
+        return @io
+      end
+
+      if @emitted
+        @io.write(stored_blocks(@buffer, true) << [@crc, @size].pack("V2"))
+      else
+        compressed = Zlib.__deflate(@buffer, @level, GZIP)
+        timestamp = (@mtime || Time.now).to_i
+        compressed.setbyte(4, timestamp & 0xff)
+        compressed.setbyte(5, (timestamp >> 8) & 0xff)
+        compressed.setbyte(6, (timestamp >> 16) & 0xff)
+        compressed.setbyte(7, (timestamp >> 24) & 0xff)
+        @io.write(compressed)
+      end
+
+      @buffer.clear
       @closed = true
-      @io.write(Zlib.__deflate(@buffer, @level, GZIP))
-      nil
+      @io
+    end
+
+    def close
+      finish unless @closed
+      @io.close
+      @io
     end
 
     private
 
     def ensure_open
-      raise IOError, "closed stream" if @closed
+      raise Zlib::GzipFile::Error, "closed gzip stream" if @closed
+    end
+
+    def gzip_header
+      timestamp = (@mtime || Time.now).to_i
+      @emitted = true
+      [0x1f, 0x8b, 8, 0, timestamp, 0, 255].pack("C4VC2")
+    end
+
+    def stored_blocks(data, final)
+      output = +"".b
+      if data.empty?
+        output << [final ? 1 : 0, 0, 0, 0xff, 0xff].pack("C*") if final
+        return output
+      end
+
+      offset = 0
+      while offset < data.bytesize
+        length = [data.bytesize - offset, 65_535].min
+        last = final && offset + length == data.bytesize
+        output << [last ? 1 : 0, length, length ^ 0xffff].pack("Cvv")
+        output << data.byteslice(offset, length)
+        offset += length
+      end
+      output
     end
   end
 end
