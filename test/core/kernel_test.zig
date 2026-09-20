@@ -33,7 +33,7 @@ test "p with no arguments" {
 
     const result = evalCodeWithOutput("p", &stdout_buf, &stderr_buf);
     try std.testing.expect(result.value.isNil());
-    try std.testing.expectEqualStrings("\n", result.stdout);
+    try std.testing.expectEqualStrings("", result.stdout);
 }
 
 test "p with single integer" {
