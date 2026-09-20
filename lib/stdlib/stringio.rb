@@ -209,6 +209,10 @@ class StringIO
     @closed_write
   end
 
+  def closed?
+    @closed_read && @closed_write
+  end
+
   def close
     @closed_read = true
     @closed_write = true

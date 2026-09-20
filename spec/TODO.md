@@ -3862,7 +3862,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] library/stringio/close_spec.rb
 - [ ] library/stringio/close_write_spec.rb
 - [x] library/stringio/closed_read_spec.rb
-- [ ] library/stringio/closed_spec.rb
+- [x] library/stringio/closed_spec.rb
 - [x] library/stringio/closed_write_spec.rb
 - [ ] library/stringio/each_byte_spec.rb
 - [ ] library/stringio/each_char_spec.rb
