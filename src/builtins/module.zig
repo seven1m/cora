@@ -1648,7 +1648,8 @@ pub fn builtinModuleDefineMethod(vm: *VM, receiver: Value, args: []Value, block:
         unreachable; // receiver is not a Module
     };
     const module_function_mode = if (vm.current_lexical_scope) |scope| scope.module_function_mode else false;
-    const effective_visibility: MethodVisibility = if (module_function_mode) .private else visibility;
+    const requested_visibility: MethodVisibility = if (module_function_mode) .private else visibility;
+    const effective_visibility = vm_mod.methodDefinitionVisibility(name_str, requested_visibility);
 
     const entry: value.MethodEntry = if (args.len == 2) blk: {
         const body = args[1];

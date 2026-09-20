@@ -32,6 +32,31 @@ test "instances of Module subclasses are modules" {
     try std.testing.expect(values[3].isTrue());
 }
 
+test "special hook methods are private when defined" {
+    const result = try evalCode(
+        \\class Hooks
+        \\  def initialize; end
+        \\  define_method(:initialize_copy) {}
+        \\  def initialize_clone; end
+        \\  define_method(:initialize_dup) {}
+        \\  def respond_to_missing?; end
+        \\end
+        \\Hooks.private_instance_methods(false).sort
+    );
+    const expected = [_][]const u8{
+        "initialize",
+        "initialize_clone",
+        "initialize_copy",
+        "initialize_dup",
+        "respond_to_missing?",
+    };
+    const methods = result.toArrayObject().elements.items;
+    try std.testing.expectEqual(expected.len, methods.len);
+    for (methods, expected) |method, name| {
+        try std.testing.expectEqualStrings(name, method.toSymbolObject().name);
+    }
+}
+
 test "module definition evaluates a local namespace target" {
     const result = try evalCode(
         \\owner = Module.new

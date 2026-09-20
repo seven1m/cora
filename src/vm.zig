@@ -226,6 +226,18 @@ pub const CExtMethod = struct {
     argc: i32,
 };
 
+pub fn methodDefinitionVisibility(name: []const u8, requested: MethodVisibility) MethodVisibility {
+    if (std.mem.eql(u8, name, "initialize") or
+        std.mem.eql(u8, name, "initialize_copy") or
+        std.mem.eql(u8, name, "initialize_clone") or
+        std.mem.eql(u8, name, "initialize_dup") or
+        std.mem.eql(u8, name, "respond_to_missing?"))
+    {
+        return .private;
+    }
+    return requested;
+}
+
 pub const Method = union(enum) {
     chunk: *Chunk,
     builtin: BuiltinMethod,
@@ -6469,7 +6481,8 @@ pub const VM = struct {
                     // Capture the current lexical scope for this method
                     chunk_ptr.lexical_scope = self.current_lexical_scope;
                     const module_function_mode = if (self.current_lexical_scope) |scope| scope.module_function_mode else false;
-                    const visibility: MethodVisibility = if (module_function_mode) .private else self.currentDefaultMethodVisibility();
+                    const requested_visibility: MethodVisibility = if (module_function_mode) .private else self.currentDefaultMethodVisibility();
+                    const visibility = methodDefinitionVisibility(method_name, requested_visibility);
 
                     // Get current self from the frame
                     const method_owner = if (epMethodDefinitionTarget(frame.ep)) |target|
