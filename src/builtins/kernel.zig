@@ -292,6 +292,9 @@ pub fn register(vm: *VM) !void {
     const instance_variables_sym = try vm.intern("instance_variables");
     try vm.kernel_module.methods.put(instance_variables_sym, MethodEntry.builtin(&builtinKernelInstanceVariables, .{ .exact = 0 }));
 
+    const remove_instance_variable_sym = try vm.intern("remove_instance_variable");
+    try vm.kernel_module.methods.put(remove_instance_variable_sym, MethodEntry.builtin(&builtinKernelRemoveInstanceVariable, .{ .exact = 1 }));
+
     const to_s_sym = try vm.intern("to_s");
     try vm.kernel_module.methods.put(to_s_sym, MethodEntry.builtin(&builtinKernelToS, .{ .exact = 0 }));
 
@@ -2306,6 +2309,17 @@ pub fn builtinKernelInstanceVariables(vm: *VM, receiver: Value, args: []Value, _
     try vm.requireArgCount(args, 0);
     const array = try vm.getInstanceVariableNames(receiver);
     return Value.fromObject(&array.object);
+}
+
+pub fn builtinKernelRemoveInstanceVariable(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    const name = try vm.coerceToIvarName(args[0]);
+    try vm.guardNotFrozen(receiver);
+
+    if (try vm.removeInstanceVariable(receiver, name)) |removed| return removed;
+
+    const name_sym = try vm.intern(name);
+    return vm.raiseNameErrorFmt(name_sym, "instance variable {s} not defined", .{name});
 }
 
 pub fn builtinKernelToS(vm: *VM, receiver: Value, _: []Value, _: ?Block) VMError!Value {

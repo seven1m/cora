@@ -10713,6 +10713,15 @@ pub const VM = struct {
         return false;
     }
 
+    pub fn removeInstanceVariable(self: *VM, receiver: Value, name: []const u8) VMError!?Value {
+        const obj_ptr = receiver.getObjectPointer() orelse return null;
+        if (obj_ptr.instance_variables) |*ivars| {
+            const name_sym = try self.intern(name);
+            if (ivars.fetchOrderedRemove(name_sym)) |removed| return removed.value;
+        }
+        return null;
+    }
+
     pub fn getInstanceVariableNames(self: *VM, receiver: Value) VMError!*value.ArrayObject {
         const array = try self.createArray();
         const obj_ptr = receiver.getObjectPointer() orelse return array;
