@@ -338,6 +338,9 @@ class StringIO
       separator_pos = @string.index(record_separator, @pos)
       if separator_pos
         separator_end = separator_pos + record_separator.bytesize
+        if separator.empty?
+          separator_end += 1 while @string.byteslice(separator_end, 1) == "\n"
+        end
         length = separator_end - @pos
       end
     end
@@ -350,6 +353,34 @@ class StringIO
     result = separator.nil? ? result.chomp : result.chomp(separator) if chomp
     $_ = result
   end
+
+  def each_line(separator = $/, limit = nil, chomp: false)
+    if limit.nil? && !separator.nil? && !separator.respond_to?(:to_str)
+      limit = separator.to_int
+      separator = $/
+    else
+      separator = separator.to_str unless separator.nil?
+      limit = limit.to_int unless limit.nil?
+    end
+
+    unless block_given?
+      return Enumerator.new do |yielder|
+        each_line(separator, limit, chomp: chomp) { |line| yielder << line }
+      end
+    end
+
+    previous_last_line = $_
+    begin
+      while line = gets(separator, limit, chomp: chomp)
+        yield line
+      end
+    ensure
+      $_ = previous_last_line
+    end
+    self
+  end
+
+  alias each each_line
 
   def write(string)
     if @closed_write

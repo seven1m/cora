@@ -3867,8 +3867,8 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] library/stringio/each_byte_spec.rb
 - [ ] library/stringio/each_char_spec.rb
 - [ ] library/stringio/each_codepoint_spec.rb
-- [ ] library/stringio/each_line_spec.rb
-- [ ] library/stringio/each_spec.rb
+- [x] library/stringio/each_line_spec.rb
+- [x] library/stringio/each_spec.rb
 - [ ] library/stringio/eof_spec.rb
 - [ ] library/stringio/external_encoding_spec.rb
 - [ ] library/stringio/fcntl_spec.rb
