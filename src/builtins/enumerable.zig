@@ -39,8 +39,6 @@ pub fn register(vm: *VM) !void {
     const each_with_object_entry = value.MethodEntry.builtin(&builtinEnumerableEachWithObject, .{ .exact = 1 });
     const each_with_object_sym = try vm.intern("each_with_object");
     try enumerable_val.toModuleObject().methods.put(each_with_object_sym, each_with_object_entry);
-    const with_object_sym = try vm.intern("with_object");
-    try enumerable_val.toModuleObject().methods.put(with_object_sym, each_with_object_entry);
     const each_slice_sym = try vm.intern("each_slice");
     try enumerable_val.toModuleObject().methods.put(each_slice_sym, value.MethodEntry.builtin(&builtinEnumerableEachSlice, .{ .exact = 1 }));
     const each_cons_sym = try vm.intern("each_cons");

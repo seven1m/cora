@@ -53,6 +53,14 @@ pub fn register(vm: *VM) !void {
     const with_index_sym = try vm.intern("with_index");
     try vm.enumerator_class.module.methods.put(with_index_sym, MethodEntry.builtin(&builtinEnumeratorWithIndex, .{ .variadic = 0 }));
 
+    const enumerable_sym = try vm.intern("Enumerable");
+    const enumerable = vm.object_class.module.constants.get(enumerable_sym) orelse return error.Fatal;
+    const each_with_object_sym = try vm.intern("each_with_object");
+    const each_with_object_entry = enumerable.value.toModuleObject().methods.get(each_with_object_sym) orelse return error.Fatal;
+    try vm.enumerator_class.module.methods.put(each_with_object_sym, each_with_object_entry);
+    const with_object_sym = try vm.intern("with_object");
+    try vm.enumerator_class.module.methods.put(with_object_sym, each_with_object_entry);
+
     // Yielder instance methods
     const yield_push_sym = try vm.intern("<<");
     try vm.yielder_class.module.methods.put(yield_push_sym, MethodEntry.builtin(&builtinYielderPush, .{ .exact = 1 }));
