@@ -336,13 +336,13 @@ class StringIO
     end
 
     if @pos > @string.bytesize
-      @string += "\x00" * (@pos - @string.bytesize)
+      @string.concat("\x00" * (@pos - @string.bytesize))
     end
 
     if @pos < @string.bytesize
       @string[@pos, string.bytesize] = string
     else
-      @string += string
+      @string.concat(string)
     end
 
     @pos += string.bytesize
