@@ -9,6 +9,14 @@ fn uniqueId() u64 {
     return @intCast(std.Io.Clock.boot.now(std.testing.io).nanoseconds);
 }
 
+test "Kernel.require is a public module function and private instance method" {
+    const result = try evalCode(
+        \\Kernel.respond_to?(:require) &&
+        \\  Kernel.private_instance_methods.include?(:require)
+    );
+    try std.testing.expect(result.isTruthy());
+}
+
 test "p with no arguments" {
     var stdout_buf: [1024]u8 = undefined;
     var stderr_buf: [1024]u8 = undefined;

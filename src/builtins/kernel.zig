@@ -258,7 +258,7 @@ pub fn register(vm: *VM) !void {
     try vm.kernel_module.methods.put(lambda_sym, value.MethodEntry.builtin(&builtinKernelLambda, .{ .exact = 0 }));
 
     const require_sym = try vm.intern("require");
-    try vm.kernel_module.methods.put(require_sym, value.MethodEntry.builtin(&builtinKernelRequire, .{ .exact = 1 }));
+    try vm.kernel_module.methods.put(require_sym, value.MethodEntry.builtinWithVisibility(&builtinKernelRequire, .{ .exact = 1 }, .private));
 
     const autoload_sym = try vm.intern("autoload");
     try vm.kernel_module.methods.put(autoload_sym, MethodEntry.builtinWithVisibility(&builtinKernelAutoload, .{ .exact = 2 }, .private));
@@ -317,6 +317,7 @@ pub fn register(vm: *VM) !void {
     try kernel_singleton.module.methods.put(warn_sym, MethodEntry.builtin(&builtinKernelWarn, .{ .variadic = 0 }));
     try kernel_singleton.module.methods.put(catch_sym, MethodEntry.builtin(&builtinKernelCatch, .{ .variadic = 0 }));
     try kernel_singleton.module.methods.put(throw_sym, MethodEntry.builtin(&builtinKernelThrow, .{ .variadic = 1 }));
+    try kernel_singleton.module.methods.put(require_sym, value.MethodEntry.builtin(&builtinKernelRequire, .{ .exact = 1 }));
 
     const hash_sym = try vm.intern("hash");
     try vm.kernel_module.methods.put(hash_sym, MethodEntry.builtin(&builtinKernelHash, .{ .exact = 0 }));
