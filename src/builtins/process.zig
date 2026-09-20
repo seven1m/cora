@@ -47,7 +47,10 @@ pub fn register(vm: *VM) !void {
     try process_singleton.module.methods.put(clock_gettime_sym, value.MethodEntry.builtin(&builtinProcessClockGettime, .{ .variadic = 1 }));
 
     const wait_sym = try vm.intern("wait");
-    try process_singleton.module.methods.put(wait_sym, value.MethodEntry.builtin(&builtinProcessWait, .{ .variadic = 0 }));
+    const waitpid_sym = try vm.intern("waitpid");
+    const wait_entry = value.MethodEntry.builtin(&builtinProcessWait, .{ .variadic = 0 });
+    try process_singleton.module.methods.put(wait_sym, wait_entry);
+    try process_singleton.module.methods.put(waitpid_sym, wait_entry);
 
     const last_status_sym = try vm.intern("last_status");
     try process_singleton.module.methods.put(last_status_sym, value.MethodEntry.builtin(&builtinProcessLastStatus, .{ .exact = 0 }));

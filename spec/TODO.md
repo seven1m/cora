@@ -1736,7 +1736,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/process/wait_spec.rb
 - [ ] core/process/waitall_spec.rb
 - [ ] core/process/waitpid2_spec.rb
-- [ ] core/process/waitpid_spec.rb
+- [x] core/process/waitpid_spec.rb
 - [ ] core/process/warmup_spec.rb
 
 ### core/queue
