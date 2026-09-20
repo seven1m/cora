@@ -3879,7 +3879,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] library/stringio/getc_spec.rb
 - [ ] library/stringio/getch_spec.rb
 - [ ] library/stringio/getpass_spec.rb
-- [ ] library/stringio/gets_spec.rb
+- [x] library/stringio/gets_spec.rb
 - [-] library/stringio/initialize_spec.rb
 - [x] library/stringio/inspect_spec.rb
 - [x] library/stringio/internal_encoding_spec.rb

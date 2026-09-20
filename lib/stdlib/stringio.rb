@@ -310,6 +310,47 @@ class StringIO
     end
   end
 
+  def gets(separator = $/, limit = nil, chomp: false)
+    if @closed_read
+      raise IOError, "not opened for reading"
+    end
+
+    if limit.nil? && !separator.nil? && !separator.respond_to?(:to_str)
+      limit = separator.to_int
+      separator = $/
+    else
+      separator = separator.to_str unless separator.nil?
+      limit = limit.to_int unless limit.nil?
+    end
+
+    if limit == 0
+      $_ = "".dup.force_encoding(@string.encoding)
+      return $_
+    end
+
+    return nil if @pos >= @string.bytesize
+
+    available = @string.bytesize - @pos
+    length = available
+
+    unless separator.nil?
+      record_separator = separator.empty? ? "\n\n" : separator
+      separator_pos = @string.index(record_separator, @pos)
+      if separator_pos
+        separator_end = separator_pos + record_separator.bytesize
+        length = separator_end - @pos
+      end
+    end
+
+    length = limit if limit && limit >= 0 && limit < length
+    result = @string.byteslice(@pos, length)
+    @pos += result.bytesize
+    @lineno += 1
+
+    result = separator.nil? ? result.chomp : result.chomp(separator) if chomp
+    $_ = result
+  end
+
   def write(string)
     if @closed_write
       raise IOError, "not opened for writing"
