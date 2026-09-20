@@ -84,15 +84,15 @@ fn collectOwnConstantSymbols(
     }
 }
 
-fn constantsTable(receiver: Value) ?*std.AutoHashMap(*SymbolObject, value.ConstEntry) {
-    if (receiver.isClass()) return &receiver.toClassObject().module.constants;
-    if (receiver.isModule()) return &receiver.toModuleObject().constants;
+fn constantsTable(receiver: Value) ?*value.ConstTable {
+    if (receiver.isClass()) return receiver.toClassObject().module.constants;
+    if (receiver.isModule()) return receiver.toModuleObject().constants;
     return null;
 }
 
-fn autoloadTable(receiver: Value) ?*std.AutoHashMap(*SymbolObject, []const u8) {
-    if (receiver.isClass()) return &receiver.toClassObject().module.autoloads;
-    if (receiver.isModule()) return &receiver.toModuleObject().autoloads;
+fn autoloadTable(receiver: Value) ?*value.AutoloadTable {
+    if (receiver.isClass()) return receiver.toClassObject().module.autoloads;
+    if (receiver.isModule()) return receiver.toModuleObject().autoloads;
     return null;
 }
 

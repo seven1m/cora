@@ -2298,8 +2298,8 @@ pub const VM = struct {
         }
     }
 
-    fn autoloadTableForModule(module_obj: *value.ModuleObject) *std.AutoHashMap(*SymbolObject, []const u8) {
-        return &module_obj.autoloads;
+    fn autoloadTableForModule(module_obj: *value.ModuleObject) *value.AutoloadTable {
+        return module_obj.autoloads;
     }
 
     fn moduleDisplayNameForWarning(self: *VM, module_obj: *value.ModuleObject) VMError![]const u8 {
@@ -2326,10 +2326,10 @@ pub const VM = struct {
         return self.raiseExceptionFmt(self.name_error_class, "private constant {s}::{s} referenced", .{ module_obj.name.name, name_sym.name });
     }
 
-    pub fn autoloadTableForReceiver(self: *VM, receiver: Value) ?*std.AutoHashMap(*SymbolObject, []const u8) {
+    pub fn autoloadTableForReceiver(self: *VM, receiver: Value) ?*value.AutoloadTable {
         _ = self;
-        if (receiver.isClass()) return &receiver.toClassObject().module.autoloads;
-        if (receiver.isModule()) return &receiver.toModuleObject().autoloads;
+        if (receiver.isClass()) return receiver.toClassObject().module.autoloads;
+        if (receiver.isModule()) return receiver.toModuleObject().autoloads;
         return .not_found;
     }
 
@@ -9850,10 +9850,10 @@ pub const VM = struct {
                     .instance_variables = null,
                 },
                 .name = singleton_name_sym,
-                .methods = try self.newMethodTable(),
-                .constants = std.AutoHashMap(*value.SymbolObject, value.ConstEntry).init(self.gc_allocator),
-                .autoloads = std.AutoHashMap(*value.SymbolObject, []const u8).init(self.gc_allocator),
-                .class_variables = std.AutoHashMap(*value.SymbolObject, value.Value).init(self.gc_allocator),
+                .methods = try self.newModuleTable(value.MethodTable),
+                .constants = try self.newModuleTable(value.ConstTable),
+                .autoloads = try self.newModuleTable(value.AutoloadTable),
+                .class_variables = try self.newModuleTable(value.ClassVariableTable),
                 .super = &singleton_superclass.module,
                 .origin = undefined,
             },
@@ -9996,10 +9996,10 @@ pub const VM = struct {
 
     // ==== Object creation ====
 
-    fn newMethodTable(self: *VM) VMError!*value.MethodTable {
-        const methods = self.gc_allocator.create(value.MethodTable) catch return error.Fatal;
-        methods.* = value.MethodTable.init(self.gc_allocator);
-        return methods;
+    fn newModuleTable(self: *VM, comptime Table: type) VMError!*Table {
+        const table = self.gc_allocator.create(Table) catch return error.Fatal;
+        table.* = Table.init(self.gc_allocator);
+        return table;
     }
 
     fn registerErrnoClass(self: *VM, errno_code: std.posix.E, class_obj: *ClassObject) VMError!void {
@@ -10015,10 +10015,10 @@ pub const VM = struct {
         module_obj.* = .{
             .object = .{ .type_tag = .module, .flags = 0, .class = class_obj, .singleton_class = null, .instance_variables = null },
             .name = name,
-            .methods = try self.newMethodTable(),
-            .constants = std.AutoHashMap(*value.SymbolObject, value.ConstEntry).init(self.gc_allocator),
-            .autoloads = std.AutoHashMap(*SymbolObject, []const u8).init(self.gc_allocator),
-            .class_variables = std.AutoHashMap(*SymbolObject, Value).init(self.gc_allocator),
+            .methods = try self.newModuleTable(value.MethodTable),
+            .constants = try self.newModuleTable(value.ConstTable),
+            .autoloads = try self.newModuleTable(value.AutoloadTable),
+            .class_variables = try self.newModuleTable(value.ClassVariableTable),
             .origin = undefined,
         };
         module_obj.origin = module_obj;
@@ -10040,10 +10040,10 @@ pub const VM = struct {
             .module = .{
                 .object = .{ .type_tag = .class, .flags = 0, .class = self.class_class, .singleton_class = null, .instance_variables = null },
                 .name = name,
-                .methods = try self.newMethodTable(),
-                .constants = std.AutoHashMap(*value.SymbolObject, value.ConstEntry).init(self.gc_allocator),
-                .autoloads = std.AutoHashMap(*SymbolObject, []const u8).init(self.gc_allocator),
-                .class_variables = std.AutoHashMap(*SymbolObject, Value).init(self.gc_allocator),
+                .methods = try self.newModuleTable(value.MethodTable),
+                .constants = try self.newModuleTable(value.ConstTable),
+                .autoloads = try self.newModuleTable(value.AutoloadTable),
+                .class_variables = try self.newModuleTable(value.ClassVariableTable),
                 .super = if (superclass) |super| &super.module else null,
                 .origin = undefined,
             },
@@ -11306,11 +11306,14 @@ pub const VM = struct {
         // The origin IClass retains the old shared table while the visible
         // class or module gets a new table for definitions after prepend.
         std.debug.assert(origin_iclass.module.methods == module_obj.methods);
+        origin_iclass.module.constants = try self.newModuleTable(value.ConstTable);
+        origin_iclass.module.autoloads = try self.newModuleTable(value.AutoloadTable);
+        origin_iclass.module.class_variables = try self.newModuleTable(value.ClassVariableTable);
         origin_iclass.module.includer = module_obj;
         origin_iclass.module.is_origin_iclass = true;
         module_obj.super = &origin_iclass.module;
         module_obj.origin = &origin_iclass.module;
-        module_obj.methods = try self.newMethodTable();
+        module_obj.methods = try self.newModuleTable(value.MethodTable);
         self.syncVisibleSuperclass(module_obj);
         return true;
     }
