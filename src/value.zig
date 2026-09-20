@@ -601,6 +601,9 @@ pub const EnumeratorObject = struct {
         generator: struct {
             proc: *ProcObject,
         },
+        chain: struct {
+            sources: *ArrayObject,
+        },
     };
 };
 

@@ -745,6 +745,7 @@ pub const VM = struct {
     stop_iteration_class: *value.ClassObject,
 
     enumerator_class: *value.ClassObject,
+    enumerator_chain_class: *value.ClassObject,
     yielder_class: *value.ClassObject,
     method_class: *value.ClassObject,
     unbound_method_class: *value.ClassObject,
@@ -981,6 +982,7 @@ pub const VM = struct {
             .index_error_class = undefined,
             .stop_iteration_class = undefined,
             .enumerator_class = undefined,
+            .enumerator_chain_class = undefined,
             .yielder_class = undefined,
             .method_class = undefined,
             .unbound_method_class = undefined,
@@ -1578,6 +1580,10 @@ pub const VM = struct {
         const enumerator_class_val = try self.newClass(enumerator_name_sym, self.object_class);
         self.enumerator_class = enumerator_class_val.toClassObject();
 
+        const enumerator_chain_name_sym = try self.intern("Chain");
+        const enumerator_chain_class_val = try self.newClass(enumerator_chain_name_sym, self.enumerator_class);
+        self.enumerator_chain_class = enumerator_chain_class_val.toClassObject();
+
         const yielder_name_sym = try self.intern("Yielder");
         const yielder_class_val = try self.newClass(yielder_name_sym, self.object_class);
         self.yielder_class = yielder_class_val.toClassObject();
@@ -1817,6 +1823,7 @@ pub const VM = struct {
         try self.registerErrnoClass(.ADDRNOTAVAIL, eaddrnotavail_class_val.toClassObject());
         try self.registerErrnoClass(.NETDOWN, enetdown_class_val.toClassObject());
         self.object_class.module.constants.put(enumerator_name_sym, .{ .value = enumerator_class_val }) catch return error.Fatal;
+        self.enumerator_class.module.constants.put(enumerator_chain_name_sym, .{ .value = enumerator_chain_class_val }) catch return error.Fatal;
         self.enumerator_class.module.constants.put(yielder_name_sym, .{ .value = yielder_class_val }) catch return error.Fatal;
         self.object_class.module.constants.put(encoding_name_sym, .{ .value = encoding_class_val }) catch return error.Fatal;
         const ruby_engine_sym = try self.intern("RUBY_ENGINE");
@@ -11212,9 +11219,20 @@ pub const VM = struct {
         size: ?Value,
         size_fn: ?value.EnumeratorObject.SizeFn,
     ) VMError!Value {
+        return self.newEnumeratorOfClass(self.enumerator_class, kind, method_args, size, size_fn);
+    }
+
+    pub fn newEnumeratorOfClass(
+        self: *VM,
+        class: *value.ClassObject,
+        kind: value.EnumeratorObject.Kind,
+        method_args: ?*value.ArrayObject,
+        size: ?Value,
+        size_fn: ?value.EnumeratorObject.SizeFn,
+    ) VMError!Value {
         const enum_obj = self.gc_allocator.create(value.EnumeratorObject) catch return error.Fatal;
         enum_obj.* = .{
-            .object = .{ .type_tag = .enumerator, .flags = 0, .class = self.enumerator_class, .singleton_class = null, .instance_variables = null },
+            .object = .{ .type_tag = .enumerator, .flags = 0, .class = class, .singleton_class = null, .instance_variables = null },
             .kind = kind,
             .method_args = method_args,
             .size = size,

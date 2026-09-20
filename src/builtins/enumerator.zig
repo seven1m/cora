@@ -107,6 +107,9 @@ fn builtinEnumeratorEach(vm: *VM, receiver: Value, args: []Value, block: ?Block)
             .generator => {
                 return vm.newEnumerator(enum_obj.kind, null, enum_obj.size, enum_obj.size_fn);
             },
+            .chain => {
+                return vm.newEnumeratorOfClass(enum_obj.object.class.?, enum_obj.kind, null, enum_obj.size, enum_obj.size_fn);
+            },
         }
     };
 
@@ -132,6 +135,12 @@ fn builtinEnumeratorEach(vm: *VM, receiver: Value, args: []Value, block: ?Block)
             const yielder_val = try vm.newYielder(blk);
             var proc_args = [_]Value{yielder_val};
             return vm.callProcObject(g.proc, &proc_args, null, null, null, null);
+        },
+        .chain => |chain| {
+            for (chain.sources.elements.items) |source| {
+                _ = try vm.callMethodByName(source, "each", &.{}, blk);
+            }
+            return receiver;
         },
     }
 }
@@ -260,6 +269,14 @@ fn builtinEnumeratorInspect(vm: *VM, receiver: Value, args: []Value, _: ?Block) 
             ) catch return error.Fatal;
             return try vm.newString(msg, false);
         },
+        .chain => {
+            const msg = std.fmt.allocPrint(
+                vm.gc_allocator,
+                "#<Enumerator::Chain:0x{x}>",
+                .{@intFromPtr(enum_obj)},
+            ) catch return error.Fatal;
+            return try vm.newString(msg, false);
+        },
     }
 }
 
@@ -277,6 +294,7 @@ fn builtinEnumeratorSize(vm: *VM, receiver: Value, args: []Value, _: ?Block) VME
         switch (enum_obj.kind) {
             .method => |m| return size_fn(vm, m.receiver, enum_obj.method_args),
             .generator => return Value.nil(),
+            .chain => return Value.nil(),
         }
     }
 
@@ -388,6 +406,12 @@ fn enumeratorFiberBody(vm: *VM, args: []Value) VMError!Value {
             const yielder_val = try vm.newYielder(yield_block);
             var proc_args = [_]Value{yielder_val};
             return vm.callProcObject(g.proc, &proc_args, null, null, null, null);
+        },
+        .chain => |chain| {
+            for (chain.sources.elements.items) |source| {
+                _ = try vm.callMethodByName(source, "each", &.{}, yield_block);
+            }
+            return enum_val;
         },
     }
 }

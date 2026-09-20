@@ -119,6 +119,23 @@ pub fn register(vm: *VM) !void {
     try enumerable_val.toModuleObject().methods.put(uniq_sym, value.MethodEntry.builtin(&builtinEnumerableUniq, .{ .exact = 0 }));
     const to_h_sym = try vm.intern("to_h");
     try enumerable_val.toModuleObject().methods.put(to_h_sym, value.MethodEntry.builtin(&builtinEnumerableToH, .{ .variadic = 0 }));
+    const chain_sym = try vm.intern("chain");
+    try enumerable_val.toModuleObject().methods.put(chain_sym, value.MethodEntry.builtin(&builtinEnumerableChain, .{ .variadic = 0 }));
+}
+
+fn builtinEnumerableChain(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    const sources = try vm.createArray();
+    sources.elements.append(vm.gc_allocator, receiver) catch return error.Fatal;
+    for (args) |source| {
+        sources.elements.append(vm.gc_allocator, source) catch return error.Fatal;
+    }
+    return vm.newEnumeratorOfClass(
+        vm.enumerator_chain_class,
+        .{ .chain = .{ .sources = sources } },
+        null,
+        null,
+        null,
+    );
 }
 
 fn builtinEnumerableToSet(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
