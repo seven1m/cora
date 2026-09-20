@@ -150,7 +150,7 @@ pub const LexicalScope = struct {
 
 pub const MethodTable = std.AutoHashMap(*SymbolObject, MethodEntry);
 pub const ConstTable = std.AutoHashMap(*SymbolObject, ConstEntry);
-pub const AutoloadTable = std.AutoHashMap(*SymbolObject, []const u8);
+pub const AutoloadTable = std.AutoHashMap(*SymbolObject, AutoloadEntry);
 pub const ClassVariableTable = std.AutoHashMap(*SymbolObject, Value);
 
 pub const ModuleObject = struct {
@@ -186,6 +186,11 @@ pub const ConstFlags = packed struct(u16) {
 
 pub const ConstEntry = struct {
     value: Value,
+    flags: ConstFlags = .{},
+};
+
+pub const AutoloadEntry = struct {
+    path: []const u8,
     flags: ConstFlags = .{},
 };
 

@@ -13,6 +13,19 @@ test "Modules" {
     try std.testing.expectEqualSlices(u8, "Foo", result.toModuleObject().name.name);
 }
 
+test "private_constant accepts an autoload without loading it" {
+    const result = try evalCode(
+        \\module AutoloadVisibility
+        \\  autoload :Deferred, "does/not/exist"
+        \\  private_constant :Deferred
+        \\end
+        \\[AutoloadVisibility.autoload?(:Deferred), AutoloadVisibility.constants(false)]
+    );
+    const values = result.toArrayObject().elements.items;
+    try std.testing.expectEqualStrings("does/not/exist", values[0].toStringObject().str);
+    try std.testing.expectEqual(@as(usize, 0), values[1].toArrayObject().elements.items.len);
+}
+
 test "instances of Module subclasses are modules" {
     const result = try evalCode(
         \\class ConfiguredModule < Module

@@ -2335,7 +2335,7 @@ pub const VM = struct {
 
     pub fn registerAutoload(self: *VM, module_obj: *value.ModuleObject, name_sym: *value.SymbolObject, path: []const u8) VMError!void {
         const stored_path = self.gc_allocator_atomic.dupe(u8, path) catch return error.Fatal;
-        autoloadTableForModule(module_obj).put(name_sym, stored_path) catch return error.Fatal;
+        autoloadTableForModule(module_obj).put(name_sym, .{ .path = stored_path }) catch return error.Fatal;
     }
 
     pub fn clearAutoload(self: *VM, module_obj: *value.ModuleObject, name_sym: *value.SymbolObject) void {
@@ -2456,14 +2456,15 @@ pub const VM = struct {
 
     fn triggerAutoload(self: *VM, module_obj: *value.ModuleObject, name_sym: *value.SymbolObject) VMError!TriggerAutoloadResult {
         const autoloads = autoloadTableForModule(module_obj);
-        const feature = autoloads.get(name_sym) orelse return .missing;
+        const autoload = autoloads.get(name_sym) orelse return .missing;
         _ = autoloads.remove(name_sym);
-        errdefer autoloads.put(name_sym, feature) catch {};
+        errdefer autoloads.put(name_sym, autoload) catch {};
 
-        const require_arg = try self.newString(feature, false);
+        const require_arg = try self.newString(autoload.path, false);
         var require_args = [_]Value{require_arg};
         _ = try self.callMethodByName(try self.autoloadRequireReceiver(), "require", require_args[0..], null);
-        if (module_obj.constants.get(name_sym)) |loaded| {
+        if (module_obj.constants.getPtr(name_sym)) |loaded| {
+            loaded.flags = autoload.flags;
             return .{ .loaded = loaded.value };
         }
         return .attempted;

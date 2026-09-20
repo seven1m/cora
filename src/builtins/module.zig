@@ -77,9 +77,7 @@ fn collectOwnConstantSymbols(
 
     var autoload_it = module_obj.autoloads.iterator();
     while (autoload_it.next()) |entry| {
-        if (module_obj.constants.get(entry.key_ptr.*)) |const_entry| {
-            if (const_entry.flags.visibility == .private) continue;
-        }
+        if (entry.value_ptr.flags.visibility == .private) continue;
         try appendConstantSymbolUnique(vm, out, seen, entry.key_ptr.*);
     }
 }
@@ -137,18 +135,18 @@ fn lookupAutoloadOnModule(module_obj: *value.ModuleObject, name_sym: *SymbolObje
             if (node.is_origin_iclass) break;
             if (!ancestry.isVisibleAncestor(node)) continue;
             const owner = ancestry.visibleModule(node);
-            if (owner.autoloads.get(name_sym)) |path| return path;
+            if (owner.autoloads.get(name_sym)) |entry| return entry.path;
         }
     }
 
-    if (module_obj.autoloads.get(name_sym)) |path| return path;
+    if (module_obj.autoloads.get(name_sym)) |entry| return entry.path;
 
     var current = if (module_obj.origin == module_obj) module_obj.super else module_obj.origin.super;
     while (current) |node| : (current = node.super) {
         if (node.object.type_tag == .class) break;
         if (!ancestry.isVisibleAncestor(node)) continue;
         const owner = ancestry.visibleModule(node);
-        if (owner.autoloads.get(name_sym)) |path| return path;
+        if (owner.autoloads.get(name_sym)) |entry| return entry.path;
     }
 
     return null;
@@ -1995,7 +1993,8 @@ fn setConstantVisibility(vm: *VM, receiver: Value, args: []Value, private: bool)
     try normalizeVisibilityArgs(vm, args, &names);
 
     for (names.items) |name_sym| {
-        if (!constants.contains(name_sym)) {
+        const autoloads = autoloadTable(receiver).?;
+        if (!constants.contains(name_sym) and !autoloads.contains(name_sym)) {
             const msg = std.fmt.allocPrint(
                 vm.gc_allocator,
                 "constant {s}::{s} not defined",
@@ -2005,6 +2004,9 @@ fn setConstantVisibility(vm: *VM, receiver: Value, args: []Value, private: bool)
         }
 
         if (constants.getPtr(name_sym)) |entry| {
+            entry.flags.visibility = if (private) .private else .public;
+        }
+        if (autoloads.getPtr(name_sym)) |entry| {
             entry.flags.visibility = if (private) .private else .public;
         }
     }
