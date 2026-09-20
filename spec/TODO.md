@@ -3873,7 +3873,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] library/stringio/external_encoding_spec.rb
 - [ ] library/stringio/fcntl_spec.rb
 - [ ] library/stringio/fileno_spec.rb
-- [ ] library/stringio/flush_spec.rb
+- [x] library/stringio/flush_spec.rb
 - [ ] library/stringio/fsync_spec.rb
 - [x] library/stringio/getbyte_spec.rb
 - [ ] library/stringio/getc_spec.rb

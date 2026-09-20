@@ -339,6 +339,10 @@ class StringIO
 
   alias << write
 
+  def flush
+    self
+  end
+
   def print(*args)
     if @closed_write
       raise IOError, "not opened for writing"
