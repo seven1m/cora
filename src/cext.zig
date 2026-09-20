@@ -7,6 +7,7 @@ const VM = vm_mod.VM;
 const enc = @import("encoding.zig");
 const cext_globals = @import("cext_globals.zig");
 const onigmo = @import("onigmo.zig");
+const bdwgc = @import("bdwgc");
 
 pub const VALUE = u64;
 
@@ -1329,25 +1330,24 @@ export fn rb_enc_left_char_head(str: [*c]const u8, start: [*c]const u8, end: [*c
 // ─── Memory ─────────────────────────────────────────────────────────────────
 
 export fn xmalloc(size: usize) ?*anyopaque {
-    const ptr = std.c.malloc(size);
-    if (ptr == null) @panic("xmalloc: out of memory");
-    return ptr;
+    return bdwgc.mallocUncollectable(size) catch @panic("xmalloc: out of memory");
 }
 
 export fn xcalloc(n: usize, size: usize) ?*anyopaque {
-    const ptr = std.c.calloc(n, size);
-    if (ptr == null) @panic("xcalloc: out of memory");
+    const total = std.math.mul(usize, n, size) catch @panic("xcalloc: allocation size overflow");
+    const ptr = bdwgc.mallocUncollectable(total) catch @panic("xcalloc: out of memory");
+    @memset(@as([*]u8, @ptrCast(ptr))[0..total], 0);
     return ptr;
 }
 
 export fn xrealloc(ptr: ?*anyopaque, size: usize) ?*anyopaque {
-    const new_ptr = std.c.realloc(ptr, size);
+    const new_ptr = bdwgc.c.GC_realloc(ptr, size);
     if (new_ptr == null) @panic("xrealloc: out of memory");
     return new_ptr;
 }
 
 export fn xfree(ptr: ?*anyopaque) void {
-    std.c.free(ptr);
+    if (ptr) |allocation| bdwgc.free(allocation);
 }
 
 export fn ruby_xmalloc(size: usize) ?*anyopaque {
