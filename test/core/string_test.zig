@@ -250,6 +250,12 @@ test "String#<< appends string and codepoint" {
     result = try evalCode("s = 'A'; s << 66; s");
     try std.testing.expect(result.isString());
     try std.testing.expectEqualSlices(u8, "AB", result.toStringObject().str);
+
+    result = try evalCode("s = String.new; s << 'ascii'; s.encoding.name");
+    try std.testing.expectEqualSlices(u8, "ASCII-8BIT", result.toStringObject().str);
+
+    result = try evalCode("s = String.new; s << 'é'; s.encoding.name");
+    try std.testing.expectEqualSlices(u8, "UTF-8", result.toStringObject().str);
 }
 
 test "String#start_with? and #end_with?" {

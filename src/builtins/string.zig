@@ -6697,12 +6697,14 @@ fn resolveStringConcatEncoding(
 ) ?enc.Encoding {
     if (lhs_encoding.eql(rhs_encoding)) return lhs_encoding;
 
-    // Empty-string operands always inherit the other side's encoding.
-    if (rhs_bytes.len == 0) return lhs_encoding;
-    if (lhs_bytes.len == 0) return rhs_encoding;
-
-    // Different ASCII-incompatible encodings are incompatible once both sides have content.
-    if (!lhs_encoding.isAsciiCompatible() or !rhs_encoding.isAsciiCompatible()) return null;
+    // Empty strings only inherit the other side's encoding when an
+    // ASCII-incompatible encoding is involved. For two ASCII-compatible
+    // strings, ASCII-only content preserves the receiver's encoding.
+    if (!lhs_encoding.isAsciiCompatible() or !rhs_encoding.isAsciiCompatible()) {
+        if (rhs_bytes.len == 0) return lhs_encoding;
+        if (lhs_bytes.len == 0) return rhs_encoding;
+        return null;
+    }
 
     const lhs_ascii_only = enc.isAsciiOnly(lhs_bytes);
     const rhs_ascii_only = enc.isAsciiOnly(rhs_bytes);
