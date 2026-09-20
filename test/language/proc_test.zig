@@ -211,6 +211,22 @@ test "Proc#to_proc returns self" {
     try std.testing.expectEqual(true, result.toArrayObject().elements.items[1].toBool());
 }
 
+test "Proc#inspect and to_s include source location and lambda status" {
+    const result = try evalCode(
+        \\pr = eval("proc {}", binding, "proc_source.rb", 12)
+        \\lambda_proc = eval("-> {}", binding, "lambda_source.rb", 34)
+        \\[
+        \\  pr.inspect.match?(/#<Proc:0x[0-9a-f]+ proc_source\.rb:12>/),
+        \\  pr.to_s == pr.inspect,
+        \\  lambda_proc.inspect.match?(/#<Proc:0x[0-9a-f]+ lambda_source\.rb:34 \(lambda\)>/),
+        \\]
+    );
+
+    for (result.toArrayObject().elements.items) |value| {
+        try std.testing.expect(value.isTrue());
+    }
+}
+
 test "Nested procs: outer explicit return exits method" {
     const result = try evalCode(
         \\def foo

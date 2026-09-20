@@ -1,3 +1,4 @@
+const std = @import("std");
 const vm_mod = @import("../vm.zig");
 const value = @import("../value.zig");
 
@@ -33,6 +34,12 @@ pub fn register(vm: *VM) !void {
 
     const source_location_sym = try vm.intern("source_location");
     try vm.proc_class.module.methods.put(source_location_sym, value.MethodEntry.builtin(&builtinProcSourceLocation, .{ .exact = 0 }));
+
+    const inspect_entry = value.MethodEntry.builtin(&builtinProcInspect, .{ .exact = 0 });
+    const inspect_sym = try vm.intern("inspect");
+    try vm.proc_class.module.methods.put(inspect_sym, inspect_entry);
+    const to_s_sym = try vm.intern("to_s");
+    try vm.proc_class.module.methods.put(to_s_sym, inspect_entry);
 
     const to_proc_sym = try vm.intern("to_proc");
     try vm.proc_class.module.methods.put(to_proc_sym, value.MethodEntry.builtin(&builtinProcToProc, .{ .exact = 0 }));
@@ -151,6 +158,27 @@ pub fn builtinProcSourceLocation(vm: *VM, receiver: Value, _: []Value, _: ?Block
             return Value.nil();
         },
     }
+}
+
+pub fn builtinProcInspect(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+
+    const object_id = receiver.objectId();
+    const proc_obj = receiver.toProcObject();
+    const inspected = switch (proc_obj.block.kind) {
+        .chunk => |chunk_blk| if (chunk_blk.chunk.source_file) |source|
+            if (chunk_blk.chunk.is_lambda)
+                std.fmt.allocPrint(vm.gc_allocator, "#<Proc:0x{x} {s}:{d} (lambda)>", .{ object_id, source, chunk_blk.chunk.declaration_line }) catch return error.Fatal
+            else
+                std.fmt.allocPrint(vm.gc_allocator, "#<Proc:0x{x} {s}:{d}>", .{ object_id, source, chunk_blk.chunk.declaration_line }) catch return error.Fatal
+        else if (chunk_blk.chunk.is_lambda)
+            std.fmt.allocPrint(vm.gc_allocator, "#<Proc:0x{x} (lambda)>", .{object_id}) catch return error.Fatal
+        else
+            std.fmt.allocPrint(vm.gc_allocator, "#<Proc:0x{x}>", .{object_id}) catch return error.Fatal,
+        .symbol => |symbol| std.fmt.allocPrint(vm.gc_allocator, "#<Proc:0x{x}(&:{s}) (lambda)>", .{ object_id, symbol.name }) catch return error.Fatal,
+        .receiver_builtin, .builtin, .callable => std.fmt.allocPrint(vm.gc_allocator, "#<Proc:0x{x} (lambda)>", .{object_id}) catch return error.Fatal,
+    };
+    return vm.newString(inspected, false);
 }
 
 pub fn builtinProcToProc(_: *VM, receiver: Value, _: []Value, _: ?Block) VMError!Value {
