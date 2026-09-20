@@ -10,7 +10,10 @@
 #include <limits.h>
 #include <string.h>
 #include <ctype.h>
+#include <sys/types.h>
 #include <sys/time.h>
+#include <time.h>
+#include <unistd.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -19,7 +22,14 @@ extern "C" {
 typedef uint64_t VALUE;
 typedef intptr_t SIGNED_VALUE;
 typedef unsigned long ID;
+typedef pid_t rb_pid_t;
 typedef struct { int _; } rb_encoding;
+
+#if defined(__GNUC__) || defined(__clang__)
+#define RUBY_FUNC_EXPORTED __attribute__((visibility("default")))
+#else
+#define RUBY_FUNC_EXPORTED
+#endif
 
 #ifndef HAVE_STDBOOL_H
 #define HAVE_STDBOOL_H 1
