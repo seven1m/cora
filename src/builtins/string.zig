@@ -2626,6 +2626,20 @@ fn transcodeWithEncodeOptions(
     return out.toOwnedSlice(vm.gc_allocator_atomic) catch return error.Fatal;
 }
 
+fn resolveEncodeEncoding(vm: *VM, receiver: Value, arg: Value) VMError!enc.Encoding {
+    if (arg.isEncoding()) return arg.toEncodingObject().encoding;
+
+    var find_args = [_]Value{arg};
+    const result = encoding_builtin.builtinEncodingFind(vm, receiver, find_args[0..], null) catch |err| {
+        if (err == error.Unwind and vm.pendingException() != null and vm.pendingException().?.object.class == vm.argument_error_class) {
+            vm.setPendingException(null);
+            return vm.raiseExceptionFmt(vm.encoding_converter_not_found_error_class, "code converter not found", .{});
+        }
+        return err;
+    };
+    return result.toEncodingObject().encoding;
+}
+
 pub fn builtinStringEncode(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCountRange(args, 0, 2);
 
@@ -2656,23 +2670,11 @@ pub fn builtinStringEncode(vm: *VM, receiver: Value, args: []Value, _: ?Block) V
 
     const string_obj = receiver.toStringObject();
     const from_encoding: enc.Encoding = if (args.len >= 2)
-        if (args[1].isEncoding())
-            args[1].toEncodingObject().encoding
-        else blk: {
-            var find_args = [_]Value{args[1]};
-            const result = try encoding_builtin.builtinEncodingFind(vm, receiver, find_args[0..], null);
-            break :blk result.toEncodingObject().encoding;
-        }
+        try resolveEncodeEncoding(vm, receiver, args[1])
     else
         string_obj.encoding;
     const target_encoding: enc.Encoding = if (args.len >= 1)
-        if (args[0].isEncoding())
-            args[0].toEncodingObject().encoding
-        else blk: {
-            var find_args = [_]Value{args[0]};
-            const result = try encoding_builtin.builtinEncodingFind(vm, receiver, find_args[0..], null);
-            break :blk result.toEncodingObject().encoding;
-        }
+        try resolveEncodeEncoding(vm, receiver, args[0])
     else if (vm.default_internal_encoding) |internal|
         internal.encoding
     else
