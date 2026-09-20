@@ -10114,7 +10114,7 @@ pub const VM = struct {
     }
 
     pub fn newExceptionInstance(self: *VM, class_obj: *ClassObject, args: []const Value, block: ?Block) VMError!Value {
-        const exc = try self.createException(class_obj, "");
+        const exc = try self.createExceptionWithoutBacktrace(class_obj, "");
         const exc_val = Value.fromObject(&exc.object);
         _ = try self.callMethodByNameForwardingKeywords(exc_val, "initialize", @constCast(args), block);
         return exc_val;
@@ -10500,7 +10500,7 @@ pub const VM = struct {
             return self.newModuleForClass(anonymous_name, class_obj);
         }
         if (self.isClassOrSubclassOf(class_obj, self.exception_class)) {
-            const exc = try self.createException(class_obj, "");
+            const exc = try self.createExceptionWithoutBacktrace(class_obj, "");
             return Value.fromObject(&exc.object);
         }
 
@@ -12068,20 +12068,25 @@ pub const VM = struct {
 
         if (args.len == 1) {
             if (args[0].isException()) {
-                self.setPendingException(args[0].toExceptionObject());
+                const exc = args[0].toExceptionObject();
+                try self.captureAndSetExceptionBacktrace(exc);
+                self.setPendingException(exc);
                 return error.Unwind;
             } else if (args[0].isClass()) {
                 const class_obj = args[0].toClassObject();
                 if (self.isClassOrSubclassOf(class_obj, self.exception_class)) {
                     const exc_val = try self.newExceptionInstance(class_obj, &[_]Value{}, null);
-                    self.setPendingException(exc_val.toExceptionObject());
+                    const exc = exc_val.toExceptionObject();
+                    try self.captureAndSetExceptionBacktrace(exc);
+                    self.setPendingException(exc);
                     return error.Unwind;
                 }
                 const exc = self.createException(class_obj, "") catch return error.Fatal;
                 self.setPendingException(exc);
                 return error.Unwind;
             } else if (args[0].isString()) {
-                const exc = self.createException(self.runtime_error_class, args[0].toStringObject().str) catch return error.Fatal;
+                const exc = self.createExceptionWithoutBacktrace(self.runtime_error_class, args[0].toStringObject().str) catch return error.Fatal;
+                try self.captureAndSetExceptionBacktrace(exc);
                 self.setPendingException(exc);
                 return error.Unwind;
             } else {
@@ -12093,7 +12098,9 @@ pub const VM = struct {
             if (args[0].isException()) {
                 const class_obj = args[0].toExceptionObject().object.class orelse return error.Fatal;
                 const exc_val = try self.newExceptionInstance(class_obj, args[1..], null);
-                self.setPendingException(exc_val.toExceptionObject());
+                const exc = exc_val.toExceptionObject();
+                try self.captureAndSetExceptionBacktrace(exc);
+                self.setPendingException(exc);
                 return error.Unwind;
             }
             if (!args[0].isClass()) {
@@ -12102,7 +12109,9 @@ pub const VM = struct {
             const class_obj = args[0].toClassObject();
             if (self.isClassOrSubclassOf(class_obj, self.exception_class)) {
                 const exc_val = try self.newExceptionInstance(class_obj, args[1..], null);
-                self.setPendingException(exc_val.toExceptionObject());
+                const exc = exc_val.toExceptionObject();
+                try self.captureAndSetExceptionBacktrace(exc);
+                self.setPendingException(exc);
                 return error.Unwind;
             }
             const msg_str = if (args[1].isString()) args[1].toStringObject().str else "";
@@ -12124,15 +12133,8 @@ pub const VM = struct {
                 break :blk Value.fromObject(&exc.object);
             };
             const exc = exc_val.toExceptionObject();
-            if (!args[2].isNil()) {
-                if (args[2].isArray()) {
-                    exc.backtrace = args[2].toArrayObject();
-                } else {
-                    return self.raiseExceptionFmt(self.type_error_class, "backtrace must be Array of String", .{});
-                }
-            } else {
-                exc.backtrace = null;
-            }
+            var backtrace_args = [_]Value{args[2]};
+            _ = try self.callMethodByName(Value.fromObject(&exc.object), "set_backtrace", &backtrace_args, null);
             self.setPendingException(exc);
             return error.Unwind;
         }
@@ -13429,7 +13431,10 @@ pub const VM = struct {
 
     pub fn captureAndSetExceptionBacktrace(self: *VM, exc: *value.ExceptionObject) VMError!void {
         if (exc.backtrace == null) {
-            exc.backtrace = try self.captureBacktrace();
+            const captured = try self.captureBacktrace();
+            const backtrace = if (captured) |array| Value.fromObject(&array.object) else Value.nil();
+            var args = [_]Value{backtrace};
+            _ = try self.callMethodByName(Value.fromObject(&exc.object), "set_backtrace", &args, null);
         }
     }
 

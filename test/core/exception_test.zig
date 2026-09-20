@@ -17,6 +17,31 @@ test "Exception#message returns message string" {
     try std.testing.expectEqualSlices(u8, "my message", result.toStringObject().str);
 }
 
+test "Exception.new does not capture a backtrace" {
+    const result = try evalCode("RuntimeError.new.backtrace");
+    try std.testing.expect(result.isNil());
+}
+
+test "raise calls an overridden Exception#set_backtrace" {
+    const result = try evalCode(
+        \\class BacktraceOverrideError < RuntimeError
+        \\  attr_reader :set_backtrace_called
+        \\  def set_backtrace(backtrace)
+        \\    @set_backtrace_called = true
+        \\    super
+        \\  end
+        \\end
+        \\begin
+        \\  raise BacktraceOverrideError, "boom"
+        \\rescue => e
+        \\  [e.set_backtrace_called, !e.backtrace.empty?]
+        \\end
+    );
+    const elems = result.toArrayObject().elements.items;
+    try std.testing.expect(elems[0].toBool());
+    try std.testing.expect(elems[1].toBool());
+}
+
 test "raise accepts exception object with replacement message" {
     const result = try evalCode(
         \\begin
