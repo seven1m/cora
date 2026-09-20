@@ -37,6 +37,8 @@ the C extension fixture (`build/cext/fixture.so`).
 
 The `test-gems` step clones supported upstream gems into the gitignored
 `test/gems/` directory when absent, then runs their test suites with Cora.
+Suites may have explicit file-level exclusions in `test/run_gem_tests.sh` for
+runtime features Cora does not support yet.
 
 ## Focused/Skipped Specs
 
