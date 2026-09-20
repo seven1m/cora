@@ -812,6 +812,28 @@ test "Kernel#system works after ENV.replace" {
     try std.testing.expectEqual(@as(i64, 0), result.toArrayObject().elements.items[1].toInteger());
 }
 
+test "Kernel#system inherits reopened stdout and stderr descriptors" {
+    const result = try evalCode(
+        \\require "tempfile"
+        \\captured_out = Tempfile.new("system-out")
+        \\captured_err = Tempfile.new("system-err")
+        \\original_out = $stdout.dup
+        \\original_err = $stderr.dup
+        \\$stdout.reopen(captured_out)
+        \\$stderr.reopen(captured_err)
+        \\system("echo inherited-out; echo inherited-err 1>&2")
+        \\$stdout.reopen(original_out)
+        \\$stderr.reopen(original_err)
+        \\captured_out.rewind
+        \\captured_err.rewind
+        \\[captured_out.read, captured_err.read]
+    );
+
+    const values = result.toArrayObject().elements.items;
+    try std.testing.expectEqualStrings("inherited-out\n", values[0].toStringObject().str);
+    try std.testing.expectEqualStrings("inherited-err\n", values[1].toStringObject().str);
+}
+
 test "Kernel backticks work after ENV.replace" {
     const result = try evalCode(
         \\env = ENV.to_hash

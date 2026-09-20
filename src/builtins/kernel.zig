@@ -1170,26 +1170,18 @@ pub fn builtinKernelSystem(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!
     if (vm.stdout) |out| _ = out.flush() catch {};
     if (vm.stderr) |err_out| _ = err_out.flush() catch {};
 
-    const devnull_fd = try openDevNullReadWrite(vm);
-    defer closeFdIfOpen(devnull_fd);
-
     const pid = std.c.fork();
     if (pid < 0) {
         return vm.raiseErrnoFmt(std.posix.errno(pid), "fork failed", .{});
     }
 
     if (pid == 0) {
-        apply: {
-            if (std.c.dup2(devnull_fd, 1) < 0) break :apply;
-            if (std.c.dup2(devnull_fd, 2) < 0) break :apply;
-            if (devnull_fd > 2) _ = std.c.close(devnull_fd);
-            if (chdir_path) |path| {
-                const dir_z = vm.allocCStringZ(path) catch std.c._exit(127);
-                defer vm.allocator.free(dir_z);
-                if (std.c.chdir(dir_z.ptr) != 0) std.c._exit(127);
-            }
-            _ = execve(path_z.ptr, @ptrCast(argv_data.argv_ptrs.items.ptr), @ptrCast(env_block.view().slice.ptr));
+        if (chdir_path) |path| {
+            const dir_z = vm.allocCStringZ(path) catch std.c._exit(127);
+            defer vm.allocator.free(dir_z);
+            if (std.c.chdir(dir_z.ptr) != 0) std.c._exit(127);
         }
+        _ = execve(path_z.ptr, @ptrCast(argv_data.argv_ptrs.items.ptr), @ptrCast(env_block.view().slice.ptr));
         std.c._exit(127);
     }
 
