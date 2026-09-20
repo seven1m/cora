@@ -81,6 +81,17 @@ test "Lexical scope: class with method finding outer constant" {
     try std.testing.expectEqual(@as(i64, 42), result.toInteger());
 }
 
+test "Lexical scope: lambda finds constant from defining module" {
+    const result = try evalCode(
+        \\module A
+        \\  X = -> { 42 }
+        \\  Y = -> { X.call }
+        \\end
+        \\A::Y.call
+    );
+    try std.testing.expectEqual(@as(i64, 42), result.toInteger());
+}
+
 test "Lexical scope: top-level fallback" {
     const result = try evalCode(
         \\X = 100

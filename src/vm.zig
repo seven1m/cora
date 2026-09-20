@@ -6786,6 +6786,7 @@ pub const VM = struct {
             .PUSH_LAMBDA => {
                 const chunk_id = readU16From(frame, operands, &operand_cursor);
                 const lambda_chunk = self.program.child_chunks.get(chunk_id) orelse unreachable;
+                lambda_chunk.lexical_scope = self.current_lexical_scope;
 
                 // Create a block with the lambda chunk and current environment
                 const block = Block{

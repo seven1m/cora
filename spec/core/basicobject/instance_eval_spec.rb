@@ -192,13 +192,11 @@ describe "BasicObject#instance_eval" do
     end
 
     it "gets class variables in the block definition scope when called with a block" do
-      CORAFIXME "instance_eval block class-variable lookup still resolves against the caller scope", exception: SpecExpectationNotMetError do
-        receiver = BasicObjectSpecs::InstEval::CVar::Get::ReceiverScope.new
-        caller = BasicObjectSpecs::InstEval::CVar::Get::CallerScope.new
-        block = BasicObjectSpecs::InstEval::CVar::Get::BlockDefinitionScope.new.block
+      receiver = BasicObjectSpecs::InstEval::CVar::Get::ReceiverScope.new
+      caller = BasicObjectSpecs::InstEval::CVar::Get::CallerScope.new
+      block = BasicObjectSpecs::InstEval::CVar::Get::BlockDefinitionScope.new.block
 
-        caller.get_class_variable_with_block(receiver, block).should == :value_defined_in_block_definition_scope
-      end
+      caller.get_class_variable_with_block(receiver, block).should == :value_defined_in_block_definition_scope
     end
 
     it "sets class variables in the caller class when called with a String" do
@@ -210,14 +208,12 @@ describe "BasicObject#instance_eval" do
     end
 
     it "sets class variables in the block definition scope when called with a block" do
-      CORAFIXME "instance_eval block class-variable assignment still writes the wrong scope", exception: NameError, message: /uninitialized class variable @@cvar/ do
-        receiver = BasicObjectSpecs::InstEval::CVar::Set::ReceiverScope.new
-        caller = BasicObjectSpecs::InstEval::CVar::Set::CallerScope.new
-        block = BasicObjectSpecs::InstEval::CVar::Set::BlockDefinitionScope.new.block_to_assign(1)
+      receiver = BasicObjectSpecs::InstEval::CVar::Set::ReceiverScope.new
+      caller = BasicObjectSpecs::InstEval::CVar::Set::CallerScope.new
+      block = BasicObjectSpecs::InstEval::CVar::Set::BlockDefinitionScope.new.block_to_assign(1)
 
-        caller.set_class_variable_with_block(receiver, block)
-        BasicObjectSpecs::InstEval::CVar::Set::BlockDefinitionScope.get_class_variable.should == 1
-      end
+      caller.set_class_variable_with_block(receiver, block)
+      BasicObjectSpecs::InstEval::CVar::Set::BlockDefinitionScope.get_class_variable.should == 1
     end
 
     it "does not have access to class variables in the receiver class when called with a String" do
