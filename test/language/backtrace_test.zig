@@ -81,6 +81,21 @@ test "Kernel#raise keeps the Ruby caller at the top of the backtrace" {
     try std.testing.expect(std.mem.indexOf(u8, result.toStringObject().str, "Object#boom") != null);
 }
 
+test "exceptions raised in blocks identify the enclosing method" {
+    const result = try evalCode(
+        \\class BacktraceBlock
+        \\  def boom
+        \\    1.times { raise "boom" }
+        \\  rescue => error
+        \\    error.backtrace[0].include?("block in BacktraceBlock#boom")
+        \\  end
+        \\end
+        \\BacktraceBlock.new.boom
+    );
+
+    try std.testing.expect(result.isTrue());
+}
+
 test "caller_locations includes builtin forwarding frames" {
     const result = try evalCode(
         \\class A

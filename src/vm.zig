@@ -13425,6 +13425,19 @@ pub const VM = struct {
                         "{s}:{d}:in '{s}#{s}'",
                         .{ frame_source, frame_line, self.getClass(frame.self_value).module.name.name, method_name },
                     ) catch return error.Fatal
+            else if (frame.frame_type == .proc or frame.frame_type == .lambda)
+                if (enclosingMethodEnvironment(frame)) |environment|
+                    std.fmt.allocPrint(
+                        self.gc_allocator,
+                        "{s}:{d}:in 'block in {s}#{s}'",
+                        .{ frame_source, frame_line, self.getClass(frame.self_value).module.name.name, environment.context.method_name },
+                    ) catch return error.Fatal
+                else
+                    std.fmt.allocPrint(
+                        self.gc_allocator,
+                        "{s}:{d}:in '<main>'",
+                        .{ frame_source, frame_line },
+                    ) catch return error.Fatal
             else
                 std.fmt.allocPrint(
                     self.gc_allocator,
