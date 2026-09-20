@@ -6901,7 +6901,7 @@ pub const VM = struct {
                 const old_name_sym = try self.intern(old_name);
 
                 const current_self = frame.self_value;
-                const methods = current_self.getModuleMethods() orelse &self.object_class.module.methods;
+                const methods = current_self.getModuleMethods() orelse self.object_class.module.methods;
 
                 const entry = if (current_self.isClass()) blk: {
                     const resolved = self.lookupMethodDetailed(current_self.toClassObject(), old_name_sym);
@@ -6991,7 +6991,7 @@ pub const VM = struct {
                 }
 
                 const current_self = frame.self_value;
-                const methods = current_self.getModuleMethods() orelse &self.object_class.module.methods;
+                const methods = current_self.getModuleMethods() orelse self.object_class.module.methods;
                 const target_is_class = current_self.isClass();
                 const target_is_module = current_self.isModule();
 
@@ -9850,7 +9850,7 @@ pub const VM = struct {
                     .instance_variables = null,
                 },
                 .name = singleton_name_sym,
-                .methods = std.AutoHashMap(*value.SymbolObject, MethodEntry).init(self.gc_allocator),
+                .methods = try self.newMethodTable(),
                 .constants = std.AutoHashMap(*value.SymbolObject, value.ConstEntry).init(self.gc_allocator),
                 .autoloads = std.AutoHashMap(*value.SymbolObject, []const u8).init(self.gc_allocator),
                 .class_variables = std.AutoHashMap(*value.SymbolObject, value.Value).init(self.gc_allocator),
@@ -9996,6 +9996,12 @@ pub const VM = struct {
 
     // ==== Object creation ====
 
+    fn newMethodTable(self: *VM) VMError!*value.MethodTable {
+        const methods = self.gc_allocator.create(value.MethodTable) catch return error.Fatal;
+        methods.* = value.MethodTable.init(self.gc_allocator);
+        return methods;
+    }
+
     fn registerErrnoClass(self: *VM, errno_code: std.posix.E, class_obj: *ClassObject) VMError!void {
         self.errno_classes.put(@intCast(@intFromEnum(errno_code)), class_obj) catch return error.Fatal;
     }
@@ -10009,7 +10015,7 @@ pub const VM = struct {
         module_obj.* = .{
             .object = .{ .type_tag = .module, .flags = 0, .class = class_obj, .singleton_class = null, .instance_variables = null },
             .name = name,
-            .methods = std.AutoHashMap(*SymbolObject, MethodEntry).init(self.gc_allocator),
+            .methods = try self.newMethodTable(),
             .constants = std.AutoHashMap(*value.SymbolObject, value.ConstEntry).init(self.gc_allocator),
             .autoloads = std.AutoHashMap(*SymbolObject, []const u8).init(self.gc_allocator),
             .class_variables = std.AutoHashMap(*SymbolObject, Value).init(self.gc_allocator),
@@ -10034,7 +10040,7 @@ pub const VM = struct {
             .module = .{
                 .object = .{ .type_tag = .class, .flags = 0, .class = self.class_class, .singleton_class = null, .instance_variables = null },
                 .name = name,
-                .methods = std.AutoHashMap(*SymbolObject, MethodEntry).init(self.gc_allocator),
+                .methods = try self.newMethodTable(),
                 .constants = std.AutoHashMap(*value.SymbolObject, value.ConstEntry).init(self.gc_allocator),
                 .autoloads = std.AutoHashMap(*SymbolObject, []const u8).init(self.gc_allocator),
                 .class_variables = std.AutoHashMap(*SymbolObject, Value).init(self.gc_allocator),
@@ -11297,11 +11303,14 @@ pub const VM = struct {
         if (module_obj.origin != module_obj) return false;
 
         const origin_iclass = try self.newIClass(module_obj, module_obj.super);
+        // The origin IClass retains the old shared table while the visible
+        // class or module gets a new table for definitions after prepend.
+        std.debug.assert(origin_iclass.module.methods == module_obj.methods);
         origin_iclass.module.includer = module_obj;
         origin_iclass.module.is_origin_iclass = true;
         module_obj.super = &origin_iclass.module;
         module_obj.origin = &origin_iclass.module;
-        module_obj.methods = std.AutoHashMap(*SymbolObject, MethodEntry).init(self.gc_allocator);
+        module_obj.methods = try self.newMethodTable();
         self.syncVisibleSuperclass(module_obj);
         return true;
     }

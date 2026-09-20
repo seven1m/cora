@@ -581,7 +581,7 @@ fn collectInstanceMethods(
         if (include_super)
             try method_reflection.collectModuleAncestryMethods(vm, module_obj, filter, true, &names, &seen, &blocked)
         else
-            try method_reflection.collectMethodsFromTable(vm, &module_obj.origin.methods, filter, &names, &seen, &blocked);
+            try method_reflection.collectMethodsFromTable(vm, module_obj.origin.methods, filter, &names, &seen, &blocked);
     } else if (receiver.isClass()) {
         const class_obj = receiver.toClassObject();
         try method_reflection.collectClassChainMethods(vm, class_obj, include_super, filter, true, &names, &seen, &blocked);

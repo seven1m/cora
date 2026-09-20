@@ -71,12 +71,12 @@ pub fn collectModuleAncestryMethods(
     blocked: *std.AutoHashMap(*SymbolObject, void),
 ) VMError!void {
     if (!include_mixin_ancestors) {
-        return collectMethodsFromTable(vm, &module_obj.origin.methods, filter, out, seen, blocked);
+        return collectMethodsFromTable(vm, module_obj.origin.methods, filter, out, seen, blocked);
     }
 
     var current: ?*value.ModuleObject = module_obj;
     while (current) |node| : (current = node.super) {
-        try collectMethodsFromTable(vm, &ancestry.methodTableOwner(node).methods, filter, out, seen, blocked);
+        try collectMethodsFromTable(vm, ancestry.methodTableOwner(node).methods, filter, out, seen, blocked);
     }
 }
 
@@ -91,12 +91,12 @@ pub fn collectClassChainMethods(
     blocked: *std.AutoHashMap(*SymbolObject, void),
 ) VMError!void {
     if (!include_mixin_ancestors) {
-        return collectMethodsFromTable(vm, &start_class.module.origin.methods, filter, out, seen, blocked);
+        return collectMethodsFromTable(vm, start_class.module.origin.methods, filter, out, seen, blocked);
     }
 
     var current: ?*value.ModuleObject = &start_class.module;
     while (current) |node| : (current = node.super) {
-        try collectMethodsFromTable(vm, &ancestry.methodTableOwner(node).methods, filter, out, seen, blocked);
+        try collectMethodsFromTable(vm, ancestry.methodTableOwner(node).methods, filter, out, seen, blocked);
         if (!include_super) {
             if (node != &start_class.module and node.object.type_tag == .class) break;
             if (node.object.type_tag == .class and ancestry.nextVisibleClass(node.super) != null) {

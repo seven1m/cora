@@ -148,12 +148,14 @@ pub const LexicalScope = struct {
     }
 };
 
+pub const MethodTable = std.AutoHashMap(*SymbolObject, MethodEntry);
+
 pub const ModuleObject = struct {
     object: Object,
     name: *SymbolObject,
     classpath: ?*StringObject = null,
     classpath_permanent: bool = false,
-    methods: std.AutoHashMap(*SymbolObject, MethodEntry),
+    methods: *MethodTable,
     constants: std.AutoHashMap(*SymbolObject, ConstEntry),
     autoloads: std.AutoHashMap(*SymbolObject, []const u8),
     class_variables: std.AutoHashMap(*SymbolObject, Value),
@@ -979,9 +981,9 @@ pub const Value = struct {
         return null;
     }
 
-    pub fn getModuleMethods(self: Value) ?*std.AutoHashMap(*SymbolObject, MethodEntry) {
+    pub fn getModuleMethods(self: Value) ?*MethodTable {
         const module_obj = self.getModuleObject() orelse return null;
-        return &module_obj.origin.methods;
+        return module_obj.origin.methods;
     }
 
     pub fn objectId(self: Value) i64 {
