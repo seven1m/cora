@@ -16,6 +16,17 @@ test "Proc.call with parameters" {
     try std.testing.expectEqualSlices(u8, "99\n", result.stdout);
 }
 
+test "Proc.call and lambda call bind passed blocks" {
+    const result = try evalCode(
+        \\proc_receiver = proc { |&block| block.call(2) }
+        \\lambda_receiver = ->(&block) { block.call(3) }
+        \\[proc_receiver.call { |value| value * 4 }, lambda_receiver.call { |value| value * 5 }]
+    );
+    const values = result.toArrayObject().elements.items;
+    try std.testing.expectEqual(@as(i64, 8), values[0].toInteger());
+    try std.testing.expectEqual(@as(i64, 15), values[1].toInteger());
+}
+
 test "Proc.call captures variables from defining scope" {
     var stdout_buf: [8192]u8 = undefined;
     var stderr_buf: [8192]u8 = undefined;

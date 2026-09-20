@@ -536,15 +536,22 @@ pub const RubyRandom = struct {
         var count: usize = @max(624, key_len);
         while (count > 0) : (count -= 1) {
             self.state[i] = (self.state[i] ^ ((self.state[i - 1] ^ (self.state[i - 1] >> 30)) *% 1664525)) +% keys[j] +% @as(u32, @intCast(j));
-            i += 1; j += 1;
-            if (i == 624) { self.state[0] = self.state[623]; i = 1; }
+            i += 1;
+            j += 1;
+            if (i == 624) {
+                self.state[0] = self.state[623];
+                i = 1;
+            }
             if (j == key_len) j = 0;
         }
         count = 623;
         while (count > 0) : (count -= 1) {
             self.state[i] = (self.state[i] ^ ((self.state[i - 1] ^ (self.state[i - 1] >> 30)) *% 1566083941)) -% @as(u32, @intCast(i));
             i += 1;
-            if (i == 624) { self.state[0] = self.state[623]; i = 1; }
+            if (i == 624) {
+                self.state[0] = self.state[623];
+                i = 1;
+            }
         }
         self.state[0] = 0x80000000;
         self.index = 624;
@@ -559,15 +566,26 @@ pub const RubyRandom = struct {
             }
             self.index = 0;
         }
-        var y = self.state[self.index]; self.index += 1;
-        y ^= y >> 11; y ^= (y << 7) & 0x9d2c5680; y ^= (y << 15) & 0xefc60000; y ^= y >> 18;
+        var y = self.state[self.index];
+        self.index += 1;
+        y ^= y >> 11;
+        y ^= (y << 7) & 0x9d2c5680;
+        y ^= (y << 15) & 0xefc60000;
+        y ^= y >> 18;
         return y;
     }
 
     pub fn below(self: *RubyRandom, limit: u32) u32 {
         var mask = limit - 1;
-        mask |= mask >> 1; mask |= mask >> 2; mask |= mask >> 4; mask |= mask >> 8; mask |= mask >> 16;
-        while (true) { const n = self.next() & mask; if (n < limit) return n; }
+        mask |= mask >> 1;
+        mask |= mask >> 2;
+        mask |= mask >> 4;
+        mask |= mask >> 8;
+        mask |= mask >> 16;
+        while (true) {
+            const n = self.next() & mask;
+            if (n < limit) return n;
+        }
     }
 };
 
@@ -8514,13 +8532,16 @@ pub const VM = struct {
         return self.invokeResolvedMethodWithKeywords(resolved, receiver, args, block, null);
     }
 
-    fn bindMethodBlockParam(self: *VM, method_chunk: *Chunk, frame: *CallFrame, block: ?Block) VMError!void {
+    fn bindMethodBlockParam(self: *VM, method_chunk: *Chunk, block: ?Block) VMError!void {
         if (method_chunk.block_param_index) |block_idx| {
-            const lc = method_chunk.locals_count;
             if (block) |blk| {
                 const proc_val = try self.newProc(blk);
+                const frame = self.currentFrame();
+                const lc = method_chunk.locals_count;
                 (frame.ep - lc + block_idx)[0] = proc_val;
             } else {
+                const frame = self.currentFrame();
+                const lc = method_chunk.locals_count;
                 (frame.ep - lc + block_idx)[0] = Value.nil();
             }
         }
@@ -8852,12 +8873,13 @@ pub const VM = struct {
                     .block = procCallBlock(block, chunk_blk.enclosing_block_proc),
                 });
 
-                const current_frame = self.currentFrame();
+                var current_frame = self.currentFrame();
                 current_frame.method_name = method_name;
                 current_frame.super_defining_node = defining_node;
                 try self.setMethodEnvironmentContext(current_frame);
                 try self.copyArgumentsWithRestParam(proc_chunk, current_frame, args_to_bind, .strict);
-                try self.bindMethodBlockParam(proc_chunk, current_frame, block);
+                try self.bindMethodBlockParam(proc_chunk, procCallBlock(block, chunk_blk.enclosing_block_proc));
+                current_frame = self.currentFrame();
 
                 if (has_kw and expanded_args == null) {
                     try self.bindKeywordArguments(proc_chunk, current_frame, kw_keys.?, kw_values.?);
@@ -8959,9 +8981,11 @@ pub const VM = struct {
                     .execution_lexical_scope = execution_lexical_scope,
                 });
 
-                const current_frame = self.currentFrame();
+                var current_frame = self.currentFrame();
                 const mode: ArityMode = if (chunk_blk.chunk.is_lambda) .strict else .lenient;
                 try self.copyArgumentsWithRestParam(chunk_blk.chunk, current_frame, args_to_bind, mode);
+                try self.bindMethodBlockParam(chunk_blk.chunk, procCallBlock(block, chunk_blk.enclosing_block_proc));
+                current_frame = self.currentFrame();
                 if (has_kw and expanded_args == null) {
                     try self.bindKeywordArguments(chunk_blk.chunk, current_frame, kw_keys.?, kw_values.?);
                 } else if (chunk_blk.chunk.required_keywords.items.len > 0 or chunk_blk.chunk.optional_keywords.items.len > 0 or chunk_blk.chunk.keyword_rest_index != null) {
@@ -9071,6 +9095,7 @@ pub const VM = struct {
                                 const current_frame = self.currentFrame();
                                 const mode: ArityMode = if (chunk_blk.chunk.is_lambda) .strict else .lenient;
                                 try self.copyArgumentsWithRestParam(chunk_blk.chunk, current_frame, dispatch.args, mode);
+                                try self.bindMethodBlockParam(chunk_blk.chunk, procCallBlock(block, chunk_blk.enclosing_block_proc));
                                 return;
                             }
                         },
@@ -9123,12 +9148,13 @@ pub const VM = struct {
                             .block = procCallBlock(block, chunk_blk.enclosing_block_proc),
                         });
 
-                        const current_frame = self.currentFrame();
+                        var current_frame = self.currentFrame();
                         current_frame.method_name = resolvedMethodFrameName(method);
                         current_frame.super_defining_node = method.defining_node;
                         try self.setMethodEnvironmentContext(current_frame);
                         try self.copyArgumentsWithRestParam(proc_chunk, current_frame, dispatch.args, .strict);
-                        try self.bindMethodBlockParam(proc_chunk, current_frame, block);
+                        try self.bindMethodBlockParam(proc_chunk, procCallBlock(block, chunk_blk.enclosing_block_proc));
+                        current_frame = self.currentFrame();
 
                         if (dispatch_kwargc > 0) {
                             try self.bindKeywordArguments(proc_chunk, current_frame, dispatch_kw_keys.?[0..dispatch_kwargc], dispatch_kw_values.?[0..dispatch_kwargc]);
@@ -9714,18 +9740,16 @@ pub const VM = struct {
             null;
         if (maybe_resolved == null) {
             maybe_resolved = if (lexical_scope) |scope| switch (scope.scope_module) {
-                .module => |defining_module|
-                    self.lookupMethodForSuperFromScope(
-                        self.getClass(receiver),
-                        .{ .module = defining_module },
-                        method_name_sym,
-                    ) orelse self.lookupMethod(self.getClass(receiver), method_name_sym),
-                .class => |defining_class|
-                    self.lookupMethodForSuperFromScope(
-                        defining_class,
-                        .{ .class = defining_class },
-                        method_name_sym,
-                    ),
+                .module => |defining_module| self.lookupMethodForSuperFromScope(
+                    self.getClass(receiver),
+                    .{ .module = defining_module },
+                    method_name_sym,
+                ) orelse self.lookupMethod(self.getClass(receiver), method_name_sym),
+                .class => |defining_class| self.lookupMethodForSuperFromScope(
+                    defining_class,
+                    .{ .class = defining_class },
+                    method_name_sym,
+                ),
             } else null;
         }
 
