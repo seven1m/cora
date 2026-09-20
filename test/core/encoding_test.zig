@@ -232,6 +232,13 @@ test "String#encode transcodes UTF-8 to SHIFT_JIS and preserves char count" {
     try std.testing.expectEqual(@as(i64, 4), result.toInteger());
 }
 
+test "String#encode decodes ISO-2022-JP katakana" {
+    const result = try evalCode(
+        \\[27, 36, 66, 37, 34, 37, 106, 37, 57, 27, 40, 66].pack("C*").force_encoding("ISO-2022-JP").encode("UTF-8")
+    );
+    try std.testing.expectEqualStrings("アリス", result.toStringObject().str);
+}
+
 test "Encoding.find with symbol argument raises TypeError" {
     var stdout_buf: [8192]u8 = undefined;
     var stderr_buf: [8192]u8 = undefined;

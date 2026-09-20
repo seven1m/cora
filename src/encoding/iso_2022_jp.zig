@@ -89,21 +89,46 @@ pub const Iso2022JpEncoding = struct {
             out[1] = @intCast(0x21 + (codepoint - 0x3041));
             return 2;
         }
+        if (codepoint >= 0x30A1 and codepoint <= 0x30F6) {
+            out[0] = 0x25;
+            out[1] = @intCast(0x21 + (codepoint - 0x30A1));
+            return 2;
+        }
         return null;
     }
 
     pub fn toUnicodeCodepoint(_: Iso2022JpEncoding, bytes: []const u8) ?u32 {
-        if (bytes.len == 1) {
-            if (bytes[0] <= 0x7F) return bytes[0];
+        if (bytes.len == 1) return if (bytes[0] <= 0x7F) bytes[0] else null;
+        if (bytes.len == 2) return decodeJisPair(bytes[0], bytes[1]);
+
+        var index: usize = 0;
+        var mode: enum { ascii, jis } = .ascii;
+        while (index + 3 <= bytes.len and bytes[index] == 0x1B) {
+            if (isEsc(bytes, index, "$B")) {
+                mode = .jis;
+            } else if (isEsc(bytes, index, "(B")) {
+                mode = .ascii;
+            } else {
+                return null;
+            }
+            index += 3;
+        }
+
+        const character = bytes[index..];
+        if (mode == .ascii and character.len == 1) {
+            if (character[0] <= 0x7F) return character[0];
             return null;
         }
-        if (bytes.len != 2) return null;
-        return decodeJisPair(bytes[0], bytes[1]);
+        if (mode != .jis or character.len != 2) return null;
+        return decodeJisPair(character[0], character[1]);
     }
 
     fn decodeJisPair(b0: u8, b1: u8) ?u32 {
         if (b0 == 0x24 and b1 >= 0x21 and b1 <= 0x73) {
             return 0x3041 + @as(u32, b1 - 0x21);
+        }
+        if (b0 == 0x25 and b1 >= 0x21 and b1 <= 0x76) {
+            return 0x30A1 + @as(u32, b1 - 0x21);
         }
         return null;
     }
