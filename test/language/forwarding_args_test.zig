@@ -87,3 +87,23 @@ test "mixed forwarding excludes method parameters from the forwarded rest" {
     try std.testing.expectEqualStrings("prefix", items[0].toSymbolObject().name);
     try std.testing.expectEqualStrings("rest", items[1].toSymbolObject().name);
 }
+
+test "Proc ruby2_keywords preserves keywords through rest argument splats" {
+    const result = try evalCode(
+        \\class KeywordTarget
+        \\  def initialize(**options)
+        \\    @options = options
+        \\  end
+        \\  attr_reader :options
+        \\end
+        \\forwarding = proc { |_, *args| KeywordTarget.new(*args) }
+        \\returned = forwarding.ruby2_keywords
+        \\[returned.equal?(forwarding), forwarding.call(:ignored, enabled: true).options]
+    );
+    const values = result.toArrayObject().elements.items;
+    try std.testing.expect(values[0].isTrue());
+    const entries = values[1].toHashObject().entries.items;
+    try std.testing.expectEqual(@as(usize, 1), entries.len);
+    try std.testing.expectEqualStrings("enabled", entries[0].key.toSymbolObject().name);
+    try std.testing.expect(entries[0].value.isTrue());
+}

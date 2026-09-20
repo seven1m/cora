@@ -7906,7 +7906,8 @@ pub const VM = struct {
                 .chunk => |chunk_blk| chunkAcceptsKeywords(chunk_blk.chunk),
                 else => false,
             },
-            .builtin, .missing, .undefined, .cext => false,
+            .builtin => entry.accepts_keywords,
+            .missing, .undefined, .cext => false,
         };
     }
 
@@ -8896,6 +8897,9 @@ pub const VM = struct {
 
                 if (has_kw and !chunkAcceptsKeywords(chunk_blk.chunk) and chunk_blk.chunk.rest_param_index != null) {
                     const kw_hash = try self.createHashFromKeywordPairs(kw_keys.?, kw_values.?);
+                    if (proc_obj.ruby2_keywords) {
+                        kw_hash.toHashObject().object.flags |= value.HASH_RUBY2_KEYWORDS_FLAG;
+                    }
                     const buf = self.allocator.alloc(Value, args.len + 1) catch return error.Fatal;
                     @memcpy(buf[0..args.len], args);
                     buf[args.len] = kw_hash;

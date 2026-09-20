@@ -37,6 +37,9 @@ pub fn register(vm: *VM) !void {
     const to_proc_sym = try vm.intern("to_proc");
     try vm.proc_class.module.methods.put(to_proc_sym, value.MethodEntry.builtin(&builtinProcToProc, .{ .exact = 0 }));
 
+    const ruby2_keywords_sym = try vm.intern("ruby2_keywords");
+    try vm.proc_class.module.methods.put(ruby2_keywords_sym, value.MethodEntry.builtin(&builtinProcRuby2Keywords, .{ .exact = 0 }));
+
     const equal_entry = value.MethodEntry.builtin(&builtinProcEqual, .{ .exact = 1 });
     const equal_sym = try vm.intern("==");
     try vm.proc_class.module.methods.put(equal_sym, equal_entry);
@@ -151,5 +154,10 @@ pub fn builtinProcSourceLocation(vm: *VM, receiver: Value, _: []Value, _: ?Block
 }
 
 pub fn builtinProcToProc(_: *VM, receiver: Value, _: []Value, _: ?Block) VMError!Value {
+    return receiver;
+}
+
+pub fn builtinProcRuby2Keywords(_: *VM, receiver: Value, _: []Value, _: ?Block) VMError!Value {
+    receiver.toProcObject().ruby2_keywords = true;
     return receiver;
 }

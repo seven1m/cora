@@ -16,7 +16,7 @@ pub fn register(vm: *VM) !void {
     vm.true_class.allocation_policy = .unavailable;
     vm.false_class.allocation_policy = .unavailable;
     const class_new_sym = try vm.intern("new");
-    try vm.class_class.module.methods.put(class_new_sym, value.MethodEntry.builtin(&builtinClassNew, .{ .variadic = 0 }));
+    try vm.class_class.module.methods.put(class_new_sym, value.MethodEntry.keywordBuiltin(&builtinClassNew, .{ .variadic = 0 }));
 
     for ([_]*ClassObject{
         vm.integer_class,
