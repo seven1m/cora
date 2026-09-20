@@ -1,5 +1,6 @@
 const std = @import("std");
 const ancestry = @import("../ancestry.zig");
+const Chunk = @import("../chunk.zig").Chunk;
 const vm_mod = @import("../vm.zig");
 const value = @import("../value.zig");
 const kernel = @import("kernel.zig");
@@ -206,10 +207,19 @@ pub fn sourceLocationForResolvedMethod(vm: *VM, resolved: vm_mod.ResolvedMethod)
     return Value.fromObject(&array.object);
 }
 
-fn appendParameterDescriptor(vm: *VM, array: *value.ArrayObject, kind_name: []const u8) VMError!void {
+fn appendParameterDescriptor(vm: *VM, array: *value.ArrayObject, kind_name: []const u8, parameter_name: ?[]const u8) VMError!void {
     const descriptor = try vm.createArray();
     descriptor.elements.append(vm.gc_allocator, Value.fromObject(&(try vm.intern(kind_name)).object)) catch return error.Fatal;
+    if (parameter_name) |name| {
+        descriptor.elements.append(vm.gc_allocator, Value.fromObject(&(try vm.intern(name)).object)) catch return error.Fatal;
+    }
     array.elements.append(vm.gc_allocator, Value.fromObject(&descriptor.object)) catch return error.Fatal;
+}
+
+fn chunkParameterName(method_chunk: *const Chunk, slot: usize) ?[]const u8 {
+    if (slot >= method_chunk.local_names.items.len) return null;
+    const name = method_chunk.local_names.items[slot];
+    return if (name.len == 0) null else name;
 }
 
 pub fn parametersForResolvedMethod(vm: *VM, resolved: vm_mod.ResolvedMethod) VMError!Value {
@@ -217,29 +227,34 @@ pub fn parametersForResolvedMethod(vm: *VM, resolved: vm_mod.ResolvedMethod) VME
 
     switch (resolved.entry.method) {
         .chunk => |method_chunk| {
-            for (0..method_chunk.arity) |_| {
-                try appendParameterDescriptor(vm, out, "req");
+            for (0..method_chunk.arity) |slot| {
+                try appendParameterDescriptor(vm, out, "req", chunkParameterName(method_chunk, slot));
             }
-            for (method_chunk.optional_params.items) |_| {
-                try appendParameterDescriptor(vm, out, "opt");
+            for (method_chunk.optional_params.items) |optional| {
+                try appendParameterDescriptor(vm, out, "opt", chunkParameterName(method_chunk, optional.param_index));
             }
-            if (method_chunk.rest_param_index != null) {
-                try appendParameterDescriptor(vm, out, "rest");
+            if (method_chunk.rest_param_index) |slot| {
+                try appendParameterDescriptor(vm, out, "rest", chunkParameterName(method_chunk, slot));
             }
-            for (0..method_chunk.post_required_count) |_| {
-                try appendParameterDescriptor(vm, out, "req");
+            const post_start = if (method_chunk.rest_param_index) |slot| slot + 1 else method_chunk.arity + method_chunk.optional_params.items.len;
+            for (0..method_chunk.post_required_count) |offset| {
+                try appendParameterDescriptor(vm, out, "req", chunkParameterName(method_chunk, post_start + offset));
             }
-            for (method_chunk.required_keywords.items) |_| {
-                try appendParameterDescriptor(vm, out, "keyreq");
+            for (method_chunk.required_keywords.items) |keyword| {
+                try appendParameterDescriptor(vm, out, "keyreq", chunkParameterName(method_chunk, keyword.param_slot));
             }
-            for (method_chunk.optional_keywords.items) |_| {
-                try appendParameterDescriptor(vm, out, "key");
+            for (method_chunk.optional_keywords.items) |keyword| {
+                try appendParameterDescriptor(vm, out, "key", chunkParameterName(method_chunk, keyword.param_slot));
             }
-            if (method_chunk.keyword_rest_index != null) {
-                try appendParameterDescriptor(vm, out, "keyrest");
+            if (method_chunk.no_keywords) {
+                try appendParameterDescriptor(vm, out, "nokey", null);
+            } else if (method_chunk.keyword_rest_index) |slot| {
+                try appendParameterDescriptor(vm, out, "keyrest", chunkParameterName(method_chunk, slot));
             }
-            if (method_chunk.block_param_index != null) {
-                try appendParameterDescriptor(vm, out, "block");
+            if (method_chunk.block_param_index) |slot| {
+                try appendParameterDescriptor(vm, out, "block", chunkParameterName(method_chunk, slot));
+            } else if (method_chunk.has_forwarding_parameter) {
+                try appendParameterDescriptor(vm, out, "block", "&");
             }
         },
         .proc => |proc_obj| switch (proc_obj.block.kind) {
@@ -253,41 +268,41 @@ pub fn parametersForResolvedMethod(vm: *VM, resolved: vm_mod.ResolvedMethod) VME
             },
             .receiver_builtin => |builtin_data| {
                 for (0..@intCast(builtin_data.arity)) |_| {
-                    try appendParameterDescriptor(vm, out, "req");
+                    try appendParameterDescriptor(vm, out, "req", null);
                 }
             },
             .symbol, .builtin, .callable => {
-                try appendParameterDescriptor(vm, out, "rest");
+                try appendParameterDescriptor(vm, out, "rest", null);
             },
         },
         .builtin => |builtin_method| switch (builtin_method.arity) {
             .exact => |count| {
                 for (0..count) |_| {
-                    try appendParameterDescriptor(vm, out, "req");
+                    try appendParameterDescriptor(vm, out, "req", null);
                 }
             },
             .variadic => |required| {
                 for (0..required) |_| {
-                    try appendParameterDescriptor(vm, out, "req");
+                    try appendParameterDescriptor(vm, out, "req", null);
                 }
-                try appendParameterDescriptor(vm, out, "rest");
+                try appendParameterDescriptor(vm, out, "rest", null);
             },
         },
         .cext => |cext_method| {
             const arity: i32 = @intCast(cext_method.argc);
             if (arity >= 0) {
                 for (0..@intCast(arity)) |_| {
-                    try appendParameterDescriptor(vm, out, "req");
+                    try appendParameterDescriptor(vm, out, "req", null);
                 }
             } else {
                 const required: u32 = @intCast(-arity - 1);
                 for (0..required) |_| {
-                    try appendParameterDescriptor(vm, out, "req");
+                    try appendParameterDescriptor(vm, out, "req", null);
                 }
-                try appendParameterDescriptor(vm, out, "rest");
+                try appendParameterDescriptor(vm, out, "rest", null);
             }
         },
-        .missing => try appendParameterDescriptor(vm, out, "rest"),
+        .missing => try appendParameterDescriptor(vm, out, "rest", null),
         .undefined => unreachable,
     }
 
