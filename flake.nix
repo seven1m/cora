@@ -31,6 +31,7 @@
               m4
               openssl
               pkg-config
+              sqlite
               stdenv.cc
               zlib
               zig_0_16
