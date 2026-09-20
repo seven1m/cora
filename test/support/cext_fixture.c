@@ -163,6 +163,17 @@ cext_obj_class(VALUE self, VALUE object)
 }
 
 static VALUE
+cext_ivar_access(VALUE self, VALUE object)
+{
+    (void)self;
+    rb_iv_set(object, "@value", INT2NUM(42));
+    return rb_ary_new3(3,
+        rb_iv_get(object, "@value"),
+        rb_ivar_defined(object, rb_intern("@value")) ? Qtrue : Qfalse,
+        rb_ivar_defined(object, rb_intern("@missing")) ? Qtrue : Qfalse);
+}
+
+static VALUE
 cext_undef_class_new(VALUE self, VALUE klass)
 {
     (void)self;
@@ -200,6 +211,7 @@ void Init_fixture(void)
     rb_define_module_function(mCoraCExt, "string_value_cstr_length", cext_string_value_cstr_length, 1);
     rb_define_module_function(mCoraCExt, "class_of", cext_class_of, 1);
     rb_define_module_function(mCoraCExt, "obj_class", cext_obj_class, 1);
+    rb_define_module_function(mCoraCExt, "ivar_access", cext_ivar_access, 1);
     rb_define_module_function(mCoraCExt, "undef_class_new", cext_undef_class_new, 1);
     rb_define_module_function(mCoraCExt, "scan_keywords", cext_scan_keywords, -1);
 

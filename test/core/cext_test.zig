@@ -45,6 +45,18 @@ test "C extension CLASS_OF returns singleton class without changing rb_obj_class
     }
 }
 
+test "C extension accesses and detects instance variables" {
+    const result = try evalCode(
+        \\$LOAD_PATH << "build/cext"
+        \\require "fixture.so"
+        \\CoraCExt.ivar_access(Object.new)
+    );
+    const values = result.toArrayObject().elements.items;
+    try std.testing.expectEqual(@as(i64, 42), values[0].toInteger());
+    try std.testing.expect(values[1].toBool());
+    try std.testing.expect(!values[2].toBool());
+}
+
 test "C extension can undefine new on one class singleton" {
     const result = try evalCode(
         \\$LOAD_PATH << "build/cext"

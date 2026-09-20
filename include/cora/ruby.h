@@ -398,6 +398,7 @@ void   rb_alias(VALUE klass, ID dst, ID src);
 VALUE  rb_funcall(VALUE recv, ID mid, int argc, ...);
 VALUE  rb_funcallv(VALUE recv, ID mid, int argc, const VALUE *argv);
 VALUE  rb_funcallv_public(VALUE recv, ID mid, int argc, const VALUE *argv);
+#define rb_funcall2 rb_funcallv
 #define rb_funcall3 rb_funcallv
 VALUE  rb_proc_call_with_block(VALUE recv, int argc, const VALUE *argv, VALUE block);
 VALUE  rb_yield(VALUE val);
@@ -406,7 +407,9 @@ VALUE  rb_yield_values(int n, ...);
 VALUE  rb_attr_get(VALUE obj, ID id);
 VALUE  rb_ivar_get(VALUE obj, ID id);
 VALUE  rb_ivar_set(VALUE obj, ID id, VALUE val);
+#define rb_iv_get(obj, name) rb_ivar_get(obj, rb_intern(name))
 #define rb_iv_set(obj, name, val) rb_ivar_set(obj, rb_intern(name), val)
+int    rb_ivar_defined(VALUE obj, ID id);
 
 VALUE  rb_class_new_instance(int argc, const VALUE *argv, VALUE klass);
 VALUE  rb_obj_alloc(VALUE klass);

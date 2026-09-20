@@ -785,6 +785,12 @@ export fn rb_ivar_set(obj_raw: VALUE, id: VALUE, val_raw: VALUE) VALUE {
     return val_raw;
 }
 
+export fn rb_ivar_defined(obj_raw: VALUE, id: VALUE) c_int {
+    const vm = getVM();
+    const name = symName(id);
+    return @intFromBool(vm.hasInstanceVariable(Value{ .raw = obj_raw }, name) catch false);
+}
+
 export fn rb_respond_to(obj_raw: VALUE, id: VALUE) c_int {
     const vm = getVM();
     const name = symName(id);
