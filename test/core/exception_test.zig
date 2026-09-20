@@ -98,6 +98,16 @@ test "pending SIGINT raises Interrupt and explicit rescue catches it" {
     try std.testing.expect(result.toBool());
 }
 
+test "SignalException accepts a signal name Symbol" {
+    const result = try evalCode(
+        \\error = SignalException.new(:INT)
+        \\[error.signo == Signal.list["INT"], error.signm == "SIGINT", error.message == "SIGINT"]
+    );
+    for (result.toArrayObject().elements.items) |value| {
+        try std.testing.expect(value.isTrue());
+    }
+}
+
 test "pending SIGINT is not caught by bare rescue" {
     var stdout_buf: [8192]u8 = undefined;
     var stderr_buf: [8192]u8 = undefined;

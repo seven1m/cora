@@ -212,7 +212,10 @@ pub fn builtinSignalExceptionInitialize(vm: *VM, receiver: Value, args: []Value,
             try vm.newString(signal_support.fullName(signo) orelse "SIG", false);
     } else {
         if (args.len != 1) return vm.raiseExceptionFmt(vm.argument_error_class, "wrong number of arguments", .{});
-        const name = try args[0].coerceToStr(vm, "no implicit conversion into String");
+        const name = if (args[0].isSymbol())
+            args[0].toSymbolObject().name
+        else
+            try args[0].coerceToStr(vm, "no implicit conversion into String");
         const info = signal_support.infoByName(name) orelse {
             return vm.raiseExceptionFmt(vm.argument_error_class, "unsupported signal '{s}'", .{name});
         };
