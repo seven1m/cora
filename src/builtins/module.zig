@@ -1640,8 +1640,8 @@ pub fn builtinModulePrepend(vm: *VM, receiver: Value, args: []Value, _: ?Block) 
 
 pub fn builtinModuleDefineMethod(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
     try vm.requireArgCountRange(args, 1, 2);
-    const name_str = try vm.coerceToMethodNameString(args[0]);
-    const name_sym = try vm.intern(name_str);
+    const name_sym = try vm.coerceToMethodNameSymbol(args[0]);
+    const name_str = name_sym.name;
 
     const methods = receiver.getModuleMethods() orelse {
         unreachable; // receiver is not a Module

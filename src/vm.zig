@@ -11803,8 +11803,10 @@ pub const VM = struct {
     }
 
     pub fn coerceToMethodNameSymbol(self: *VM, arg: Value) VMError!*SymbolObject {
-        const name_str = try self.coerceToMethodNameString(arg);
-        return self.intern(name_str);
+        if (arg.isSymbol()) return arg.toSymbolObject();
+        const name_value = try arg.coerceToStringValue(self, "is not a symbol nor a string");
+        const name_string = name_value.toStringObject();
+        return self.internWithEncoding(name_string.str, name_string.encoding);
     }
 
     fn isValidIvarName(name: []const u8) bool {

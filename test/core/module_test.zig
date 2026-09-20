@@ -191,6 +191,17 @@ test "Module define_method with string name" {
     try std.testing.expectEqual(@as(i64, 8), result.toInteger());
 }
 
+test "Module define_method preserves string name encoding" {
+    const result = try evalCode(
+        \\klass = Class.new
+        \\name = "тест_いった"
+        \\klass.define_method(name) {}
+        \\method_name = klass.instance_methods(false).first.to_s
+        \\method_name == name && method_name.encoding == Encoding::UTF_8
+    );
+    try std.testing.expect(result.isTrue());
+}
+
 test "Module define_method forwards blocks to proc-backed methods" {
     const result = try evalCode(
         \\class Foo
