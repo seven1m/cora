@@ -192,6 +192,21 @@ test "Module define_method forwards blocks to proc-backed methods" {
     try std.testing.expectEqual(@as(i64, 15), result.toArrayObject().elements.items[1].toInteger());
 }
 
+test "define_method block parameter excludes the defining method block" {
+    const result = try evalCode(
+        \\class Object
+        \\  def install(&outer)
+        \\    singleton_class.define_method(:temporary) do |&invocation|
+        \\      invocation.nil?
+        \\    end
+        \\    outer.call(self)
+        \\  end
+        \\end
+        \\Object.new.install { |object| object.temporary }
+    );
+    try std.testing.expect(result.isTrue());
+}
+
 test "define_method uses the visibility at the enclosing method definition" {
     const result = try evalCode(
         \\class VisibilityInstaller

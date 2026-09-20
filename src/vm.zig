@@ -8871,7 +8871,7 @@ pub const VM = struct {
                 current_frame.super_defining_node = defining_node;
                 try self.setMethodEnvironmentContext(current_frame);
                 try self.copyArgumentsWithRestParam(proc_chunk, current_frame, args_to_bind, .strict);
-                try self.bindMethodBlockParam(proc_chunk, procCallBlock(block, chunk_blk.enclosing_block_proc));
+                try self.bindMethodBlockParam(proc_chunk, block);
                 current_frame = self.currentFrame();
 
                 if (has_kw and expanded_args == null) {
@@ -9146,7 +9146,7 @@ pub const VM = struct {
                         current_frame.super_defining_node = method.defining_node;
                         try self.setMethodEnvironmentContext(current_frame);
                         try self.copyArgumentsWithRestParam(proc_chunk, current_frame, dispatch.args, .strict);
-                        try self.bindMethodBlockParam(proc_chunk, procCallBlock(block, chunk_blk.enclosing_block_proc));
+                        try self.bindMethodBlockParam(proc_chunk, block);
                         current_frame = self.currentFrame();
 
                         if (dispatch_kwargc > 0) {
