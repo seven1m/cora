@@ -858,7 +858,7 @@ export fn rb_const_get(klass_raw: VALUE, id: VALUE) VALUE {
     const vm = getVM();
     const name = symName(id);
     const klass = Value{ .raw = klass_raw };
-    const mod = if (klass.isClass()) &klass.toClassObject().module else if (klass.raw == rb_cModule) @as(*value.ModuleObject, @ptrFromInt(klass_raw)) else return 0;
+    const mod = if (klass.isClass()) &klass.toClassObject().module else if (klass.isModule()) klass.toModuleObject() else return 0;
     const sym = vm.intern(name) catch return 0;
     if (mod.constants.get(sym)) |entry| return entry.value.raw;
     return 0;
@@ -872,7 +872,7 @@ export fn rb_define_const(klass_raw: VALUE, name_ptr: [*c]const u8, val_raw: VAL
     const vm = getVM();
     const name = std.mem.span(name_ptr);
     const klass = Value{ .raw = klass_raw };
-    const mod = if (klass.isClass()) &klass.toClassObject().module else if (klass.raw == rb_cModule) @as(*value.ModuleObject, @ptrFromInt(klass_raw)) else return;
+    const mod = if (klass.isClass()) &klass.toClassObject().module else if (klass.isModule()) klass.toModuleObject() else return;
     const sym = vm.intern(name) catch return;
     vm.setConstant(mod, sym, Value{ .raw = val_raw }) catch return;
 }
@@ -881,7 +881,7 @@ export fn rb_const_defined(klass_raw: VALUE, id: VALUE) c_int {
     const vm = getVM();
     const name = symName(id);
     const klass = Value{ .raw = klass_raw };
-    const mod = if (klass.isClass()) &klass.toClassObject().module else if (klass.raw == rb_cModule) @as(*value.ModuleObject, @ptrFromInt(klass_raw)) else return 0;
+    const mod = if (klass.isClass()) &klass.toClassObject().module else if (klass.isModule()) klass.toModuleObject() else return 0;
     const sym = vm.intern(name) catch return 0;
     return @intFromBool(mod.constants.contains(sym));
 }
@@ -890,7 +890,7 @@ export fn rb_const_set(klass_raw: VALUE, id: VALUE, val_raw: VALUE) void {
     const vm = getVM();
     const name = symName(id);
     const klass = Value{ .raw = klass_raw };
-    const mod = if (klass.isClass()) &klass.toClassObject().module else if (klass.raw == rb_cModule) @as(*value.ModuleObject, @ptrFromInt(klass_raw)) else return;
+    const mod = if (klass.isClass()) &klass.toClassObject().module else if (klass.isModule()) klass.toModuleObject() else return;
     const sym = vm.intern(name) catch return;
     vm.setConstant(mod, sym, Value{ .raw = val_raw }) catch return;
 }

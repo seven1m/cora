@@ -182,6 +182,7 @@ cext_scan_keywords(int argc, VALUE *argv, VALUE self)
 void Init_fixture(void)
 {
     VALUE mCoraCExt = rb_define_module("CoraCExt");
+    rb_define_const(mCoraCExt, "FIXTURE_VALUE", INT2NUM(42));
     rb_define_module_function(mCoraCExt, "simple_yield", cext_simple_yield, 1);
     rb_define_module_function(mCoraCExt, "call_to_s", cext_call_to_s, 1);
     rb_define_module_function(mCoraCExt, "yield_nlr", cext_yield_nlr, 1);

@@ -12,6 +12,15 @@ test "C extension fixture loads and defines method" {
     try std.testing.expectEqual(true, result.toBool());
 }
 
+test "C extension defines constants on modules" {
+    const result = try evalCode(
+        \\$LOAD_PATH << "build/cext"
+        \\require "fixture.so"
+        \\CoraCExt::FIXTURE_VALUE
+    );
+    try std.testing.expectEqual(@as(i64, 42), result.toInteger());
+}
+
 test "C extension method works on arbitrary receiver" {
     const result = try evalCode(
         \\$LOAD_PATH << "build/cext"
