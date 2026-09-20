@@ -346,7 +346,7 @@ test "File#size reports the current file size" {
     const source = try std.fmt.allocPrint(std.testing.allocator,
         \\path = "{s}"
         \\File.write(path, "content")
-        \\File.open(path) { |file| file.size }
+        \\File.open(path) {{ |file| file.size }}
     , .{path});
     defer std.testing.allocator.free(source);
 
