@@ -5534,6 +5534,12 @@ pub const VM = struct {
                 try self.push(ivar_val);
             },
 
+            .IVAR_DEFINED => {
+                const name_idx = readU16From(frame, operands, &operand_cursor);
+                const name = constants[name_idx].string;
+                try self.push(Value.boolean(try self.hasInstanceVariable(frame.self_value, name)));
+            },
+
             .SET_IVAR => {
                 const name_idx = readU16From(frame, operands, &operand_cursor);
                 const name_val = constants[name_idx];

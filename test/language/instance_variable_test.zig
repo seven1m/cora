@@ -33,6 +33,22 @@ test "instance variable uninitialized returns nil" {
     try std.testing.expect(result.isNil());
 }
 
+test "defined? distinguishes nil instance variable from missing instance variable" {
+    const result = try evalCode(
+        \\class IvarDefined
+        \\  def check
+        \\    @present = nil
+        \\    [defined?(@present), defined?(@missing)]
+        \\  end
+        \\end
+        \\IvarDefined.new.check
+    );
+
+    const values = result.toArrayObject().elements.items;
+    try std.testing.expectEqualStrings("instance-variable", values[0].toStringObject().str);
+    try std.testing.expect(values[1].isNil());
+}
+
 test "instance_variable_set returns the value" {
     const result = try evalCode(
         \\class Foo

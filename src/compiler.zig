@@ -1695,7 +1695,7 @@ pub const Compiler = struct {
             .instance_variable_read => |var_read| {
                 const var_name = try self.parser.getConstantName(@intCast(var_read.name));
                 const name_idx = try self.current_chunk.addConstant(.{ .string = var_name });
-                try self.current_chunk.emitOpU16(.GET_IVAR, @intCast(name_idx), line);
+                try self.current_chunk.emitOpU16(.IVAR_DEFINED, @intCast(name_idx), line);
                 try self.emitBoolToDefinedDescriptor("instance-variable", line);
             },
 

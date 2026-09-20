@@ -29,6 +29,7 @@ pub const OpCode = enum(u8) {
     SET_CONST, // Operand: u16 (constant name index)
     SET_CONST_PATH, // Operand: u16 (constant name index), receiver and value on stack
     GET_IVAR, // Operand: u16 (constant pool index of variable name)
+    IVAR_DEFINED, // Operand: u16 (constant pool index of variable name)
     SET_IVAR, // Operand: u16 (constant pool index of variable name)
 
     // Control flow
@@ -238,6 +239,7 @@ pub fn opcodeOperandSize(op: OpCode) usize {
         .SET_CONST,
         .SET_CONST_PATH,
         .GET_IVAR,
+        .IVAR_DEFINED,
         .SET_IVAR,
         .PUSH_CONST,
         .PUSH_CSTRING,
@@ -329,7 +331,7 @@ pub fn maxStackDepth(allocator: std.mem.Allocator, code: []const u8) !u16 {
 
         var next_depth = depth;
         switch (op) {
-            .GET_LOCAL, .PUSH_NIL, .PUSH_I8, .PUSH_SELF => next_depth += 1,
+            .GET_LOCAL, .IVAR_DEFINED, .PUSH_NIL, .PUSH_I8, .PUSH_SELF => next_depth += 1,
             .SET_LOCAL => {
                 if (next_depth == 0) return error.InvalidBytecode;
             },
@@ -415,6 +417,7 @@ pub fn opcodeName(op: OpCode) []const u8 {
         .SET_CONST => "SET_CONST",
         .SET_CONST_PATH => "SET_CONST_PATH",
         .GET_IVAR => "GET_IVAR",
+        .IVAR_DEFINED => "IVAR_DEFINED",
         .SET_IVAR => "SET_IVAR",
         .PUSH_SELF => "PUSH_SELF",
         .JUMP => "JUMP",
