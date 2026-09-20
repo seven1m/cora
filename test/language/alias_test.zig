@@ -181,7 +181,7 @@ test "alias can target inherited private methods in class_eval" {
         \\kernel.class_eval do
         \\  alias __raise__ raise
         \\end
-        \\kernel.instance_methods(false).include?(:__raise__)
+        \\kernel.private_instance_methods(false).include?(:__raise__)
     );
     try std.testing.expect(result.isTrue());
 }

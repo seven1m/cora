@@ -333,10 +333,10 @@ pub fn register(vm: *VM) !void {
     try kernel_singleton.module.methods.put(srand_sym, value.MethodEntry.builtin(&builtinKernelSrand, .{ .variadic = 0 }));
 
     const raise_sym = try vm.intern("raise");
-    try vm.kernel_module.methods.put(raise_sym, MethodEntry.builtin(&builtinKernelRaise, .{ .variadic = 0 }));
+    try vm.kernel_module.methods.put(raise_sym, MethodEntry.builtinWithVisibility(&builtinKernelRaise, .{ .variadic = 0 }, .private));
 
     const fail_sym = try vm.intern("fail");
-    try vm.kernel_module.methods.put(fail_sym, MethodEntry.builtin(&builtinKernelRaise, .{ .variadic = 0 }));
+    try vm.kernel_module.methods.put(fail_sym, MethodEntry.builtinWithVisibility(&builtinKernelRaise, .{ .variadic = 0 }, .private));
 
     const is_a_sym = try vm.intern("is_a?");
     try vm.kernel_module.methods.put(is_a_sym, MethodEntry.builtin(&builtinKernelIsA, .{ .exact = 1 }));

@@ -17,6 +17,16 @@ test "Kernel.require is a public module function and private instance method" {
     try std.testing.expect(result.isTruthy());
 }
 
+test "Kernel raise and fail are private instance methods" {
+    const result = try evalCode(
+        \\private_methods = Kernel.private_instance_methods(false)
+        \\public_methods = Kernel.public_instance_methods(false)
+        \\private_methods.include?(:raise) && private_methods.include?(:fail) &&
+        \\  !public_methods.include?(:raise) && !public_methods.include?(:fail)
+    );
+    try std.testing.expect(result.isTrue());
+}
+
 test "p with no arguments" {
     var stdout_buf: [1024]u8 = undefined;
     var stderr_buf: [1024]u8 = undefined;
