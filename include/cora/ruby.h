@@ -79,6 +79,13 @@ typedef struct { int _; } rb_encoding;
 #define LL2NUM(x) LONG2NUM((long)(x))
 #define ULL2NUM(x) ULONG2NUM((unsigned long)(x))
 
+#define INTEGER_PACK_MSWORD_FIRST      0x01
+#define INTEGER_PACK_LSWORD_FIRST      0x02
+#define INTEGER_PACK_MSBYTE_FIRST      0x10
+#define INTEGER_PACK_LSBYTE_FIRST      0x20
+#define INTEGER_PACK_NATIVE_BYTE_ORDER 0x40
+#define INTEGER_PACK_2COMP             0x80
+
 #define T_NONE     0x00
 #define T_OBJECT   0x01
 #define T_CLASS    0x02
@@ -202,6 +209,7 @@ extern VALUE rb_eNoMemoryError; /* same as rb_eNoMemError */
 #define HAVE_LOCALTIME_R 1
 
 VALUE rb_hash(VALUE obj);
+int rb_integer_pack(VALUE val, void *words, size_t numwords, size_t wordsize, size_t nails, int flags);
 #define DBL2NUM(v) rb_float_new(v)
 VALUE rb_float_new(double v);
 VALUE rb_enc_str_asciicompat_p(VALUE str);

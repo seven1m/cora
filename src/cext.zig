@@ -1449,6 +1449,27 @@ export fn rb_path_to_class(path_raw: VALUE) VALUE {
 
 // ─── Integer conversion ─────────────────────────────────────────────────────
 
+export fn rb_integer_pack(val_raw: VALUE, words: ?*anyopaque, numwords: usize, wordsize: usize, nails: usize, flags: c_int) c_int {
+    const native_byte_order = 0x40;
+    const twos_complement = 0x80;
+    if (words == null or numwords != 1 or wordsize != @sizeOf(i64) or nails != 0 or
+        flags & (native_byte_order | twos_complement) != (native_byte_order | twos_complement)) return 0;
+
+    const value_ = Value{ .raw = val_raw };
+    const packed_value = if (value_.isInteger())
+        value_.toInteger()
+    else if (value_.isBigInteger())
+        value_.toBigIntegerObject().value.toInt(i64) catch {
+            @as(*i64, @ptrCast(@alignCast(words.?))).* = 0;
+            return if (value_.toBigIntegerObject().value.isPositive()) 2 else -2;
+        }
+    else
+        return 0;
+
+    @as(*i64, @ptrCast(@alignCast(words.?))).* = packed_value;
+    return if (packed_value > 0) 1 else if (packed_value < 0) -1 else 0;
+}
+
 export fn RARRAY_LEN(ary_raw: VALUE) c_long {
     const val = Value{ .raw = ary_raw };
     const arr = val.toArrayObject();

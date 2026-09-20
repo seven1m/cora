@@ -203,6 +203,18 @@ cext_exception_message(VALUE self)
 }
 
 static VALUE
+cext_integer_pack(VALUE self, VALUE integer)
+{
+    (void)self;
+    int64_t packed = 0;
+    int status = rb_integer_pack(integer, &packed, 1, sizeof(packed), 0,
+        INTEGER_PACK_NATIVE_BYTE_ORDER | INTEGER_PACK_2COMP);
+    char buffer[32];
+    snprintf(buffer, sizeof(buffer), "%lld", (long long)packed);
+    return rb_assoc_new(INT2NUM(status), rb_str_new_cstr(buffer));
+}
+
+static VALUE
 cext_undef_class_new(VALUE self, VALUE klass)
 {
     (void)self;
@@ -244,6 +256,7 @@ void Init_fixture(void)
     rb_define_module_function(mCoraCExt, "array_mutation", cext_array_mutation, 0);
     rb_define_module_function(mCoraCExt, "call_helpers", cext_call_helpers, 1);
     rb_define_module_function(mCoraCExt, "exception_message", cext_exception_message, 0);
+    rb_define_module_function(mCoraCExt, "integer_pack", cext_integer_pack, 1);
     rb_define_module_function(mCoraCExt, "undef_class_new", cext_undef_class_new, 1);
     rb_define_module_function(mCoraCExt, "scan_keywords", cext_scan_keywords, -1);
 

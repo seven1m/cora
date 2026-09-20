@@ -92,6 +92,26 @@ test "C extension creates exceptions from C strings" {
     try std.testing.expectEqualStrings("from C", result.toStringObject().str);
 }
 
+test "C extension packs signed 64-bit integers" {
+    const result = try evalCode(
+        \\$LOAD_PATH << "build/cext"
+        \\require "fixture.so"
+        \\[
+        \\  CoraCExt.integer_pack(2 ** 63 - 1),
+        \\  CoraCExt.integer_pack(-(2 ** 63)),
+        \\  CoraCExt.integer_pack(2 ** 63),
+        \\  CoraCExt.integer_pack(-(2 ** 63) - 1),
+        \\]
+    );
+    const rows = result.toArrayObject().elements.items;
+    const expected_statuses = [_]i64{ 1, -1, 2, -2 };
+    for (rows, expected_statuses) |row, status| {
+        try std.testing.expectEqual(status, row.toArrayObject().elements.items[0].toInteger());
+    }
+    try std.testing.expectEqualStrings("9223372036854775807", rows[0].toArrayObject().elements.items[1].toStringObject().str);
+    try std.testing.expectEqualStrings("-9223372036854775808", rows[1].toArrayObject().elements.items[1].toStringObject().str);
+}
+
 test "C extension can undefine new on one class singleton" {
     const result = try evalCode(
         \\$LOAD_PATH << "build/cext"
