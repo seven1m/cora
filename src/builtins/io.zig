@@ -88,6 +88,9 @@ pub fn register(vm: *VM) !void {
     const set_encoding_sym = try vm.intern("set_encoding");
     try vm.io_class.module.methods.put(set_encoding_sym, value.MethodEntry.builtin(&builtinIoSetEncoding, .{ .variadic = 1 }));
 
+    const size_sym = try vm.intern("size");
+    try vm.file_class.module.methods.put(size_sym, value.MethodEntry.builtin(&builtinIoSize, .{ .exact = 0 }));
+
     const rdonly_sym = try vm.intern("RDONLY");
     try vm.io_class.module.constants.put(rdonly_sym, .{ .value = Value.integer(0) });
     const wronly_sym = try vm.intern("WRONLY");
@@ -997,6 +1000,12 @@ pub fn builtinIoSetEncoding(vm: *VM, receiver: Value, args: []Value, _: ?Block) 
         Value.nil();
     try vm.setInstanceVariable(receiver, "@internal_encoding", internal);
     return receiver;
+}
+
+pub fn builtinIoSize(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    const stat = try file_builtin.builtinIoStat(vm, receiver, &[_]Value{}, null);
+    return file_builtin.builtinFileStatSize(vm, stat, &[_]Value{}, null);
 }
 
 pub fn builtinIoBinmode(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
