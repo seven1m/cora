@@ -427,6 +427,16 @@ export fn rb_str_freeze(str_raw: VALUE) VALUE {
 }
 
 export fn rb_string_value_cstr(ptr: *VALUE) ?[*]u8 {
+    const raw = rb_string_value_ptr(ptr) orelse return null;
+    const string = (Value{ .raw = ptr.* }).toStringObject();
+    if (std.mem.indexOfScalar(u8, string.str, 0) != null) {
+        rb_raise(rb_eArgError, "string contains null byte");
+        return null;
+    }
+    return raw;
+}
+
+export fn rb_string_value_ptr(ptr: *VALUE) ?[*]u8 {
     var val = Value{ .raw = ptr.* };
     if (!val.isString()) {
         const vm = getVM();
@@ -438,10 +448,6 @@ export fn rb_string_value_cstr(ptr: *VALUE) ?[*]u8 {
     }
     const vm = getVM();
     const string = val.toStringObject();
-    if (std.mem.indexOfScalar(u8, string.str, 0) != null) {
-        rb_raise(rb_eArgError, "string contains null byte");
-        return null;
-    }
     const terminated = vm.gc_allocator_atomic.alloc(u8, string.str.len + 1) catch return null;
     @memcpy(terminated[0..string.str.len], string.str);
     terminated[string.str.len] = 0;
@@ -449,12 +455,14 @@ export fn rb_string_value_cstr(ptr: *VALUE) ?[*]u8 {
     return terminated.ptr;
 }
 
-export fn rb_string_value_ptr(ptr: *VALUE) ?[*]u8 {
-    return rb_string_value_cstr(ptr);
-}
-
 export fn rb_string_value(ptr: *VALUE) VALUE {
-    _ = rb_string_value_cstr(ptr);
+    var val = Value{ .raw = ptr.* };
+    if (!val.isString()) {
+        const vm = getVM();
+        const str_val = vm.callMethodByName(val, "to_s", &.{}, null) catch return 0;
+        if (!str_val.isString()) return 0;
+        ptr.* = str_val.raw;
+    }
     return ptr.*;
 }
 

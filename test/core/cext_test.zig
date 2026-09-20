@@ -136,6 +136,17 @@ test "C extension creates strings and copies their encoding" {
     }
 }
 
+test "C extension StringValue accepts embedded null bytes" {
+    const result = try evalCode(
+        \\$LOAD_PATH << "build/cext"
+        \\require "fixture.so"
+        \\CoraCExt.string_value([97, 0, 98].pack("C*")).bytes
+    );
+    const bytes = result.toArrayObject().elements.items;
+    try std.testing.expectEqual(@as(usize, 3), bytes.len);
+    try std.testing.expectEqual(@as(i64, 0), bytes[1].toInteger());
+}
+
 test "C extension can undefine new on one class singleton" {
     const result = try evalCode(
         \\$LOAD_PATH << "build/cext"
