@@ -259,24 +259,44 @@ module OpenSSL
   end
 
   class Digest::SHA1 < Digest
+    class << self
+      def digest(data) = new(data).digest
+      def hexdigest(data) = new(data).hexdigest
+    end
+
     def initialize(data = nil)
       data.nil? ? super("SHA1") : super("SHA1", data)
     end
   end
 
   class Digest::SHA256 < Digest
+    class << self
+      def digest(data) = new(data).digest
+      def hexdigest(data) = new(data).hexdigest
+    end
+
     def initialize(data = nil)
       data.nil? ? super("SHA256") : super("SHA256", data)
     end
   end
 
   class Digest::SHA384 < Digest
+    class << self
+      def digest(data) = new(data).digest
+      def hexdigest(data) = new(data).hexdigest
+    end
+
     def initialize(data = nil)
       data.nil? ? super("SHA384") : super("SHA384", data)
     end
   end
 
   class Digest::SHA512 < Digest
+    class << self
+      def digest(data) = new(data).digest
+      def hexdigest(data) = new(data).hexdigest
+    end
+
     def initialize(data = nil)
       data.nil? ? super("SHA512") : super("SHA512", data)
     end
