@@ -2209,11 +2209,12 @@ pub fn builtinKernelDefineSingletonMethod(vm: *VM, receiver: Value, args: []Valu
                 }
             }
 
-            const method_entry = method_common.methodEntryForOwner(method_owner, method_name) orelse {
-                return vm.raiseExceptionFmt(vm.name_error_class, "undefined method '{s}'", .{method_name.name});
-            };
-            var copied = method_entry;
+            var copied = if (body.isMethodObject())
+                body.toMethodObject().entry
+            else
+                body.toUnboundMethodObject().entry;
             copied.visibility = .public;
+            if (copied.original_name == null) copied.original_name = method_name;
             break :blk copied;
         }
 

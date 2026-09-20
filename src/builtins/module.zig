@@ -1673,21 +1673,14 @@ pub fn builtinModuleDefineMethod(vm: *VM, receiver: Value, args: []Value, block:
             body.toUnboundMethodObject().name
         else
             null;
-        const method_owner = if (body.isMethodObject())
-            body.toMethodObject().owner
-        else if (body.isUnboundMethodObject())
-            body.toUnboundMethodObject().owner
-        else
-            null;
-
-        if (method_name == null or method_owner == null) {
+        if (method_name == null) {
             return vm.raiseExceptionFmt(vm.type_error_class, "wrong argument type {s} (expected Proc/Method/UnboundMethod)", .{vm.className(body)});
         }
 
-        const method_entry = method_common.methodEntryForOwner(method_owner.?, method_name.?) orelse {
-            return vm.raiseExceptionFmt(vm.name_error_class, "undefined method '{s}'", .{method_name.?.name});
-        };
-        var copied = method_entry;
+        var copied = if (body.isMethodObject())
+            body.toMethodObject().entry
+        else
+            body.toUnboundMethodObject().entry;
         copied.visibility = effective_visibility;
         if (copied.original_name == null) copied.original_name = method_name;
         break :blk copied;

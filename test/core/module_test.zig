@@ -246,6 +246,23 @@ test "define_method uses private visibility in the target module definition cont
     try std.testing.expect(values[1].isTrue());
 }
 
+test "define_method installs Object UnboundMethods on a BasicObject subclass" {
+    const result = try evalCode(
+        \\class PromiseLike < BasicObject
+        \\  undef_method :==, :!, :!=
+        \\  [:class, :respond_to?, :is_a?].each do |name|
+        \\    define_method(name, ::Object.instance_method(name))
+        \\  end
+        \\end
+        \\promise = PromiseLike.new
+        \\[promise.class == PromiseLike, promise.respond_to?(:class), promise.is_a?(PromiseLike)]
+    );
+    const values = result.toArrayObject().elements.items;
+    try std.testing.expect(values[0].isTrue());
+    try std.testing.expect(values[1].isTrue());
+    try std.testing.expect(values[2].isTrue());
+}
+
 test "Module const_get resolves nested constant paths" {
     var result = try evalCode(
         \\module A
