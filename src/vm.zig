@@ -9185,11 +9185,24 @@ pub const VM = struct {
                 switch (proc_obj.block.kind) {
                     .chunk => |chunk_blk| {
                         const proc_chunk = chunk_blk.chunk;
-                        // Reject kwargs if chunk has no keyword params.
+                        var expanded_args: ?[]Value = null;
+                        defer if (expanded_args) |buf| self.allocator.free(buf);
+                        var args_to_bind = dispatch.args;
+                        var bind_keywords = dispatch_kwargc > 0;
                         if (dispatch_kwargc > 0 and !chunkAcceptsKeywords(proc_chunk)) {
-                            const exc = try self.createException(self.argument_error_class, "this method does not accept keyword arguments");
-                            self.setPendingException(exc);
-                            return error.Unwind;
+                            if (proc_chunk.rest_param_index) |_| {
+                                const kw_hash = try self.createHashFromKeywordPairs(dispatch_kw_keys.?[0..dispatch_kwargc], dispatch_kw_values.?[0..dispatch_kwargc]);
+                                const buf = self.allocator.alloc(Value, dispatch.args.len + 1) catch return error.Fatal;
+                                @memcpy(buf[0..dispatch.args.len], dispatch.args);
+                                buf[dispatch.args.len] = kw_hash;
+                                expanded_args = buf;
+                                args_to_bind = buf;
+                                bind_keywords = false;
+                            } else {
+                                const exc = try self.createException(self.argument_error_class, "this method does not accept keyword arguments");
+                                self.setPendingException(exc);
+                                return error.Unwind;
+                            }
                         }
                         // De-recursed: push frame inline, return to dispatch loop
                         try self.pushBlockFrame(proc_chunk, chunk_blk.defining_ep, receiver, .method, .{
@@ -9200,11 +9213,11 @@ pub const VM = struct {
                         current_frame.method_name = resolvedMethodFrameName(method);
                         current_frame.super_defining_node = method.defining_node;
                         try self.setMethodEnvironmentContext(current_frame);
-                        try self.copyArgumentsWithRestParam(proc_chunk, current_frame, dispatch.args, .strict);
+                        try self.copyArgumentsWithRestParam(proc_chunk, current_frame, args_to_bind, .strict);
                         try self.bindMethodBlockParam(proc_chunk, block);
                         current_frame = self.currentFrame();
 
-                        if (dispatch_kwargc > 0) {
+                        if (bind_keywords) {
                             try self.bindKeywordArguments(proc_chunk, current_frame, dispatch_kw_keys.?[0..dispatch_kwargc], dispatch_kw_values.?[0..dispatch_kwargc]);
                         } else if (proc_chunk.required_keywords.items.len > 0 or proc_chunk.optional_keywords.items.len > 0 or proc_chunk.keyword_rest_index != null) {
                             var empty = [_]Value{};

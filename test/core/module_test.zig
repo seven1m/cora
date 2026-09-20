@@ -216,6 +216,18 @@ test "Module define_method forwards blocks to proc-backed methods" {
     try std.testing.expectEqual(@as(i64, 15), result.toArrayObject().elements.items[1].toInteger());
 }
 
+test "Module define_method passes keywords to a rest parameter" {
+    const result = try evalCode(
+        \\klass = Class.new do
+        \\  define_method(:capture) { |*args| args }
+        \\end
+        \\klass.new.capture("message", uplevel: 3)
+    );
+    const args = result.toArrayObject().elements.items;
+    try std.testing.expectEqual(@as(usize, 2), args.len);
+    try std.testing.expect(args[1].isHash());
+}
+
 test "define_method block parameter excludes the defining method block" {
     const result = try evalCode(
         \\class Object
