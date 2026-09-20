@@ -71,3 +71,19 @@ test "forwarding arguments supports explicit receiver calls" {
     try std.testing.expectEqual(@as(i64, 3), items[1].toInteger());
     try std.testing.expectEqual(@as(i64, 4), items[2].toInteger());
 }
+
+test "mixed forwarding excludes method parameters from the forwarded rest" {
+    const result = try evalCode(
+        \\def target(*args)
+        \\  args
+        \\end
+        \\def wrapper(first, ...)
+        \\  target(:prefix, ...)
+        \\end
+        \\wrapper(:first, :rest)
+    );
+    const items = result.toArrayObject().elements.items;
+    try std.testing.expectEqual(@as(usize, 2), items.len);
+    try std.testing.expectEqualStrings("prefix", items[0].toSymbolObject().name);
+    try std.testing.expectEqualStrings("rest", items[1].toSymbolObject().name);
+}

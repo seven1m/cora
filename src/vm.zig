@@ -6197,7 +6197,7 @@ pub const VM = struct {
                 }
 
                 var fwd_buf: [256]Value = undefined;
-                const fwd_args = self.getForwardingArguments(frame, &fwd_buf);
+                const fwd_args = self.getForwardingArguments(frame, &fwd_buf, false);
                 const fwd_kw_ctx = try self.buildForwardingKeywordContext(frame);
                 const kw_keys: ?[]Value = if (fwd_kw_ctx) |ctx|
                     if (ctx.kw_values.len > 0) @constCast(ctx.kw_keys) else null
@@ -6232,7 +6232,7 @@ pub const VM = struct {
                 }
 
                 var fwd_buf: [256]Value = undefined;
-                const fwd_args = self.getForwardingArguments(frame, &fwd_buf);
+                const fwd_args = self.getForwardingArguments(frame, &fwd_buf, false);
                 const fwd_kw_ctx = try self.buildForwardingKeywordContext(frame);
                 const kw_keys: ?[]Value = if (fwd_kw_ctx) |ctx|
                     if (ctx.kw_values.len > 0) @constCast(ctx.kw_keys) else null
@@ -7248,7 +7248,7 @@ pub const VM = struct {
 
                 // Get forwarding positional arguments from current method's environment
                 var fwd_buf: [256]Value = undefined;
-                const fwd_args = self.getForwardingArguments(forwarding_frame, &fwd_buf);
+                const fwd_args = self.getForwardingArguments(forwarding_frame, &fwd_buf, true);
 
                 // Build forwarding keyword context from actual param slot values
                 // (includes defaults that were applied, not just what was explicitly passed).
@@ -9437,7 +9437,7 @@ pub const VM = struct {
     /// Without rest params, this copies param slots directly from the environment.
     /// With rest params, the rest array is expanded inline.
     /// Returns the slice of buf that was filled.
-    fn getForwardingArguments(_: *VM, frame: *CallFrame, buf: *[256]Value) []Value {
+    fn getForwardingArguments(_: *VM, frame: *CallFrame, buf: *[256]Value, include_explicit: bool) []Value {
         const ch = frame.chunk;
         const ep = frame.ep;
         const lc = ch.locals_count;
@@ -9448,9 +9448,11 @@ pub const VM = struct {
             if (!rest_val.isArray()) return buf[0..0];
 
             var out: usize = 0;
-            for (0..rest_idx) |slot| {
-                buf[out] = localSlot(ep, lc, @intCast(slot)).*;
-                out += 1;
+            if (include_explicit) {
+                for (0..rest_idx) |slot| {
+                    buf[out] = localSlot(ep, lc, @intCast(slot)).*;
+                    out += 1;
+                }
             }
             const elems = rest_val.toArrayObject().elements.items;
             @memcpy(buf[out .. out + elems.len], elems);
