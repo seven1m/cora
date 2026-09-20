@@ -44,6 +44,28 @@ test "Bare super forwards all arguments" {
     try std.testing.expectEqual(30, result.toInteger());
 }
 
+test "bare super forwards explicit parameters before forwarding parameters" {
+    const result = try evalCode(
+        \\class ForwardingParent
+        \\  def collect(*args, **kwargs)
+        \\    [args, kwargs]
+        \\  end
+        \\end
+        \\class ForwardingChild < ForwardingParent
+        \\  def collect(name, ...)
+        \\    super
+        \\  end
+        \\end
+        \\ForwardingChild.new.collect(:name, :string, default: true)
+    );
+    const values = result.toArrayObject().elements.items;
+    const positional = values[0].toArrayObject().elements.items;
+    try std.testing.expectEqual(@as(usize, 2), positional.len);
+    try std.testing.expectEqualStrings("name", positional[0].toSymbolObject().name);
+    try std.testing.expectEqualStrings("string", positional[1].toSymbolObject().name);
+    try std.testing.expectEqual(@as(usize, 1), values[1].toHashObject().entries.items.len);
+}
+
 test "bare super in a block forwards enclosing method arguments and block" {
     const result = try evalCode(
         \\class A

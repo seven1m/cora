@@ -9447,9 +9447,15 @@ pub const VM = struct {
             const rest_val = localSlot(ep, lc, rest_idx).*;
             if (!rest_val.isArray()) return buf[0..0];
 
+            var out: usize = 0;
+            for (0..rest_idx) |slot| {
+                buf[out] = localSlot(ep, lc, @intCast(slot)).*;
+                out += 1;
+            }
             const elems = rest_val.toArrayObject().elements.items;
-            @memcpy(buf[0..elems.len], elems);
-            return buf[0..elems.len];
+            @memcpy(buf[out .. out + elems.len], elems);
+            out += elems.len;
+            return buf[0..out];
         }
 
         const param_count = ch.arity + ch.optional_params.items.len + ch.post_required_count;
