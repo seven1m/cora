@@ -103,7 +103,7 @@ pub fn builtinBasicObjectInstanceEval(vm: *VM, receiver: Value, args: []Value, b
         try vm.requireArgCount(args, 0);
         const proc_obj = (try vm.newProc(blk)).toProcObject();
         var block_args = [_]Value{receiver};
-        return vm.callProcObject(proc_obj, block_args[0..], null, receiver, receiver);
+        return vm.callProcObject(proc_obj, block_args[0..], null, receiver, receiver, null);
     }
 
     try vm.requireArgCountRange(args, 1, 3);
@@ -132,7 +132,7 @@ pub fn builtinBasicObjectInstanceExec(vm: *VM, receiver: Value, args: []Value, b
     };
 
     const proc_obj = (try vm.newProc(blk)).toProcObject();
-    return vm.callProcObject(proc_obj, args, null, receiver, receiver);
+    return vm.callProcObject(proc_obj, args, null, receiver, receiver, null);
 }
 
 pub fn builtinBasicObjectId(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {

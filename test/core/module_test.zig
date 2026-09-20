@@ -781,3 +781,14 @@ test "Module private accepts methods from included modules" {
     );
     try std.testing.expect(result.isTruthy());
 }
+
+test "Module class_eval block preserves its defining constant scope" {
+    const result = try evalCode(
+        \\module Outer
+        \\  VALUE = 42
+        \\  BLOCK = proc { VALUE }
+        \\end
+        \\Class.new.class_eval(&Outer::BLOCK)
+    );
+    try std.testing.expectEqual(@as(i64, 42), result.toInteger());
+}

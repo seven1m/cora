@@ -2082,16 +2082,14 @@ pub fn builtinModuleEval(vm: *VM, receiver: Value, args: []Value, block: ?Block)
     if (block) |blk| {
         try vm.requireArgCount(args, 0);
         const proc_obj = (try vm.newProc(blk)).toProcObject();
-        const chunk_blk = switch (proc_obj.block.kind) {
-            .chunk => |cb| cb,
-            else => unreachable,
+        const defining_scope = switch (proc_obj.block.kind) {
+            .chunk => |chunk_block| chunk_block.chunk.lexical_scope,
+            else => vm.current_lexical_scope,
         };
-        const lexical_scope = try vm.createLexicalScope(receiver, vm.current_lexical_scope);
-        const saved_scope = chunk_blk.chunk.lexical_scope;
-        chunk_blk.chunk.lexical_scope = lexical_scope;
-        defer chunk_blk.chunk.lexical_scope = saved_scope;
+        const execution_scope = try vm.createLexicalScope(receiver, defining_scope);
+        execution_scope.pushed_by_eval = true;
         var block_args = [_]Value{receiver};
-        return vm.callProcObject(proc_obj, block_args[0..], null, receiver, receiver);
+        return vm.callProcObject(proc_obj, block_args[0..], null, receiver, receiver, execution_scope);
     }
 
     try vm.requireArgCountRange(args, 1, 3);
@@ -2113,7 +2111,13 @@ pub fn builtinModuleEval(vm: *VM, receiver: Value, args: []Value, block: ?Block)
 pub fn builtinModuleExec(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
     const blk = try vm.requireBlock(block);
     const proc_obj = (try vm.newProc(blk)).toProcObject();
-    return vm.callProcObject(proc_obj, args, null, receiver, receiver);
+    const defining_scope = switch (proc_obj.block.kind) {
+        .chunk => |chunk_block| chunk_block.chunk.lexical_scope,
+        else => vm.current_lexical_scope,
+    };
+    const execution_scope = try vm.createLexicalScope(receiver, defining_scope);
+    execution_scope.pushed_by_eval = true;
+    return vm.callProcObject(proc_obj, args, null, receiver, receiver, execution_scope);
 }
 
 pub fn builtinModuleClassVariableGet(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {

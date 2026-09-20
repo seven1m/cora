@@ -2046,6 +2046,7 @@ pub const VM = struct {
         const scope = try self.createLexicalScope(scope_module_val, parent);
         scope.default_method_visibility = original.default_method_visibility;
         scope.module_function_mode = original.module_function_mode;
+        scope.pushed_by_eval = original.pushed_by_eval;
         return scope;
     }
 
@@ -2091,6 +2092,15 @@ pub const VM = struct {
         if (raw == 0) return null;
         if ((raw & FRAME_SCOPE_CONTEXT_TAG) != 0) return epFrameScopeContext(ep).?.lexical_scope;
         return @ptrFromInt(raw);
+    }
+
+    inline fn constantLexicalScope(initial: ?*LexicalScope) ?*LexicalScope {
+        var scope = initial;
+        while (scope) |current| {
+            if (!current.pushed_by_eval) return current;
+            scope = current.parent;
+        }
+        return null;
     }
 
     fn epFrameScopeContext(ep: [*]Value) ?*FrameScopeContext {
@@ -3755,6 +3765,7 @@ pub const VM = struct {
     pub const BlockFrameOptions = struct {
         block: ?Block = null,
         method_definition_target: ?Value = null,
+        execution_lexical_scope: ?*LexicalScope = null,
     };
 
     fn pushBlockFrame(
@@ -3782,7 +3793,7 @@ pub const VM = struct {
 
         const ep: [*]Value = self.stack.items[locals_base + locals_count ..].ptr;
         ep[0] = encodeEp(defining_ep);
-        const lexical_scope = ch.lexical_scope orelse self.current_lexical_scope;
+        const lexical_scope = opts.execution_lexical_scope orelse ch.lexical_scope orelse self.current_lexical_scope;
         ep[1] = try self.frameScopeValue(lexical_scope, null, opts.method_definition_target);
         ep[2] = Value.integer(locals_count);
         setEpEnvironmentRole(ep, environmentRoleForFrameType(frame_type));
@@ -3798,7 +3809,7 @@ pub const VM = struct {
             .frame_type = frame_type,
         }) catch return error.Fatal;
 
-        if (ch.lexical_scope) |scope| {
+        if (lexical_scope) |scope| {
             self.current_lexical_scope = scope;
         }
     }
@@ -5454,7 +5465,7 @@ pub const VM = struct {
                 var lexical_lookup = LexicalConstantLookupResult{};
 
                 // Walk lexical scope chain first
-                if (epLexScope(frame.ep)) |scope| {
+                if (constantLexicalScope(epLexScope(frame.ep))) |scope| {
                     lexical_lookup = try self.findConstantInLexicalScope(scope, name_sym);
                     if (lexical_lookup.value) |val| {
                         try self.push(val);
@@ -5486,7 +5497,7 @@ pub const VM = struct {
                 const name_sym = try self.intern(constant.string);
                 var lexical_lookup = LexicalConstantLookupResult{};
 
-                if (epLexScope(frame.ep)) |scope| {
+                if (constantLexicalScope(epLexScope(frame.ep))) |scope| {
                     lexical_lookup = try self.findConstantInLexicalScope(scope, name_sym);
                     if (lexical_lookup.value) |val| {
                         try self.push(val);
@@ -5558,7 +5569,7 @@ pub const VM = struct {
                 const name_sym = try self.intern(constant.string);
 
                 // Set in current lexical scope's module (or Object if no scope)
-                if (epLexScope(frame.ep)) |scope| {
+                if (constantLexicalScope(epLexScope(frame.ep))) |scope| {
                     const module = scope.getModule();
                     try self.setConstant(module, name_sym, val);
                 } else {
@@ -6321,7 +6332,7 @@ pub const VM = struct {
 
                 const constant = constants[name_idx];
                 if (constant == .string) {
-                    const target = try self.resolveDefinitionTargetForOwner(epLexScope(frame.ep), definition_owner, constant.string);
+                    const target = try self.resolveDefinitionTargetForOwner(constantLexicalScope(epLexScope(frame.ep)), definition_owner, constant.string);
 
                     const module_val = blk: {
                         if (target.existing_value) |em| {
@@ -6371,7 +6382,7 @@ pub const VM = struct {
 
                 const constant = constants[name_idx];
                 if (constant == .string) {
-                    const target = try self.resolveDefinitionTargetForOwner(epLexScope(frame.ep), definition_owner, constant.string);
+                    const target = try self.resolveDefinitionTargetForOwner(constantLexicalScope(epLexScope(frame.ep)), definition_owner, constant.string);
 
                     var class_val: Value = undefined;
                     if (target.existing_value) |ec| {
@@ -8870,6 +8881,7 @@ pub const VM = struct {
         block: ?Block,
         self_override: ?Value,
         method_definition_target: ?Value,
+        execution_lexical_scope: ?*LexicalScope,
     ) VMError!Value {
         return switch (proc_obj.block.kind) {
             .receiver_builtin => |builtin_data| builtin_data.func(self, builtin_data.receiver, @constCast(args)),
@@ -8903,6 +8915,7 @@ pub const VM = struct {
                 try self.pushBlockFrame(chunk_blk.chunk, chunk_blk.defining_ep, self_override orelse chunk_blk.defining_self, ft, .{
                     .block = procCallBlock(block, chunk_blk.enclosing_block_proc),
                     .method_definition_target = method_definition_target,
+                    .execution_lexical_scope = execution_lexical_scope,
                 });
 
                 const current_frame = self.currentFrame();

@@ -123,7 +123,7 @@ fn builtinEnumeratorEach(vm: *VM, receiver: Value, args: []Value, block: ?Block)
             // Generator-based: create Yielder wrapping the user's block, call proc(yielder)
             const yielder_val = try vm.newYielder(blk);
             var proc_args = [_]Value{yielder_val};
-            return vm.callProcObject(g.proc, &proc_args, null, null, null);
+            return vm.callProcObject(g.proc, &proc_args, null, null, null, null);
         },
     }
 }
@@ -261,7 +261,7 @@ fn builtinEnumeratorSize(vm: *VM, receiver: Value, args: []Value, _: ?Block) VME
 
     if (enum_obj.size) |size| {
         if (size.isProc()) {
-            return vm.callProcObject(size.toProcObject(), &[_]Value{}, null, null, null);
+            return vm.callProcObject(size.toProcObject(), &[_]Value{}, null, null, null, null);
         }
         return size;
     }
@@ -379,7 +379,7 @@ fn enumeratorFiberBody(vm: *VM, args: []Value) VMError!Value {
             // Create a yielder that fiber-yields
             const yielder_val = try vm.newYielder(yield_block);
             var proc_args = [_]Value{yielder_val};
-            return vm.callProcObject(g.proc, &proc_args, null, null, null);
+            return vm.callProcObject(g.proc, &proc_args, null, null, null, null);
         },
     }
 }

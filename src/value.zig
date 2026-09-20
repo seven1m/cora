@@ -138,6 +138,7 @@ pub const LexicalScope = struct {
     parent: ?*LexicalScope,
     default_method_visibility: MethodVisibility = .public,
     module_function_mode: bool = false,
+    pushed_by_eval: bool = false,
 
     pub fn getModule(self: *LexicalScope) *ModuleObject {
         switch (self.scope_module) {
