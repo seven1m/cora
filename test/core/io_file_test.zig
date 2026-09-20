@@ -574,6 +574,27 @@ test "File.lstat and File.symlink? do not follow symlinks" {
     try std.testing.expectEqual(true, result.toArrayObject().elements.items[3].toBool());
 }
 
+test "File.stat raises Errno::ELOOP for a symlink loop" {
+    var path_buf: [128]u8 = undefined;
+    const path = try uniquePath(&path_buf);
+    const source = try std.fmt.allocPrint(
+        std.testing.allocator,
+        \\path = "{s}"
+        \\File.symlink(path, path)
+        \\begin
+        \\  File.stat(path)
+        \\rescue => error
+        \\  error.class.name
+        \\ensure
+        \\  File.delete(path)
+        \\end
+    , .{path});
+    defer std.testing.allocator.free(source);
+
+    const result = try evalCode(source);
+    try std.testing.expectEqualSlices(u8, "Errno::ELOOP", result.toStringObject().str);
+}
+
 test "Kernel puts and p follow $stdout reassignment" {
     var path_buf: [128]u8 = undefined;
     const path = try uniquePath(&path_buf);

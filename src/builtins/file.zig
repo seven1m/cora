@@ -1672,6 +1672,7 @@ fn raiseEncodedPathErrno(vm: *VM, errno_code: std.posix.E, path_obj: *value.Stri
 fn raisePathStatError(vm: *VM, path_obj: *value.StringObject, err: anyerror) VMError {
     return switch (err) {
         error.FileNotFound => raiseEncodedPathErrno(vm, .NOENT, path_obj),
+        error.SymLinkLoop => vm.raiseErrnoFmt(.LOOP, "Too many levels of symbolic links @ stat - {s}", .{path_obj.str}),
         error.AccessDenied, error.PermissionDenied => vm.raiseErrnoFmt(.ACCES, "Permission denied @ stat - {s}", .{path_obj.str}),
         else => vm.raiseExceptionFmt(vm.system_call_error_class, "stat failed for {s}", .{path_obj.str}),
     };
