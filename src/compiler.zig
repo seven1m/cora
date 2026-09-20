@@ -1110,6 +1110,7 @@ pub const Compiler = struct {
                                 try self.current_chunk.emitCall(@intCast(bracket_idx), 1, bytecode.encodeCallFlags(.explicit, false), 0, line);
 
                                 try self.emitSetLocalSlot(slot, line);
+                                try self.current_chunk.emitOp(.POP, line);
                             }
                         }
                     }
@@ -1129,6 +1130,7 @@ pub const Compiler = struct {
 
                                 try self.current_chunk.emitOp(.PUSH_NIL, line);
                                 try self.emitSetLocalSlot(slot, line);
+                                try self.current_chunk.emitOp(.POP, line);
                             }
                         }
                     }

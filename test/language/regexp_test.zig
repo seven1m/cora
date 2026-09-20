@@ -102,6 +102,26 @@ test "Regexp =~ returns match index" {
     try std.testing.expectEqual(@as(i64, 1), result.toInteger());
 }
 
+test "Regexp =~ with a named capture returns match index" {
+    const result = try evalCode(
+        \\result = /(?<word>bar)/ =~ "bar"
+        \\[result, word]
+    );
+    const values = result.toArrayObject().elements.items;
+    try std.testing.expectEqual(@as(i64, 0), values[0].toInteger());
+    try std.testing.expectEqualStrings("bar", values[1].toStringObject().str);
+}
+
+test "Regexp =~ assigns multiple named capture locals" {
+    const result = try evalCode(
+        \\/(?<matched>foo)(?<unmatched>bar)?/ =~ "foofoo"
+        \\[matched, unmatched]
+    );
+    const values = result.toArrayObject().elements.items;
+    try std.testing.expectEqualStrings("foo", values[0].toStringObject().str);
+    try std.testing.expect(values[1].isNil());
+}
+
 test "Regexp =~ coerces Symbol argument" {
     const result = try evalCode("/a/ =~ :cat");
     try std.testing.expect(result.isInteger());
