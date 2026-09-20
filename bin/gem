@@ -13,7 +13,7 @@ exec "${cora}" -x "$0" "$@"
 # frozen_string_literal: true
 
 bindir = File.dirname(File.expand_path(__FILE__))
-rubygems_lib = File.join(bindir, "..", "ext", "rubygems", "lib")
+rubygems_lib = File.join(bindir, "..", "build", "ext", "rubygems", "lib")
 $LOAD_PATH.unshift(rubygems_lib) if rubygems_lib
 
 require "thread"

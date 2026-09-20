@@ -100,6 +100,37 @@ test "require rubygems/gem_runner avoids circular require warning" {
     try std.testing.expect(std.mem.indexOf(u8, result.stderr, "circular require considered harmful") == null);
 }
 
+test "RubyGems prefers source gems for Cora" {
+    var gpa: std.heap.DebugAllocator(.{}) = .init;
+    defer _ = gpa.deinit();
+    const allocator = gpa.allocator();
+    var threaded: std.Io.Threaded = .init(allocator, .{});
+    defer threaded.deinit();
+
+    const code =
+        \\require "rubygems"
+        \\require "bundler"
+        \\dependency = Gem::Dependency.new("sqlite3")
+        \\p [
+        \\  Gem::Platform.match_gem?(Gem::Platform::RUBY, "sqlite3"),
+        \\  Gem::Platform.match_gem?(Gem::Platform.local, "sqlite3"),
+        \\  dependency.default_force_ruby_platform,
+        \\]
+    ;
+
+    const result = try std.process.run(allocator, threaded.io(), .{
+        .argv = &.{ "build/bin/cora", "-e", code },
+        .stdout_limit = .limited(1024 * 1024),
+        .stderr_limit = .limited(1024 * 1024),
+    });
+    defer allocator.free(result.stdout);
+    defer allocator.free(result.stderr);
+
+    try std.testing.expect(result.term == .exited and result.term.exited == 0);
+    try std.testing.expectEqualSlices(u8, "[true, false, true]\n", result.stdout);
+    try std.testing.expectEqualSlices(u8, "", result.stderr);
+}
+
 test "__send__ preserves call state across Bundler plugin autoload" {
     var gpa: std.heap.DebugAllocator(.{}) = .init;
     defer _ = gpa.deinit();

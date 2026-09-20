@@ -4,6 +4,7 @@ const optimize_state_path = "build/build-mode";
 const runtime_prefix = "build";
 const ruby_gem_api_version = "4.0.0";
 const onigmo_build_root = "build/onigmo";
+const rubygems_build_root = "build/rubygems";
 const psych_build_root = "build/psych";
 const strscan_build_root = "build/strscan";
 const json_build_root = "build/json";
@@ -634,12 +635,21 @@ pub fn build(b: *std.Build) void {
     const install_exe = b.addInstallArtifact(exe, .{});
     b.getInstallStep().dependOn(&install_exe.step);
 
+    const prepare_rubygems = b.addSystemCommand(&.{
+        "sh",
+        "-c",
+        "rm -rf build/rubygems && mkdir -p build/rubygems && cp -r ext/rubygems/. build/rubygems/ && cd build/rubygems && patch -p1 < ../../ext/rubygems.patch",
+    });
+
     for (runtime_ext_dirs) |dir_name| {
         const install_ext_dir = b.addInstallDirectory(.{
-            .source_dir = b.path(b.fmt("ext/{s}", .{dir_name})),
+            .source_dir = b.path(if (std.mem.eql(u8, dir_name, "rubygems")) rubygems_build_root else b.fmt("ext/{s}", .{dir_name})),
             .install_dir = .prefix,
             .install_subdir = b.fmt("ext/{s}", .{dir_name}),
         });
+        if (std.mem.eql(u8, dir_name, "rubygems")) {
+            install_ext_dir.step.dependOn(&prepare_rubygems.step);
+        }
         b.getInstallStep().dependOn(&install_ext_dir.step);
     }
 

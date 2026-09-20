@@ -1,0 +1,52 @@
+diff --git a/bundler/lib/bundler/force_platform.rb b/bundler/lib/bundler/force_platform.rb
+index 7af33218cb..22b9c1b25b 100644
+--- a/bundler/lib/bundler/force_platform.rb
++++ b/bundler/lib/bundler/force_platform.rb
+@@ -8,9 +8,15 @@ module ForcePlatform
+     # variant unless the name is explicitly allowlisted.
+ 
+     def default_force_ruby_platform
+-      return false unless RUBY_ENGINE == "truffleruby"
++      return false unless RUBY_ENGINE == "truffleruby" || RUBY_ENGINE == "cora"
+ 
+-      !Gem::Platform::REUSE_AS_BINARY_ON_TRUFFLERUBY.include?(name)
++      reusable_binaries = if RUBY_ENGINE == "truffleruby"
++        Gem::Platform::REUSE_AS_BINARY_ON_TRUFFLERUBY
++      else
++        Gem::Platform::REUSE_AS_BINARY_ON_CORA
++      end
++
++      !reusable_binaries.include?(name)
+     end
+   end
+ end
+diff --git a/lib/rubygems/platform.rb b/lib/rubygems/platform.rb
+index 367b00e7e1..cae7e69add 100644
+--- a/lib/rubygems/platform.rb
++++ b/lib/rubygems/platform.rb
+@@ -33,14 +33,22 @@ def self.match_spec?(spec)
+     match_gem?(spec.platform, spec.name)
+   end
+ 
+-  if RUBY_ENGINE == "truffleruby"
++  REUSE_AS_BINARY_ON_CORA = [].freeze if RUBY_ENGINE == "cora"
++
++  if RUBY_ENGINE == "truffleruby" || RUBY_ENGINE == "cora"
+     def self.match_gem?(platform, gem_name)
+       raise "Not a string: #{gem_name.inspect}" unless String === gem_name
+ 
+-      if REUSE_AS_BINARY_ON_TRUFFLERUBY.include?(gem_name)
++      reusable_binaries = if RUBY_ENGINE == "truffleruby"
++        REUSE_AS_BINARY_ON_TRUFFLERUBY
++      else
++        REUSE_AS_BINARY_ON_CORA
++      end
++
++      if reusable_binaries.include?(gem_name)
+         match_platforms?(platform, [Gem::Platform::RUBY, Gem::Platform.local])
+       else
+-        match_platforms?(platform, Gem.platforms)
++        match_platforms?(platform, [Gem::Platform::RUBY])
+       end
+     end
+   else
