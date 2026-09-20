@@ -56,7 +56,7 @@ describe "IO#read_nonblock" do
   end
 
   it "reads after ungetc with data in the buffer" do
-    CORAFIXME "IO#set_encoding is not implemented yet", exception: NoMethodError, message: /undefined method 'set_encoding'/ do
+    CORAFIXME "IO#getc is not implemented yet", exception: NoMethodError, message: /undefined method 'getc'/ do
       @write.write("foobar")
       @read.set_encoding(
         'utf-8', universal_newline: false
@@ -69,7 +69,7 @@ describe "IO#read_nonblock" do
   end
 
   it "raises an exception after ungetc with data in the buffer and character conversion enabled" do
-    CORAFIXME "IO#set_encoding is not implemented yet", exception: NoMethodError, message: /undefined method 'set_encoding'/ do
+    CORAFIXME "IO#getc is not implemented yet", exception: NoMethodError, message: /undefined method 'getc'/ do
       @write.write("foobar")
       @read.set_encoding(
         'utf-8', universal_newline: true

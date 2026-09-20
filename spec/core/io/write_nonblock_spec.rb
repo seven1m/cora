@@ -32,15 +32,13 @@ platform_is_not :windows do
     end
 
     it "does not modify the passed argument" do
-      CORAFIXME "IO#set_encoding is not implemented yet", exception: NoMethodError, message: /undefined method 'set_encoding'/ do
-        File.open(@filename, "w") do |f|
-          f.set_encoding(Encoding::IBM437)
-          # A character whose codepoint differs between UTF-8 and IBM437
-          f.write_nonblock("ƒ".freeze)
-        end
-
-        File.binread(@filename).bytes.should == [198, 146]
+      File.open(@filename, "w") do |f|
+        f.set_encoding(Encoding::IBM437)
+        # A character whose codepoint differs between UTF-8 and IBM437
+        f.write_nonblock("ƒ".freeze)
       end
+
+      File.binread(@filename).bytes.should == [198, 146]
     end
 
     it "checks if the file is writable if writing zero bytes" do
