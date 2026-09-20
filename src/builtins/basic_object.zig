@@ -59,7 +59,7 @@ pub fn register(vm: *VM) !void {
     try vm.basic_object_class.module.methods.put(initialize_sym, MethodEntry.builtinWithVisibility(&builtinBasicObjectInitialize, .{ .exact = 0 }, .private));
 
     const send_sym = try vm.intern("__send__");
-    try vm.basic_object_class.module.methods.put(send_sym, MethodEntry.builtin(&builtinBasicObjectSend, .{ .variadic = 0 }));
+    try vm.basic_object_class.module.methods.put(send_sym, MethodEntry.keywordBuiltin(&builtinBasicObjectSend, .{ .variadic = 0 }));
 
     const instance_eval_sym = try vm.intern("instance_eval");
     try vm.basic_object_class.module.methods.put(instance_eval_sym, MethodEntry.builtin(&builtinBasicObjectInstanceEval, .{ .variadic = 0 }));

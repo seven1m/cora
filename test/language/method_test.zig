@@ -65,6 +65,69 @@ test "method_missing receives method name and args" {
     try std.testing.expectEqual(@as(i64, 7), result.toArrayObject().elements.items[2].toInteger());
 }
 
+test "method_missing preserves ruby2_keywords through send" {
+    const result = try evalCode(
+        \\class KeywordSendTarget
+        \\  def add_index(table, column, unique: false)
+        \\    [table, column, unique]
+        \\  end
+        \\end
+        \\class KeywordSendInnerProxy
+        \\  def initialize
+        \\    @target = KeywordSendTarget.new
+        \\  end
+        \\  def method_missing(method, ...)
+        \\    @target.send(method, ...)
+        \\  end
+        \\end
+        \\class KeywordSendOuterProxy
+        \\  def initialize
+        \\    @target = KeywordSendInnerProxy.new
+        \\  end
+        \\  def method_missing(method, *arguments, &block)
+        \\    @target.send(method, *arguments, &block)
+        \\  end
+        \\  ruby2_keywords(:method_missing)
+        \\end
+        \\KeywordSendOuterProxy.new.add_index(:users, :email, unique: true)
+    );
+    const values = result.toArrayObject().elements.items;
+    try std.testing.expectEqualStrings("users", values[0].toSymbolObject().name);
+    try std.testing.expectEqualStrings("email", values[1].toSymbolObject().name);
+    try std.testing.expect(values[2].isTrue());
+}
+
+test "public_send and __send__ preserve ruby2_keywords" {
+    const result = try evalCode(
+        \\class KeywordSendReceiver
+        \\  def collect(value:, &block)
+        \\    [value, block.call]
+        \\  end
+        \\end
+        \\class KeywordSendForwarder
+        \\  def initialize(dispatch)
+        \\    @dispatch = dispatch
+        \\  end
+        \\  def forward(receiver, method, *arguments, &block)
+        \\    receiver.__send__(@dispatch, method, *arguments, &block)
+        \\  end
+        \\  ruby2_keywords(:forward)
+        \\end
+        \\receiver = KeywordSendReceiver.new
+        \\[
+        \\  KeywordSendForwarder.new(:public_send).forward(receiver, :collect, value: 1) { 2 },
+        \\  KeywordSendForwarder.new(:__send__).forward(receiver, :collect, value: 3) { 4 }
+        \\]
+    );
+    const outer = result.toArrayObject().elements.items;
+    const public_values = outer[0].toArrayObject().elements.items;
+    const private_values = outer[1].toArrayObject().elements.items;
+    try std.testing.expectEqual(@as(i64, 1), public_values[0].toInteger());
+    try std.testing.expectEqual(@as(i64, 2), public_values[1].toInteger());
+    try std.testing.expectEqual(@as(i64, 3), private_values[0].toInteger());
+    try std.testing.expectEqual(@as(i64, 4), private_values[1].toInteger());
+}
+
 test "method_missing handles private and protected call failures" {
     const result = try evalCode(
         \\class MethodMissingVisibilitySpec

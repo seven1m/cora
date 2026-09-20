@@ -393,10 +393,10 @@ pub fn register(vm: *VM) !void {
     try vm.kernel_module.methods.put(yield_self_sym, MethodEntry.builtin(&builtinKernelThen, .{ .exact = 0 }));
 
     const send_sym = try vm.intern("send");
-    try vm.kernel_module.methods.put(send_sym, MethodEntry.builtin(&builtinKernelSend, .{ .variadic = 0 }));
+    try vm.kernel_module.methods.put(send_sym, MethodEntry.keywordBuiltin(&builtinKernelSend, .{ .variadic = 0 }));
 
     const public_send_sym = try vm.intern("public_send");
-    try vm.kernel_module.methods.put(public_send_sym, MethodEntry.builtin(&builtinKernelPublicSend, .{ .variadic = 0 }));
+    try vm.kernel_module.methods.put(public_send_sym, MethodEntry.keywordBuiltin(&builtinKernelPublicSend, .{ .variadic = 0 }));
 
     const method_magic_sym = try vm.intern("__method__");
     try vm.kernel_module.methods.put(method_magic_sym, MethodEntry.builtinWithVisibility(&builtinKernelMagicMethod, .{ .exact = 0 }, .private));
