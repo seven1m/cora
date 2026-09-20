@@ -3867,10 +3867,10 @@ pub const Compiler = struct {
     };
 
     fn processNumberedParameters(self: *Compiler, params: *prism.NumberedParametersNode) !u8 {
+        const names = [_][]const u8{ "_1", "_2", "_3", "_4", "_5", "_6", "_7", "_8", "_9" };
         var number: u8 = 1;
         while (number <= params.maximum) : (number += 1) {
-            const name = try std.fmt.allocPrint(self.allocator, "_{d}", .{number});
-            try self.addLocal(name);
+            try self.addLocal(names[number - 1]);
         }
         return params.maximum;
     }
