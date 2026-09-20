@@ -290,6 +290,14 @@ export fn rb_str_new2(ptr: [*c]const u8) VALUE {
     return val.raw;
 }
 
+export fn rb_str_new_cstr(ptr: [*c]const u8) VALUE {
+    return rb_str_new2(ptr);
+}
+
+export fn rb_str_new_static(ptr: [*c]const u8, len: c_long) VALUE {
+    return rb_str_new(ptr, len);
+}
+
 export fn rb_usascii_str_new_cstr(ptr: [*c]const u8) VALUE {
     const vm = getVM();
     const s = if (ptr != null) std.mem.span(ptr) else "";

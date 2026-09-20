@@ -351,9 +351,9 @@ void   rb_str_modify(VALUE str);
 
 VALUE  rb_str_new(const char *ptr, long len);
 VALUE  rb_str_new_cstr(const char *ptr);
+VALUE  rb_str_new_static(const char *ptr, long len);
 VALUE  rb_usascii_str_new(const char *ptr, long len);
 VALUE  rb_str_new2(const char *ptr);
-#define rb_str_new_cstr rb_str_new2
 VALUE  rb_usascii_str_new_cstr(const char *ptr);
 #define rb_usascii_str_new2 rb_usascii_str_new_cstr
 VALUE  rb_enc_str_new(const char *ptr, long len, rb_encoding *enc);

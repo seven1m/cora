@@ -282,6 +282,16 @@ test "C extension rb_intern2 honors the explicit length" {
     try std.testing.expectEqualStrings("abc", result.toSymbolObject().name);
 }
 
+test "C extension rb_str_new_static honors the explicit length" {
+    const result = try evalCode(
+        \\$LOAD_PATH << "build/cext"
+        \\require "fixture.so"
+        \\CoraCExt.static_string
+    );
+    try std.testing.expect(result.isString());
+    try std.testing.expectEqualStrings("abc", result.toStringObject().str);
+}
+
 test "C extension NUM2LONG rejects out-of-range integers" {
     const result = try evalCode(
         \\$LOAD_PATH << "build/cext"
