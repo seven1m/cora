@@ -3892,7 +3892,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] library/stringio/pid_spec.rb
 - [x] library/stringio/pos_spec.rb
 - [ ] library/stringio/print_spec.rb
-- [ ] library/stringio/printf_spec.rb
+- [x] library/stringio/printf_spec.rb
 - [ ] library/stringio/putc_spec.rb
 - [ ] library/stringio/puts_spec.rb
 - [ ] library/stringio/read_nonblock_spec.rb

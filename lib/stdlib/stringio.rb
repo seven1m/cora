@@ -439,6 +439,11 @@ class StringIO
     nil
   end
 
+  def printf(*args)
+    write(sprintf(*args))
+    nil
+  end
+
   def puts(*args)
     if @closed_write
       raise IOError, "not opened for writing"
