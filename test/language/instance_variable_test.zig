@@ -49,6 +49,16 @@ test "defined? distinguishes nil instance variable from missing instance variabl
     try std.testing.expect(values[1].isNil());
 }
 
+test "defined? recognizes a top-level autoload without loading it" {
+    const result = try evalCode(
+        \\Object.autoload(:CoraDefinedAutoload, "cora_defined_autoload_missing")
+        \\[defined?(::CoraDefinedAutoload), Object.autoload?(:CoraDefinedAutoload)]
+    );
+    const values = result.toArrayObject().elements.items;
+    try std.testing.expectEqualStrings("constant", values[0].toStringObject().str);
+    try std.testing.expectEqualStrings("cora_defined_autoload_missing", values[1].toStringObject().str);
+}
+
 test "instance_variable_set returns the value" {
     const result = try evalCode(
         \\class Foo

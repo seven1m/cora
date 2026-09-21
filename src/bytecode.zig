@@ -26,6 +26,7 @@ pub const OpCode = enum(u8) {
     GET_CONST_OR_NIL, // Operand: u16 (constant name index)
     GET_TOPLEVEL_CONST, // Operand: u16 (constant name index) - :: prefix, skips lexical scope
     GET_TOPLEVEL_CONST_OR_NIL, // Operand: u16 (constant name index) - :: prefix, returns nil on miss
+    TOPLEVEL_CONST_DEFINED, // Operand: u16 (constant name index) - checks without triggering autoload
     SET_CONST, // Operand: u16 (constant name index)
     SET_CONST_PATH, // Operand: u16 (constant name index), receiver and value on stack
     GET_IVAR, // Operand: u16 (constant pool index of variable name)
@@ -236,6 +237,7 @@ pub fn opcodeOperandSize(op: OpCode) usize {
         .GET_CONST_OR_NIL,
         .GET_TOPLEVEL_CONST,
         .GET_TOPLEVEL_CONST_OR_NIL,
+        .TOPLEVEL_CONST_DEFINED,
         .SET_CONST,
         .SET_CONST_PATH,
         .GET_IVAR,
@@ -414,6 +416,7 @@ pub fn opcodeName(op: OpCode) []const u8 {
         .GET_CONST_OR_NIL => "GET_CONST_OR_NIL",
         .GET_TOPLEVEL_CONST => "GET_TOPLEVEL_CONST",
         .GET_TOPLEVEL_CONST_OR_NIL => "GET_TOPLEVEL_CONST_OR_NIL",
+        .TOPLEVEL_CONST_DEFINED => "TOPLEVEL_CONST_DEFINED",
         .SET_CONST => "SET_CONST",
         .SET_CONST_PATH => "SET_CONST_PATH",
         .GET_IVAR => "GET_IVAR",

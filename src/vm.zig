@@ -5623,6 +5623,13 @@ pub const VM = struct {
                 }
             },
 
+            .TOPLEVEL_CONST_DEFINED => {
+                const idx = readU16From(frame, operands, &operand_cursor);
+                const name_sym = try self.intern(constants[idx].string);
+                const module_obj = &self.object_class.module;
+                try self.push(Value.boolean(module_obj.constants.contains(name_sym) or module_obj.autoloads.contains(name_sym)));
+            },
+
             .GET_TOPLEVEL_CONST => {
                 const idx = readU16From(frame, operands, &operand_cursor);
                 const constant = constants[idx];
