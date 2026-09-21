@@ -164,7 +164,7 @@ fn randomNumberFromReceiverBytes(vm: *VM, receiver: Value, args: []Value) VMErro
 
 pub fn builtinRandomInitialize(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCountRange(args, 0, 1);
-    const seed = if (args.len == 0) Value.integer(@intCast(nextSeed(vm))) else blk: {
+    const seed = if (args.len == 0) Value.integer(@intCast(nextSeed(vm) & (@as(u64, std.math.maxInt(i64)) >> 1))) else blk: {
         if (!args[0].isInteger()) {
             return vm.raiseExceptionFmt(vm.type_error_class, "no implicit conversion into Integer", .{});
         }
