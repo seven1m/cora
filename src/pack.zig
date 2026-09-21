@@ -1034,6 +1034,8 @@ fn unpackOneBerInteger(vm: *VM, bytes: []const u8, index: *usize) VMError!?Value
 }
 
 fn decodeBase64(vm: *VM, bytes: []const u8, strict: bool) VMError![]u8 {
+    if (!strict) return decodeBase64Permissive(vm, bytes);
+
     var filtered: std.ArrayList(u8) = .empty;
     defer filtered.deinit(vm.allocator);
 
@@ -1042,46 +1044,52 @@ fn decodeBase64(vm: *VM, bytes: []const u8, strict: bool) VMError![]u8 {
             filtered.append(vm.allocator, b) catch return error.Fatal;
             continue;
         }
-        if (std.ascii.isWhitespace(b)) continue;
-        if (strict) {
-            return vm.raiseExceptionFmt(vm.argument_error_class, "invalid base64", .{});
-        }
+        return vm.raiseExceptionFmt(vm.argument_error_class, "invalid base64", .{});
     }
 
     if (filtered.items.len == 0) {
         return vm.allocator.alloc(u8, 0) catch return error.Fatal;
     }
 
-    if (!strict) {
-        const rem = filtered.items.len % 4;
-        if (rem == 1) {
-            filtered.items.len -= 1;
-        } else if (rem > 1) {
-            var pad: usize = 0;
-            while (pad < 4 - rem) : (pad += 1) {
-                filtered.append(vm.allocator, '=') catch return error.Fatal;
-            }
-        }
-    } else if (filtered.items.len % 4 != 0) {
+    if (filtered.items.len % 4 != 0) {
         return vm.raiseExceptionFmt(vm.argument_error_class, "invalid base64", .{});
     }
 
     const decoder = std.base64.standard.Decoder;
     const decoded_len = decoder.calcSizeForSlice(filtered.items) catch {
-        if (!strict) {
-            return vm.allocator.alloc(u8, 0) catch return error.Fatal;
-        }
         return vm.raiseExceptionFmt(vm.argument_error_class, "invalid base64", .{});
     };
     const out = vm.allocator.alloc(u8, decoded_len) catch return error.Fatal;
     _ = decoder.decode(out, filtered.items) catch {
         vm.allocator.free(out);
-        if (!strict) {
-            return vm.allocator.alloc(u8, 0) catch return error.Fatal;
-        }
         return vm.raiseExceptionFmt(vm.argument_error_class, "invalid base64", .{});
     };
     return out;
+}
+
+fn decodeBase64Permissive(vm: *VM, bytes: []const u8) VMError![]u8 {
+    var decoded: std.ArrayList(u8) = .empty;
+    errdefer decoded.deinit(vm.allocator);
+
+    var bits: u32 = 0;
+    var bit_count: u5 = 0;
+    for (bytes) |b| {
+        if (b == '=') break;
+        const sextet = base64SixBit(b) orelse continue;
+        bits = (bits << 6) | sextet;
+        bit_count += 6;
+        if (bit_count >= 8) {
+            bit_count -= 8;
+            decoded.append(vm.allocator, @intCast((bits >> bit_count) & 0xff)) catch return error.Fatal;
+            bits &= if (bit_count == 0) 0 else (@as(u32, 1) << bit_count) - 1;
+        }
+    }
+
+    return decoded.toOwnedSlice(vm.allocator) catch return error.Fatal;
+}
+
+fn base64SixBit(b: u8) ?u6 {
+    return if (b >= 'A' and b <= 'Z') @intCast(b - 'A') else if (b >= 'a' and b <= 'z') @intCast(b - 'a' + 26) else if (b >= '0' and b <= '9') @intCast(b - '0' + 52) else if (b == '+') 62 else if (b == '/') 63 else null;
 }
 
 fn isBase64Byte(b: u8) bool {

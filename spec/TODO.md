@@ -2494,12 +2494,12 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] library/abbrev/abbrev_spec.rb
 
 ### library/base64
-- [ ] library/base64/decode64_spec.rb
-- [ ] library/base64/encode64_spec.rb
-- [ ] library/base64/strict_decode64_spec.rb
-- [ ] library/base64/strict_encode64_spec.rb
-- [ ] library/base64/urlsafe_decode64_spec.rb
-- [ ] library/base64/urlsafe_encode64_spec.rb
+- [x] library/base64/decode64_spec.rb
+- [x] library/base64/encode64_spec.rb
+- [x] library/base64/strict_decode64_spec.rb
+- [x] library/base64/strict_encode64_spec.rb
+- [x] library/base64/urlsafe_decode64_spec.rb
+- [x] library/base64/urlsafe_encode64_spec.rb
 
 ### library/bigdecimal
 - [ ] library/bigdecimal/BigDecimal_spec.rb
