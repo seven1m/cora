@@ -809,3 +809,19 @@ test "IO write yields while a nonblocking pipe is full" {
     );
     try std.testing.expectEqual(@as(i64, 1024 * 1024), result.toInteger());
 }
+
+test "IO.read honors explicit external encodings" {
+    const result = try evalCode(
+        \\path = "/tmp/cora_io_read_encoding"
+        \\begin
+        \\  File.write(path, "hello")
+        \\  [IO.read(path, encoding: "UTF-8").encoding.name,
+        \\   File.read(path, external_encoding: Encoding::ISO_8859_1).encoding.name]
+        \\ensure
+        \\  File.delete(path) if File.exist?(path)
+        \\end
+    );
+    const values = result.toArrayObject().elements.items;
+    try std.testing.expectEqualStrings("UTF-8", values[0].toStringObject().str);
+    try std.testing.expectEqualStrings("ISO-8859-1", values[1].toStringObject().str);
+}

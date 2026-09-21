@@ -1728,10 +1728,28 @@ pub fn builtinFileOpen(vm: *VM, _: Value, args: []Value, block: ?Block) VMError!
 }
 
 pub fn builtinFileRead(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+    var encoding_kw: ?Value = null;
+    var external_encoding_kw: ?Value = null;
+    var internal_encoding_kw: ?Value = null;
+    try vm.consumeKeywordArgs(
+        .{ "encoding", "external_encoding", "internal_encoding" },
+        .{ &encoding_kw, &external_encoding_kw, &internal_encoding_kw },
+    );
+    try vm.validateKeywordArgsConsumed();
     try vm.requireArgCountRange(args, 1, 3);
     const path = try vm.coerceToPathValue(args[0], "no implicit conversion into String");
     const file_val = try openFileWithMode(vm, path, .{ .read = true, .write = false, .append = false, .create = false, .truncate = false }, 0o666);
     defer _ = vm.callMethodByName(file_val, "close", &[_]Value{}, null) catch {};
+
+    var config = FileOpenConfig{
+        .path = path,
+        .mode = .{ .read = true, .write = false, .append = false, .create = false, .truncate = false },
+        .create_mode = 0o666,
+    };
+    if (encoding_kw) |encoding_arg| try applyCombinedEncodingArg(vm, &config, encoding_arg);
+    if (external_encoding_kw) |encoding_arg| config.external_encoding = try resolveEncodingValue(vm, encoding_arg);
+    if (internal_encoding_kw) |encoding_arg| config.internal_encoding = try resolveEncodingValue(vm, encoding_arg);
+    try applyIoEncodingConfig(vm, file_val, config);
 
     if (args.len >= 3) {
         const offset_val = args[2];

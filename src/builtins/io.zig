@@ -2212,6 +2212,31 @@ fn ioOutBufferValue(vm: *VM, maybe_outbuf: ?Value, bytes: []const u8) VMError!Va
     return vm.newStringWithEncoding(bytes, false, enc.Encoding{ .ascii_8bit = .{} });
 }
 
+fn ioReadBufferValue(vm: *VM, receiver: Value, maybe_outbuf: ?Value, bytes: []const u8) VMError!Value {
+    const external_value = try vm.getInstanceVariable(receiver, "@external_encoding");
+    const external_encoding = if (external_value.isEncoding())
+        external_value.toEncodingObject().encoding
+    else
+        enc.Encoding{ .ascii_8bit = .{} };
+
+    var result = try vm.newStringWithEncoding(bytes, false, external_encoding);
+    const internal_value = try vm.getInstanceVariable(receiver, "@internal_encoding");
+    if (internal_value.isEncoding() and !internal_value.toEncodingObject().encoding.eql(external_encoding)) {
+        var encode_args = [_]Value{internal_value};
+        result = try vm.callMethodByName(result, "encode", &encode_args, null);
+    }
+
+    if (maybe_outbuf) |outbuf| {
+        const result_obj = result.toStringObject();
+        const outbuf_obj = outbuf.toStringObject();
+        outbuf_obj.str = vm.gc_allocator_atomic.dupe(u8, result_obj.str) catch return error.Fatal;
+        outbuf_obj.encoding = result_obj.encoding;
+        outbuf_obj.validity = .unknown;
+        return outbuf;
+    }
+    return result;
+}
+
 fn exceptionKeywordEnabled(vm: *VM) VMError!bool {
     var exception_value: ?Value = null;
     try vm.consumeKeywordArgs(.{"exception"}, .{&exception_value});
@@ -2377,7 +2402,7 @@ pub fn builtinIoRead(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError
     if (args.len == 0 or args[0].isNil()) {
         const data = try ioReadAll(vm, io);
         const str = data.toStringObject().str;
-        return ioOutBufferValue(vm, outbuf, str);
+        return ioReadBufferValue(vm, receiver, outbuf, str);
     }
 
     if (!args[0].isInteger()) {
@@ -2396,7 +2421,7 @@ pub fn builtinIoRead(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError
         }
         return Value.nil();
     }
-    return ioOutBufferValue(vm, outbuf, data.toStringObject().str);
+    return ioReadBufferValue(vm, receiver, outbuf, data.toStringObject().str);
 }
 
 pub fn builtinIoReadNonblock(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
