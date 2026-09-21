@@ -87,6 +87,14 @@ describe "Module#autoload" do
     ScratchPad.recorded.should be_nil
   end
 
+  it "ignores the autoload request when the constant is already defined" do
+    ModuleSpecs::Autoload.const_set :AlreadyDefined, 3
+    @remove << :AlreadyDefined
+    ModuleSpecs::Autoload.autoload :AlreadyDefined, @non_existent
+    ModuleSpecs::Autoload.autoload?(:AlreadyDefined).should be_nil
+    ModuleSpecs::Autoload::AlreadyDefined.should == 3
+  end
+
   it "loads a file with .rb extension when passed the name without the extension" do
     ModuleSpecs::Autoload.autoload :J, fixture(__FILE__, "autoload_j")
     ModuleSpecs::Autoload::J.should == :autoload_j

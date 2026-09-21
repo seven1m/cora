@@ -1314,7 +1314,7 @@ pub fn builtinModuleAutoload(vm: *VM, receiver: Value, args: []Value, _: ?Block)
 
     try vm.guardNotFrozen(receiver);
 
-    _ = constantsTable(receiver) orelse {
+    const constants = constantsTable(receiver) orelse {
         unreachable; // receiver is not a Module
     };
 
@@ -1336,6 +1336,7 @@ pub fn builtinModuleAutoload(vm: *VM, receiver: Value, args: []Value, _: ?Block)
     }
 
     const name_sym = try vm.intern(name);
+    if (constants.contains(name_sym)) return Value.nil();
     try vm.registerAutoload(moduleFromValue(receiver).?, name_sym, path);
     return Value.nil();
 }
