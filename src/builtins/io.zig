@@ -55,6 +55,9 @@ pub fn register(vm: *VM) !void {
     const binread_sym = try vm.intern("binread");
     try io_singleton.module.methods.put(binread_sym, value.MethodEntry.builtin(&builtinIoBinread, .{ .variadic = 0 }));
 
+    const binwrite_sym = try vm.intern("binwrite");
+    try io_singleton.module.methods.put(binwrite_sym, value.MethodEntry.builtin(&file_builtin.builtinFileBinwrite, .{ .variadic = 0 }));
+
     const read_class_sym = try vm.intern("read");
     try io_singleton.module.methods.put(read_class_sym, value.MethodEntry.builtin(&file_builtin.builtinFileRead, .{ .variadic = 0 }));
 

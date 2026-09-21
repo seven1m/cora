@@ -566,6 +566,9 @@ pub fn register(vm: *VM) !void {
     const write_sym = try vm.intern("write");
     try file_singleton.module.methods.put(write_sym, value.MethodEntry.builtin(&builtinFileWrite, .{ .variadic = 0 }));
 
+    const binwrite_sym = try vm.intern("binwrite");
+    try file_singleton.module.methods.put(binwrite_sym, value.MethodEntry.builtin(&builtinFileBinwrite, .{ .variadic = 0 }));
+
     const binread_sym = try vm.intern("binread");
     try file_singleton.module.methods.put(binread_sym, value.MethodEntry.builtin(&builtinFileBinread, .{ .variadic = 0 }));
 
@@ -1767,6 +1770,60 @@ pub fn builtinFileWrite(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Val
     const file_val = try openFileWithMode(vm, path, .{ .read = false, .write = true, .append = false, .create = true, .truncate = true }, 0o666);
     defer _ = vm.callMethodByName(file_val, "close", &[_]Value{}, null) catch {};
     return vm.callMethodByName(file_val, "write", args[1..2], null);
+}
+
+pub fn builtinFileBinwrite(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+    var mode_kw: ?Value = null;
+    var flags_kw: ?Value = null;
+    try vm.consumeKeywordArgs(.{ "mode", "flags" }, .{ &mode_kw, &flags_kw });
+    try vm.validateKeywordArgsConsumed();
+    try vm.requireArgCountRange(args, 2, 3);
+
+    const path = try vm.coerceToPathValue(args[0], "no implicit conversion into String");
+    const string_value = try vm.callMethodByName(args[1], "to_s", &.{}, null);
+    if (!string_value.isString()) {
+        return vm.raiseExceptionFmt(vm.type_error_class, "can't convert to String", .{});
+    }
+
+    const has_offset = args.len == 3;
+    var mode = if (mode_kw) |mode_value| blk: {
+        if (mode_value.isInteger()) break :blk try parseModeBits(vm, mode_value.toInteger());
+        break :blk try parseMode(vm, try mode_value.coerceToStr(vm, "no implicit conversion into String"));
+    } else if (has_offset)
+        FileMode{ .read = true, .write = true, .append = false, .create = true, .truncate = false }
+    else
+        FileMode{ .read = false, .write = true, .append = false, .create = true, .truncate = true };
+
+    if (flags_kw) |flags_value| {
+        const raw_flags = try flags_value.coerceToI64ViaToInt(
+            vm,
+            "no implicit conversion into Integer",
+            "can't convert to Integer (to_int gives non-Integer)",
+            "integer out of range",
+        );
+        applyExtraModeBits(&mode, raw_flags);
+    }
+
+    const file_val = try openFileWithMode(vm, path, mode, 0o666);
+    defer _ = vm.callMethodByName(file_val, "close", &.{}, null) catch {};
+
+    if (has_offset) {
+        const offset_value = try args[2].coerceToIntegerValue(vm, "no implicit conversion into Integer", "can't convert to Integer");
+        if (!offset_value.isInteger()) {
+            return vm.raiseExceptionFmt(vm.range_error_class, "integer out of range", .{});
+        }
+        const offset = offset_value.toInteger();
+        if (offset < 0) {
+            return vm.raiseErrnoFmt(.INVAL, "invalid argument", .{});
+        }
+        const result = std.c.lseek(file_val.toIoObject().fd, offset, 0);
+        if (result < 0) {
+            return vm.raiseErrnoFmt(std.posix.errno(result), "seek failed", .{});
+        }
+    }
+
+    var write_args = [_]Value{string_value};
+    return vm.callMethodByName(file_val, "write", &write_args, null);
 }
 
 pub fn builtinFileBinread(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
