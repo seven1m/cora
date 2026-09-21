@@ -78,10 +78,63 @@ pub fn srand(vm: *VM, args: []Value) VMError!Value {
     return previous;
 }
 
+fn randomFloatFromState(vm: *VM, state: *vm_mod.RubyRandom) VMError!Value {
+    const n: U53 = (@as(U53, @intCast(state.next() >> 5)) << 26) | @as(U53, @intCast(state.next() >> 6));
+    return vm.newFloat(@as(f64, @floatFromInt(n)) / 9007199254740992.0);
+}
+
 fn randomFloat(vm: *VM) VMError!Value {
     ensureDefaultRandom(vm);
-    const n: U53 = (@as(U53, @intCast(vm.default_random.next() >> 5)) << 26) | @as(U53, @intCast(vm.default_random.next() >> 6));
-    return try vm.newFloat(@as(f64, @floatFromInt(n)) / @as(f64, @floatFromInt(std.math.maxInt(U53))));
+    return randomFloatFromState(vm, &vm.default_random);
+}
+
+fn randomFloatBelow(vm: *VM, state: *vm_mod.RubyRandom, limit: f64) VMError!Value {
+    if (!(limit > 0.0)) return vm.raiseExceptionFmt(vm.argument_error_class, "invalid argument", .{});
+    const unit = try randomFloatFromState(vm, state);
+    return vm.newFloat(unit.toFloatObject().val * limit);
+}
+
+fn randomRange(vm: *VM, state: *vm_mod.RubyRandom, range_value: Value) VMError!Value {
+    const range = range_value.toRangeObject();
+    if (range.begin.isNil() or range.end.isNil()) {
+        return vm.raiseExceptionFmt(vm.argument_error_class, "invalid argument", .{});
+    }
+
+    var subtract_args = [_]Value{range.begin};
+    const width = vm.callMethodByName(range.end, "-", &subtract_args, null) catch |err| switch (err) {
+        error.Unwind => {
+            if (vm.pendingException()) |exc| {
+                if (exc.object.class == vm.no_method_error_class) {
+                    vm.setPendingException(null);
+                    return vm.raiseExceptionFmt(vm.argument_error_class, "invalid argument", .{});
+                }
+            }
+            return error.Unwind;
+        },
+        else => return err,
+    };
+
+    const offset = if (width.isFloat())
+        try randomFloatBelow(vm, state, width.toFloatObject().val)
+    else blk: {
+        var integer_width = try width.coerceToIntegerValue(vm, "no implicit conversion into Integer", "can't convert to Integer");
+        if (!range.exclude_end) integer_width = try vm.addIntegerValues(integer_width, Value.integer(1));
+        break :blk try randomIntegerValueBelow(vm, state, integer_width);
+    };
+
+    var add_args = [_]Value{offset};
+    return vm.callMethodByName(range.begin, "+", &add_args, null) catch |err| switch (err) {
+        error.Unwind => {
+            if (vm.pendingException()) |exc| {
+                if (exc.object.class == vm.no_method_error_class) {
+                    vm.setPendingException(null);
+                    return vm.raiseExceptionFmt(vm.argument_error_class, "invalid argument", .{});
+                }
+            }
+            return error.Unwind;
+        },
+        else => return err,
+    };
 }
 
 fn randomIntegerBelow(vm: *VM, limit: i64) VMError!Value {
@@ -92,6 +145,44 @@ fn randomIntegerBelow(vm: *VM, limit: i64) VMError!Value {
     ensureDefaultRandom(vm);
     const random_value = vm.default_random.below(@intCast(limit));
     return Value.integer(@intCast(random_value));
+}
+
+fn randomIntegerValueBelow(vm: *VM, state: *vm_mod.RubyRandom, limit: Value) VMError!Value {
+    if (limit.isInteger()) {
+        const small_limit = limit.toInteger();
+        if (small_limit <= 0) {
+            return vm.raiseExceptionFmt(vm.argument_error_class, "invalid argument - {d}", .{small_limit});
+        }
+        if (small_limit <= std.math.maxInt(u32)) {
+            return Value.integer(state.below(@intCast(small_limit)));
+        }
+    } else if (!limit.toBigIntegerObject().value.isPositive()) {
+        return vm.raiseExceptionFmt(vm.argument_error_class, "invalid argument", .{});
+    }
+
+    var managed_limit = try limit.integerToManaged(vm);
+    defer managed_limit.deinit();
+    const bit_count = managed_limit.bitCountAbs();
+
+    while (true) {
+        var candidate = std.math.big.int.Managed.initSet(vm.allocator, 0) catch return error.Fatal;
+        defer candidate.deinit();
+
+        var remaining = bit_count;
+        while (remaining >= 32) : (remaining -= 32) {
+            candidate.shiftLeft(&candidate, 32) catch return error.Fatal;
+            candidate.addScalar(&candidate, state.next()) catch return error.Fatal;
+        }
+        if (remaining > 0) {
+            candidate.shiftLeft(&candidate, remaining) catch return error.Fatal;
+            const mask = (@as(u32, 1) << @intCast(remaining)) - 1;
+            candidate.addScalar(&candidate, state.next() & mask) catch return error.Fatal;
+        }
+
+        if (std.math.big.int.Managed.order(candidate, managed_limit) == .lt) {
+            return vm.valueFromManagedInteger(&candidate);
+        }
+    }
 }
 
 fn bytesLengthArg(vm: *VM, arg: Value) VMError!usize {
@@ -116,10 +207,17 @@ fn randomNumberFromArgs(vm: *VM, args: []Value) VMError!Value {
     if (args.len == 0 or args[0].isNil()) {
         return randomFloat(vm);
     }
-    if (!args[0].isInteger()) {
-        return vm.raiseExceptionFmt(vm.type_error_class, "no implicit conversion into Integer", .{});
+    if (args[0].isRange()) {
+        ensureDefaultRandom(vm);
+        return randomRange(vm, &vm.default_random, args[0]);
     }
-    return randomIntegerBelow(vm, args[0].toInteger());
+    if (args[0].isFloat()) {
+        ensureDefaultRandom(vm);
+        return randomFloatBelow(vm, &vm.default_random, args[0].toFloatObject().val);
+    }
+    const limit = try args[0].coerceToIntegerValue(vm, "no implicit conversion into Integer", "can't convert to Integer");
+    ensureDefaultRandom(vm);
+    return randomIntegerValueBelow(vm, &vm.default_random, limit);
 }
 
 fn randomNumberFromReceiverBytes(vm: *VM, receiver: Value, args: []Value) VMError!Value {
@@ -179,12 +277,14 @@ pub fn builtinRandomRand(vm: *VM, receiver: Value, args: []Value, _: ?Block) VME
     try vm.requireArgCountRange(args, 0, 1);
     const state = vm.random_states.getPtr(receiver.raw) orelse return randomNumberFromArgs(vm, args);
     if (args.len == 0 or args[0].isNil()) {
-        const n: U53 = (@as(U53, @intCast(state.next() >> 5)) << 26) | @as(U53, @intCast(state.next() >> 6));
-        return vm.newFloat(@as(f64, @floatFromInt(n)) / @as(f64, @floatFromInt(std.math.maxInt(U53))));
+        return randomFloatFromState(vm, state);
     }
-    const limit = try args[0].integerArgToI64(vm, "no implicit conversion into Integer", "integer too big");
-    if (limit <= 0 or limit > std.math.maxInt(u32)) return vm.raiseExceptionFmt(vm.argument_error_class, "invalid argument - {d}", .{limit});
-    return Value.integer(state.below(@intCast(limit)));
+    if (args[0].isRange()) return randomRange(vm, state, args[0]);
+    if (args[0].isFloat()) {
+        return randomFloatBelow(vm, state, args[0].toFloatObject().val);
+    }
+    const limit = try args[0].coerceToIntegerValue(vm, "no implicit conversion into Integer", "can't convert to Integer");
+    return randomIntegerValueBelow(vm, state, limit);
 }
 
 pub fn builtinRandomBytes(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {

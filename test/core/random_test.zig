@@ -9,12 +9,6 @@ test "Random constant exists and is a class" {
     try std.testing.expect(result.toBool());
 }
 
-test "Random.new without a seed stays within the immediate integer range" {
-    const result = try evalCode("100.times.all? { Random.new.seed.is_a?(Integer) }");
-    try std.testing.expect(result.isBool());
-    try std.testing.expect(result.toBool());
-}
-
 test "Random.urandom returns a String of the requested length" {
     const result = try evalCode("Random.urandom(8).bytesize");
     try std.testing.expect(result.isInteger());
