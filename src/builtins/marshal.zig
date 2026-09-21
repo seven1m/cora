@@ -146,6 +146,9 @@ pub fn builtinMarshalLoad(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!V
     const source = if (args[0].isString())
         args[0]
     else blk: {
+        if (!try vm.respondsToMethodByName(args[0], "read", false)) {
+            return vm.raiseExceptionFmt(vm.type_error_class, "instance of IO needed", .{});
+        }
         const read_result = try vm.callMethodByName(args[0], "read", &.{}, null);
         break :blk read_result;
     };

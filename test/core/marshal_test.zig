@@ -11,6 +11,21 @@ test "Marshal round trips nested array and hash" {
     try std.testing.expect(result.isTruthy());
 }
 
+test "Marshal.load rejects sources without read" {
+    const result = try evalCode(
+        \\begin
+        \\  Marshal.load(nil)
+        \\rescue => e
+        \\  [e.class.name, e.message]
+        \\end
+    );
+    try std.testing.expect(result.isArray());
+    const items = result.toArrayObject().elements.items;
+    try std.testing.expectEqual(@as(usize, 2), items.len);
+    try std.testing.expectEqualSlices(u8, "TypeError", items[0].toStringObject().str);
+    try std.testing.expectEqualSlices(u8, "instance of IO needed", items[1].toStringObject().str);
+}
+
 test "Marshal dump returns ASCII-8BIT string" {
     const result = try evalCode(
         \\Marshal.dump([1, "x"]).encoding == Encoding::ASCII_8BIT
