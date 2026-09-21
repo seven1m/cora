@@ -875,6 +875,8 @@ fn marshalEncodingName(encoding: enc.Encoding) []const u8 {
         .windows_1252 => "Windows-1252",
         .euc_jp => "EUC-JP",
         .gb18030 => "GB18030",
+        .gbk => "GBK",
+        .big5 => "Big5",
         .iso_8859_1 => "ISO-8859-1",
         .iso_8859_9 => "ISO-8859-9",
         .iso_8859_15 => "ISO-8859-15",
@@ -900,6 +902,8 @@ fn marshalEncodingByName(vm: *VM, name: []const u8) VMError!enc.Encoding {
     if (std.ascii.eqlIgnoreCase(name, "Windows-31J")) return .{ .windows_31j = .{} };
     if (std.ascii.eqlIgnoreCase(name, "EUC-JP")) return .{ .euc_jp = .{} };
     if (std.ascii.eqlIgnoreCase(name, "GB18030")) return .{ .gb18030 = .{} };
+    if (std.ascii.eqlIgnoreCase(name, "GBK")) return .{ .gbk = .{} };
+    if (std.ascii.eqlIgnoreCase(name, "Big5")) return .{ .big5 = .{} };
     if (std.ascii.eqlIgnoreCase(name, "ISO-8859-1")) return .{ .iso_8859_1 = .{} };
     if (std.ascii.eqlIgnoreCase(name, "ISO-8859-9")) return .{ .iso_8859_9 = .{} };
     if (std.ascii.eqlIgnoreCase(name, "ISO-8859-15")) return .{ .iso_8859_15 = .{} };

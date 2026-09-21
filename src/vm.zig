@@ -762,6 +762,8 @@ pub const VM = struct {
     encoding_windows_1252: *value.EncodingObject,
     encoding_euc_jp: *value.EncodingObject,
     encoding_gb18030: *value.EncodingObject,
+    encoding_gbk: *value.EncodingObject,
+    encoding_big5: *value.EncodingObject,
     encoding_cp437: *value.EncodingObject,
     encoding_cp866: *value.EncodingObject,
     encoding_iso_2022_jp: *value.EncodingObject,
@@ -999,6 +1001,8 @@ pub const VM = struct {
             .encoding_windows_1252 = undefined,
             .encoding_euc_jp = undefined,
             .encoding_gb18030 = undefined,
+            .encoding_gbk = undefined,
+            .encoding_big5 = undefined,
             .encoding_cp437 = undefined,
             .encoding_cp866 = undefined,
             .encoding_iso_2022_jp = undefined,
@@ -1611,6 +1615,8 @@ pub const VM = struct {
         self.encoding_windows_1252 = try self.createEncodingObject(.{ .windows_1252 = .{} });
         self.encoding_euc_jp = try self.createEncodingObject(.{ .euc_jp = .{} });
         self.encoding_gb18030 = try self.createEncodingObject(.{ .gb18030 = .{} });
+        self.encoding_gbk = try self.createEncodingObject(.{ .gbk = .{} });
+        self.encoding_big5 = try self.createEncodingObject(.{ .big5 = .{} });
         self.encoding_cp437 = try self.createEncodingObject(.{ .cp437 = .{} });
         self.encoding_cp866 = try self.createEncodingObject(.{ .cp866 = .{} });
         self.encoding_iso_2022_jp = try self.createEncodingObject(.{ .iso_2022_jp = .{} });
@@ -1913,6 +1919,8 @@ pub const VM = struct {
         const windows_1252_upper_const_sym = try self.intern("WINDOWS_1252");
         const euc_jp_const_sym = try self.intern("EUC_JP");
         const gb18030_const_sym = try self.intern("GB18030");
+        const gbk_const_sym = try self.intern("GBK");
+        const big5_const_sym = try self.intern("Big5");
         const euc_kr_const_sym = try self.intern("EUC_KR");
         const iso_8859_1_const_sym = try self.intern("ISO_8859_1");
         const iso_8859_2_const_sym = try self.intern("ISO_8859_2");
@@ -1974,6 +1982,8 @@ pub const VM = struct {
         self.encoding_class.module.constants.put(windows_1252_upper_const_sym, .{ .value = windows_1252_val }) catch return error.Fatal;
         self.encoding_class.module.constants.put(euc_jp_const_sym, .{ .value = euc_jp_val }) catch return error.Fatal;
         self.encoding_class.module.constants.put(gb18030_const_sym, .{ .value = Value.fromObject(&self.encoding_gb18030.object) }) catch return error.Fatal;
+        self.encoding_class.module.constants.put(gbk_const_sym, .{ .value = Value.fromObject(&self.encoding_gbk.object) }) catch return error.Fatal;
+        self.encoding_class.module.constants.put(big5_const_sym, .{ .value = Value.fromObject(&self.encoding_big5.object) }) catch return error.Fatal;
         self.encoding_class.module.constants.put(euc_kr_const_sym, .{ .value = shift_jis_val }) catch return error.Fatal;
         self.encoding_class.module.constants.put(iso_8859_1_const_sym, .{ .value = iso_8859_1_val }) catch return error.Fatal;
         self.encoding_class.module.constants.put(iso_8859_2_const_sym, .{ .value = iso_8859_15_val }) catch return error.Fatal;
@@ -11224,6 +11234,8 @@ pub const VM = struct {
             .windows_1252 => Value.fromObject(&self.encoding_windows_1252.object),
             .euc_jp => Value.fromObject(&self.encoding_euc_jp.object),
             .gb18030 => Value.fromObject(&self.encoding_gb18030.object),
+            .gbk => Value.fromObject(&self.encoding_gbk.object),
+            .big5 => Value.fromObject(&self.encoding_big5.object),
             .cp437 => Value.fromObject(&self.encoding_cp437.object),
             .cp866 => Value.fromObject(&self.encoding_cp866.object),
             .iso_2022_jp => Value.fromObject(&self.encoding_iso_2022_jp.object),

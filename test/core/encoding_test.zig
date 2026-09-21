@@ -420,6 +420,19 @@ test "Encoding::GB18030 is distinct from Shift_JIS" {
     try std.testing.expectEqual(false, result.toBool());
 }
 
+test "GBK and Big5 have distinct canonical encodings" {
+    const result = try evalCode(
+        \\[Encoding.find("GBK").name, Encoding.find("Big5").name,
+        \\ Encoding.find("GBK") == Encoding::Shift_JIS,
+        \\ Encoding.find("Big5") == Encoding::Shift_JIS]
+    );
+    const values = result.toArrayObject().elements.items;
+    try std.testing.expectEqualStrings("GBK", values[0].toStringObject().str);
+    try std.testing.expectEqualStrings("Big5", values[1].toStringObject().str);
+    try std.testing.expect(values[2].isFalse());
+    try std.testing.expect(values[3].isFalse());
+}
+
 test "Encoding.find resolves GB18030" {
     const result = try evalCode("Encoding.find('GB18030').name");
     try std.testing.expect(result.isString());
