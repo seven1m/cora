@@ -340,16 +340,15 @@ fn evalFilename(vm: *VM, source_file_arg: ?Value) VMError![]const u8 {
     return "(eval)";
 }
 
-fn evalLineOffset(vm: *VM, lineno_arg: ?Value) VMError!u32 {
-    if (lineno_arg == null or lineno_arg.?.isNil()) return 0;
+fn evalStartLine(vm: *VM, lineno_arg: ?Value) VMError!i32 {
+    if (lineno_arg == null or lineno_arg.?.isNil()) return 1;
     const lineno = try lineno_arg.?.coerceToI64ViaToInt(
         vm,
         "no implicit conversion into Integer",
         "can't convert to Integer (to_int gives non-Integer)",
         "bignum too big to convert into `long'",
     );
-    if (lineno <= 1) return 0;
-    return @intCast(lineno - 1);
+    return std.math.cast(i32, lineno) orelse vm.raiseExceptionFmt(vm.range_error_class, "bignum too big to convert into `long'", .{});
 }
 
 fn coerceEvalSourceValue(vm: *VM, arg: Value) VMError!Value {
@@ -2119,7 +2118,7 @@ pub fn builtinModuleEval(vm: *VM, receiver: Value, args: []Value, block: ?Block)
             .self_value = receiver,
             .parent_ep = if (vm.currentRubyCallerFrame()) |frame| frame.ep else null,
             .lexical_scope = lexical_scope,
-            .line_offset = try evalLineOffset(vm, if (args.len >= 3) args[2] else null),
+            .start_line = try evalStartLine(vm, if (args.len >= 3) args[2] else null),
         },
     );
 }

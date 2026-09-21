@@ -323,9 +323,21 @@ pub const Parser = struct {
         source_encoding: ?enc.Encoding,
         outer_local_names: ?[]const []const u8,
     ) !Parser {
+        return initWithEncodingLocalsAndLine(allocator, source, source_file, source_encoding, outer_local_names, 1);
+    }
+
+    pub fn initWithEncodingLocalsAndLine(
+        allocator: std.mem.Allocator,
+        source: []const u8,
+        source_file: ?[]const u8,
+        source_encoding: ?enc.Encoding,
+        outer_local_names: ?[]const []const u8,
+        start_line: i32,
+    ) !Parser {
         var parser: c.pm_parser_t = undefined;
         var options: c.pm_options_t = std.mem.zeroes(c.pm_options_t);
         defer c.pm_options_free(&options);
+        options.line = start_line - 1;
 
         if (source_encoding) |encoding| {
             c.pm_options_encoding_set(&options, encoding.name().ptr);
@@ -380,7 +392,7 @@ pub const Parser = struct {
             self.internal.start_line,
         );
         return .{
-            .line = @intCast(result.line + 1),
+            .line = @intCast(@max(result.line + 1, 0)),
             .column = result.column,
         };
     }

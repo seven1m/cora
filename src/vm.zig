@@ -12761,7 +12761,7 @@ pub const VM = struct {
         method_definition_target: ?Value = null,
         parent_local_names: ?[]const []const u8 = null,
         dir_returns_nil: bool = false,
-        line_offset: u32 = 0,
+        start_line: i32 = 1,
         // Optional binding to update with eval-created local variable names.
         binding_to_update: ?*value.BindingObject = null,
         // Method name to stamp on the eval frame (for __method__ in binding evals).
@@ -12775,22 +12775,9 @@ pub const VM = struct {
         source_encoding: ?enc.Encoding,
         context: ?EvalContext,
     ) VMError!Value {
-        var parse_source = source;
-        var owned_parse_source: ?[]u8 = null;
-        defer if (owned_parse_source) |buf| self.allocator.free(buf);
-
-        if (context) |ctx| {
-            if (ctx.line_offset > 0) {
-                const buf = self.allocator.alloc(u8, ctx.line_offset + source.len) catch return error.Fatal;
-                @memset(buf[0..ctx.line_offset], '\n');
-                @memcpy(buf[ctx.line_offset..], source);
-                parse_source = buf;
-                owned_parse_source = buf;
-            }
-        }
-
         const outer_names = if (context) |ctx| ctx.parent_local_names else null;
-        var parser = prism.Parser.initWithEncodingAndLocals(self.allocator, parse_source, source_file, source_encoding, outer_names) catch {
+        const start_line = if (context) |ctx| ctx.start_line else 1;
+        var parser = prism.Parser.initWithEncodingLocalsAndLine(self.allocator, source, source_file, source_encoding, outer_names, start_line) catch {
             return self.raiseExceptionFmt(self.syntax_error_class, "{s}: syntax error", .{source_file orelse "(eval)"});
         };
         defer parser.deinit();

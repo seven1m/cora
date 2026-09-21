@@ -59,6 +59,13 @@ test "defined? recognizes a top-level autoload without loading it" {
     try std.testing.expectEqualStrings("cora_defined_autoload_missing", values[1].toStringObject().str);
 }
 
+test "eval accepts negative starting line numbers" {
+    const result = try evalCode(
+        "begin; Module.new.module_eval(\"\n\n\n\n\n\nraise 'boom'\", 'generated.rb', -1); rescue => e; e.backtrace.first; end",
+    );
+    try std.testing.expectEqualStrings("generated.rb:5:in '<main>'", result.toStringObject().str);
+}
+
 test "instance_variable_set returns the value" {
     const result = try evalCode(
         \\class Foo

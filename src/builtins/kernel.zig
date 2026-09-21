@@ -52,17 +52,16 @@ fn nestedEvalLexicalScope(vm: *VM) VMError!?*value.LexicalScope {
     return vm.cloneLexicalScope(current, current.parent);
 }
 
-fn evalLineOffset(vm: *VM, lineno_arg: ?Value) VMError!u32 {
-    const arg = lineno_arg orelse return 0;
-    if (arg.isNil()) return 0;
+fn evalStartLine(vm: *VM, lineno_arg: ?Value) VMError!i32 {
+    const arg = lineno_arg orelse return 1;
+    if (arg.isNil()) return 1;
     const lineno = try arg.coerceToI64ViaToInt(
         vm,
         "no implicit conversion into Integer",
         "can't convert to Integer (to_int gives non-Integer)",
         "bignum too big to convert into `long'",
     );
-    if (lineno <= 1) return 0;
-    return @intCast(lineno - 1);
+    return std.math.cast(i32, lineno) orelse vm.raiseExceptionFmt(vm.range_error_class, "bignum too big to convert into `long'", .{});
 }
 
 const BoundMethodLookup = struct {
@@ -796,7 +795,7 @@ pub fn builtinKernelEval(vm: *VM, receiver: Value, args: []Value, _: ?Block) VME
         try args[2].coerceToStr(vm, "no implicit conversion into String")
     else
         null;
-    const line_offset = try evalLineOffset(vm, if (args.len >= 4) args[3] else null);
+    const start_line = try evalStartLine(vm, if (args.len >= 4) args[3] else null);
     const caller_frame = vm.currentRubyFrame();
 
     if (binding_arg.isNil()) {
@@ -810,7 +809,7 @@ pub fn builtinKernelEval(vm: *VM, receiver: Value, args: []Value, _: ?Block) VME
                 .lexical_scope = try nestedEvalLexicalScope(vm),
                 .parent_local_names = vm.currentEvalParentLocalNames(),
                 .dir_returns_nil = filename == null,
-                .line_offset = line_offset,
+                .start_line = start_line,
                 .method_name = if (caller_frame) |frame| frame.method_name else null,
             },
         );
@@ -832,7 +831,7 @@ pub fn builtinKernelEval(vm: *VM, receiver: Value, args: []Value, _: ?Block) VME
             .lexical_scope = binding_obj.lexical_scope,
             .parent_local_names = if (real_names.len > 0) real_names else null,
             .dir_returns_nil = filename == null,
-            .line_offset = line_offset,
+            .start_line = start_line,
             .binding_to_update = binding_obj,
             .method_name = binding_obj.method_name,
         },

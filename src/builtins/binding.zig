@@ -40,17 +40,16 @@ fn evalFilename(vm: *VM, source_file_arg: ?Value) VMError![]const u8 {
     return "(eval)";
 }
 
-fn evalLineOffset(vm: *VM, lineno_arg: ?Value) VMError!u32 {
-    const arg = lineno_arg orelse return 0;
-    if (arg.isNil()) return 0;
+fn evalStartLine(vm: *VM, lineno_arg: ?Value) VMError!i32 {
+    const arg = lineno_arg orelse return 1;
+    if (arg.isNil()) return 1;
     const lineno = try arg.coerceToI64ViaToInt(
         vm,
         "no implicit conversion into Integer",
         "can't convert to Integer (to_int gives non-Integer)",
         "bignum too big to convert into `long'",
     );
-    if (lineno <= 1) return 0;
-    return @intCast(lineno - 1);
+    return std.math.cast(i32, lineno) orelse vm.raiseExceptionFmt(vm.range_error_class, "bignum too big to convert into `long'", .{});
 }
 
 /// Binding#eval(source, filename=nil, lineno=nil)
@@ -62,7 +61,7 @@ pub fn builtinBindingEval(vm: *VM, receiver: Value, args: []Value, _: ?Block) VM
     const source_obj = source_value.toStringObject();
 
     const filename = try evalFilename(vm, if (args.len >= 2) args[1] else null);
-    const line_offset = try evalLineOffset(vm, if (args.len >= 3) args[2] else null);
+    const start_line = try evalStartLine(vm, if (args.len >= 3) args[2] else null);
     const has_explicit_filename = args.len >= 2 and !args[1].isNil();
 
     const binding_obj = receiver.toBindingObject();
@@ -78,7 +77,7 @@ pub fn builtinBindingEval(vm: *VM, receiver: Value, args: []Value, _: ?Block) VM
             .lexical_scope = binding_obj.lexical_scope,
             .parent_local_names = if (real_names.len > 0) real_names else null,
             .dir_returns_nil = !has_explicit_filename,
-            .line_offset = line_offset,
+            .start_line = start_line,
             .binding_to_update = binding_obj,
             .method_name = binding_obj.method_name,
         },
