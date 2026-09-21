@@ -1477,7 +1477,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/module/refinements_spec.rb
 - [ ] core/module/remove_class_variable_spec.rb
 - [ ] core/module/remove_const_spec.rb
-- [ ] core/module/remove_method_spec.rb
+- [x] core/module/remove_method_spec.rb
 - [x] core/module/ruby2_keywords_spec.rb
 - [ ] core/module/set_temporary_name_spec.rb
 - [x] core/module/singleton_class_spec.rb

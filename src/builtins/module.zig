@@ -1938,14 +1938,23 @@ pub fn builtinModuleUndefMethod(vm: *VM, receiver: Value, args: []Value, _: ?Blo
 }
 
 pub fn builtinModuleRemoveMethod(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
-    try vm.requireMinArgCount(args, 1);
+    if (args.len == 0) return receiver;
 
     const methods = receiver.getModuleMethods() orelse {
         unreachable; // receiver is not a Module
     };
 
+    var names: std.ArrayList(*SymbolObject) = .empty;
+    defer names.deinit(vm.allocator);
     for (args) |arg| {
-        const name_sym = try vm.coerceToMethodNameSymbol(arg);
+        names.append(vm.allocator, try vm.coerceToMethodNameSymbol(arg)) catch return error.Fatal;
+    }
+
+    if (receiver.isFrozen()) {
+        return vm.raiseExceptionFmt(vm.frozen_error_class, "can't modify frozen {s}", .{vm.className(receiver)});
+    }
+
+    for (names.items) |name_sym| {
         _ = getOwnDefinedMethodEntry(methods, name_sym) orelse {
             const msg = std.fmt.allocPrint(
                 vm.gc_allocator,

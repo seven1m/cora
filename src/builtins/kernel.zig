@@ -2241,7 +2241,7 @@ pub fn builtinKernelDefineSingletonMethod(vm: *VM, receiver: Value, args: []Valu
         return vm.raiseExceptionFmt(vm.frozen_error_class, "can't modify frozen {s}", .{vm.className(receiver)});
     }
 
-    singleton_class.module.methods.put(name_sym, method_entry) catch return error.Fatal;
+    singleton_class.module.origin.methods.put(name_sym, method_entry) catch return error.Fatal;
     vm.markIntegerChangedForReceiver(receiver);
     vm.bumpMethodStateVersion();
 
