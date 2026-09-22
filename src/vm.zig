@@ -10664,7 +10664,13 @@ pub const VM = struct {
             .callbacks = callbacks,
         };
         if (callbacks.dfree != null) {
-            _ = bdwgc.registerFinalizer(&obj.object, typedDataFinalizer, data);
+            bdwgc.c.GC_register_finalizer_no_order(
+                &obj.object,
+                @ptrCast(&typedDataFinalizer),
+                null,
+                null,
+                null,
+            );
         }
         return Value.fromObject(&obj.object);
     }
