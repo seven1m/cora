@@ -141,7 +141,7 @@ test "Class hierarchy is set up correctly" {
     var parser = try prism.Parser.init(allocator, "", null);
     defer parser.deinit();
 
-    var vm = VM.initEmpty(allocator, bdwgc.allocator, bdwgc.allocator_atomic, std.testing.io, std.testing.environ);
+    var vm = VM.initEmpty(allocator, cora.gc_allocator.scanned, cora.gc_allocator.atomic, std.testing.io, std.testing.environ);
     defer vm.deinit();
 
     var program = try compiler.Compiler.compile(allocator, &parser, 1);

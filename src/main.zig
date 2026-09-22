@@ -7,6 +7,7 @@ const compiler = @import("compiler.zig");
 const load_path = @import("load_path.zig");
 const vm = @import("vm.zig");
 const bdwgc = @import("bdwgc");
+const gc_allocator = @import("gc_allocator.zig");
 const cext = @import("cext.zig");
 const pack = @import("app_pack.zig");
 
@@ -438,7 +439,7 @@ pub fn main(init: std.process.Init) !void {
         return;
     }
 
-    var virtual_machine = vm.VM.initEmpty(allocator, bdwgc.allocator, bdwgc.allocator_atomic, init.io, init.minimal.environ);
+    var virtual_machine = vm.VM.initEmpty(allocator, gc_allocator.scanned, gc_allocator.atomic, init.io, init.minimal.environ);
     try virtual_machine.prepare(&program);
     cext.setupGlobals(&virtual_machine);
     if (verbose) {

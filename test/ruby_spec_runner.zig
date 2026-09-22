@@ -330,7 +330,7 @@ fn evalCodeWithOutputAndPath(ruby_code: []const u8, stdout_buf: []u8, stderr_buf
     defer threaded.deinit();
 
     phase_start = perfNowNs();
-    var vm = VM.initEmpty(allocator, bdwgc.allocator, bdwgc.allocator_atomic, threaded.io(), std.testing.environ);
+    var vm = VM.initEmpty(allocator, cora.gc_allocator.scanned, cora.gc_allocator.atomic, threaded.io(), std.testing.environ);
     defer vm.deinit();
     timings.vm_init_ns = perfNowNs() - phase_start;
 

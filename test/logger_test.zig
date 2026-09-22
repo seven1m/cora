@@ -30,7 +30,7 @@ fn evalCodeWithLogger(code: []const u8, stdout_buf: []u8, stderr_buf: []u8) test
     var threaded: std.Io.Threaded = .init(allocator, .{});
     defer threaded.deinit();
 
-    var vm = VM.initEmpty(allocator, bdwgc.allocator, bdwgc.allocator_atomic, threaded.io(), std.testing.environ);
+    var vm = VM.initEmpty(allocator, cora.gc_allocator.scanned, cora.gc_allocator.atomic, threaded.io(), std.testing.environ);
     defer vm.deinit();
 
     var program = compiler.Compiler.compile(allocator, &parser, 1) catch |err| {

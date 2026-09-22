@@ -43,7 +43,7 @@ test "TinyCC JIT accepts fib-like chunk and executes it" {
     try std.testing.expect(fib_chunk != null);
     try jit.validateChunk(fib_chunk.?);
 
-    var vm = VM.initEmpty(allocator, bdwgc.allocator, bdwgc.allocator_atomic, std.testing.io, std.testing.environ);
+    var vm = VM.initEmpty(allocator, cora.gc_allocator.scanned, cora.gc_allocator.atomic, std.testing.io, std.testing.environ);
     defer vm.deinit();
     try vm.prepare(&program);
     vm.setTccJitEnabled(true);
@@ -156,7 +156,7 @@ test "TinyCC JIT accepts factorial chunk and executes it" {
     const factorial_chunk = findChunkByName(&program, "factorial") orelse return error.TestUnexpectedResult;
     try jit.validateChunk(factorial_chunk);
 
-    var vm = VM.initEmpty(allocator, bdwgc.allocator, bdwgc.allocator_atomic, std.testing.io, std.testing.environ);
+    var vm = VM.initEmpty(allocator, cora.gc_allocator.scanned, cora.gc_allocator.atomic, std.testing.io, std.testing.environ);
     defer vm.deinit();
     try vm.prepare(&program);
     vm.setTccJitEnabled(true);
@@ -187,7 +187,7 @@ test "TinyCC JIT accepts zero-argument chunk and executes it" {
     const answer_chunk = findChunkByName(&program, "answer") orelse return error.TestUnexpectedResult;
     try jit.validateChunk(answer_chunk);
 
-    var vm = VM.initEmpty(allocator, bdwgc.allocator, bdwgc.allocator_atomic, std.testing.io, std.testing.environ);
+    var vm = VM.initEmpty(allocator, cora.gc_allocator.scanned, cora.gc_allocator.atomic, std.testing.io, std.testing.environ);
     defer vm.deinit();
     try vm.prepare(&program);
     vm.setTccJitEnabled(true);
@@ -222,7 +222,7 @@ test "TinyCC JIT accepts two-argument recursive chunk and executes it" {
     const countdown_chunk = findChunkByName(&program, "countdown") orelse return error.TestUnexpectedResult;
     try jit.validateChunk(countdown_chunk);
 
-    var vm = VM.initEmpty(allocator, bdwgc.allocator, bdwgc.allocator_atomic, std.testing.io, std.testing.environ);
+    var vm = VM.initEmpty(allocator, cora.gc_allocator.scanned, cora.gc_allocator.atomic, std.testing.io, std.testing.environ);
     defer vm.deinit();
     try vm.prepare(&program);
     vm.setTccJitEnabled(true);
@@ -258,7 +258,7 @@ test "TinyCC JIT accepts local mutation in while loop" {
     const sum_to_chunk = findChunkByName(&program, "sum_to") orelse return error.TestUnexpectedResult;
     try jit.validateChunk(sum_to_chunk);
 
-    var vm = VM.initEmpty(allocator, bdwgc.allocator, bdwgc.allocator_atomic, std.testing.io, std.testing.environ);
+    var vm = VM.initEmpty(allocator, cora.gc_allocator.scanned, cora.gc_allocator.atomic, std.testing.io, std.testing.environ);
     defer vm.deinit();
     try vm.prepare(&program);
     vm.setTccJitEnabled(true);
@@ -293,7 +293,7 @@ test "TinyCC JIT accepts recursive div chunk with floor semantics" {
     const digit_count_chunk = findChunkByName(&program, "digit_count") orelse return error.TestUnexpectedResult;
     try jit.validateChunk(digit_count_chunk);
 
-    var vm = VM.initEmpty(allocator, bdwgc.allocator, bdwgc.allocator_atomic, std.testing.io, std.testing.environ);
+    var vm = VM.initEmpty(allocator, cora.gc_allocator.scanned, cora.gc_allocator.atomic, std.testing.io, std.testing.environ);
     defer vm.deinit();
     try vm.prepare(&program);
     vm.setTccJitEnabled(true);
@@ -361,7 +361,7 @@ test "TinyCC JIT accepts comparison-op chunk and executes it" {
     const band_chunk = findChunkByName(&program, "band") orelse return error.TestUnexpectedResult;
     try jit.validateChunk(band_chunk);
 
-    var vm = VM.initEmpty(allocator, bdwgc.allocator, bdwgc.allocator_atomic, std.testing.io, std.testing.environ);
+    var vm = VM.initEmpty(allocator, cora.gc_allocator.scanned, cora.gc_allocator.atomic, std.testing.io, std.testing.environ);
     defer vm.deinit();
     try vm.prepare(&program);
     vm.setTccJitEnabled(true);

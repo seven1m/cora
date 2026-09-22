@@ -38,7 +38,7 @@ test "Signal.trap dispatches queued signal to Ruby handler" {
     var threaded: std.Io.Threaded = .init(allocator, .{});
     defer threaded.deinit();
 
-    var vm = VM.initEmpty(allocator, bdwgc.allocator, bdwgc.allocator_atomic, threaded.io(), std.testing.environ);
+    var vm = VM.initEmpty(allocator, cora.gc_allocator.scanned, cora.gc_allocator.atomic, threaded.io(), std.testing.environ);
     defer vm.deinit();
 
     var program = try compiler.Compiler.compile(allocator, &parser, 1);
@@ -73,7 +73,7 @@ test "Signal.trap dispatches while IO.gets waits on a pipe" {
     var threaded: std.Io.Threaded = .init(allocator, .{});
     defer threaded.deinit();
 
-    var vm = VM.initEmpty(allocator, bdwgc.allocator, bdwgc.allocator_atomic, threaded.io(), std.testing.environ);
+    var vm = VM.initEmpty(allocator, cora.gc_allocator.scanned, cora.gc_allocator.atomic, threaded.io(), std.testing.environ);
     defer vm.deinit();
 
     var program = try compiler.Compiler.compile(allocator, &parser, 1);

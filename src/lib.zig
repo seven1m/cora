@@ -6,3 +6,4 @@ pub const load_path = @import("load_path.zig");
 pub const vm = @import("vm.zig");
 pub const value = @import("value.zig");
 pub const cext = @import("cext.zig");
+pub const gc_allocator = @import("gc_allocator.zig");

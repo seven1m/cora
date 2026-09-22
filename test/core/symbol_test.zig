@@ -15,7 +15,7 @@ test "Symbol interning - same address for identical symbols" {
 
     const allocator = getAllocator();
 
-    var vm = VM.initEmpty(allocator, bdwgc.allocator, bdwgc.allocator_atomic, std.testing.io, std.testing.environ);
+    var vm = VM.initEmpty(allocator, cora.gc_allocator.scanned, cora.gc_allocator.atomic, std.testing.io, std.testing.environ);
     defer vm.deinit();
 
     const symbol1 = try vm.intern("foo");
@@ -32,7 +32,7 @@ test "Symbol interning canonicalizes ASCII-only encodings to US-ASCII" {
 
     const allocator = getAllocator();
 
-    var vm = VM.initEmpty(allocator, bdwgc.allocator, bdwgc.allocator_atomic, std.testing.io, std.testing.environ);
+    var vm = VM.initEmpty(allocator, cora.gc_allocator.scanned, cora.gc_allocator.atomic, std.testing.io, std.testing.environ);
     defer vm.deinit();
 
     const ascii_symbol = try vm.intern("name");

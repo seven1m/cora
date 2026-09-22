@@ -144,7 +144,7 @@ pub fn evalCodeWithOutputAndPath(ruby_code: []const u8, stdout_buf: []u8, stderr
     var threaded: std.Io.Threaded = .init(allocator, .{});
     defer threaded.deinit();
 
-    var vm = VM.initEmpty(allocator, bdwgc.allocator, bdwgc.allocator_atomic, threaded.io(), std.testing.environ);
+    var vm = VM.initEmpty(allocator, cora.gc_allocator.scanned, cora.gc_allocator.atomic, threaded.io(), std.testing.environ);
     defer vm.deinit();
     var exe_path_buffer: [4096]u8 = undefined;
     const exe_path_len = std.Io.Dir.cwd().realPathFile(threaded.io(), cora_executable_path, &exe_path_buffer) catch cora_executable_path.len;
