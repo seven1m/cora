@@ -10,6 +10,8 @@ tilt_version="2.8.0"
 tilt_dir="$gem_root/tilt-$tilt_version"
 rack_version="3.2.7"
 rack_dir="$gem_root/rack-$rack_version"
+rack_session_version="2.1.1"
+rack_session_dir="$gem_root/rack-session-$rack_session_version"
 minitest_global_expectations_version="1.0.2"
 minitest_global_expectations_dir="$gem_root/minitest-global_expectations-$minitest_global_expectations_version"
 
@@ -71,3 +73,18 @@ cd "$rack_dir"
      (Dir["test/**/*_test.rb"] + Dir["test/**/spec_*.rb"]).uniq.sort.each do |file|
        require file
      end'
+
+if [ ! -d "$rack_session_dir/.git" ]; then
+    if [ -e "$rack_session_dir" ]; then
+        echo "error: $rack_session_dir exists but is not a git checkout" >&2
+        exit 1
+    fi
+
+    git clone --branch "v$rack_session_version" --depth 1 \
+        https://github.com/rack/rack-session.git "$rack_session_dir"
+fi
+
+cd "$rack_session_dir"
+"$repo_root/build/bin/cora" --disable-gems \
+    -I"$minitest_dir/lib:$minitest_global_expectations_dir/lib:$rack_dir/lib:lib:test:." -e \
+    '(Dir["test/**/test_*.rb"] + Dir["test/**/spec_*.rb"]).uniq.sort.each { |file| require file }'
