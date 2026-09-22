@@ -123,9 +123,28 @@ typedef struct {
     int value;
 } cora_cext_data;
 
+typedef struct {
+    VALUE retained;
+} cora_cext_retainer;
+
 static const rb_data_type_t cora_cext_data_type = {
     .wrap_struct_name = "CoraCExtData",
     .function = {
+        .dfree = RUBY_DEFAULT_FREE,
+    },
+};
+
+static void
+cora_cext_retainer_mark(void *ptr)
+{
+    cora_cext_retainer *data = ptr;
+    rb_gc_mark(data->retained);
+}
+
+static const rb_data_type_t cora_cext_retainer_type = {
+    .wrap_struct_name = "CoraCExtRetainer",
+    .function = {
+        .dmark = cora_cext_retainer_mark,
         .dfree = RUBY_DEFAULT_FREE,
     },
 };
@@ -139,6 +158,25 @@ cext_typed_data_round_trip(VALUE self)
     TypedData_Get_Struct(object, cora_cext_data, &cora_cext_data_type, data);
     data->value = 42;
     return rb_assoc_new(INT2NUM(TYPE(object)), INT2NUM(data->value));
+}
+
+static VALUE
+cext_typed_data_retain(VALUE self, VALUE retained)
+{
+    (void)self;
+    cora_cext_retainer *data;
+    VALUE object = TypedData_Make_Struct(rb_cObject, cora_cext_retainer, &cora_cext_retainer_type, data);
+    RB_OBJ_WRITE(object, &data->retained, retained);
+    return object;
+}
+
+static VALUE
+cext_typed_data_retained(VALUE self, VALUE object)
+{
+    (void)self;
+    cora_cext_retainer *data;
+    TypedData_Get_Struct(object, cora_cext_retainer, &cora_cext_retainer_type, data);
+    return data->retained;
 }
 
 static VALUE
@@ -277,6 +315,8 @@ void Init_fixture(void)
     rb_define_module_function(mCoraCExt, "intern_length", cext_intern_length, 0);
     rb_define_module_function(mCoraCExt, "static_string", cext_static_string, 0);
     rb_define_module_function(mCoraCExt, "typed_data_round_trip", cext_typed_data_round_trip, 0);
+    rb_define_module_function(mCoraCExt, "typed_data_retain", cext_typed_data_retain, 1);
+    rb_define_module_function(mCoraCExt, "typed_data_retained", cext_typed_data_retained, 1);
     rb_define_module_function(mCoraCExt, "string_value_cstr_length", cext_string_value_cstr_length, 1);
     rb_define_module_function(mCoraCExt, "class_of", cext_class_of, 1);
     rb_define_module_function(mCoraCExt, "obj_class", cext_obj_class, 1);

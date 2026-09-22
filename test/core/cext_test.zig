@@ -429,6 +429,22 @@ test "C extension typed data preserves type and payload" {
     try std.testing.expectEqual(@as(i64, 42), values[1].toInteger());
 }
 
+test "C extension typed data keeps referenced Ruby objects alive" {
+    const result = try evalCode(
+        \\$LOAD_PATH << "build/cext"
+        \\require "fixture.so"
+        \\value = "retained-value-" + ("x" * 1024)
+        \\holder = CoraCExt.typed_data_retain(value)
+        \\value = nil
+        \\10.times do
+        \\  1000.times { "garbage" * 128 }
+        \\  GC.start
+        \\end
+        \\CoraCExt.typed_data_retained(holder) == "retained-value-" + ("x" * 1024)
+    );
+    try std.testing.expect(result.toBool());
+}
+
 test "C extension StringValueCStr provides a trailing null byte" {
     const result = try evalCode(
         \\$LOAD_PATH << "build/cext"

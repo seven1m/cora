@@ -331,8 +331,9 @@ VALUE rb_data_typed_object_alloc(VALUE klass, const rb_data_type_t *type);
 VALUE rb_data_typed_object_zalloc(VALUE klass, size_t size, const rb_data_type_t *type);
 int rb_typeddata_is_kind_of(VALUE obj, const rb_data_type_t *type);
 void *Check_TypedStruct(VALUE obj, const rb_data_type_t *type);
+void *xcalloc(size_t n, size_t size);
 #define TypedData_Make_Struct(klass, type_name, type, data) \
-    ((data) = (type_name *)calloc(1, sizeof(type_name)), \
+    ((data) = (type_name *)xcalloc(1, sizeof(type_name)), \
      TypedData_Wrap_Struct(klass, type, data))
 #define TypedData_Get_Struct(obj, type_name, type, data) \
     ((data) = (type_name *)Check_TypedStruct(obj, type))
