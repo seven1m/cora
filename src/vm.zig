@@ -10233,7 +10233,7 @@ pub const VM = struct {
             .path_encoding = init.path_encoding,
             .sync = init.sync,
         };
-        _ = bdwgc.registerFinalizer(&io_obj.object, struct {
+        registerUnorderedFinalizer(&io_obj.object, struct {
             fn free_buf(obj: *anyopaque, data: ?*anyopaque) callconv(.c) void {
                 const vm_ptr: *VM = @ptrCast(@alignCast(data.?));
                 const io: *value.IoObject = @ptrCast(@alignCast(obj));
@@ -10421,7 +10421,7 @@ pub const VM = struct {
             .options = options,
             .regex = result.regex.?,
         };
-        _ = bdwgc.registerFinalizer(&regexp_obj.object, struct {
+        registerUnorderedFinalizer(&regexp_obj.object, struct {
             fn free_regex(_: *anyopaque, data: ?*anyopaque) callconv(.c) void {
                 onigmo.free(@ptrCast(@alignCast(data.?)));
             }
@@ -10643,6 +10643,20 @@ pub const VM = struct {
         }
     }
 
+    fn registerUnorderedFinalizer(
+        object: *anyopaque,
+        finalizer: bdwgc.Finalizer,
+        data: ?*anyopaque,
+    ) void {
+        bdwgc.c.GC_register_finalizer_no_order(
+            object,
+            @ptrCast(finalizer),
+            data,
+            null,
+            null,
+        );
+    }
+
     pub fn newTypedData(
         self: *VM,
         class_obj: *ClassObject,
@@ -10664,13 +10678,7 @@ pub const VM = struct {
             .callbacks = callbacks,
         };
         if (callbacks.dfree != null) {
-            bdwgc.c.GC_register_finalizer_no_order(
-                &obj.object,
-                @ptrCast(&typedDataFinalizer),
-                null,
-                null,
-                null,
-            );
+            registerUnorderedFinalizer(&obj.object, typedDataFinalizer, null);
         }
         return Value.fromObject(&obj.object);
     }
@@ -11978,7 +11986,7 @@ pub const VM = struct {
         group.callbacks.append(self.allocator, callback) catch return error.Fatal;
         self.finalizers.append(self.allocator, group) catch return error.Fatal;
         self.finalizers_by_target.put(target_addr, group) catch return error.Fatal;
-        _ = bdwgc.registerFinalizer(object, objectFinalizerCallback, @ptrCast(group));
+        registerUnorderedFinalizer(object, objectFinalizerCallback, @ptrCast(group));
         return self.finalizerResult(callback);
     }
 
