@@ -87,3 +87,21 @@ test "Data with applies keyword changes through the constructor" {
     const items = result.toArrayObject().elements.items;
     for (items) |item| try std.testing.expect(item.isTruthy());
 }
+
+test "Data with bypasses an overridden class new and calls initialize" {
+    const result = try test_helper.evalCode(
+        \\klass = Data.define(:x)
+        \\instance = klass[1]
+        \\def klass.new(**)
+        \\  :overridden
+        \\end
+        \\klass.class_eval do
+        \\  def initialize(x:)
+        \\    super(x: x * 2)
+        \\  end
+        \\end
+        \\updated = instance.with(x: 3)
+        \\[updated.class == klass, updated.x == 6]
+    );
+    for (result.toArrayObject().elements.items) |item| try std.testing.expect(item.isTrue());
+}

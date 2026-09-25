@@ -277,8 +277,9 @@ pub fn builtinDataWith(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMErr
     }
     try vm.validateKeywordArgsConsumed();
 
-    const class_value = Value.fromObject(&vm.getClass(receiver).module.object);
-    return vm.callMethodByNameWithKeywords(class_value, "new", &.{}, keys, vals, null);
+    const instance = try vm.newObjectForClass(vm.getClass(receiver));
+    _ = try vm.callMethodByNameWithKeywords(instance, "initialize", &.{}, keys, vals, null);
+    return instance;
 }
 
 pub fn builtinDataEqual(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
