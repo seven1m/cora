@@ -7249,6 +7249,7 @@ pub const VM = struct {
             .CATCH_START => {
                 const binding_kind: bytecode.CatchBinding = @enumFromInt(readByteFrom(frame, operands, &operand_cursor));
                 const binding_operand = readU16From(frame, operands, &operand_cursor);
+                const binding_depth = readByteFrom(frame, operands, &operand_cursor);
 
                 if (self.pendingException()) |exc| {
                     self.currentRescuedExceptions().append(self.allocator, exc) catch return error.Fatal;
@@ -7259,8 +7260,10 @@ pub const VM = struct {
                     switch (binding_kind) {
                         .none => {},
                         .local => {
-                            const ep_offset = frame.chunk.locals_count - binding_operand;
-                            (frame.ep - ep_offset)[0] = Value.fromObject(&exc.object);
+                            var ep: [*]Value = frame.ep;
+                            for (0..binding_depth) |_| ep = decodeEp(ep[0]) orelse break;
+                            const ep_offset = epLocalsCount(ep) - binding_operand;
+                            (ep - ep_offset)[0] = Value.fromObject(&exc.object);
                         },
                         .instance_variable => {
                             const var_name = constants[binding_operand].string;

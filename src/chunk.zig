@@ -359,6 +359,11 @@ pub const Chunk = struct {
         try self.code.append(self.allocator, @intCast(b >> 8));
     }
 
+    pub fn emitCatchStart(self: *Chunk, kind: u8, operand: u16, depth: u8, line: u32) !void {
+        try self.emitOpU8U16(.CATCH_START, kind, operand, line);
+        try self.code.append(self.allocator, depth);
+    }
+
     /// Emit CALL: u16 method_idx, u8 argc, u8 call_flags, u16 block_chunk_id
     pub fn emitCall(self: *Chunk, method_idx: u16, argc: u8, call_style: u8, block_chunk_id: u16, line: u32) !void {
         try self.recordLine(line);
@@ -581,8 +586,9 @@ pub const Chunk = struct {
                 const lo: u16 = self.code.items[ip + 1];
                 const hi: u16 = self.code.items[ip + 2];
                 const binding_operand = lo | (hi << 8);
-                ip += 3;
-                try writer.print("CATCH_START {d} {d}\n", .{ binding_kind, binding_operand });
+                const depth = self.code.items[ip + 3];
+                ip += 4;
+                try writer.print("CATCH_START {d} {d} {d}\n", .{ binding_kind, binding_operand, depth });
             },
 
             .GET_LOCAL_DEEP, .SET_LOCAL_DEEP => {

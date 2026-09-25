@@ -1738,7 +1738,7 @@ pub const Compiler = struct {
                 const jump_over_rescue = try self.current_chunk.emitJump(.JUMP, line);
 
                 const catch_byte_offset = self.current_chunk.currentOffset();
-                try self.current_chunk.emitOpU8U16(.CATCH_START, @intFromEnum(bytecode.CatchBinding.none), 0, line);
+                try self.current_chunk.emitCatchStart(@intFromEnum(bytecode.CatchBinding.none), 0, 0, line);
                 try self.current_chunk.emitOp(.PUSH_NIL, line);
                 try self.current_chunk.emitOp(.CATCH_END, line);
                 const catch_end_byte_offset = self.current_chunk.currentOffset();
@@ -1858,7 +1858,7 @@ pub const Compiler = struct {
         const jump_over_rescue = try self.current_chunk.emitJump(.JUMP, line);
 
         const catch_byte_offset = self.current_chunk.currentOffset();
-        try self.current_chunk.emitOpU8U16(.CATCH_START, @intFromEnum(bytecode.CatchBinding.none), 0, line);
+        try self.current_chunk.emitCatchStart(@intFromEnum(bytecode.CatchBinding.none), 0, 0, line);
         try self.current_chunk.emitOp(.PUSH_NIL, line);
         try self.current_chunk.emitOp(.CATCH_END, line);
         const catch_end_byte_offset = self.current_chunk.currentOffset();
@@ -4624,25 +4624,26 @@ pub const Compiler = struct {
             // Handle variable binding (rescue => e)
             var binding_kind: bytecode.CatchBinding = .none;
             var binding_operand: u16 = 0;
+            var binding_depth: u8 = 0;
             var var_idx: ?u16 = null;
             if (rescue_node.reference) |reference_ptr| {
                 const reference = try self.parser.asNode(@ptrCast(reference_ptr));
                 switch (reference) {
                     .local_variable_target => |var_target| {
                         const var_name = try self.parser.getLocalVariableName(var_target.name);
-                        // Add to locals
-                        try self.addLocal(var_name);
-                        var_idx = @intCast(self.locals.items.len - 1);
+                        const slot = try self.resolveOrCreateLocalSlot(var_name);
+                        var_idx = slot.idx;
                         binding_kind = .local;
-                        binding_operand = var_idx.?;
+                        binding_operand = slot.idx;
+                        binding_depth = slot.depth;
                     },
                     .local_variable_write => |var_write| {
                         const var_name = try self.parser.getLocalVariableName(var_write.name);
-                        // Add to locals
-                        try self.addLocal(var_name);
-                        var_idx = @intCast(self.locals.items.len - 1);
+                        const slot = try self.resolveOrCreateLocalSlot(var_name);
+                        var_idx = slot.idx;
                         binding_kind = .local;
-                        binding_operand = var_idx.?;
+                        binding_operand = slot.idx;
+                        binding_depth = slot.depth;
                     },
                     .instance_variable_target => |var_target| {
                         const var_name = try self.parser.getConstantName(@intCast(var_target.name));
@@ -4656,10 +4657,10 @@ pub const Compiler = struct {
                 }
             }
 
-            try self.current_chunk.emitOpU8U16(
-                .CATCH_START,
+            try self.current_chunk.emitCatchStart(
                 @intFromEnum(binding_kind),
                 binding_operand,
+                binding_depth,
                 line,
             );
 
@@ -4800,7 +4801,7 @@ pub const Compiler = struct {
 
         // No variable binding for rescue modifier
         // Emit CATCH_START with no variable binding
-        try self.current_chunk.emitOpU8U16(.CATCH_START, @intFromEnum(bytecode.CatchBinding.none), 0, line);
+        try self.current_chunk.emitCatchStart(@intFromEnum(bytecode.CatchBinding.none), 0, 0, line);
 
         // Compile the rescue expression (fallback value)
         {

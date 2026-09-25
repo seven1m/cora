@@ -78,6 +78,20 @@ test "Rescue with variable binding - capture exception" {
     try std.testing.expectEqual(@as(i64, 42), result.toInteger());
 }
 
+test "Rescue binding updates an existing local captured by a block" {
+    const result = try evalCode(
+        \\actual = nil
+        \\proc do
+        \\  begin
+        \\    raise "oops"
+        \\  rescue Exception => actual
+        \\  end
+        \\end.call
+        \\actual.message
+    );
+    try std.testing.expectEqualStrings("oops", result.toStringObject().str);
+}
+
 test "Rescue assigns exception to an instance variable" {
     const result = try evalCode(
         \\begin
