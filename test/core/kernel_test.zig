@@ -38,6 +38,15 @@ test "Kernel load with wrap uses an Object receiver and isolated lexical module"
     for (result.toArrayObject().elements.items) |item| try std.testing.expect(item.isTrue());
 }
 
+test "Kernel Pathname constructs paths and preserves existing instances" {
+    const result = try evalCode(
+        \\require "pathname"
+        \\original = Pathname.new("alpha")
+        \\[Pathname(original).equal?(original), Pathname("beta").to_s == "beta"]
+    );
+    for (result.toArrayObject().elements.items) |item| try std.testing.expect(item.isTrue());
+}
+
 test "Kernel.load is private on instances" {
     const result = try evalCode(
         \\Kernel.private_instance_methods.include?(:load) &&

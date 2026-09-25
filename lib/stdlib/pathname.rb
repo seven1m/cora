@@ -165,3 +165,11 @@ class Pathname
     Pathname.new(result)
   end
 end
+
+module Kernel
+  def Pathname(path)
+    path.is_a?(::Pathname) ? path : ::Pathname.new(path)
+  end
+
+  module_function :Pathname
+end
