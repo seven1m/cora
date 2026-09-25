@@ -121,6 +121,22 @@ test "Time arithmetic and comparison use epoch values" {
     try std.testing.expectApproxEqAbs(@as(f64, 5.0), items[2].toFloatObject().val, 0.0000001);
 }
 
+test "Time comparison reverses another object's spaceship result" {
+    const result = try evalCode(
+        \\early = Object.new
+        \\def early.<=>(other); -2; end
+        \\late = Object.new
+        \\def late.<=>(other); 0.5; end
+        \\time = Time.at(0)
+        \\[time <=> early, time > early, time <=> late, time <=> Object.new]
+    );
+    const items = result.toArrayObject().elements.items;
+    try std.testing.expectEqual(@as(i64, 1), items[0].toInteger());
+    try std.testing.expect(items[1].toBool());
+    try std.testing.expectEqual(@as(i64, -1), items[2].toInteger());
+    try std.testing.expect(items[3].isNil());
+}
+
 test "Time#to_a uses Ruby Time field ordering" {
     const result = try evalCode("Time.at(0).getgm.to_a");
     const items = result.toArrayObject().elements.items;

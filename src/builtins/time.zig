@@ -1425,7 +1425,17 @@ pub fn builtinTimeMinus(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMEr
 
 pub fn builtinTimeCompare(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 1);
-    if (!args[0].isTime()) return Value.nil();
+    if (!args[0].isTime()) {
+        var reverse_args = [_]Value{receiver};
+        const reverse = try vm.checkCallMethodByName(args[0], "<=>", false, &reverse_args, null) orelse return Value.nil();
+        if (reverse.isNil()) return Value.nil();
+        const zero = Value.integer(0);
+        var compare_args = [_]Value{zero};
+        const less = try vm.callMethodByName(reverse, "<", &compare_args, null);
+        if (less.isTruthy()) return Value.integer(1);
+        const greater = try vm.callMethodByName(reverse, ">", &compare_args, null);
+        return Value.integer(if (greater.isTruthy()) -1 else 0);
+    }
     return Value.integer(switch (try exactCompare(vm, receiver.toTimeObject().timew, args[0].toTimeObject().timew)) {
         .lt => -1,
         .eq => 0,
