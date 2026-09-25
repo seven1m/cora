@@ -398,3 +398,20 @@ test "Date strptime parses Unix seconds and milliseconds" {
     try std.testing.expectEqualStrings("{seconds: 1470272280}\n{seconds: (1470272280/1)}\n{seconds: (-1001/1000)}\n", result.stdout);
     try std.testing.expectEqualStrings("", result.stderr);
 }
+
+test "Date strptime parses timezone offset directives" {
+    var stdout_buf: [1024]u8 = undefined;
+    var stderr_buf: [1024]u8 = undefined;
+    const result = evalCodeWithOutput(
+        \\require "date"
+        \\p Date._strptime("-08", "%:::z")
+        \\p Date._strptime("-08:00", "%:z")
+        \\p Date._strptime("-08:00:30", "%::z")
+        \\p Date._strptime("-0800", "%z")
+        \\p Date._strptime("Z", "%z")
+    , &stdout_buf, &stderr_buf);
+
+    try std.testing.expect(result.err == null);
+    try std.testing.expectEqualStrings("{zone: \"-08\", offset: -28800}\n{zone: \"-08:00\", offset: -28800}\n{zone: \"-08:00:30\", offset: -28830}\n{zone: \"-0800\", offset: -28800}\n{zone: \"Z\", offset: 0}\n", result.stdout);
+    try std.testing.expectEqualStrings("", result.stderr);
+}

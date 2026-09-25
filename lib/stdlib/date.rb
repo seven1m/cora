@@ -204,13 +204,26 @@ class Date
             return nil
           end
         when 'z'
-          if s =~ /\A([+-]\d{4})/
-            result[:zone] = $1
+          if s =~ /\A(Z|[+-]\d{2}(?::?\d{2}(?::?\d{2})?)?)/i
+            add_zone_parts(result, $1)
             s = $'
             f = f[2..]
           else
             return nil
           end
+        when ':'
+          colon_count = 1
+          colon_count += 1 while f[colon_count + 1] == ':'
+          return result unless colon_count <= 3 && f[colon_count + 1] == 'z'
+          zone_pattern = case colon_count
+          when 1 then /\A([+-]\d{2}:\d{2})/
+          when 2 then /\A([+-]\d{2}:\d{2}:\d{2})/
+          else /\A([+-]\d{2}(?::\d{2}(?::\d{2})?)?)/
+          end
+          return nil unless s =~ zone_pattern
+          add_zone_parts(result, $1)
+          s = $'
+          f = f[(colon_count + 2)..]
         when 'Z'
           if s =~ /\A([A-Z]{1,5})/
             result[:zone] = $1
@@ -329,9 +342,10 @@ class Date
       sign = zone[0] == "-" ? -1 : 1
       digits = zone.delete(":")
       hour_digits = digits[1..]
-      hours = hour_digits.length <= 2 ? hour_digits.to_i : hour_digits[0...-2].to_i
-      minutes = hour_digits.length <= 2 ? 0 : hour_digits[-2..].to_i
-      result[:offset] = sign * (hours * 3600 + minutes * 60)
+      hours = hour_digits[0, 2].to_i
+      minutes = hour_digits.length >= 4 ? hour_digits[2, 2].to_i : 0
+      seconds = hour_digits.length >= 6 ? hour_digits[4, 2].to_i : 0
+      result[:offset] = sign * (hours * 3600 + minutes * 60 + seconds)
     end
   end
   private_class_method :add_zone_parts
