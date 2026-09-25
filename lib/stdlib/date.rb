@@ -217,21 +217,24 @@ class Date
         when 'T' # %H:%M:%S
           f = '%H:%M:%S' + f[2..]
         when '%'
+          return nil unless s[0] == '%'
           f = f[2..]
           s = s[1..]
         else
-          f = f[1..]
+          return result
         end
       else
         if s[0] == f[0]
           s = s[1..]
           f = f[1..]
         else
-          break
+          return nil
         end
       end
     end
 
+    return nil unless f.empty?
+    result[:leftover] = s unless s.empty?
     result
   end
 

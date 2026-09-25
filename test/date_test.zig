@@ -367,3 +367,19 @@ test "Date parses JavaScript style timestamps with GMT offsets" {
     try std.testing.expectEqualStrings("{wday: 1, mon: 5, mday: 28, year: 2012, hour: 0, min: 0, sec: 0, zone: \"GMT-0700\", offset: -25200}\n", result.stdout);
     try std.testing.expectEqualStrings("", result.stderr);
 }
+
+test "Date strptime rejects incomplete and mismatched formats" {
+    var stdout_buf: [1024]u8 = undefined;
+    var stderr_buf: [1024]u8 = undefined;
+    const result = evalCodeWithOutput(
+        \\require "date"
+        \\p Date._strptime("1999-12-31", "%Y/%m/%d")
+        \\p Date._strptime("2024-02-29", "%Y-%m-%d extra")
+        \\p Date._strptime("2024-02-29extra", "%Y-%m-%d")
+        \\p Date._strptime("abc", "abc")
+    , &stdout_buf, &stderr_buf);
+
+    try std.testing.expect(result.err == null);
+    try std.testing.expectEqualStrings("nil\nnil\n{year: 2024, mon: 2, mday: 29, leftover: \"extra\"}\n{}\n", result.stdout);
+    try std.testing.expectEqualStrings("", result.stderr);
+}
