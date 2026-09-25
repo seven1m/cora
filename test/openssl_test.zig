@@ -56,6 +56,19 @@ test "OpenSSL::Digest subclasses expose Ruby-compatible class helpers" {
     try std.testing.expectEqualStrings("ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad\n32\n1\nba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad\n", result.stdout);
     try std.testing.expectEqualStrings("", result.stderr);
 }
+
+test "OpenSSL::Digest::MD5 exposes class and instance digests" {
+    var stdout_buf: [1024]u8 = undefined;
+    var stderr_buf: [1024]u8 = undefined;
+    const result = evalCodeWithOutput(
+        \\require "openssl"
+        \\puts OpenSSL::Digest::MD5.hexdigest("abc")
+        \\puts OpenSSL::Digest::MD5.new("abc").hexdigest
+    , &stdout_buf, &stderr_buf);
+    try std.testing.expect(result.err == null);
+    try std.testing.expectEqualStrings("900150983cd24fb0d6963f7d28e17f72\n900150983cd24fb0d6963f7d28e17f72\n", result.stdout);
+    try std.testing.expectEqualStrings("", result.stderr);
+}
 test "Digest() converter method returns digest class by name" {
     var stdout_buf: [1024]u8 = undefined;
     var stderr_buf: [1024]u8 = undefined;

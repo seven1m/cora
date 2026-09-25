@@ -258,6 +258,17 @@ module OpenSSL
     end
   end
 
+  class Digest::MD5 < Digest
+    class << self
+      def digest(data) = new(data).digest
+      def hexdigest(data) = new(data).hexdigest
+    end
+
+    def initialize(data = nil)
+      data.nil? ? super("MD5") : super("MD5", data)
+    end
+  end
+
   class Digest::SHA1 < Digest
     class << self
       def digest(data) = new(data).digest
