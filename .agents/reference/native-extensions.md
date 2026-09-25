@@ -11,7 +11,8 @@ are built and tested.
   `ext/logger`, `ext/time`, `ext/optparse`, `ext/uri`, `ext/delegate`,
   `ext/tmpdir`, `ext/tempfile`, `ext/cgi`, `ext/erb`, `ext/forwardable`,
   `ext/timeout`, `ext/singleton`, `ext/open3`, `ext/shellwords`, `ext/yaml`,
-  `ext/weakref`, `ext/psych`, `ext/strscan`, `ext/csv`, `ext/json`).
+  `ext/weakref`, `ext/psych`, `ext/strscan`, `ext/csv`, `ext/json`,
+  `ext/test-unit`, `ext/power_assert`).
 - `lib/stdlib/` - pure-Ruby standard library code vendored outside the gem
   layout (`fileutils.rb`, `securerandom.rb`, `monitor.rb`, `pathname.rb`,
   `openssl.rb`, `zlib.rb`, `stringio.rb`, `date.rb`, `set.rb`, `digest.rb`,
@@ -23,10 +24,17 @@ are built and tested.
 - `src/load_path.zig` - the static `repo_load_paths` table the VM pushes onto
   `$LOAD_PATH` at startup.
 
-Pure-Ruby vendored gems (no native `.so`) are added to `repo_load_paths` by
-their `ext/<gem>/lib` directory. Gems with native extensions are installed as
-default gems under `build/lib/gems/4.0.0/gems/<name>-<version>/` and ship
-their compiled `.so` next to the `lib/` tree.
+Some pure-Ruby vendored gems are added directly to `repo_load_paths` by their
+`ext/<gem>/lib` directory. Default gems are installed under
+`build/lib/gems/4.0.0/gems/<name>-<version>/`; those with native extensions
+ship their compiled `.so` next to the `lib/` tree.
+
+Bundled gems are ordinary installed gems shipped with Cora. The first pair is
+`test-unit` and its `power_assert` dependency. Their sources are pinned as
+submodules, installed under `build/lib/gems/4.0.0/gems/`, and registered by
+gemspecs in `build/lib/gems/4.0.0/specifications/`. Unlike default gems,
+they are not placed directly on `$LOAD_PATH`; RubyGems activates them when
+required. `Gem::Specification#default_gem?` is false for them.
 
 ## Builtin Gem Registration
 
@@ -40,6 +48,9 @@ the runtime root (or `build/` in test mode).
 - Default gem trees are referenced by their installed layout via
   `defaultGemLibPath(name, version)` which builds
   `lib/gems/4.0.0/gems/<name>-<version>/lib`.
+- Bundled gem trees are absent from this static table. RubyGems finds them
+  through `Gem.path`, so `--disable-gems` and an explicit `GEM_PATH` that
+  excludes Cora's gem root hide them.
 
 Tests, the test runner, and the test helper append each entry through
 `VM.appendLoadPath` plus `realPathFile` so both absolute and in-tree
@@ -52,13 +63,17 @@ invocations resolve correctly.
 - `runtime_ext_dirs` - list of `ext/<gem>` directories copied wholesale into
   the install prefix (`build/ext/<gem>`). Used for gem trees that are loaded
   directly from `ext/<gem>/lib` and do not need a gem layout.
-- `addInstallDefaultGemDir` - installs `ext/<gem>` (or a build copy) into
+- `addInstallGemDir` - installs `ext/<gem>` (or a build copy) into
   `build/lib/gems/4.0.0/gems/<name>-<version>/`.
 - `addInstallDefaultGemNativeLib` - installs a single compiled `.so` into the
   default gem's `lib/` directory.
-- `addWriteDefaultGemSpec` - shells out to `build/bin/cora` with `-e` to run
-  a small Ruby snippet that loads each gem's `.gemspec` and writes the
-  serialized `.gemspec` into `build/lib/gems/.../specifications/default/`.
+- `addWriteGemSpec` - loads each upstream `.gemspec` and writes a serialized
+  spec into `specifications/default/` for default gems or `specifications/`
+  for bundled gems. `bundled_gems` lists the pinned bundled versions.
+
+The dev shell sets `GEM_HOME` to `.gem` for local installs but leaves
+`GEM_PATH` unset. RubyGems still searches `.gem` and also includes the
+interpreter's shipped gem directory in its default search path.
 
 Steps per gem:
 
@@ -66,8 +81,11 @@ Steps per gem:
   `make -C build/psych/ext`.
 - `strscan` - copied into `build/strscan`, patched with `ext/strscan.patch`,
   then built with its own `extconf.rb` and `make`.
-- `csv`, `json`, `yaml` - pure Ruby; installed as default gems without an
-  `.so`.
+- `json` - installed as a default gem with native parser and generator `.so`
+  files.
+- `csv`, `yaml` - pure Ruby; installed as default gems without an `.so`.
+- `test-unit`, `power_assert` - pure Ruby; installed as ordinary bundled gems
+  with `test-unit` depending on `power_assert`.
 
 The TinyCC JIT and Onigmo use the same pattern as the gems: copy from
 `ext/<lib>` to `build/<lib>`, run the upstream configure step, and link the

@@ -39,7 +39,7 @@
 
             shellHook = ''
               export GEM_HOME="$PWD/.gem"
-              export GEM_PATH="$PWD/.gem"
+              unset GEM_PATH
               export LD_LIBRARY_PATH="${pkgs.lib.makeLibraryPath [ pkgs.zlib ]}''${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
             '';
 

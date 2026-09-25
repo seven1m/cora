@@ -12,6 +12,7 @@ pub fn register(vm: *VM) !void {
     const object_space_singleton = try vm.getOrCreateSingletonClass(object_space_val);
     try object_space_singleton.module.methods.put(try vm.intern("define_finalizer"), value.MethodEntry.builtin(&builtinDefineFinalizer, .{ .variadic = 1 }));
     try object_space_singleton.module.methods.put(try vm.intern("undefine_finalizer"), value.MethodEntry.builtin(&builtinUndefineFinalizer, .{ .exact = 1 }));
+    try object_space_singleton.module.methods.put(try vm.intern("each_object"), value.MethodEntry.builtin(&builtinEachObject, .{ .variadic = 0 }));
 
     const weak_map_class = vm.weak_map_class;
 
@@ -29,6 +30,32 @@ pub fn register(vm: *VM) !void {
 
     const values_sym = try vm.intern("values");
     try weak_map_class.module.methods.put(values_sym, value.MethodEntry.builtin(&builtinWeakMapValues, .{ .exact = 0 }));
+}
+
+fn builtinEachObject(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
+    try vm.requireArgCountRange(args, 0, 1);
+    if (args.len != 1 or !args[0].isClass() or args[0].toClassObject() != vm.class_class) {
+        return vm.raiseExceptionFmt(vm.not_implemented_error_class, "ObjectSpace.each_object currently supports Class only", .{});
+    }
+    const blk = block orelse return vm.createMethodEnumerator(receiver, try vm.intern("each_object"), args);
+
+    // Enumerator fibers may leave this frame without running Zig defers.
+    var pending: std.ArrayList(*value.ModuleObject) = .empty;
+    pending.append(vm.gc_allocator, &vm.basic_object_class.module) catch return error.Fatal;
+
+    var count: i64 = 0;
+    while (pending.pop()) |module_obj| {
+        if (module_obj.object.type_tag != .class) continue;
+        for (module_obj.subclasses.items) |subclass| {
+            if (subclass.object.type_tag == .class) {
+                pending.append(vm.gc_allocator, subclass) catch return error.Fatal;
+            }
+        }
+        const class_val = Value.fromObject(&module_obj.object);
+        _ = try vm.yieldToBlock(blk, &.{class_val});
+        count += 1;
+    }
+    return Value.integer(count);
 }
 
 fn builtinDefineFinalizer(vm: *VM, _: Value, args: []Value, block: ?Block) VMError!Value {

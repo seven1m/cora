@@ -17,6 +17,10 @@ const strscan_gem_version = "3.1.9";
 const json_gem_version = "2.19.9";
 const csv_gem_version = "3.3.6";
 const yaml_gem_version = "0.4.0";
+const bundled_gems = [_]struct { name: []const u8, version: []const u8 }{
+    .{ .name = "power_assert", .version = "3.0.1" },
+    .{ .name = "test-unit", .version = "3.7.5" },
+};
 const runtime_ext_dirs = [_][]const u8{
     "cgi",
     "csv",
@@ -65,15 +69,15 @@ fn addStepDependencies(step: *std.Build.Step, deps: []const *std.Build.Step) voi
     }
 }
 
-fn defaultGemInstallRoot(b: *std.Build, name: []const u8, version: []const u8) []const u8 {
+fn gemInstallRoot(b: *std.Build, name: []const u8, version: []const u8) []const u8 {
     return b.fmt("lib/gems/{s}/gems/{s}-{s}", .{ ruby_gem_api_version, name, version });
 }
 
 fn defaultGemLibInstallPath(b: *std.Build, name: []const u8, version: []const u8, basename: []const u8) []const u8 {
-    return b.fmt("{s}/lib/{s}", .{ defaultGemInstallRoot(b, name, version), basename });
+    return b.fmt("{s}/lib/{s}", .{ gemInstallRoot(b, name, version), basename });
 }
 
-fn addInstallDefaultGemDir(
+fn addInstallGemDir(
     b: *std.Build,
     source_dir: std.Build.LazyPath,
     name: []const u8,
@@ -83,7 +87,7 @@ fn addInstallDefaultGemDir(
     const install_step = b.addInstallDirectory(.{
         .source_dir = source_dir,
         .install_dir = .prefix,
-        .install_subdir = defaultGemInstallRoot(b, name, version),
+        .install_subdir = gemInstallRoot(b, name, version),
     });
     if (build_step) |dep| {
         install_step.step.dependOn(dep);
@@ -91,6 +95,8 @@ fn addInstallDefaultGemDir(
     b.getInstallStep().dependOn(&install_step.step);
     return &install_step.step;
 }
+
+const GemKind = enum { default, bundled };
 
 fn addInstallDefaultGemNativeLib(
     b: *std.Build,
@@ -109,15 +115,17 @@ fn addInstallDefaultGemNativeLib(
     return &install_step.step;
 }
 
-fn addWriteDefaultGemSpec(
+fn addWriteGemSpec(
     b: *std.Build,
     gemspec_dir: []const u8,
     name: []const u8,
     version: []const u8,
+    kind: GemKind,
     install_steps: []const *std.Build.Step,
 ) *std.Build.Step {
-    const gemspec_path = b.fmt("build/lib/gems/{s}/specifications/default/{s}-{s}.gemspec", .{
-        ruby_gem_api_version, name, version,
+    const spec_subdir = if (kind == .default) "specifications/default" else "specifications";
+    const gemspec_path = b.fmt("build/lib/gems/{s}/{s}/{s}-{s}.gemspec", .{
+        ruby_gem_api_version, spec_subdir, name, version,
     });
     const script = b.fmt(
         "test -f '{s}' || build/bin/cora -e '{s}'",
@@ -125,18 +133,18 @@ fn addWriteDefaultGemSpec(
             gemspec_path,
             b.fmt(
                 \\require "rubygems"
+                \\require "fileutils"
                 \\root = Dir.pwd
-                \\spec_dir = File.join(root, "build/lib/gems/{s}/specifications/default")
-                \\spec_parent_dir = File.join(root, "build/lib/gems/{s}/specifications")
-                \\Dir.mkdir(spec_parent_dir) unless File.directory?(spec_parent_dir)
-                \\Dir.mkdir(spec_dir) unless File.directory?(spec_dir)
+                \\spec_dir = File.join(root, "build/lib/gems/{s}/{s}")
+                \\FileUtils.mkdir_p(spec_dir)
                 \\Dir.chdir("{s}") do
                 \\  gemspec_name = File.basename(Dir.pwd) + ".gemspec"
                 \\  spec = Gem::Specification.load(gemspec_name)
+                \\  raise "unexpected gemspec" unless spec.name == "{s}" && spec.version.to_s == "{s}"
                 \\  File.write(File.join(spec_dir, spec.full_name + ".gemspec"), spec.to_ruby)
                 \\end
             ,
-                .{ ruby_gem_api_version, ruby_gem_api_version, gemspec_dir },
+                .{ ruby_gem_api_version, spec_subdir, gemspec_dir, name, version },
             ),
         },
     );
@@ -667,11 +675,20 @@ pub fn build(b: *std.Build) void {
     remove_legacy_json_ext_stdlib.step.dependOn(&install_stdlib.step);
     b.getInstallStep().dependOn(&remove_legacy_json_ext_stdlib.step);
 
-    const install_psych_default_gem = addInstallDefaultGemDir(b, b.path("ext/psych"), "psych", psych_gem_version, null);
-    const install_strscan_default_gem = addInstallDefaultGemDir(b, b.path(strscan_build_root), "strscan", strscan_gem_version, strscan_build_step);
-    const install_json_default_gem = addInstallDefaultGemDir(b, b.path(json_build_root), "json", json_gem_version, json_build_step);
-    const install_csv_default_gem = addInstallDefaultGemDir(b, b.path("ext/csv"), "csv", csv_gem_version, null);
-    const install_yaml_default_gem = addInstallDefaultGemDir(b, b.path("ext/yaml"), "yaml", yaml_gem_version, null);
+    const install_psych_default_gem = addInstallGemDir(b, b.path("ext/psych"), "psych", psych_gem_version, null);
+    const install_strscan_default_gem = addInstallGemDir(b, b.path(strscan_build_root), "strscan", strscan_gem_version, strscan_build_step);
+    const install_json_default_gem = addInstallGemDir(b, b.path(json_build_root), "json", json_gem_version, json_build_step);
+    const install_csv_default_gem = addInstallGemDir(b, b.path("ext/csv"), "csv", csv_gem_version, null);
+    const install_yaml_default_gem = addInstallGemDir(b, b.path("ext/yaml"), "yaml", yaml_gem_version, null);
+
+    for (bundled_gems) |gem| {
+        const install_gem = addInstallGemDir(b, b.path(b.fmt("ext/{s}", .{gem.name})), gem.name, gem.version, null);
+        _ = addWriteGemSpec(b, b.fmt("ext/{s}", .{gem.name}), gem.name, gem.version, .bundled, &.{
+            &install_exe.step,
+            &install_stdlib.step,
+            install_gem,
+        });
+    }
 
     const install_psych_default_gem_so = addInstallDefaultGemNativeLib(
         b,
@@ -741,31 +758,31 @@ pub fn build(b: *std.Build) void {
     addStepDependencies(json_build.parser_extconf_step, &native_gem_env_steps);
     addStepDependencies(json_build.generator_extconf_step, &native_gem_env_steps);
 
-    _ = addWriteDefaultGemSpec(b, "ext/psych", "psych", psych_gem_version, &.{
+    _ = addWriteGemSpec(b, "ext/psych", "psych", psych_gem_version, .default, &.{
         &install_exe.step,
         &install_stdlib.step,
         install_psych_default_gem,
         install_psych_default_gem_so,
     });
-    _ = addWriteDefaultGemSpec(b, "build/strscan", "strscan", strscan_gem_version, &.{
+    _ = addWriteGemSpec(b, "build/strscan", "strscan", strscan_gem_version, .default, &.{
         &install_exe.step,
         &install_stdlib.step,
         install_strscan_default_gem,
         install_strscan_default_gem_so,
     });
-    _ = addWriteDefaultGemSpec(b, "build/json", "json", json_gem_version, &.{
+    _ = addWriteGemSpec(b, "build/json", "json", json_gem_version, .default, &.{
         &install_exe.step,
         &install_stdlib.step,
         install_json_default_gem,
         install_json_default_gem_parser_so,
         install_json_default_gem_generator_so,
     });
-    _ = addWriteDefaultGemSpec(b, "ext/csv", "csv", csv_gem_version, &.{
+    _ = addWriteGemSpec(b, "ext/csv", "csv", csv_gem_version, .default, &.{
         &install_exe.step,
         &install_stdlib.step,
         install_csv_default_gem,
     });
-    _ = addWriteDefaultGemSpec(b, "ext/yaml", "yaml", yaml_gem_version, &.{
+    _ = addWriteGemSpec(b, "ext/yaml", "yaml", yaml_gem_version, .default, &.{
         &install_exe.step,
         &install_stdlib.step,
         install_yaml_default_gem,

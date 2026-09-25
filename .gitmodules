@@ -76,3 +76,9 @@
 [submodule "ext/ipaddr"]
 	path = ext/ipaddr
 	url = https://github.com/ruby/ipaddr
+[submodule "ext/test-unit"]
+	path = ext/test-unit
+	url = https://github.com/test-unit/test-unit.git
+[submodule "ext/power_assert"]
+	path = ext/power_assert
+	url = https://github.com/ruby/power_assert.git
