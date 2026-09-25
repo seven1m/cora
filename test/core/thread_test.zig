@@ -29,6 +29,18 @@ test "Thread#join waits for completion" {
     try std.testing.expectEqual(@as(i64, 1), result.toInteger());
 }
 
+test "Thread#join timeout waits for elapsed time" {
+    const result = try evalCode(
+        \\thread = Thread.new { sleep 0.2 }
+        \\start = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+        \\joined = thread.join(0.05)
+        \\elapsed = Process.clock_gettime(Process::CLOCK_MONOTONIC) - start
+        \\thread.kill.join
+        \\joined.nil? && elapsed >= 0.04
+    );
+    try std.testing.expect(result.isTruthy());
+}
+
 test "Thread#value returns block result" {
     const result = try evalCode(
         \\t = Thread.new { 1 + 2 + 3 }

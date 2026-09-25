@@ -78,7 +78,7 @@ pub const SignalTrapMode = enum {
     callable,
 };
 
-fn monotonicMilliseconds() i64 {
+pub fn monotonicMilliseconds() i64 {
     var timespec: std.posix.timespec = undefined;
     if (clock_gettime(std.posix.CLOCK.MONOTONIC, &timespec) != 0) return 0;
 

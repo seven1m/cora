@@ -332,9 +332,8 @@ fn builtinThreadJoin(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError
             return Value.nil();
         }
 
-        var spin_budget: u32 = @intFromFloat(@min(seconds * 1000.0, 1000.0));
-        if (spin_budget == 0) spin_budget = 1;
-        while (thread.state != .terminated and spin_budget > 0) : (spin_budget -= 1) {
+        const deadline_ms = @as(f64, @floatFromInt(vm_mod.monotonicMilliseconds())) + seconds * 1000.0;
+        while (thread.state != .terminated and @as(f64, @floatFromInt(vm_mod.monotonicMilliseconds())) < deadline_ms) {
             try vm.threadYield();
         }
 
