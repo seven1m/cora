@@ -488,7 +488,10 @@ pub fn register(vm: *VM) !void {
     try vm.process_status_class.module.methods.put(to_i_sym, value.MethodEntry.builtin(&builtinProcessStatusToI, .{ .exact = 0 }));
 
     const fork_sym = try vm.intern("fork");
-    try vm.kernel_module.methods.put(fork_sym, value.MethodEntry.builtin(&builtinKernelFork, .{ .exact = 0 }));
+    const fork_entry = value.MethodEntry.builtin(&builtinKernelFork, .{ .exact = 0 });
+    try vm.kernel_module.methods.put(fork_sym, fork_entry);
+    const process_singleton = try vm.getOrCreateSingletonClass(Value.fromObject(&vm.process_module.object));
+    try process_singleton.module.methods.put(fork_sym, fork_entry);
 
     const trap_sym = try vm.intern("trap");
     try vm.kernel_module.methods.put(trap_sym, value.MethodEntry.builtinWithVisibility(&builtinKernelTrap, .{ .variadic = 1 }, .private));
@@ -3086,10 +3089,8 @@ pub fn builtinKernelFork(vm: *VM, _: Value, args: []Value, block: ?Block) VMErro
     if (vm.stdout) |out| _ = out.flush() catch {};
     if (vm.stderr) |err_out| _ = err_out.flush() catch {};
 
-    const rc = std.c.fork();
-    if (rc < 0) {
-        return vm.raiseExceptionFmt(vm.runtime_error_class, "fork failed", .{});
-    }
+    const pid_value = try vm.callMethodByName(Value.fromObject(&vm.process_module.object), "_fork", &[_]Value{}, null);
+    const rc = try pid_value.integerArgToI64(vm, "no implicit conversion into Integer", "pid out of range");
 
     if (rc > 0) {
         // parent

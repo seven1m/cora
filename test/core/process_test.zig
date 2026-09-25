@@ -239,6 +239,30 @@ test "Process.detach returns a Thread" {
     try std.testing.expectEqual(true, result.toBool());
 }
 
+test "Process and Kernel fork invoke overridable Process._fork" {
+    if (builtin.os.tag == .windows) return;
+    const result = try evalCode(
+        \\module ForkHook
+        \\  def _fork
+        \\    pid = super
+        \\    $fork_hook_seen = true if pid == 0
+        \\    pid
+        \\  end
+        \\end
+        \\Process.singleton_class.prepend(ForkHook)
+        \\path = "/tmp/cora_fork_hook_#{Process.pid}"
+        \\first = Process.fork { File.write(path, $fork_hook_seen ? "yes" : "no"); exit! }
+        \\Process.wait(first)
+        \\one = File.read(path)
+        \\second = fork { File.write(path, $fork_hook_seen ? "yes" : "no"); exit! }
+        \\Process.wait(second)
+        \\two = File.read(path)
+        \\File.delete(path)
+        \\Process.method(:fork).owner == Process.singleton_class && one == "yes" && two == "yes"
+    );
+    try std.testing.expect(result.isTruthy());
+}
+
 test "Process.detach thread value has correct pid" {
     if (builtin.os.tag == .windows) return;
 

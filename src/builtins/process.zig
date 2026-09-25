@@ -38,6 +38,9 @@ pub fn register(vm: *VM) !void {
     const ppid_sym = try vm.intern("ppid");
     try process_singleton.module.methods.put(ppid_sym, value.MethodEntry.builtin(&builtinProcessPpid, .{ .exact = 0 }));
 
+    const fork_sym = try vm.intern("_fork");
+    try process_singleton.module.methods.put(fork_sym, value.MethodEntry.builtin(&builtinProcessForkRaw, .{ .exact = 0 }));
+
     const daemon_sym = try vm.intern("daemon");
     try process_singleton.module.methods.put(daemon_sym, value.MethodEntry.builtin(&builtinProcessDaemon, .{ .variadic = 0 }));
 
@@ -76,6 +79,16 @@ pub fn register(vm: *VM) !void {
 
     const wnohang_sym = try vm.intern("WNOHANG");
     try vm.process_module.constants.put(wnohang_sym, .{ .value = Value.integer(std.posix.W.NOHANG) });
+}
+
+pub fn builtinProcessForkRaw(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    if (builtin.os.tag == .windows) {
+        return vm.raiseExceptionFmt(vm.not_implemented_error_class, "fork is not implemented on Windows", .{});
+    }
+    const pid = std.c.fork();
+    if (pid < 0) return vm.raiseErrnoFmt(std.posix.errno(pid), "fork failed", .{});
+    return Value.integer(@intCast(pid));
 }
 
 fn signalArgToNumber(vm: *VM, signal_value: Value) VMError!c_int {
