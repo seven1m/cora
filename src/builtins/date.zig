@@ -117,8 +117,6 @@ pub fn register(vm: *VM) !void {
     try datetime_class.module.methods.put(try vm.intern("sec_fraction"), second_fraction_entry);
     try datetime_class.module.methods.put(try vm.intern("offset"), value.MethodEntry.builtin(&builtinDateTimeOffset, .{ .exact = 0 }));
     try datetime_class.module.methods.put(try vm.intern("start"), value.MethodEntry.builtin(&builtinDateStart, .{ .exact = 0 }));
-    try datetime_class.module.methods.put(try vm.intern("+"), value.MethodEntry.builtin(&builtinDateTimeAdd, .{ .exact = 1 }));
-    try datetime_class.module.methods.put(try vm.intern("-"), value.MethodEntry.builtin(&builtinDateTimeSubtract, .{ .exact = 1 }));
     try datetime_class.module.methods.put(try vm.intern("new_offset"), value.MethodEntry.builtin(&builtinDateTimeNewOffset, .{ .variadic = 0 }));
     try datetime_class.module.methods.put(try vm.intern("to_date"), value.MethodEntry.builtin(&builtinDateTimeToDate, .{ .exact = 0 }));
     try datetime_class.module.methods.put(try vm.intern("to_datetime"), value.MethodEntry.builtin(&builtinDateTimeToDateTime, .{ .exact = 0 }));
@@ -789,6 +787,7 @@ fn numericDayCount(vm: *VM, arg: Value) VMError!i64 {
 
 fn builtinDateAdd(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 1);
+    if (receiver.toDateObject().kind == .datetime) return builtinDateTimeAdd(vm, receiver, args, null);
     const amount = try numericDayCount(vm, args[0]);
     const date = receiver.toDateObject();
     return dateWithDay(vm, date, date.chronological_day.toInteger() + amount);
@@ -796,6 +795,7 @@ fn builtinDateAdd(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Va
 
 fn builtinDateSubtract(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 1);
+    if (receiver.toDateObject().kind == .datetime) return builtinDateTimeSubtract(vm, receiver, args, null);
     const date = receiver.toDateObject();
     if (args[0].isDate()) {
         return Value.integer(date.chronological_day.toInteger() - args[0].toDateObject().chronological_day.toInteger());

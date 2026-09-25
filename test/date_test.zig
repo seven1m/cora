@@ -73,6 +73,19 @@ test "DateTime.iso8601 parses calendar dates and offsets" {
     try std.testing.expectEqualStrings("", result.stderr);
 }
 
+test "DateTime arithmetic inherits Date methods" {
+    var stdout_buf: [1024]u8 = undefined;
+    var stderr_buf: [1024]u8 = undefined;
+    const result = evalCodeWithOutput(
+        \\require "date"
+        \\time = DateTime.civil(2024, 1, 1, 12)
+        \\p [DateTime.instance_method(:+).owner == Date, DateTime.instance_method(:-).owner == Date, (time + Rational(1, 2)).iso8601, (time - Rational(1, 2)).iso8601]
+    , &stdout_buf, &stderr_buf);
+    try std.testing.expect(result.err == null);
+    try std.testing.expectEqualStrings("[true, true, \"2024-01-02T00:00:00+00:00\", \"2024-01-01T00:00:00+00:00\"]\n", result.stdout);
+    try std.testing.expectEqualStrings("", result.stderr);
+}
+
 test "Time#to_date is registered with Date support and preserves local civil date" {
     var stdout_buf: [1024]u8 = undefined;
     var stderr_buf: [1024]u8 = undefined;
