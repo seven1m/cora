@@ -39,10 +39,8 @@ describe "Regexp#encoding" do
   end
 
   it "upgrades the encoding to that of an embedded String" do
-    CORAFIXME "String#encode UTF-8 to EUC-JP cannot convert U+6587", exception: Encoding::UndefinedConversionError, message: /U\+6587 from UTF-8 to EUC-JP/ do
-      str = "文字化け".encode('euc-jp')
-      /#{str}/.encoding.should == Encoding::EUC_JP
-    end
+    str = "文字化け".encode('euc-jp')
+    /#{str}/.encoding.should == Encoding::EUC_JP
   end
 
   it "ignores the encoding and uses US-ASCII if the string has only ASCII characters" do

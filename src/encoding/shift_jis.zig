@@ -1,4 +1,5 @@
 const encoding = @import("../encoding.zig");
+const jis = @import("jis.zig");
 
 pub const ShiftJisEncoding = struct {
     pub fn name(_: ShiftJisEncoding) []const u8 {
@@ -86,25 +87,12 @@ pub const ShiftJisEncoding = struct {
             return 1;
         }
 
-        // Hiragana block in Shift_JIS: 0x82 0x9F..0xF1 maps to U+3041..U+3093
-        if (codepoint >= 0x3041 and codepoint <= 0x3093) {
-            const offset = codepoint - 0x3041;
-            out[0] = 0x82;
-            out[1] = @intCast(0x9F + offset);
-            return 2;
-        }
-
-        // Katakana letter A
-        if (codepoint == 0x30A2) {
-            out[0] = 0x83;
-            out[1] = 0x41;
-            return 2;
-        }
-
-        // Dagger
-        if (codepoint == 0x2020) {
-            out[0] = 0x81;
-            out[1] = 0xE0;
+        if (jis.encode0208(codepoint)) |pair| {
+            const row: u8 = @truncate(pair >> 8);
+            const col: u8 = @truncate(pair);
+            const lead = @as(u8, 0x81) + (row - 0x21) / 2;
+            out[0] = if (lead > 0x9F) lead + 0x40 else lead;
+            out[1] = if (row & 1 == 0) col + 0x7E else col + (if (col < 0x60) @as(u8, 0x1F) else 0x20);
             return 2;
         }
 
@@ -131,16 +119,10 @@ pub const ShiftJisEncoding = struct {
     }
 
     fn decodePair(b0: u8, b1: u8) ?u32 {
-        // Hiragana block in Shift_JIS: 0x82 0x9F..0xF1 maps to U+3041..U+3093
-        if (b0 == 0x82 and b1 >= 0x9F and b1 <= 0xF1) {
-            return 0x3041 + @as(u32, b1 - 0x9F);
-        }
-        if (b0 == 0x83 and b1 == 0x41) {
-            return 0x30A2;
-        }
-        if (b0 == 0x81 and b1 == 0xE0) {
-            return 0x2020;
-        }
-        return null;
+        if (!isLeadByte(b0) or !isTrailByte(b1)) return null;
+        const lead = b0 - (if (b0 <= 0x9F) @as(u8, 0x81) else 0xC1);
+        const row = 0x21 + lead * 2 + @as(u8, if (b1 >= 0x9F) 1 else 0);
+        const col = if (b1 >= 0x9F) b1 - 0x7E else b1 - (if (b1 < 0x7F) @as(u8, 0x1F) else 0x20);
+        return jis.decode0208(row, col);
     }
 };

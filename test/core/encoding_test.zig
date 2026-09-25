@@ -257,6 +257,19 @@ test "String#encode transcodes UTF-8 to SHIFT_JIS and preserves char count" {
     try std.testing.expectEqual(@as(i64, 4), result.toInteger());
 }
 
+test "Japanese encodings use JIS mappings for kanji punctuation and accented letters" {
+    const result = try evalCode(
+        \\[
+        \\  "壁鍵猫！".encode("EUC-JP").bytes == [0xCA, 0xC9, 0xB8, 0xB0, 0xC7, 0xAD, 0xA1, 0xAA],
+        \\  "壁鍵猫！".encode("Shift_JIS").bytes == [0x95, 0xC7, 0x8C, 0xAE, 0x94, 0x4C, 0x81, 0x49],
+        \\  "üé".encode("EUC-JP").bytes == [0x8F, 0xAB, 0xE4, 0x8F, 0xAB, 0xB1],
+        \\  "壁鍵猫！üé".encode("EUC-JP").encode("UTF-8") == "壁鍵猫！üé",
+        \\  "壁鍵猫！".encode("Shift_JIS").encode("UTF-8") == "壁鍵猫！"
+        \\]
+    );
+    for (result.toArrayObject().elements.items) |item| try std.testing.expect(item.isTruthy());
+}
+
 test "String#encode decodes ISO-2022-JP katakana" {
     const result = try evalCode(
         \\[27, 36, 66, 37, 34, 37, 106, 37, 57, 27, 40, 66].pack("C*").force_encoding("ISO-2022-JP").encode("UTF-8")

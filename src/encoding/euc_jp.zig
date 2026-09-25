@@ -1,4 +1,5 @@
 const encoding = @import("../encoding.zig");
+const jis = @import("jis.zig");
 
 pub const EucJpEncoding = struct {
     pub fn name(_: EucJpEncoding) []const u8 {
@@ -39,7 +40,8 @@ pub const EucJpEncoding = struct {
             const b2 = bytes[i + 2];
             if (b1 >= 0xA1 and b1 <= 0xFE and b2 >= 0xA1 and b2 <= 0xFE) {
                 index.* += 3;
-                return .{ .valid = true, .len = 3, .codepoint = (@as(u32, b0) << 16) | (@as(u32, b1) << 8) | b2 };
+                const cp = jis.decode0212(b1 - 0x80, b2 - 0x80) orelse (@as(u32, b0) << 16) | (@as(u32, b1) << 8) | b2;
+                return .{ .valid = true, .len = 3, .codepoint = cp };
             }
             index.* += 3;
             return .{ .valid = false, .len = 3, .codepoint = b0 };
@@ -92,45 +94,21 @@ pub const EucJpEncoding = struct {
             return 1;
         }
 
-        // Hiragana block in EUC-JP: U+3041..U+3093 => 0xA4A1..0xA4F3
-        if (codepoint >= 0x3041 and codepoint <= 0x3093) {
-            out[0] = 0xA4;
-            out[1] = @intCast(0xA1 + (codepoint - 0x3041));
+        if (codepoint >= 0xFF61 and codepoint <= 0xFF9F) {
+            out[0] = 0x8E;
+            out[1] = @intCast(0xA1 + codepoint - 0xFF61);
             return 2;
         }
 
-        // Katakana letter A
-        if (codepoint == 0x30A2) {
-            out[0] = 0xA5;
-            out[1] = 0xA2;
+        if (jis.encode0208(codepoint)) |pair| {
+            out[0] = @as(u8, @truncate(pair >> 8)) + 0x80;
+            out[1] = @as(u8, @truncate(pair)) + 0x80;
             return 2;
         }
-
-        // Dagger
-        if (codepoint == 0x2020) {
-            out[0] = 0xA2;
-            out[1] = 0xAB;
-            return 2;
-        }
-
-        // pi
-        if (codepoint == 0x03C0) {
-            out[0] = 0xA6;
-            out[1] = 0xD0;
-            return 2;
-        }
-
-        // ü and é (JIS X 0212 plane, 3-byte EUC-JP with SS3 lead)
-        if (codepoint == 0x00FC) {
+        if (jis.encode0212(codepoint)) |pair| {
             out[0] = 0x8F;
-            out[1] = 0xAB;
-            out[2] = 0xE4;
-            return 3;
-        }
-        if (codepoint == 0x00E9) {
-            out[0] = 0x8F;
-            out[1] = 0xAB;
-            out[2] = 0xB1;
+            out[1] = @as(u8, @truncate(pair >> 8)) + 0x80;
+            out[2] = @as(u8, @truncate(pair)) + 0x80;
             return 3;
         }
 
@@ -143,23 +121,18 @@ pub const EucJpEncoding = struct {
             if (b0 <= 0x7F) return b0;
             return null;
         }
-        if (bytes.len != 2) return null;
-        return decodePair(bytes[0], bytes[1]);
+        if (bytes.len == 2) {
+            if (bytes[0] == 0x8E and bytes[1] >= 0xA1 and bytes[1] <= 0xDF) return 0xFF61 + @as(u32, bytes[1] - 0xA1);
+            return decodePair(bytes[0], bytes[1]);
+        }
+        if (bytes.len == 3 and bytes[0] == 0x8F and bytes[1] >= 0xA1 and bytes[2] >= 0xA1) {
+            return jis.decode0212(bytes[1] - 0x80, bytes[2] - 0x80);
+        }
+        return null;
     }
 
     fn decodePair(b0: u8, b1: u8) ?u32 {
-        if (b0 == 0xA4 and b1 >= 0xA1 and b1 <= 0xF3) {
-            return 0x3041 + @as(u32, b1 - 0xA1);
-        }
-        if (b0 == 0xA5 and b1 == 0xA2) {
-            return 0x30A2;
-        }
-        if (b0 == 0xA2 and b1 == 0xAB) {
-            return 0x2020;
-        }
-        if (b0 == 0xA6 and b1 == 0xD0) {
-            return 0x03C0;
-        }
-        return null;
+        if (b0 < 0xA1 or b1 < 0xA1) return null;
+        return jis.decode0208(b0 - 0x80, b1 - 0x80);
     }
 };

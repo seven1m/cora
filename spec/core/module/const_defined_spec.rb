@@ -62,12 +62,9 @@ describe "Module#const_defined?" do
   end
 
   it "returns true when passed a constant name with EUC-JP characters" do
-    str = nil
-    CORAFIXME "UTF-8 to EUC-JP transcoding is not fully implemented", message: /UTF-8 to EUC-JP/ do
-      str = "CS_CONSTλ".encode("euc-jp")
-      ConstantSpecs.const_set str, 1
-      ConstantSpecs.const_defined?(str).should be_true
-    end
+    str = "CS_CONSTλ".encode("euc-jp")
+    ConstantSpecs.const_set str, 1
+    ConstantSpecs.const_defined?(str).should be_true
     ConstantSpecs.send(:remove_const, str) if str
   end
 
