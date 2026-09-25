@@ -175,6 +175,24 @@ class Date
           else
             return nil
           end
+        when 'e'
+          if s =~ /\A\s*(\d{1,2})/
+            result[:mday] = $1.to_i
+            s = $'
+            f = f[2..]
+          else
+            return nil
+          end
+        when 'b', 'B', 'h'
+          if s =~ /\A([A-Za-z]+)/
+            month = ABBR_MONTHNAMES.index($1[0, 3].capitalize)
+            return nil unless month
+            result[:mon] = month
+            s = $'
+            f = f[2..]
+          else
+            return nil
+          end
         when 'H'
           if s =~ /\A(\d{1,2})/
             result[:hour] = $1.to_i

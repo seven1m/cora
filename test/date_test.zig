@@ -466,3 +466,19 @@ test "Date parses timestamps with spaced numeric offsets" {
     try std.testing.expectEqualStrings("[\"-1200\", -43200, 19]\n[\"-12\", -43200, (0/1)]\n", result.stdout);
     try std.testing.expectEqualStrings("", result.stderr);
 }
+
+test "Date strptime parses month names and space padded days" {
+    var stdout_buf: [1024]u8 = undefined;
+    var stderr_buf: [1024]u8 = undefined;
+    const result = evalCodeWithOutput(
+        \\require "date"
+        \\p Date._strptime("Feb", "%b")
+        \\p Date._strptime("Feb 2005", "%b %Y")
+        \\p Date._strptime(" 2 February 2005", "%e %B %Y")
+        \\p Date._strptime("Bogus", "%B")
+    , &stdout_buf, &stderr_buf);
+
+    try std.testing.expect(result.err == null);
+    try std.testing.expectEqualStrings("{mon: 2}\n{mon: 2, year: 2005}\n{mday: 2, mon: 2, year: 2005}\nnil\n", result.stdout);
+    try std.testing.expectEqualStrings("", result.stderr);
+}
