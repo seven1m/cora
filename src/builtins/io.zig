@@ -215,6 +215,9 @@ pub fn register(vm: *VM) !void {
     const readline_sym = try vm.intern("readline");
     try vm.io_class.module.methods.put(readline_sym, value.MethodEntry.builtin(&builtinIoReadline, .{ .variadic = 0 }));
 
+    const readlines_sym = try vm.intern("readlines");
+    try vm.io_class.module.methods.put(readlines_sym, value.MethodEntry.builtin(&builtinIoReadlines, .{ .variadic = 0 }));
+
     const rewind_sym = try vm.intern("rewind");
     try vm.io_class.module.methods.put(rewind_sym, value.MethodEntry.builtin(&builtinIoRewind, .{ .exact = 0 }));
 
@@ -2883,6 +2886,22 @@ pub fn builtinIoReadline(vm: *VM, receiver: Value, args: []Value, block: ?Block)
         return vm.raiseExceptionFmt(vm.eof_error_class, "end of file reached", .{});
     }
     return line;
+}
+
+pub fn builtinIoReadlines(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCountRange(args, 0, 2);
+    const limit = if (args.len == 2) args[1] else if (args.len == 1 and args[0].isInteger()) args[0] else Value.nil();
+    if (limit.isInteger() and limit.toInteger() == 0) {
+        return vm.raiseExceptionFmt(vm.argument_error_class, "invalid limit: 0 for readlines", .{});
+    }
+
+    const lines = try vm.createArray();
+    while (true) {
+        const line = try builtinIoGets(vm, receiver, args, null);
+        if (line.isNil()) break;
+        lines.elements.append(vm.gc_allocator, line) catch return error.Fatal;
+    }
+    return Value.fromObject(&lines.object);
 }
 
 pub fn builtinIoRewind(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {

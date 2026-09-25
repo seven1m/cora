@@ -53,10 +53,8 @@ describe "IO#eof?" do
   end
 
   it "returns true after reading with readlines" do
-    CORAFIXME "IO#readlines is not implemented yet", exception: NoMethodError, message: /undefined method 'readlines'/ do
-      @io.readlines
-      @io.should.eof?
-    end
+    @io.readlines
+    @io.should.eof?
   end
 
   it "returns false on just opened non-empty stream" do

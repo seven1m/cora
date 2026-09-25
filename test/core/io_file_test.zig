@@ -97,6 +97,21 @@ test "File.write and File.read round trip content" {
     try std.testing.expectEqualSlices(u8, "hello", result.toArrayObject().elements.items[1].toStringObject().str);
 }
 
+test "IO#readlines collects lines from a pipe" {
+    const result = try evalCode(
+        \\reader, writer = IO.pipe
+        \\writer.write("first\nsecond\n")
+        \\writer.close
+        \\lines = reader.readlines
+        \\reader.close
+        \\lines
+    );
+    const lines = result.toArrayObject().elements.items;
+    try std.testing.expectEqual(@as(usize, 2), lines.len);
+    try std.testing.expectEqualStrings("first\n", lines[0].toStringObject().str);
+    try std.testing.expectEqualStrings("second\n", lines[1].toStringObject().str);
+}
+
 test "File.read accepts optional length and offset" {
     var path_buf: [128]u8 = undefined;
     const path = try uniquePath(&path_buf);
