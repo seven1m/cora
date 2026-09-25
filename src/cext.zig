@@ -506,51 +506,68 @@ export fn rb_sprintf(fmt: [*c]const u8, ...) VALUE {
     defer @cVaEnd(&ap);
     if (fmt == null) return 0;
     const vm = getVM();
-    var out: std.ArrayList(u8) = .empty;
-    defer out.deinit(vm.allocator);
-    const s = std.mem.span(fmt);
+    var rendered: std.ArrayList(u8) = .empty;
+    defer rendered.deinit(vm.allocator);
+    if (!formatCVarargs(vm, fmt, &ap, &rendered)) return 0;
+    const str_val = vm.newString(rendered.items, false) catch return 0;
+    return str_val.raw;
+}
+
+fn formatCVarargs(vm: *VM, fmt: [*c]const u8, ap: *std.builtin.VaList, out: *std.ArrayList(u8)) callconv(.c) bool {
+    const s = if (fmt != null) std.mem.span(fmt) else "";
     var i: usize = 0;
     while (i < s.len) : (i += 1) {
         if (s[i] != '%') {
-            out.append(vm.allocator, s[i]) catch return 0;
+            out.append(vm.allocator, s[i]) catch return false;
             continue;
         }
         i += 1;
         if (i >= s.len) break;
         if (s[i] == '%') {
-            out.append(vm.allocator, '%') catch return 0;
+            out.append(vm.allocator, '%') catch return false;
             continue;
         }
         if (s[i] == 'l' and i + 1 < s.len and s[i + 1] == 'd') {
             var buf: [32]u8 = undefined;
-            const rendered = std.fmt.bufPrint(&buf, "{d}", .{@cVaArg(&ap, c_long)}) catch return 0;
-            out.appendSlice(vm.allocator, rendered) catch return 0;
+            const rendered = std.fmt.bufPrint(&buf, "{d}", .{@cVaArg(ap, c_long)}) catch return false;
+            out.appendSlice(vm.allocator, rendered) catch return false;
             i += 1;
             continue;
         }
         if (s[i] == 'd') {
             var buf: [32]u8 = undefined;
-            const rendered = std.fmt.bufPrint(&buf, "{d}", .{@cVaArg(&ap, c_int)}) catch return 0;
-            out.appendSlice(vm.allocator, rendered) catch return 0;
+            const rendered = std.fmt.bufPrint(&buf, "{d}", .{@cVaArg(ap, c_int)}) catch return false;
+            out.appendSlice(vm.allocator, rendered) catch return false;
             continue;
         }
         if (s[i] == 's') {
-            const ptr = @cVaArg(&ap, [*c]const u8);
-            out.appendSlice(vm.allocator, if (ptr != null) std.mem.span(ptr) else "(null)") catch return 0;
+            const ptr = @cVaArg(ap, [*c]const u8);
+            out.appendSlice(vm.allocator, if (ptr != null) std.mem.span(ptr) else "(null)") catch return false;
             continue;
         }
-        out.append(vm.allocator, '%') catch return 0;
-        out.append(vm.allocator, s[i]) catch return 0;
+        if (s[i] == 'V') {
+            const arg = Value{ .raw = @cVaArg(ap, VALUE) };
+            if (arg.isString()) {
+                out.appendSlice(vm.allocator, arg.toStringObject().str) catch return false;
+                continue;
+            }
+            out.appendSlice(vm.allocator, "%V") catch return false;
+            continue;
+        }
+        out.append(vm.allocator, '%') catch return false;
+        out.append(vm.allocator, s[i]) catch return false;
     }
-    const str_val = vm.newString(out.items, false) catch return 0;
-    return str_val.raw;
+    return true;
 }
 
 export fn rb_vsprintf(fmt: [*c]const u8, ap: std.builtin.VaList) VALUE {
-    _ = ap;
     if (fmt == null) return 0;
     const vm = getVM();
-    const str_val = vm.newString(std.mem.span(fmt), false) catch return 0;
+    var args = ap;
+    var rendered: std.ArrayList(u8) = .empty;
+    defer rendered.deinit(vm.allocator);
+    if (!formatCVarargs(vm, fmt, &args, &rendered)) return 0;
+    const str_val = vm.newString(rendered.items, false) catch return 0;
     return str_val.raw;
 }
 
@@ -1095,18 +1112,12 @@ export fn rb_define_private_method(klass_raw: VALUE, name_ptr: [*c]const u8, fun
 
 export fn rb_raise(exc_raw: VALUE, fmt: [*c]const u8, ...) void {
     const vm = getVM();
-    const msg_raw = if (fmt != null) std.mem.span(fmt) else "";
-    var rendered: ?[]const u8 = null;
-    if (std.mem.indexOf(u8, msg_raw, "%V")) |marker| {
-        var ap = @cVaStart();
-        defer @cVaEnd(&ap);
-        const arg = Value{ .raw = @cVaArg(&ap, VALUE) };
-        if (arg.isString()) {
-            rendered = std.fmt.allocPrint(vm.allocator, "{s}{s}{s}", .{ msg_raw[0..marker], arg.toStringObject().str, msg_raw[marker + 2 ..] }) catch null;
-        }
-    }
-    defer if (rendered) |message| vm.allocator.free(message);
-    _ = vm.raiseExceptionFmt(@ptrFromInt(exc_raw), "{s}", .{rendered orelse msg_raw}) catch {};
+    var ap = @cVaStart();
+    var rendered: std.ArrayList(u8) = .empty;
+    const formatted = formatCVarargs(vm, fmt, &ap, &rendered);
+    @cVaEnd(&ap);
+    _ = vm.raiseExceptionFmt(@ptrFromInt(exc_raw), "{s}", .{if (formatted) rendered.items else ""}) catch {};
+    rendered.deinit(vm.allocator);
     if (vm.cext_jmp_buf) |buf| {
         siglongjmp(buf, 1);
     }

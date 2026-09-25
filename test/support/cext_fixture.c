@@ -369,6 +369,14 @@ cext_check_array_type(VALUE self, VALUE obj)
     return Qtrue;
 }
 
+static VALUE
+cext_raise_formatted(VALUE self)
+{
+    (void)self;
+    rb_raise(rb_eRuntimeError, "alias value %s %d %ld %V %%", "bad", 3, 4L, rb_str_new_cstr("text"));
+    return Qnil;
+}
+
 void Init_fixture(void)
 {
     VALUE mCoraCExt = rb_define_module("CoraCExt");
@@ -411,6 +419,7 @@ void Init_fixture(void)
     rb_define_module_function(mCoraCExt, "undef_class_new", cext_undef_class_new, 1);
     rb_define_module_function(mCoraCExt, "scan_keywords", cext_scan_keywords, -1);
     rb_define_module_function(mCoraCExt, "check_array_type", cext_check_array_type, 1);
+    rb_define_module_function(mCoraCExt, "raise_formatted", cext_raise_formatted, 0);
 
     rb_define_method(rb_cString, "cora_cext_test", cora_cext_test, 0);
     rb_define_method(rb_cString, "cext_yield", cext_simple_yield, 1);

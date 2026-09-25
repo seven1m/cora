@@ -27,6 +27,19 @@ test "C extension Check_Type accepts arrays and raises for other types" {
     try std.testing.expectEqualStrings("wrong argument type Integer (expected Array)", values[1].toStringObject().str);
 }
 
+test "C extension rb_raise formats varargs messages" {
+    const result = try evalCode(
+        \\$LOAD_PATH << "build/cext"
+        \\require "fixture.so"
+        \\begin
+        \\  CoraCExt.raise_formatted
+        \\rescue RuntimeError => error
+        \\  error.message
+        \\end
+    );
+    try std.testing.expectEqualStrings("alias value bad 3 4 text %", result.toStringObject().str);
+}
+
 test "C extension defines constants on modules" {
     const result = try evalCode(
         \\$LOAD_PATH << "build/cext"
