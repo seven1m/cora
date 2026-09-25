@@ -4,6 +4,20 @@ const test_helper = @import("../test_helper.zig");
 const evalCode = test_helper.evalCode;
 const evalCodeWithOutput = test_helper.evalCodeWithOutput;
 
+test "String bang substitutions return self when a match leaves bytes unchanged" {
+    const result = try evalCode(
+        \\a = "posts"
+        \\b = "posts"
+        \\[a.sub!(/s$/, "s").equal?(a),
+        \\ b.gsub!(/s/, "s").equal?(b),
+        \\ a.sub!(/z/, "z").nil?,
+        \\ b.gsub!(/z/, "z").nil?]
+    );
+    for (result.toArrayObject().elements.items) |item| {
+        try std.testing.expect(item.isTrue());
+    }
+}
+
 test "String#inspect basic" {
     const result = try evalCode("\"hello\".inspect");
     try std.testing.expect(result.isString());

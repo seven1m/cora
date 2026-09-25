@@ -1466,7 +1466,7 @@ fn stringSub(vm: *VM, receiver: Value, args: []Value, block: ?Block, bang: bool)
     const modified = !result_obj.encoding.eql(snapshot.encoding) or !std.mem.eql(u8, result_obj.str, snapshot.str);
 
     if (!bang) return result;
-    if (!modified) return Value.nil();
+    if (!modified) return receiver;
 
     const receiver_obj = receiver.toStringObject();
     try warnSymbolToSMutation(vm, receiver_obj);
@@ -1550,7 +1550,7 @@ fn stringGsub(vm: *VM, receiver: Value, args: []Value, block: ?Block, bang: bool
 
     const result_obj = result.toStringObject();
     const modified = !result_obj.encoding.eql(snapshot.encoding) or !std.mem.eql(u8, result_obj.str, snapshot.str);
-    if (!modified) return Value.nil();
+    if (!modified) return receiver;
 
     const receiver_obj = receiver.toStringObject();
     try warnSymbolToSMutation(vm, receiver_obj);
