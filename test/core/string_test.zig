@@ -277,6 +277,17 @@ test "String#% does not parse text after a conversion as a named reference" {
     try std.testing.expectEqualSlices(u8, "<title>Rack</title>", result.toStringObject().str);
 }
 
+test "String#% preserves text after brace named references" {
+    const result = try evalCode(
+        \\values = { x: "qux" }
+        \\[("foo %{x} bar" % values), ("%{x}  tail" % values), ("%10{x}" % values)]
+    );
+    const values = result.toArrayObject().elements.items;
+    try std.testing.expectEqualStrings("foo qux bar", values[0].toStringObject().str);
+    try std.testing.expectEqualStrings("qux  tail", values[1].toStringObject().str);
+    try std.testing.expectEqualStrings("       qux", values[2].toStringObject().str);
+}
+
 test "String#start_with? and #end_with?" {
     var result = try evalCode("'|abc'.start_with?('|')");
     try std.testing.expect(result.isBool());

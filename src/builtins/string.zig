@@ -557,12 +557,25 @@ fn formatStringHasNamedReferences(format: []const u8) bool {
     return false;
 }
 
+fn completeBraceStringPercentSpec(vm: *VM, spec: StringPercentSpec) VMError!?StringPercentSpec {
+    if (spec.name) |name| {
+        if (name == .brace) {
+            if (spec.arg_number != null) return malformedStringPercent(vm);
+            var complete = spec;
+            complete.conversion = 0;
+            return complete;
+        }
+    }
+    return null;
+}
+
 fn parseStringPercentSpec(vm: *VM, format: []const u8, index: *usize) VMError!StringPercentSpec {
     var spec: StringPercentSpec = .{};
 
     spec.arg_number = parseStringPercentPositional(format, index);
 
     spec.name = parseStringPercentName(format, index);
+    if (try completeBraceStringPercentSpec(vm, spec)) |complete| return complete;
 
     while (index.* < format.len) : (index.* += 1) {
         switch (format[index.*]) {
@@ -580,6 +593,7 @@ fn parseStringPercentSpec(vm: *VM, format: []const u8, index: *usize) VMError!St
     }
 
     spec.name = spec.name orelse parseStringPercentName(format, index);
+    if (try completeBraceStringPercentSpec(vm, spec)) |complete| return complete;
 
     if (index.* < format.len and format[index.*] == '*') {
         spec.width_arg_number = parseStringPercentStarArg(format, index);
@@ -591,6 +605,7 @@ fn parseStringPercentSpec(vm: *VM, format: []const u8, index: *usize) VMError!St
     }
 
     spec.name = spec.name orelse parseStringPercentName(format, index);
+    if (try completeBraceStringPercentSpec(vm, spec)) |complete| return complete;
 
     if (index.* < format.len and format[index.*] == '.') {
         index.* += 1;
@@ -606,6 +621,7 @@ fn parseStringPercentSpec(vm: *VM, format: []const u8, index: *usize) VMError!St
     }
 
     spec.name = spec.name orelse parseStringPercentName(format, index);
+    if (try completeBraceStringPercentSpec(vm, spec)) |complete| return complete;
 
     if (spec.name != null) {
         switch (spec.name.?) {
@@ -677,10 +693,22 @@ fn coerceStringPercentInteger(vm: *VM, arg: Value) VMError!Value {
         if (str.len > 1 and str[0] == '0') {
             const prefix_char = std.ascii.toLower(str[1]);
             switch (prefix_char) {
-                'b' => { radix = 2; idx = 2; },
-                'o' => { radix = 8; idx = 2; },
-                'd' => { radix = 10; idx = 2; },
-                'x' => { radix = 16; idx = 2; },
+                'b' => {
+                    radix = 2;
+                    idx = 2;
+                },
+                'o' => {
+                    radix = 8;
+                    idx = 2;
+                },
+                'd' => {
+                    radix = 10;
+                    idx = 2;
+                },
+                'x' => {
+                    radix = 16;
+                    idx = 2;
+                },
                 else => {
                     radix = 8;
                     idx = 1;
