@@ -48,6 +48,7 @@ pub fn register(vm: *VM) !void {
 
     try vm.system_exit_class.module.methods.put(initialize_sym, value.MethodEntry.builtin(&builtinSystemExitInitialize, .{ .variadic = 0 }));
     try vm.signal_exception_class.module.methods.put(initialize_sym, value.MethodEntry.builtin(&builtinSignalExceptionInitialize, .{ .variadic = 0 }));
+    try vm.interrupt_class.module.methods.put(initialize_sym, value.MethodEntry.builtin(&builtinInterruptInitialize, .{ .variadic = 0 }));
 
     const signo_sym = try vm.intern("signo");
     try vm.signal_exception_class.module.methods.put(signo_sym, value.MethodEntry.builtin(&builtinSignalExceptionSigno, .{ .exact = 0 }));
@@ -226,6 +227,14 @@ pub fn builtinSignalExceptionInitialize(vm: *VM, receiver: Value, args: []Value,
     const message = try message_value.coerceToStr(vm, "no implicit conversion into String");
     receiver.toExceptionObject().message = (try vm.newString(message, false)).toStringObject();
     try vm.setInstanceVariable(receiver, "@signo", Value.integer(signo));
+    return receiver;
+}
+
+pub fn builtinInterruptInitialize(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCountRange(args, 0, 1);
+    const message_args = if (args.len == 1 and !args[0].isNil()) args else args[0..0];
+    _ = try builtinExceptionInitialize(vm, receiver, message_args, null);
+    try vm.setInstanceVariable(receiver, "@signo", Value.integer(@intCast(@intFromEnum(std.posix.SIG.INT))));
     return receiver;
 }
 

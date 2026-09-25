@@ -5,6 +5,17 @@ const test_helper = @import("../test_helper.zig");
 const evalCode = test_helper.evalCode;
 const evalCodeWithOutput = test_helper.evalCodeWithOutput;
 
+test "Interrupt accepts optional messages and defaults to SIGINT" {
+    const result = try evalCode(
+        \\[Interrupt.new.message, Interrupt.new.signo, Interrupt.new("custom").message, Interrupt.new(nil).message]
+    );
+    const values = result.toArrayObject().elements.items;
+    try std.testing.expectEqualStrings("Interrupt", values[0].toStringObject().str);
+    try std.testing.expectEqual(@as(i64, @intCast(@intFromEnum(std.posix.SIG.INT))), values[1].toInteger());
+    try std.testing.expectEqualStrings("custom", values[2].toStringObject().str);
+    try std.testing.expectEqualStrings("Interrupt", values[3].toStringObject().str);
+}
+
 test "NoMethodError name identifies the missing method" {
     const result = try evalCode(
         \\begin
