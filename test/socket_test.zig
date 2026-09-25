@@ -30,6 +30,18 @@ test "TCPSocket setsockopt accepts boolean values" {
     try std.testing.expectEqual(@as(i64, 0), values[1].toInteger());
 }
 
+test "Socket exposes system socket option constants" {
+    const result = try test_helper.evalCode(
+        \\require "socket"
+        \\[Socket::SOL_SOCKET, Socket::SO_KEEPALIVE, Socket::SO_RCVBUF, Socket::SO_SNDBUF, Socket::SO_RCVTIMEO, Socket::SO_SNDTIMEO]
+    );
+    const values = result.toArrayObject().elements.items;
+    const expected = [_]i64{ std.c.SOL.SOCKET, std.c.SO.KEEPALIVE, std.c.SO.RCVBUF, std.c.SO.SNDBUF, std.c.SO.RCVTIMEO, std.c.SO.SNDTIMEO };
+    for (values, expected) |actual, constant| {
+        try std.testing.expectEqual(constant, actual.toInteger());
+    }
+}
+
 test "UNIXServer and UNIXSocket exchange data" {
     const result = try test_helper.evalCode(
         \\require "socket"

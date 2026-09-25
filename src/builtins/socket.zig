@@ -118,6 +118,19 @@ pub fn register(vm: *VM) !void {
     const tcp_nodelay_sym = try vm.intern("TCP_NODELAY");
     try socket_class.module.constants.put(tcp_nodelay_sym, .{ .value = Value.integer(std.c.TCP.NODELAY) });
 
+    const socket_options = .{
+        .{ "SOL_SOCKET", std.c.SOL.SOCKET },
+        .{ "SO_KEEPALIVE", std.c.SO.KEEPALIVE },
+        .{ "SO_RCVBUF", std.c.SO.RCVBUF },
+        .{ "SO_SNDBUF", std.c.SO.SNDBUF },
+        .{ "SO_RCVTIMEO", std.c.SO.RCVTIMEO },
+        .{ "SO_SNDTIMEO", std.c.SO.SNDTIMEO },
+    };
+    inline for (socket_options) |option| {
+        const name = try vm.intern(option[0]);
+        try socket_class.module.constants.put(name, .{ .value = Value.integer(option[1]) });
+    }
+
     const af_unspec_sym = try vm.intern("AF_UNSPEC");
     try socket_class.module.constants.put(af_unspec_sym, .{ .value = Value.integer(std.posix.AF.UNSPEC) });
 
