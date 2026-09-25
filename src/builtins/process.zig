@@ -10,6 +10,7 @@ const Block = vm_mod.Block;
 const Value = value.Value;
 
 extern "c" fn clock_gettime(clk_id: std.posix.CLOCK, tp: *std.posix.timespec) c_int;
+extern "c" fn clock_getres(clk_id: std.posix.CLOCK, tp: *std.posix.timespec) c_int;
 extern "c" fn getpgrp() std.c.pid_t;
 extern "c" fn setsid() std.c.pid_t;
 extern "c" fn chdir(path: [*:0]const u8) c_int;
@@ -45,6 +46,9 @@ pub fn register(vm: *VM) !void {
 
     const clock_gettime_sym = try vm.intern("clock_gettime");
     try process_singleton.module.methods.put(clock_gettime_sym, value.MethodEntry.builtin(&builtinProcessClockGettime, .{ .variadic = 1 }));
+
+    const clock_getres_sym = try vm.intern("clock_getres");
+    try process_singleton.module.methods.put(clock_getres_sym, value.MethodEntry.builtin(&builtinProcessClockGetres, .{ .variadic = 1 }));
 
     const wait_sym = try vm.intern("wait");
     const waitpid_sym = try vm.intern("waitpid");
@@ -277,6 +281,45 @@ pub fn builtinProcessClockGettime(vm: *VM, _: Value, args: []Value, _: ?Block) V
         return Value.integer(seconds * 1_000_000_000 + nanoseconds);
     }
 
+    return vm.raiseExceptionFmt(vm.argument_error_class, "unexpected unit", .{});
+}
+
+pub fn builtinProcessClockGetres(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCountRange(args, 1, 2);
+
+    if (builtin.os.tag == .windows) {
+        return vm.raiseExceptionFmt(vm.runtime_error_class, "Process.clock_getres is not implemented on Windows", .{});
+    }
+
+    const clock_id_raw = try args[0].integerArgToI64(vm, "no implicit conversion into Integer", "clock id out of range");
+    const clock_id: std.posix.CLOCK = if (clock_id_raw == @intFromEnum(std.posix.CLOCK.REALTIME))
+        .REALTIME
+    else if (clock_id_raw == @intFromEnum(std.posix.CLOCK.MONOTONIC))
+        .MONOTONIC
+    else
+        return vm.raiseExceptionFmt(vm.argument_error_class, "invalid clock id", .{});
+
+    var timespec: std.posix.timespec = undefined;
+    if (clock_getres(clock_id, &timespec) != 0) {
+        return vm.raiseExceptionFmt(vm.runtime_error_class, "clock_getres failed", .{});
+    }
+
+    const seconds: i64 = @intCast(timespec.sec);
+    const nanoseconds: i64 = @intCast(timespec.nsec);
+    const as_float = @as(f64, @floatFromInt(seconds)) + @as(f64, @floatFromInt(nanoseconds)) / 1_000_000_000.0;
+    if (args.len == 1 or args[1].isNil()) return vm.newFloat(as_float);
+
+    const unit = args[1];
+    if (!unit.isSymbol()) return vm.raiseExceptionFmt(vm.argument_error_class, "unexpected unit", .{});
+    const unit_name = unit.toSymbolObject().name;
+    if (std.mem.eql(u8, unit_name, "float_second")) return vm.newFloat(as_float);
+    if (std.mem.eql(u8, unit_name, "float_millisecond")) return vm.newFloat(as_float * 1_000.0);
+    if (std.mem.eql(u8, unit_name, "float_microsecond")) return vm.newFloat(as_float * 1_000_000.0);
+    if (std.mem.eql(u8, unit_name, "hertz")) return vm.newFloat(1.0 / as_float);
+    if (std.mem.eql(u8, unit_name, "second")) return Value.integer(seconds);
+    if (std.mem.eql(u8, unit_name, "millisecond")) return Value.integer(seconds * 1_000 + @divTrunc(nanoseconds, 1_000_000));
+    if (std.mem.eql(u8, unit_name, "microsecond")) return Value.integer(seconds * 1_000_000 + @divTrunc(nanoseconds, 1_000));
+    if (std.mem.eql(u8, unit_name, "nanosecond")) return Value.integer(seconds * 1_000_000_000 + nanoseconds);
     return vm.raiseExceptionFmt(vm.argument_error_class, "unexpected unit", .{});
 }
 

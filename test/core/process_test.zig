@@ -112,6 +112,19 @@ test "Process.clock_gettime supports float millisecond and microsecond units" {
     try std.testing.expect(nil_unit.toFloatObject().val > 0);
 }
 
+test "Process.clock_getres reports clock resolution in requested units" {
+    if (builtin.os.tag == .windows) return;
+
+    const result = try evalCode(
+        \\clock = Process::CLOCK_MONOTONIC
+        \\seconds = Process.clock_getres(clock)
+        \\nanoseconds = Process.clock_getres(clock, :nanosecond)
+        \\seconds.is_a?(Float) && nanoseconds.is_a?(Integer) && seconds > 0 && (seconds * 1_000_000_000).round == nanoseconds
+    );
+    try std.testing.expect(result.isBool());
+    try std.testing.expect(result.toBool());
+}
+
 test "Process::WNOHANG exists" {
     const result = try evalCode("Process::WNOHANG");
     try std.testing.expect(result.isInteger());
