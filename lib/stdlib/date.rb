@@ -324,6 +324,11 @@ class Date
     DateTime.jd(jd, 0, 0, 0, Rational(0, 1), start)
   end
 
+  def to_time
+    date = julian? ? gregorian : self
+    Time.local(date.year, date.month, date.day)
+  end
+
   def iso8601
     strftime("%F")
   end

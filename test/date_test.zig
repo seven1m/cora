@@ -32,6 +32,19 @@ test "Date provides frozen month and weekday names" {
     try std.testing.expectEqualStrings("", result.stderr);
 }
 
+test "Date#to_time constructs local midnight" {
+    var stdout_buf: [1024]u8 = undefined;
+    var stderr_buf: [1024]u8 = undefined;
+    const result = evalCodeWithOutput(
+        \\require "date"
+        \\date = Date.new(2001, 2, 3)
+        \\p [date.to_time == Time.local(2001, 2, 3), date.to_time.class == Time, date.to_time.hour]
+    , &stdout_buf, &stderr_buf);
+    try std.testing.expect(result.err == null);
+    try std.testing.expectEqualStrings("[true, true, 0]\n", result.stdout);
+    try std.testing.expectEqualStrings("", result.stderr);
+}
+
 test "Time#to_date is registered with Date support and preserves local civil date" {
     var stdout_buf: [1024]u8 = undefined;
     var stderr_buf: [1024]u8 = undefined;
