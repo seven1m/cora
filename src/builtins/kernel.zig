@@ -581,7 +581,8 @@ fn builtinKernelRationalCoerce(vm: *VM, arg: Value, exception_mode: bool) VMErro
     if (arg.isString()) {
         const parsed = try rational_builtin.parseStringToRational(vm, arg.toStringObject().str) orelse {
             if (exception_mode) {
-                return vm.raiseExceptionFmt(vm.type_error_class, "can't convert String into Rational", .{});
+                const inspected = try vm.callMethodByName(arg, "inspect", &.{}, null);
+                return vm.raiseExceptionFmt(vm.argument_error_class, "invalid value for convert(): {s}", .{inspected.toStringObject().str});
             }
             return null;
         };

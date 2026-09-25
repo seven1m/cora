@@ -5,6 +5,19 @@ const evalCode = test_helper.evalCode;
 const evalCodeWithOutput = test_helper.evalCodeWithOutput;
 const evalFile = test_helper.evalFile;
 
+test "Kernel Rational raises ArgumentError for invalid strings" {
+    const result = try evalCode(
+        \\error = begin
+        \\  Rational("INVALID/RATIONAL")
+        \\rescue => exception
+        \\  exception
+        \\end
+        \\[error.class == ArgumentError, error.message == 'invalid value for convert(): "INVALID/RATIONAL"', Rational("INVALID/RATIONAL", exception: false).nil?]
+    );
+    const items = result.toArrayObject().elements.items;
+    for (items) |item| try std.testing.expect(item.isTruthy());
+}
+
 fn uniqueId() u64 {
     return @intCast(std.Io.Clock.boot.now(std.testing.io).nanoseconds);
 }
