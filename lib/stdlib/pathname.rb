@@ -1,6 +1,6 @@
 class Pathname
   def initialize(path)
-    @path = path.to_str
+    @path = File.path(path).dup
   end
 
   def to_path

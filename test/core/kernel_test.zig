@@ -96,6 +96,20 @@ test "Pathname delegates binary and text file access to File" {
     try std.testing.expect(result.isTruthy());
 }
 
+test "Pathname accepts File objects and copies String paths" {
+    const result = try evalCode(
+        \\require "pathname"
+        \\path = "/tmp/cora_pathname_file_#{Process.pid}"
+        \\file = File.open(path, "w")
+        \\from_file = Pathname.new(file)
+        \\from_string = Pathname.new(path)
+        \\file.close
+        \\File.delete(path)
+        \\[from_file.to_s == path, from_string.to_s == path, !from_string.to_s.equal?(path)]
+    );
+    for (result.toArrayObject().elements.items) |item| try std.testing.expect(item.isTruthy());
+}
+
 test "Kernel.load is private on instances" {
     const result = try evalCode(
         \\Kernel.private_instance_methods.include?(:load) &&
