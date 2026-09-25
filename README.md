@@ -124,13 +124,6 @@ Run the full Zig test suite:
 zig build test
 ```
 
-Clone supported third-party gems into `test/gems/` and run their test suites
-with Cora:
-
-```bash
-zig build test-gems
-```
-
 Run only matching tests:
 
 ```bash

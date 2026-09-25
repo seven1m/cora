@@ -22,9 +22,6 @@ zig build test -Dtest-timing -Dtest-timeout=10
 
 # run tests in parallel across N worker processes
 zig build test -Dtest-jobs=8
-
-# clone supported gems into test/gems/ and run their upstream test suites
-zig build test-gems
 ```
 
 Tests live under `test/` including `test/core/*.zig`, `test/language/*.zig`,
@@ -34,11 +31,6 @@ adding a new test file, add it to `test/all_test.zig`.
 
 The `test` step automatically builds the Prism static lib, Onigmo, TinyCC, and
 the C extension fixture (`build/cext/fixture.so`).
-
-The `test-gems` step clones supported upstream gems into the gitignored
-`test/gems/` directory when absent, then runs their test suites with Cora.
-Suites may have explicit file-level exclusions in `test/run_gem_tests.sh` for
-runtime features Cora does not support yet.
 
 ## Focused/Skipped Specs
 
@@ -95,7 +87,6 @@ Per-target steps (each one is independently runnable):
 ```bash
 zig build run                # build + run
 zig build test               # build + run the test suite
-zig build test-gems          # clone + run supported upstream gem test suites
 zig build watch              # rebuild + retest on source changes (requires `entr`)
 zig build onigmo             # build Onigmo only
 zig build prism              # build Prism only
