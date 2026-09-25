@@ -178,6 +178,9 @@ pub fn register(vm: *VM) !void {
     const aliases_sym = try vm.intern("aliases");
     try encoding_singleton.module.methods.put(aliases_sym, value.MethodEntry.builtin(&builtinEncodingAliases, .{ .exact = 0 }));
 
+    const compatible_sym = try vm.intern("compatible?");
+    try encoding_singleton.module.methods.put(compatible_sym, value.MethodEntry.builtin(&builtinEncodingCompatible, .{ .exact = 2 }));
+
     const default_internal_sym = try vm.intern("default_internal");
     try encoding_singleton.module.methods.put(default_internal_sym, value.MethodEntry.builtin(&builtinEncodingDefaultInternal, .{ .exact = 0 }));
 
@@ -229,6 +232,44 @@ pub fn builtinEncodingEqual(vm: *VM, receiver: Value, args: []Value, _: ?Block) 
         return Value.boolean(false);
     }
     return Value.boolean(receiver.toEncodingObject().encoding.eql(other.toEncodingObject().encoding));
+}
+
+const CompatibilityInput = struct {
+    encoding: enc.Encoding,
+    empty: bool = false,
+    ascii_only: bool = false,
+};
+
+fn compatibilityInput(input: Value) ?CompatibilityInput {
+    if (input.isString()) {
+        const string = input.toStringObject();
+        return .{
+            .encoding = string.encoding,
+            .empty = string.str.len == 0,
+            .ascii_only = string.encoding.isAsciiOnlyString(string.str),
+        };
+    }
+    if (input.isEncoding()) return .{ .encoding = input.toEncodingObject().encoding };
+    if (input.isSymbol()) return .{ .encoding = input.toSymbolObject().encoding };
+    if (input.isRegexp()) return .{ .encoding = input.toRegexpObject().encoding };
+    return null;
+}
+
+pub fn builtinEncodingCompatible(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 2);
+    const left = compatibilityInput(args[0]) orelse return Value.nil();
+    const right = compatibilityInput(args[1]) orelse return Value.nil();
+    if (left.encoding.eql(right.encoding)) return vm.encodingToValue(left.encoding);
+    if (left.empty) return vm.encodingToValue(right.encoding);
+    if (right.empty) return vm.encodingToValue(left.encoding);
+    if (left.encoding.isDummy() or right.encoding.isDummy()) return Value.nil();
+    if (!left.encoding.isAsciiCompatible() or !right.encoding.isAsciiCompatible()) return Value.nil();
+    if (left.encoding == .us_ascii) return vm.encodingToValue(right.encoding);
+    if (right.encoding == .us_ascii) return vm.encodingToValue(left.encoding);
+    if (left.ascii_only and !right.ascii_only) return vm.encodingToValue(right.encoding);
+    if (right.ascii_only and !left.ascii_only) return vm.encodingToValue(left.encoding);
+    if (left.ascii_only and right.ascii_only) return vm.encodingToValue(left.encoding);
+    return Value.nil();
 }
 
 pub fn builtinEncodingFind(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {

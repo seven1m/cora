@@ -4,6 +4,31 @@ const test_helper = @import("../test_helper.zig");
 const evalCode = test_helper.evalCode;
 const evalCodeWithOutput = test_helper.evalCodeWithOutput;
 
+test "Encoding.compatible? chooses a common encoding" {
+    const result = try evalCode(
+        \\utf8 = Encoding::UTF_8
+        \\sjis = Encoding::SHIFT_JIS
+        \\ascii = Encoding::US_ASCII
+        \\binary = Encoding::ASCII_8BIT
+        \\[Encoding.compatible?("abc", "def"),
+        \\ Encoding.compatible?("abc".force_encoding(sjis), "def"),
+        \\ Encoding.compatible?("def", "abc".force_encoding(sjis)),
+        \\ Encoding.compatible?(utf8, ascii),
+        \\ Encoding.compatible?(utf8, binary),
+        \\ Encoding.compatible?("", "abc".force_encoding(sjis)),
+        \\ Encoding.compatible?(nil, "abc")]
+    );
+    const items = result.toArrayObject().elements.items;
+    try std.testing.expectEqual(@as(usize, 7), items.len);
+    try std.testing.expectEqualStrings("UTF-8", items[0].toEncodingObject().encoding.name());
+    try std.testing.expectEqualStrings("Shift_JIS", items[1].toEncodingObject().encoding.name());
+    try std.testing.expectEqualStrings("UTF-8", items[2].toEncodingObject().encoding.name());
+    try std.testing.expectEqualStrings("UTF-8", items[3].toEncodingObject().encoding.name());
+    try std.testing.expect(items[4].isNil());
+    try std.testing.expectEqualStrings("Shift_JIS", items[5].toEncodingObject().encoding.name());
+    try std.testing.expect(items[6].isNil());
+}
+
 test "Encoding::UTF_8 exists" {
     const result = try evalCode("Encoding::UTF_8");
     try std.testing.expect(result.isEncoding());
