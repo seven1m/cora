@@ -51,15 +51,18 @@ pub fn register(vm: *VM) !void {
 }
 
 fn memberNames(vm: *VM, receiver: Value) VMError![]const []const u8 {
-    const data_class = vm.getClass(receiver);
-    const stored = try vm.getInstanceVariable(Value.fromObject(&data_class.module.object), "@_data_members");
-    if (stored.isArray()) {
-        const arr = stored.toArrayObject();
-        var names = vm.allocator.alloc([]const u8, arr.elements.items.len) catch return error.Fatal;
-        for (arr.elements.items, 0..) |elem, i| {
-            names[i] = elem.toStringObject().str;
+    var current: ?*value.ClassObject = vm.getClass(receiver);
+    while (current) |data_class| {
+        const stored = try vm.getInstanceVariable(Value.fromObject(&data_class.module.object), "@_data_members");
+        if (stored.isArray()) {
+            const arr = stored.toArrayObject();
+            const names = vm.allocator.alloc([]const u8, arr.elements.items.len) catch return error.Fatal;
+            for (arr.elements.items, 0..) |elem, i| {
+                names[i] = elem.toStringObject().str;
+            }
+            return names;
         }
-        return names;
+        current = data_class.superclass;
     }
     return &[_][]const u8{};
 }

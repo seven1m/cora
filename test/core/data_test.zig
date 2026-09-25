@@ -10,3 +10,14 @@ test "Data.define creates member readers and a bracket constructor" {
     const items = result.toArrayObject().elements.items;
     for (items) |item| try std.testing.expect(item.isTruthy());
 }
+
+test "Data subclasses inherit their members" {
+    const result = try test_helper.evalCode(
+        \\base = Data.define(:foo, :bar)
+        \\child = Class.new(base)
+        \\value = child.new(foo: 1, bar: 2)
+        \\[value.foo == 1, value.bar == 2, value.members == [:foo, :bar], value.to_h == {foo: 1, bar: 2}]
+    );
+    const items = result.toArrayObject().elements.items;
+    for (items) |item| try std.testing.expect(item.isTruthy());
+}
