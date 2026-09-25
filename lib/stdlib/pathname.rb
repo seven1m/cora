@@ -123,6 +123,10 @@ class Pathname
     Pathname.new(File.realpath(@path, basedir))
   end
 
+  def realdirpath(basedir = nil)
+    Pathname.new(File.realdirpath(@path, basedir))
+  end
+
   def sub(pattern, replacement = nil, &block)
     if replacement
       Pathname.new(@path.sub(pattern, replacement))
