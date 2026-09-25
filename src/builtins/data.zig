@@ -1,6 +1,8 @@
 const std = @import("std");
 const vm_mod = @import("../vm.zig");
 const value = @import("../value.zig");
+const class_builtin = @import("class.zig");
+const module_builtin = @import("module.zig");
 
 const VM = vm_mod.VM;
 const VMError = vm_mod.VMError;
@@ -86,16 +88,26 @@ pub fn builtinDataDefine(vm: *VM, receiver: Value, args: []Value, block: ?Block)
     const subclass = try vm.newClass(try vm.intern("Data"), vm.data_class);
 
     const arr = try vm.createArray();
+    var reader_args: std.ArrayList(Value) = .empty;
+    defer reader_args.deinit(vm.allocator);
     for (members_list.items) |name| {
         arr.elements.append(vm.gc_allocator, try vm.newString(name, false)) catch return error.Fatal;
+        const member_sym = try vm.intern(name);
+        reader_args.append(vm.allocator, Value.fromObject(&member_sym.object)) catch return error.Fatal;
     }
-    try vm.setInstanceVariable(Value.fromObject(&subclass.toClassObject().module.object), "@_data_members", Value.fromObject(&arr.object));
+    const subclass_value = Value.fromObject(&subclass.toClassObject().module.object);
+    try vm.setInstanceVariable(subclass_value, "@_data_members", Value.fromObject(&arr.object));
+    if (reader_args.items.len > 0) {
+        _ = try module_builtin.builtinModuleAttrReader(vm, subclass_value, reader_args.items, null);
+    }
 
-    const subclass_singleton = try vm.getOrCreateSingletonClass(Value.fromObject(&subclass.toClassObject().module.object));
+    const subclass_singleton = try vm.getOrCreateSingletonClass(subclass_value);
     const class_members_sym = try vm.intern("members");
     subclass_singleton.module.methods.put(class_members_sym, value.MethodEntry.builtin(&builtinDataClassMembers, .{ .exact = 0 })) catch return error.Fatal;
+    const bracket_sym = try vm.intern("[]");
+    subclass_singleton.module.methods.put(bracket_sym, value.MethodEntry.keywordBuiltin(&class_builtin.builtinClassNew, .{ .variadic = 0 })) catch return error.Fatal;
 
-    return Value.fromObject(&subclass.toClassObject().module.object);
+    return subclass_value;
 }
 
 pub fn builtinDataInitialize(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
