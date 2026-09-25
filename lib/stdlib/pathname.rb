@@ -145,6 +145,18 @@ class Pathname
     File.read(@path, *args)
   end
 
+  def binread(*args)
+    File.binread(@path, *args)
+  end
+
+  def write(*args)
+    File.write(@path, *args)
+  end
+
+  def binwrite(*args)
+    File.binwrite(@path, *args)
+  end
+
   def relative_path_from(base)
     base = base.to_s if base.is_a?(Pathname)
     base = base.to_str

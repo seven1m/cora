@@ -81,6 +81,21 @@ test "Kernel Pathname constructs paths and preserves existing instances" {
     for (result.toArrayObject().elements.items) |item| try std.testing.expect(item.isTrue());
 }
 
+test "Pathname delegates binary and text file access to File" {
+    const result = try evalCode(
+        \\require "pathname"
+        \\path = Pathname.new("/tmp/cora_pathname_access_#{Process.pid}")
+        \\text_count = path.write("hé")
+        \\text = path.read
+        \\binary = path.binread
+        \\binary_count = path.binwrite("\xFF".b)
+        \\raw = path.binread
+        \\File.delete(path)
+        \\text_count == 3 && text.bytes == "hé".bytes && binary.encoding == Encoding::ASCII_8BIT && binary.bytes == "hé".bytes && binary_count == 1 && raw.bytes == [255]
+    );
+    try std.testing.expect(result.isTruthy());
+}
+
 test "Kernel.load is private on instances" {
     const result = try evalCode(
         \\Kernel.private_instance_methods.include?(:load) &&
