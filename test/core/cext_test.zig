@@ -162,6 +162,22 @@ test "C extension StringValue accepts embedded null bytes" {
     try std.testing.expectEqual(@as(i64, 0), bytes[1].toInteger());
 }
 
+test "C extension StringValue uses to_str and rejects nil" {
+    const result = try evalCode(
+        \\$LOAD_PATH << "build/cext"
+        \\require "fixture.so"
+        \\string_like = Object.new
+        \\def string_like.to_str; "converted"; end
+        \\def string_like.to_s; "wrong"; end
+        \\converted = CoraCExt.string_value(string_like)
+        \\error = begin; CoraCExt.string_value(nil); rescue TypeError => e; e.message; end
+        \\[converted, error]
+    );
+    const values = result.toArrayObject().elements.items;
+    try std.testing.expectEqualStrings("converted", values[0].toStringObject().str);
+    try std.testing.expectEqualStrings("no implicit conversion of nil into String", values[1].toStringObject().str);
+}
+
 test "C extension can undefine new on one class singleton" {
     const result = try evalCode(
         \\$LOAD_PATH << "build/cext"

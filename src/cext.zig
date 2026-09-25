@@ -457,12 +457,22 @@ export fn rb_string_value_ptr(ptr: *VALUE) ?[*]u8 {
 }
 
 export fn rb_string_value(ptr: *VALUE) VALUE {
-    var val = Value{ .raw = ptr.* };
+    const val = Value{ .raw = ptr.* };
     if (!val.isString()) {
         const vm = getVM();
-        const str_val = vm.callMethodByName(val, "to_s", &.{}, null) catch return 0;
-        if (!str_val.isString()) return 0;
-        ptr.* = str_val.raw;
+        const probe = vm.probeToStringValue(val) catch {
+            if (vm.cext_jmp_buf) |buf| siglongjmp(buf, 1);
+            return 0;
+        };
+        switch (probe) {
+            .string => |str_val| ptr.* = str_val.raw,
+            .missing, .nil_result => {
+                const class_name = if (val.isNil()) "nil" else vm.className(val);
+                _ = vm.raiseExceptionFmt(vm.type_error_class, "no implicit conversion of {s} into String", .{class_name}) catch {};
+                if (vm.cext_jmp_buf) |buf| siglongjmp(buf, 1);
+                return 0;
+            },
+        }
     }
     return ptr.*;
 }
