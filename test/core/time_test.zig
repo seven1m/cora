@@ -36,6 +36,18 @@ test "Time.utc exposes UTC date parts" {
     try std.testing.expectEqual(true, items[3].toBool());
 }
 
+test "Time#to_s formats numeric UTC offsets without a colon" {
+    const result = try evalCode(
+        \\[Time.new(2017, 4, 13, 12, 0, 0, "+09:00").to_s,
+        \\ Time.new(2017, 4, 13, 12, 0, 0, "-05:00").to_s,
+        \\ Time.utc(2017, 4, 13, 12, 0, 0).to_s]
+    );
+    const items = result.toArrayObject().elements.items;
+    try std.testing.expectEqualStrings("2017-04-13 12:00:00 +0900", items[0].toStringObject().str);
+    try std.testing.expectEqualStrings("2017-04-13 12:00:00 -0500", items[1].toStringObject().str);
+    try std.testing.expectEqualStrings("2017-04-13 12:00:00 UTC", items[2].toStringObject().str);
+}
+
 test "Time.local accepts the legacy ten-argument broken-down-time form" {
     const result = try evalCode(
         \\time = Time.local(56.5, 34, 12, 15, 6, 2024, 6, 167, false, "UTC")

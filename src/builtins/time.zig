@@ -1010,7 +1010,7 @@ fn parseTimeString(vm: *VM, raw: []const u8) VMError!Value {
     return epochNanosecondsFromUtcComponents(vm, Value.integer(year), month, day, hour, minute, second, nanosecond);
 }
 
-// Append the UTC offset portion of a time's to_s: " UTC" or " +HH:MM".
+// Append the UTC offset portion of a time's to_s: " UTC" or " +HHMM".
 fn appendUtcOffsetStr(out: *std.ArrayList(u8), allocator: std.mem.Allocator, t: *const value.TimeObject) VMError!void {
     if (t.is_utc) {
         out.appendSlice(allocator, " UTC") catch return error.Fatal;
@@ -1022,7 +1022,7 @@ fn appendUtcOffsetStr(out: *std.ArrayList(u8), allocator: std.mem.Allocator, t: 
     const off_h = @divTrunc(abs_seconds, seconds_per_hour);
     const off_m = @divTrunc(@rem(abs_seconds, seconds_per_hour), seconds_per_minute);
     var buf: [16]u8 = undefined;
-    const s = std.fmt.bufPrint(&buf, " {c}{d:0>2}:{d:0>2}", .{ sign, @as(u64, @intCast(off_h)), @as(u64, @intCast(off_m)) }) catch return error.Fatal;
+    const s = std.fmt.bufPrint(&buf, " {c}{d:0>2}{d:0>2}", .{ sign, @as(u64, @intCast(off_h)), @as(u64, @intCast(off_m)) }) catch return error.Fatal;
     out.appendSlice(allocator, s) catch return error.Fatal;
 }
 
