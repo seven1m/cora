@@ -1,6 +1,20 @@
 const std = @import("std");
 const test_helper = @import("test_helper.zig");
 
+test "TCPSocket subclass connections retain their class" {
+    const result = try test_helper.evalCode(
+        \\require "socket"
+        \\server = TCPServer.new("127.0.0.1", 0)
+        \\subclass = Class.new(TCPSocket)
+        \\client = subclass.new("127.0.0.1", server.addr[1])
+        \\actual_class = client.class
+        \\client.close
+        \\server.close
+        \\actual_class == subclass
+    );
+    try std.testing.expect(result.isTruthy());
+}
+
 test "UNIXServer and UNIXSocket exchange data" {
     const result = try test_helper.evalCode(
         \\require "socket"

@@ -540,7 +540,7 @@ fn createTcpListeners(vm: *VM, args: []Value, class_obj: *ClassObject, all_match
     return Value.fromObject(&listeners.object);
 }
 
-fn connectTCPSocket(vm: *VM, host_value: Value, port_value: Value) VMError!Value {
+fn connectTCPSocket(vm: *VM, class_obj: *ClassObject, host_value: Value, port_value: Value) VMError!Value {
     const host = try host_value.coerceToStr(vm, "no implicit conversion into String");
     var service_buf: [32]u8 = undefined;
     const service = if (port_value.isString())
@@ -582,7 +582,7 @@ fn connectTCPSocket(vm: *VM, host_value: Value, port_value: Value) VMError!Value
         defer setSocketNonblocking(vm, posix_fd, false) catch {};
 
         if (std.c.connect(fd, addr, addrinfo.addrlen) == 0) {
-            const socket = try vm.newIo(try tcpSocketClass(vm), @intCast(fd), .{ .owns_fd = true, .readable = true, .writable = true });
+            const socket = try vm.newIo(class_obj, @intCast(fd), .{ .owns_fd = true, .readable = true, .writable = true });
             try initializeSocketReverseLookup(vm, socket);
             return socket;
         }
@@ -593,7 +593,7 @@ fn connectTCPSocket(vm: *VM, host_value: Value, port_value: Value) VMError!Value
                 try waitForConnectWritable(vm, posix_fd);
                 const so_error = socketConnectError(posix_fd);
                 if (so_error == .SUCCESS) {
-                    const socket = try vm.newIo(try tcpSocketClass(vm), @intCast(fd), .{ .owns_fd = true, .readable = true, .writable = true });
+                    const socket = try vm.newIo(class_obj, @intCast(fd), .{ .owns_fd = true, .readable = true, .writable = true });
                     try initializeSocketReverseLookup(vm, socket);
                     return socket;
                 }
@@ -725,9 +725,9 @@ pub fn builtinTCPServerAcceptNonblock(vm: *VM, receiver: Value, args: []Value, _
     }
 }
 
-pub fn builtinTCPSocketOpen(vm: *VM, _: Value, args: []Value, block: ?Block) VMError!Value {
+pub fn builtinTCPSocketOpen(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
     try vm.requireArgCountRange(args, 2, 4);
-    const socket = try connectTCPSocket(vm, args[0], args[1]);
+    const socket = try connectTCPSocket(vm, receiver.toClassObject(), args[0], args[1]);
     if (block) |blk| {
         var yield_args: [1]Value = .{socket};
         const yielded = vm.yieldToBlock(blk, &yield_args) catch |err| {
@@ -742,7 +742,7 @@ pub fn builtinTCPSocketOpen(vm: *VM, _: Value, args: []Value, block: ?Block) VME
 
 pub fn builtinSocketTcp(vm: *VM, _: Value, args: []Value, block: ?Block) VMError!Value {
     try vm.requireArgCountRange(args, 2, 4);
-    const socket = try connectTCPSocket(vm, args[0], args[1]);
+    const socket = try connectTCPSocket(vm, try tcpSocketClass(vm), args[0], args[1]);
     if (block) |blk| {
         var yield_args: [1]Value = .{socket};
         const yielded = vm.yieldToBlock(blk, &yield_args) catch |err| {
