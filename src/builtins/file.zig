@@ -584,6 +584,9 @@ pub fn register(vm: *VM) !void {
     const realpath_sym = try vm.intern("realpath");
     try file_singleton.module.methods.put(realpath_sym, value.MethodEntry.builtin(&builtinFileRealpath, .{ .variadic = 0 }));
 
+    const realdirpath_sym = try vm.intern("realdirpath");
+    try file_singleton.module.methods.put(realdirpath_sym, value.MethodEntry.builtin(&builtinFileRealdirpath, .{ .variadic = 0 }));
+
     const join_sym = try vm.intern("join");
     try file_singleton.module.methods.put(join_sym, value.MethodEntry.builtin(&builtinFileJoin, .{ .variadic = 0 }));
 
@@ -1997,6 +2000,67 @@ pub fn builtinFileRealpath(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!
     defer vm.allocator.free(resolved);
 
     return try vm.newStringWithEncoding(resolved, false, path_obj.encoding);
+}
+
+pub fn builtinFileRealdirpath(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCountRange(args, 1, 2);
+    if (builtin.os.tag == .windows) {
+        return vm.raiseExceptionFmt(vm.not_implemented_error_class, "File.realdirpath is not implemented on Windows", .{});
+    }
+
+    const path_value = try vm.coerceToPathValue(args[0], "no implicit conversion into String");
+    const path_obj = path_value.toStringObject();
+    const base: ?[]const u8 = if (args.len == 2 and !args[1].isNil()) blk: {
+        const base_value = try vm.coerceToPathValue(args[1], "no implicit conversion into String");
+        break :blk base_value.toStringObject().str;
+    } else null;
+
+    const expanded = try expandPathAlloc(vm, path_obj.str, base);
+    defer vm.allocator.free(expanded);
+
+    const resolved = try realdirpathAlloc(vm, expanded, 0);
+    defer vm.allocator.free(resolved);
+    return try vm.newStringWithEncoding(resolved, false, path_obj.encoding);
+}
+
+fn realdirpathAlloc(vm: *VM, path: []const u8, depth: u8) VMError![]u8 {
+    if (depth >= 40) return vm.raiseErrnoFmt(.LOOP, "Too many levels of symbolic links @ rb_check_realpath_internal - {s}", .{path});
+
+    if (std.Io.Dir.cwd().realPathFileAlloc(vm.io, path, vm.allocator)) |resolved| {
+        defer vm.allocator.free(resolved);
+        return vm.allocator.dupe(u8, resolved) catch return error.Fatal;
+    } else |err| {
+        switch (err) {
+            error.FileNotFound => {},
+            error.SymLinkLoop => return vm.raiseErrnoFmt(.LOOP, "Too many levels of symbolic links @ rb_check_realpath_internal - {s}", .{path}),
+            error.AccessDenied, error.PermissionDenied => return vm.raiseErrnoFmt(.ACCES, "Permission denied @ rb_check_realpath_internal - {s}", .{path}),
+            else => return vm.raiseErrnoFmt(.NOENT, "No such file or directory @ rb_check_realpath_internal - {s}", .{path}),
+        }
+    }
+
+    const parent = std.fs.path.dirname(path) orelse "/";
+    const resolved_parent = std.Io.Dir.cwd().realPathFileAlloc(vm.io, parent, vm.allocator) catch {
+        return vm.raiseErrnoFmt(.NOENT, "No such file or directory @ rb_check_realpath_internal - {s}", .{path});
+    };
+    defer vm.allocator.free(resolved_parent);
+    const joined = std.fs.path.join(vm.allocator, &.{ resolved_parent, std.fs.path.basename(path) }) catch return error.Fatal;
+    errdefer vm.allocator.free(joined);
+
+    var link_buf: [std.fs.max_path_bytes]u8 = undefined;
+    const link_len = std.Io.Dir.cwd().readLink(vm.io, joined, &link_buf) catch |err| switch (err) {
+        error.NotLink, error.FileNotFound => return joined,
+        error.SymLinkLoop => return vm.raiseErrnoFmt(.LOOP, "Too many levels of symbolic links @ rb_check_realpath_internal - {s}", .{path}),
+        else => return vm.raiseErrnoFmt(.NOENT, "No such file or directory @ rb_check_realpath_internal - {s}", .{path}),
+    };
+    const target = link_buf[0..link_len];
+    const next_path = if (std.fs.path.isAbsolute(target))
+        vm.allocator.dupe(u8, target) catch return error.Fatal
+    else
+        std.fs.path.join(vm.allocator, &.{ resolved_parent, target }) catch return error.Fatal;
+    defer vm.allocator.free(next_path);
+    const resolved = try realdirpathAlloc(vm, next_path, depth + 1);
+    vm.allocator.free(joined);
+    return resolved;
 }
 
 fn joinPartToStringValue(vm: *VM, arg: Value) VMError!Value {

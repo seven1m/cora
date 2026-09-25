@@ -746,6 +746,33 @@ test "File.join accepts array as single argument" {
     try std.testing.expectEqualSlices(u8, "food/bar", result.toStringObject().str);
 }
 
+test "File.realdirpath resolves parents and permits a missing final component" {
+    const result = try evalCode(
+        \\parent = File.realpath("/tmp")
+        \\name = "cora_missing_realdirpath_#{Process.pid}"
+        \\[File.realdirpath("/tmp"), File.realdirpath(name, "/tmp")]
+    );
+    const items = result.toArrayObject().elements.items;
+    try std.testing.expectEqual(@as(usize, 2), items.len);
+    const parent = items[0].toStringObject().str;
+    const child = items[1].toStringObject().str;
+    try std.testing.expect(std.mem.startsWith(u8, child, parent));
+    try std.testing.expect(std.mem.indexOf(u8, child, "cora_missing_realdirpath_") != null);
+}
+
+test "File.realdirpath resolves a dangling final symlink" {
+    const result = try evalCode(
+        \\require "tmpdir"
+        \\Dir.mktmpdir do |dir|
+        \\  target = File.join(dir, "missing")
+        \\  link = File.join(dir, "link")
+        \\  File.symlink(target, link)
+        \\  File.realdirpath(link) == target
+        \\end
+    );
+    try std.testing.expect(result.isTrue());
+}
+
 test "File.expand_path handles relative and home-based paths" {
     const cwd = try std.process.currentPathAlloc(std.testing.io, std.testing.allocator);
     defer std.testing.allocator.free(cwd);
