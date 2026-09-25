@@ -388,9 +388,8 @@ fn constantPathDefined(vm: *VM, receiver: Value, name: []const u8, inherit: bool
     var first = true;
     for (parts.items) |part| {
         const name_sym = try vm.intern(part);
-        const use_inherit = if (first and !rooted) inherit else true;
         _ = moduleFromValue(current) orelse return false;
-        current = lookupConstantOnReceiverWithFallback(vm, current, name_sym, use_inherit, first) orelse return false;
+        current = lookupConstantOnReceiverWithFallback(vm, current, name_sym, inherit, first) orelse return false;
         first = false;
     }
 
@@ -409,11 +408,10 @@ fn getConstantPath(vm: *VM, receiver: Value, name: []const u8, inherit: bool) VM
     var first = true;
     for (parts.items) |part| {
         const name_sym = try vm.intern(part);
-        const use_inherit = if (first and !rooted) inherit else true;
         _ = moduleFromValue(current) orelse {
             return vm.raiseExceptionFmt(vm.name_error_class, "uninitialized constant {s}", .{name});
         };
-        if (try lookupOrLoadConstantOnReceiver(vm, current, name_sym, use_inherit, first)) |val| {
+        if (try lookupOrLoadConstantOnReceiver(vm, current, name_sym, inherit, first)) |val| {
             current = val;
         } else {
             var missing_args = [_]Value{Value.fromObject(&name_sym.object)};

@@ -394,6 +394,21 @@ test "Module const_get excludes Object fallback after the first path segment" {
     for (result.toArrayObject().elements.items) |item| try std.testing.expect(item.isTrue());
 }
 
+test "Module constant paths apply inherit false to every segment" {
+    const result = try evalCode(
+        \\module PathOwner
+        \\  class Base
+        \\    X = 7
+        \\  end
+        \\  class Child < Base; end
+        \\end
+        \\[Object.const_get("PathOwner::Child::X") == 7,
+        \\ !Object.const_defined?("PathOwner::Child::X", false),
+        \\ begin; Object.const_get("PathOwner::Child::X", false); rescue NameError; :missing; end == :missing]
+    );
+    for (result.toArrayObject().elements.items) |item| try std.testing.expect(item.isTrue());
+}
+
 test "Module const_missing handles direct and failed constant lookups" {
     const result = try evalCode(
         \\default_name = begin; Object.const_missing(:Absent); rescue NameError => error; error.name; end
