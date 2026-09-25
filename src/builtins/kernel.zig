@@ -1126,7 +1126,10 @@ pub fn builtinKernelSystem(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!
 
     var chdir_value: ?Value = null;
     var exception_value: ?Value = null;
-    try vm.consumeKeywordArgs(.{ "chdir", "exception" }, .{ &chdir_value, &exception_value });
+    var stdin_value: ?Value = null;
+    var stdout_value: ?Value = null;
+    var stderr_value: ?Value = null;
+    try vm.consumeKeywordArgs(.{ "chdir", "exception", "in", "out", "err" }, .{ &chdir_value, &exception_value, &stdin_value, &stdout_value, &stderr_value });
     try vm.validateKeywordArgsConsumed();
 
     var env_map = try vm.currentEnvMap();
@@ -1148,7 +1151,31 @@ pub fn builtinKernelSystem(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!
         return vm.raiseExceptionFmt(vm.argument_error_class, "wrong number of arguments (given 0, expected 1+)", .{});
     }
 
-    const use_shell = arg_index + 1 == args.len;
+    var command_end = args.len;
+    if (command_end > arg_index + 1 and args[command_end - 1].isHash()) {
+        command_end -= 1;
+        for (args[command_end].toHashObject().entries.items) |entry| {
+            if (!entry.key.isSymbol()) {
+                return vm.raiseExceptionFmt(vm.argument_error_class, "wrong exec option", .{});
+            }
+            const name = entry.key.toSymbolObject().name;
+            if (std.mem.eql(u8, name, "chdir")) {
+                chdir_value = entry.value;
+            } else if (std.mem.eql(u8, name, "exception")) {
+                exception_value = entry.value;
+            } else if (std.mem.eql(u8, name, "in")) {
+                stdin_value = entry.value;
+            } else if (std.mem.eql(u8, name, "out")) {
+                stdout_value = entry.value;
+            } else if (std.mem.eql(u8, name, "err")) {
+                stderr_value = entry.value;
+            } else {
+                return vm.raiseExceptionFmt(vm.argument_error_class, "wrong exec option symbol: {s}", .{name});
+            }
+        }
+    }
+
+    const use_shell = arg_index + 1 == command_end;
     if (use_shell) {
         const command = try args[arg_index].coerceToStr(vm, "no implicit conversion into String");
         if (builtin.os.tag == .windows) {
@@ -1161,7 +1188,7 @@ pub fn builtinKernelSystem(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!
         arg_storage.append(vm.allocator, command) catch return error.Fatal;
     } else {
         var i = arg_index;
-        while (i < args.len) : (i += 1) {
+        while (i < command_end) : (i += 1) {
             arg_storage.append(vm.allocator, try args[i].coerceToStr(vm, "no implicit conversion into String")) catch return error.Fatal;
         }
     }
@@ -1170,6 +1197,12 @@ pub fn builtinKernelSystem(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!
         try vm.coerceToPath(value_arg, "no implicit conversion into String")
     else
         null;
+    const redirects = [_]?Value{ stdin_value, stdout_value, stderr_value };
+    for (redirects) |redirect| {
+        if (redirect) |source| {
+            if (!source.isIo()) return vm.raiseExceptionFmt(vm.type_error_class, "wrong exec redirect", .{});
+        }
+    }
 
     const path_z = try vm.resolveExecPathFromEnvMap(&env_map, arg_storage.items[0]);
     defer vm.allocator.free(path_z);
@@ -1198,6 +1231,11 @@ pub fn builtinKernelSystem(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!
             const dir_z = vm.allocCStringZ(path) catch std.c._exit(127);
             defer vm.allocator.free(dir_z);
             if (std.c.chdir(dir_z.ptr) != 0) std.c._exit(127);
+        }
+        for (redirects, 0..) |redirect, target_fd| {
+            if (redirect) |source| {
+                if (std.c.dup2(@intCast(source.toIoObject().fd), @intCast(target_fd)) < 0) std.c._exit(127);
+            }
         }
         _ = execve(path_z.ptr, @ptrCast(argv_data.argv_ptrs.items.ptr), @ptrCast(env_block.view().slice.ptr));
         std.c._exit(127);

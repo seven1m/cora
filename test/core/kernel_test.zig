@@ -859,6 +859,24 @@ test "Kernel#system supports exception keyword" {
     try std.testing.expectEqual(@as(i64, 7), failure[2].toInteger());
 }
 
+test "Kernel#system accepts trailing spawn options and redirects output" {
+    const result = try evalCode(
+        \\read_end, write_end = IO.pipe
+        \\ran = system("/usr/bin/printf", "ready", {out: write_end})
+        \\write_end.close
+        \\output = read_end.read
+        \\read_end.close
+        \\empty = system("/usr/bin/true", {})
+        \\bad = begin; system("/usr/bin/true", {bad_option: true}); rescue ArgumentError => error; error.message; end
+        \\[ran, output, empty, bad]
+    );
+    const values = result.toArrayObject().elements.items;
+    try std.testing.expect(values[0].isTrue());
+    try std.testing.expectEqualStrings("ready", values[1].toStringObject().str);
+    try std.testing.expect(values[2].isTrue());
+    try std.testing.expectEqualStrings("wrong exec option symbol: bad_option", values[3].toStringObject().str);
+}
+
 test "Kernel#system works after ENV.replace" {
     const result = try evalCode(
         \\env = ENV.to_hash
