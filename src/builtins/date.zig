@@ -126,6 +126,12 @@ pub fn register(vm: *VM) !void {
 
     try vm.time_class.module.methods.put(try vm.intern("to_datetime"), value.MethodEntry.builtin(&builtinTimeToDateTime, .{ .exact = 0 }));
     try vm.time_class.module.methods.put(try vm.intern("to_date"), value.MethodEntry.builtin(&builtinTimeToDate, .{ .exact = 0 }));
+    try vm.time_class.module.methods.put(try vm.intern("to_time"), value.MethodEntry.builtin(&builtinTimeToTime, .{ .exact = 0 }));
+}
+
+fn builtinTimeToTime(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    return receiver;
 }
 
 const Civil = struct {

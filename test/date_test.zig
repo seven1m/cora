@@ -45,6 +45,20 @@ test "Date#to_time constructs local midnight" {
     try std.testing.expectEqualStrings("", result.stderr);
 }
 
+test "loading Date makes Time#to_time return itself" {
+    var stdout_buf: [1024]u8 = undefined;
+    var stderr_buf: [1024]u8 = undefined;
+    const result = evalCodeWithOutput(
+        \\before = Time.now.respond_to?(:to_time)
+        \\require "date"
+        \\time = Time.now
+        \\p [before, time.to_time.equal?(time)]
+    , &stdout_buf, &stderr_buf);
+    try std.testing.expect(result.err == null);
+    try std.testing.expectEqualStrings("[false, true]\n", result.stdout);
+    try std.testing.expectEqualStrings("", result.stderr);
+}
+
 test "Time#to_date is registered with Date support and preserves local civil date" {
     var stdout_buf: [1024]u8 = undefined;
     var stderr_buf: [1024]u8 = undefined;
