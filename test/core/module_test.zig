@@ -790,6 +790,29 @@ test "Module ancestors on module includes transitive mixins" {
     try std.testing.expectEqualSlices(u8, "Inner", entries[1].toModuleObject().name.name);
 }
 
+test "Module included_modules lists prepended and inherited mixins" {
+    const result = try evalCode(
+        \\module IncludedInner; end
+        \\module IncludedOuter
+        \\  include IncludedInner
+        \\end
+        \\module Prepended; end
+        \\class IncludedParent
+        \\  include IncludedOuter
+        \\end
+        \\class IncludedChild < IncludedParent
+        \\  prepend Prepended
+        \\end
+        \\[
+        \\  IncludedOuter.included_modules == [IncludedInner],
+        \\  IncludedChild.included_modules == [Prepended, IncludedOuter, IncludedInner, Kernel]
+        \\]
+    );
+    for (result.toArrayObject().elements.items) |entry| {
+        try std.testing.expect(entry.isTruthy());
+    }
+}
+
 test "Module ancestors validates arg count" {
     var stdout_buf: [8192]u8 = undefined;
     var stderr_buf: [8192]u8 = undefined;

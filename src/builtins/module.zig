@@ -1081,6 +1081,9 @@ pub fn register(vm: *VM) !void {
     const ancestors_sym = try vm.intern("ancestors");
     try vm.module_class.module.methods.put(ancestors_sym, value.MethodEntry.builtin(&builtinModuleAncestors, .{ .exact = 0 }));
 
+    const included_modules_sym = try vm.intern("included_modules");
+    try vm.module_class.module.methods.put(included_modules_sym, value.MethodEntry.builtin(&builtinModuleIncludedModules, .{ .exact = 0 }));
+
     const instance_methods_sym = try vm.intern("instance_methods");
     try vm.module_class.module.methods.put(instance_methods_sym, value.MethodEntry.builtin(&builtinModuleInstanceMethods, .{ .variadic = 0 }));
 
@@ -1428,6 +1431,17 @@ pub fn builtinModuleAncestors(vm: *VM, receiver: Value, args: []Value, _: ?Block
         unreachable; // receiver is not a Module
     }
 
+    return Value.fromObject(&out.object);
+}
+
+pub fn builtinModuleIncludedModules(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    const ancestors = try builtinModuleAncestors(vm, receiver, args, null);
+    const out = try vm.createArray();
+    for (ancestors.toArrayObject().elements.items) |ancestor| {
+        if (ancestor.isModule() and ancestor.raw != receiver.raw) {
+            out.elements.append(vm.gc_allocator, ancestor) catch return error.Fatal;
+        }
+    }
     return Value.fromObject(&out.object);
 }
 
