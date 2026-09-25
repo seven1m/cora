@@ -166,6 +166,8 @@ module Zlib
   end
 
   class GzipReader
+    attr_reader :level
+
     def self.wrap(io, *args, **kwargs)
       reader = new(io, *args, **kwargs)
       return reader unless block_given?
@@ -181,6 +183,11 @@ module Zlib
       @io = io
       data = io.read
       @mtime = Time.at(data.byteslice(4, 4).unpack1("V"))
+      @level = case data.getbyte(8)
+               when 4 then BEST_SPEED
+               when 2 then BEST_COMPRESSION
+               else DEFAULT_COMPRESSION
+               end
       @data = Zlib.__inflate(String(data || ""), GZIP)
       @data_len = @data.bytesize
       @position = 0
@@ -259,6 +266,7 @@ module Zlib
 
   class GzipWriter
     attr_accessor :mtime
+    attr_reader :level
 
     def self.wrap(io, *args)
       writer = new(io, *args)
@@ -273,7 +281,7 @@ module Zlib
 
     def initialize(io, level = DEFAULT_COMPRESSION, *_rest)
       @io = io
-      @level = level
+      @level = level.nil? ? DEFAULT_COMPRESSION : level
       @buffer = +""
       @closed = false
       @mtime = nil
@@ -330,6 +338,7 @@ module Zlib
         compressed.setbyte(5, (timestamp >> 8) & 0xff)
         compressed.setbyte(6, (timestamp >> 16) & 0xff)
         compressed.setbyte(7, (timestamp >> 24) & 0xff)
+        compressed.setbyte(8, gzip_xfl)
         @io.write(compressed)
       end
 
@@ -353,7 +362,14 @@ module Zlib
     def gzip_header
       timestamp = (@mtime || Time.now).to_i
       @emitted = true
-      [0x1f, 0x8b, 8, 0, timestamp, 0, 255].pack("C4VC2")
+      [0x1f, 0x8b, 8, 0, timestamp, gzip_xfl, 255].pack("C4VC2")
+    end
+
+    def gzip_xfl
+      return 4 if @level == BEST_SPEED
+      return 2 if @level == BEST_COMPRESSION
+
+      0
     end
 
     def stored_blocks(data, final)

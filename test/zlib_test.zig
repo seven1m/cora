@@ -32,6 +32,20 @@ test "zlib treats nil compression level as the default" {
     try std.testing.expectEqualStrings("", result.stderr);
 }
 
+test "gzip reader reports compression level from the header" {
+    var stdout_buf: [1024]u8 = undefined;
+    var stderr_buf: [1024]u8 = undefined;
+    const result = evalCodeWithOutput(
+        \\require "zlib"
+        \\require "stringio"
+        \\levels = [Zlib::BEST_SPEED, Zlib::BEST_COMPRESSION, nil]
+        \\p levels.map { |level| io = StringIO.new; writer = Zlib::GzipWriter.new(io, level); writer.write("payload"); writer.close; reader = Zlib::GzipReader.new(StringIO.new(io.string)); [reader.level, io.string.getbyte(8)] }
+    , &stdout_buf, &stderr_buf);
+    try std.testing.expect(result.err == null);
+    try std.testing.expectEqualStrings("[[1, 4], [9, 2], [-1, 0]]\n", result.stdout);
+    try std.testing.expectEqualStrings("", result.stderr);
+}
+
 test "require loads zlib deflate inflate helpers" {
     var stdout_buf: [1024]u8 = undefined;
     var stderr_buf: [1024]u8 = undefined;
