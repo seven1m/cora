@@ -10284,7 +10284,7 @@ pub const VM = struct {
             .path_encoding = init.path_encoding,
             .sync = init.sync,
         };
-        registerUnorderedFinalizer(&io_obj.object, struct {
+        try registerUnorderedFinalizer(&io_obj.object, struct {
             fn free_buf(obj: *anyopaque, data: ?*anyopaque) callconv(.c) void {
                 const vm_ptr: *VM = @ptrCast(@alignCast(data.?));
                 const io: *value.IoObject = @ptrCast(@alignCast(obj));
@@ -10472,7 +10472,7 @@ pub const VM = struct {
             .options = options,
             .regex = result.regex.?,
         };
-        registerUnorderedFinalizer(&regexp_obj.object, struct {
+        try registerUnorderedFinalizer(&regexp_obj.object, struct {
             fn free_regex(_: *anyopaque, data: ?*anyopaque) callconv(.c) void {
                 onigmo.free(@ptrCast(@alignCast(data.?)));
             }
@@ -10710,9 +10710,10 @@ pub const VM = struct {
         object: *anyopaque,
         finalizer: bdwgc.Finalizer,
         data: ?*anyopaque,
-    ) void {
+    ) VMError!void {
+        const allocation = bdwgc.base(object) orelse return error.Fatal;
         bdwgc.c.GC_register_finalizer_no_order(
-            object,
+            allocation,
             @ptrCast(finalizer),
             data,
             null,
@@ -10741,7 +10742,7 @@ pub const VM = struct {
             .callbacks = callbacks,
         };
         if (callbacks.dfree != null) {
-            registerUnorderedFinalizer(&obj.object, typedDataFinalizer, null);
+            try registerUnorderedFinalizer(&obj.object, typedDataFinalizer, null);
         }
         return Value.fromObject(&obj.object);
     }
@@ -12031,6 +12032,9 @@ pub const VM = struct {
         try self.guardNotFrozen(target);
         const object = target.getObjectPointer() orelse
             return self.raiseExceptionFmt(self.argument_error_class, "cannot define finalizer for {s}", .{self.className(target)});
+        if (bdwgc.base(object) == null) {
+            return self.raiseExceptionFmt(self.argument_error_class, "cannot define finalizer for {s}", .{self.className(target)});
+        }
         const target_addr = @intFromPtr(object);
 
         if (self.finalizers_by_target.get(target_addr)) |group| {
@@ -12051,7 +12055,7 @@ pub const VM = struct {
         group.callbacks.append(self.allocator, callback) catch return error.Fatal;
         self.finalizers.append(self.allocator, group) catch return error.Fatal;
         self.finalizers_by_target.put(target_addr, group) catch return error.Fatal;
-        registerUnorderedFinalizer(object, objectFinalizerCallback, @ptrCast(group));
+        try registerUnorderedFinalizer(object, objectFinalizerCallback, @ptrCast(group));
         return self.finalizerResult(callback);
     }
 
@@ -12065,7 +12069,9 @@ pub const VM = struct {
     pub fn unregisterObjectFinalizers(self: *VM, target: Value) VMError!Value {
         try self.guardNotFrozen(target);
         const object = target.getObjectPointer() orelse return target;
-        _ = bdwgc.unregisterFinalizer(object);
+        if (bdwgc.base(object)) |allocation| {
+            _ = bdwgc.unregisterFinalizer(allocation);
+        }
         const target_addr = @intFromPtr(object);
         if (self.finalizers_by_target.fetchRemove(target_addr)) |removed| {
             const group = removed.value;

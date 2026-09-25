@@ -12,6 +12,17 @@ test "Thread.new creates and runs a thread" {
     try std.testing.expectEqual(@as(i64, 42), result.toInteger());
 }
 
+test "ObjectSpace registers finalizers for large Thread objects" {
+    const result = try evalCode(
+        \\thread = Thread.new { 42 }
+        \\callback = proc { |_id| }
+        \\registration = ObjectSpace.define_finalizer(thread, callback)
+        \\[registration[0] == 0, registration[1].equal?(callback), ObjectSpace.undefine_finalizer(thread).equal?(thread), thread.value == 42]
+    );
+    const items = result.toArrayObject().elements.items;
+    for (items) |item| try std.testing.expect(item.isTruthy());
+}
+
 test "Thread.handle_interrupt validates masks and yields" {
     const result = try evalCode(
         \\Thread.handle_interrupt(Object => :immediate) { 42 }
