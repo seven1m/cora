@@ -157,8 +157,48 @@ fn lookupConstantOnReceiver(vm: *VM, receiver: Value, name_sym: *SymbolObject, i
 }
 
 fn lookupOrLoadConstantOnReceiver(vm: *VM, receiver: Value, name_sym: *SymbolObject, inherit: bool, allow_object_fallback: bool) VMError!?Value {
-    if (lookupConstantOnReceiverWithFallback(vm, receiver, name_sym, inherit, allow_object_fallback)) |val| return val;
-    return vm.loadAutoloadConstant(moduleFromValue(receiver).?, name_sym);
+    if (receiver.isClass()) {
+        var current: ?*ClassObject = receiver.toClassObject();
+        while (current) |klass| {
+            if (!allow_object_fallback and klass == vm.object_class and receiver.toClassObject() != vm.object_class) break;
+            if (try lookupOrLoadConstantOnModule(vm, &klass.module, name_sym)) |val| return val;
+            if (!inherit) break;
+            current = klass.superclass;
+        }
+        return null;
+    }
+
+    if (receiver.isModule()) {
+        if (try lookupOrLoadConstantOnModule(vm, receiver.toModuleObject(), name_sym)) |val| return val;
+        if (inherit and allow_object_fallback) return lookupOrLoadConstantOnModule(vm, &vm.object_class.module, name_sym);
+    }
+    return null;
+}
+
+fn lookupOrLoadConstantOnOwnModule(vm: *VM, module_obj: *value.ModuleObject, name_sym: *SymbolObject) VMError!?Value {
+    if (module_obj.constants.get(name_sym)) |entry| return entry.value;
+    return vm.loadAutoloadConstant(module_obj, name_sym);
+}
+
+fn lookupOrLoadConstantOnModule(vm: *VM, module_obj: *value.ModuleObject, name_sym: *SymbolObject) VMError!?Value {
+    if (module_obj.origin != module_obj) {
+        var prepends = module_obj.super;
+        while (prepends) |node| : (prepends = node.super) {
+            if (node.is_origin_iclass) break;
+            if (!ancestry.isVisibleAncestor(node)) continue;
+            if (try lookupOrLoadConstantOnOwnModule(vm, ancestry.visibleModule(node), name_sym)) |val| return val;
+        }
+    }
+
+    if (try lookupOrLoadConstantOnOwnModule(vm, module_obj, name_sym)) |val| return val;
+
+    var current = if (module_obj.origin == module_obj) module_obj.super else module_obj.origin.super;
+    while (current) |node| : (current = node.super) {
+        if (node.object.type_tag == .class) break;
+        if (!ancestry.isVisibleAncestor(node)) continue;
+        if (try lookupOrLoadConstantOnOwnModule(vm, ancestry.visibleModule(node), name_sym)) |val| return val;
+    }
+    return null;
 }
 
 fn lookupConstantOnReceiverWithFallback(vm: *VM, receiver: Value, name_sym: *SymbolObject, inherit: bool, allow_object_fallback: bool) ?Value {
@@ -262,9 +302,14 @@ fn collectClassVariableSymbolsOnModule(
 }
 
 fn lookupAutoloadOnReceiver(vm: *VM, receiver: Value, name_sym: *SymbolObject, inherit: bool) ?[]const u8 {
+    return lookupAutoloadOnReceiverWithFallback(vm, receiver, name_sym, inherit, true);
+}
+
+fn lookupAutoloadOnReceiverWithFallback(vm: *VM, receiver: Value, name_sym: *SymbolObject, inherit: bool, allow_object_fallback: bool) ?[]const u8 {
     if (receiver.isClass()) {
         var current: ?*ClassObject = receiver.toClassObject();
         while (current) |klass| {
+            if (!allow_object_fallback and klass == vm.object_class and receiver.toClassObject() != vm.object_class) break;
             if (lookupAutoloadOnModule(&klass.module, name_sym)) |path| return path;
             if (!inherit) break;
             current = klass.superclass;
@@ -274,7 +319,7 @@ fn lookupAutoloadOnReceiver(vm: *VM, receiver: Value, name_sym: *SymbolObject, i
 
     if (receiver.isModule()) {
         if (lookupAutoloadOnModule(receiver.toModuleObject(), name_sym)) |path| return path;
-        if (inherit) {
+        if (inherit and allow_object_fallback) {
             if (lookupAutoloadOnModule(&vm.object_class.module, name_sym)) |path| return path;
         }
         return null;
@@ -386,10 +431,14 @@ fn constantPathDefined(vm: *VM, receiver: Value, name: []const u8, inherit: bool
 
     var current: Value = if (rooted) Value.fromObject(&vm.object_class.module.object) else receiver;
     var first = true;
-    for (parts.items) |part| {
+    for (parts.items, 0..) |part, index| {
         const name_sym = try vm.intern(part);
         _ = moduleFromValue(current) orelse return false;
-        current = lookupConstantOnReceiverWithFallback(vm, current, name_sym, inherit, first) orelse return false;
+        if (index == parts.items.len - 1) {
+            return lookupConstantOnReceiverWithFallback(vm, current, name_sym, inherit, first) != null or
+                lookupAutoloadOnReceiverWithFallback(vm, current, name_sym, inherit, first) != null;
+        }
+        current = (try lookupOrLoadConstantOnReceiver(vm, current, name_sym, inherit, first)) orelse return false;
         first = false;
     }
 

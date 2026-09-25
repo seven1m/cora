@@ -435,6 +435,36 @@ test "Module const_get loads registered autoloads and propagates load errors" {
     try std.testing.expectEqualStrings("autoload fixture failed", result.toStringObject().str);
 }
 
+test "Module constant lookup loads autoloads from included ancestors" {
+    const result = try evalCode(
+        \\module AncestorAutoload; end
+        \\AncestorAutoload.autoload(:Loaded, File.expand_path("test/support/autoload_ancestor_constant", Dir.pwd))
+        \\class AutoloadChild
+        \\  include AncestorAutoload
+        \\end
+        \\before = [AutoloadChild.const_defined?(:Loaded), !AncestorAutoload.autoload?(:Loaded).nil?]
+        \\through_path = AutoloadChild.const_defined?("Loaded::Value")
+        \\[before, through_path, AutoloadChild.const_get(:Loaded).const_get(:Value), AncestorAutoload.autoload?(:Loaded)]
+    );
+    const values = result.toArrayObject().elements.items;
+    const before = values[0].toArrayObject().elements.items;
+    try std.testing.expect(before[0].isTrue());
+    try std.testing.expect(before[1].isTrue());
+    try std.testing.expect(values[1].isTrue());
+    try std.testing.expectEqual(@as(i64, 23), values[2].toInteger());
+    try std.testing.expect(values[3].isNil());
+
+    const direct = try evalCode(
+        \\module AncestorAutoload; end
+        \\AncestorAutoload.autoload(:Loaded, File.expand_path("test/support/autoload_ancestor_constant", Dir.pwd))
+        \\class AutoloadChild
+        \\  include AncestorAutoload
+        \\end
+        \\AutoloadChild.const_get(:Loaded).const_get(:Value)
+    );
+    try std.testing.expectEqual(@as(i64, 23), direct.toInteger());
+}
+
 test "Object const_get resolves Gem::Specification" {
     const result = try evalCode(
         \\$LOAD_PATH.unshift(File.expand_path("build/ext/rubygems/lib", Dir.pwd))
