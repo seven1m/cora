@@ -107,10 +107,34 @@ pub fn builtinDataDefine(vm: *VM, receiver: Value, args: []Value, block: ?Block)
     const subclass_singleton = try vm.getOrCreateSingletonClass(subclass_value);
     const class_members_sym = try vm.intern("members");
     subclass_singleton.module.methods.put(class_members_sym, value.MethodEntry.builtin(&builtinDataClassMembers, .{ .exact = 0 })) catch return error.Fatal;
+    const new_sym = try vm.intern("new");
+    const constructor = value.MethodEntry.keywordBuiltin(&builtinDataNew, .{ .variadic = 0 });
+    subclass_singleton.module.methods.put(new_sym, constructor) catch return error.Fatal;
     const bracket_sym = try vm.intern("[]");
-    subclass_singleton.module.methods.put(bracket_sym, value.MethodEntry.keywordBuiltin(&class_builtin.builtinClassNew, .{ .variadic = 0 })) catch return error.Fatal;
+    subclass_singleton.module.methods.put(bracket_sym, constructor) catch return error.Fatal;
 
     return subclass_value;
+}
+
+fn builtinDataNew(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
+    if (vm.keywordArgsGiven()) {
+        try vm.requireArgCount(args, 0);
+        return class_builtin.builtinClassNew(vm, receiver, args, block);
+    }
+
+    const instance = try vm.newObjectForClass(receiver.toClassObject());
+    const members = try memberNames(vm, instance);
+    defer vm.allocator.free(members);
+    try vm.requireArgCountRange(args, 0, members.len);
+
+    const keys = vm.allocator.alloc(Value, args.len) catch return error.Fatal;
+    defer vm.allocator.free(keys);
+    for (members[0..args.len], 0..) |name, i| {
+        const symbol = try vm.intern(name);
+        keys[i] = Value.fromObject(&symbol.object);
+    }
+    _ = try vm.callMethodByNameWithKeywords(instance, "initialize", &.{}, keys, args, block);
+    return instance;
 }
 
 pub fn builtinDataInitialize(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {

@@ -21,3 +21,17 @@ test "Data subclasses inherit their members" {
     const items = result.toArrayObject().elements.items;
     for (items) |item| try std.testing.expect(item.isTruthy());
 }
+
+test "Data converts positional constructor values to member keywords" {
+    const result = try test_helper.evalCode(
+        \\Base = Data.define(:foo)
+        \\class Child < Base
+        \\  def initialize(**)
+        \\    super
+        \\  end
+        \\end
+        \\[Base.new("bar").foo, Child.new("bar").foo, Child["bar"].foo, Child.new(foo: "bar").foo]
+    );
+    const items = result.toArrayObject().elements.items;
+    for (items) |item| try std.testing.expectEqualStrings("bar", item.toStringObject().str);
+}
