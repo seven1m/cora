@@ -841,7 +841,12 @@ export fn rb_ivar_get(obj_raw: VALUE, id: VALUE) VALUE {
 export fn rb_ivar_set(obj_raw: VALUE, id: VALUE, val_raw: VALUE) VALUE {
     const vm = getVM();
     const name = symName(id);
-    vm.setInstanceVariable(Value{ .raw = obj_raw }, name, Value{ .raw = val_raw }) catch return 0;
+    const receiver = Value{ .raw = obj_raw };
+    const val = Value{ .raw = val_raw };
+    vm.setInstanceVariable(receiver, name, val) catch return 0;
+    if (receiver.isException() and std.mem.eql(u8, name, "mesg") and val.isString()) {
+        receiver.toExceptionObject().message = val.toStringObject();
+    }
     return val_raw;
 }
 

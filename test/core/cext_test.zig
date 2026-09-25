@@ -107,6 +107,15 @@ test "C extension creates exceptions from C strings" {
     try std.testing.expectEqualStrings("from C", result.toStringObject().str);
 }
 
+test "C extension updates exception messages through the mesg ivar" {
+    const result = try evalCode(
+        \\$LOAD_PATH << "build/cext"
+        \\require "fixture.so"
+        \\CoraCExt.exception_ivar_message.message
+    );
+    try std.testing.expectEqualStrings("updated", result.toStringObject().str);
+}
+
 test "C extension packs signed 64-bit integers" {
     const result = try evalCode(
         \\$LOAD_PATH << "build/cext"
