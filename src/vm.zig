@@ -12301,6 +12301,7 @@ pub const VM = struct {
                 break :blk Value.fromObject(&exc.object);
             };
             const exc = exc_val.toExceptionObject();
+            self.assignImplicitExceptionCause(exc);
             var backtrace_args = [_]Value{args[2]};
             _ = try self.callMethodByName(Value.fromObject(&exc.object), "set_backtrace", &backtrace_args, null);
             self.setPendingException(exc);
@@ -13554,11 +13555,7 @@ pub const VM = struct {
         const msg_str = try self.newString(message, false);
         const backtrace = if (capture_bt) try self.captureBacktrace() else null;
         const backtrace_locations = if (capture_bt) try self.captureBacktraceLocations() else null;
-        const rescued_exceptions = self.currentRescuedExceptions();
-        const cause = self.pendingException() orelse if (rescued_exceptions.items.len > 0)
-            rescued_exceptions.items[rescued_exceptions.items.len - 1]
-        else
-            null;
+        const cause = if (capture_bt) self.currentExceptionCause() else null;
 
         exc.* = .{
             .object = .{
@@ -13674,11 +13671,26 @@ pub const VM = struct {
 
     pub fn captureAndSetExceptionBacktrace(self: *VM, exc: *value.ExceptionObject) VMError!void {
         if (exc.backtrace == null) {
+            self.assignImplicitExceptionCause(exc);
             const captured = try self.captureBacktrace();
             exc.backtrace_locations = try self.captureBacktraceLocations();
             const backtrace = if (captured) |array| Value.fromObject(&array.object) else Value.nil();
             var args = [_]Value{backtrace};
             _ = try self.callMethodByName(Value.fromObject(&exc.object), "set_backtrace", &args, null);
+        }
+    }
+
+    fn currentExceptionCause(self: *VM) ?*value.ExceptionObject {
+        if (self.pendingException()) |pending| return pending;
+        const rescued = self.currentRescuedExceptions();
+        if (rescued.items.len > 0) return rescued.items[rescued.items.len - 1];
+        return null;
+    }
+
+    fn assignImplicitExceptionCause(self: *VM, exc: *value.ExceptionObject) void {
+        if (exc.cause == null) {
+            const cause = self.currentExceptionCause() orelse return;
+            if (cause != exc) exc.cause = cause;
         }
     }
 

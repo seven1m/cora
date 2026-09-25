@@ -127,6 +127,25 @@ test "Exception#cause returns nested exception" {
     try std.testing.expectEqualStrings("inner", elems[1].toStringObject().str);
 }
 
+test "Exception.new gets an implicit cause only when raised" {
+    const result = try evalCode(
+        \\begin
+        \\  raise "original"
+        \\rescue => original
+        \\  error = RuntimeError.new("new")
+        \\  before = error.cause
+        \\  begin
+        \\    raise error
+        \\  rescue => raised
+        \\    [before.nil?, raised.cause.equal?(original)]
+        \\  end
+        \\end
+    );
+    const values = result.toArrayObject().elements.items;
+    try std.testing.expect(values[0].isTrue());
+    try std.testing.expect(values[1].isTrue());
+}
+
 test "Errno class exception builds default errno message" {
     const result = try evalCode(
         \\e = Errno::EMFILE.exception
