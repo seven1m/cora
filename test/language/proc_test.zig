@@ -109,6 +109,18 @@ test "Binding local_variable_get reads locals and names missing locals" {
     try std.testing.expectEqualStrings("missing", values[1].toSymbolObject().name);
 }
 
+test "Binding eval retains values of newly declared locals" {
+    const result = try evalCode(
+        \\b = TOPLEVEL_BINDING.dup
+        \\b.eval("new_value = 31")
+        \\[b.local_variable_get(:new_value), b.eval("new_value"), TOPLEVEL_BINDING.local_variable_defined?(:new_value)]
+    );
+    const values = result.toArrayObject().elements.items;
+    try std.testing.expectEqual(@as(i64, 31), values[0].toInteger());
+    try std.testing.expectEqual(@as(i64, 31), values[1].toInteger());
+    try std.testing.expect(values[2].isFalse());
+}
+
 test "Proc.call uses defining self" {
     const result = try evalCode(
         \\obj = Object.new

@@ -12860,24 +12860,8 @@ pub const VM = struct {
                 .dir_returns_nil = ctx.dir_returns_nil,
                 .method_name = ctx.method_name,
                 .frame_type = .synthetic,
+                .binding_to_update = ctx.binding_to_update,
             });
-            // Update binding's local variable names with any new names from the eval.
-            // eval_main_chunk is still alive here (deferred deinit fires after return).
-            if (ctx.binding_to_update) |binding| {
-                for (eval_main_chunk.local_names.items) |name| {
-                    var found = false;
-                    for (binding.local_names.items) |existing| {
-                        if (std.mem.eql(u8, existing, name)) {
-                            found = true;
-                            break;
-                        }
-                    }
-                    if (!found) {
-                        const duped = self.gc_allocator.dupe(u8, name) catch return error.Fatal;
-                        binding.local_names.append(self.gc_allocator, duped) catch return error.Fatal;
-                    }
-                }
-            }
             return result;
         }
 
@@ -12905,6 +12889,7 @@ pub const VM = struct {
         dir_returns_nil: bool = false,
         method_name: ?[]const u8 = null,
         frame_type: CallFrame.FrameType = .method,
+        binding_to_update: ?*value.BindingObject = null,
     };
 
     fn executeChunkInContext(
@@ -12948,7 +12933,14 @@ pub const VM = struct {
         }
 
         const saved = self.frames.items.len - 1;
-        try self.executeUntilReturn(saved);
+        const captured_ep = if (opts.binding_to_update != null) try self.promoteFrameToHeap(ep) else null;
+        const execution = self.executeUntilReturn(saved);
+        if (opts.binding_to_update) |binding| {
+            for (target_chunk.local_names.items, 0..) |name, i| {
+                try self.setBindingLocal(binding, name, (captured_ep.? - lc + i)[0]);
+            }
+        }
+        try execution;
         return self.finishSubcallFromStack(saved, saved_stack_len, pending_unwind_before);
     }
 
