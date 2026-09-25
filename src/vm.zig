@@ -6101,7 +6101,7 @@ pub const VM = struct {
 
                     // Stack-window fast path for chunk methods:
                     // bind arguments directly from caller stack and avoid temporary arg buffers.
-                    if (call_style == .implicit_self) {
+                    if (call_style != .explicit) {
                         // Inline cache check: avoid calling resolveMethodForCallSite on cache hit
                         const caches = frame.chunk.callsite_caches.items;
                         if (callsite_byte_offset < caches.len) {
@@ -7685,7 +7685,7 @@ pub const VM = struct {
                     f.ip += 7; // opcode(1) + method_idx(2) + argc(1) + flags(1) + block_chunk_id(2)
                     const call_flags = code[callsite_byte_offset + 4];
                     const call_style: ReceiverCallStyle = bytecode.decodeReceiverCallStyle(call_flags);
-                    if (call_style == .implicit_self and !bytecode.argsArrayMode(call_flags)) {
+                    if (call_style != .explicit and !bytecode.argsArrayMode(call_flags)) {
                         // Read block_chunk_id
                         const blk_lo: u16 = code[callsite_byte_offset + 5];
                         const blk_hi: u16 = code[callsite_byte_offset + 6];
@@ -7802,7 +7802,7 @@ pub const VM = struct {
     fn isMethodCallable(self: *VM, receiver: Value, resolved: ResolvedMethod, call_style: ReceiverCallStyle) bool {
         switch (resolved.entry.visibility) {
             .public => return true,
-            .private => return call_style == .implicit_self or
+            .private => return call_style != .explicit or
                 (self.frames.items.len > 0 and receiver.eql(self.currentFrame().self_value)),
             .protected => {
                 if (self.frames.items.len == 0) return false;
@@ -9132,6 +9132,14 @@ pub const VM = struct {
         const should_fallback = resolved == null or !self.isMethodCallable(receiver, resolved.?, call_style);
         const kwargc: usize = if (kw_values) |vals| vals.len else 0;
         if (should_fallback) {
+            if (call_style == .variable_call) {
+                const missing_sym = try self.intern("method_missing");
+                const missing_method = try self.findMethod(receiver, missing_sym);
+                if (missing_method == null or missing_method.?.owner_class == self.basic_object_class) {
+                    const receiver_desc = try self.noMethodReceiverDescription(receiver);
+                    return self.raiseNameErrorFmt(method_name_sym, "undefined local variable or method '{s}' for {s}", .{ method_name_sym.name, receiver_desc });
+                }
+            }
             const keyword_ctx = if (kwargc > 0) (try self.copyKeywordContext(kw_keys.?, kw_values.?)).? else null;
             const result = try self.invokeMethodMissing(receiver, method_name_sym, @constCast(args), keyword_ctx, block);
             try self.push(result);

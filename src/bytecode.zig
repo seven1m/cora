@@ -131,18 +131,21 @@ pub const OpCode = enum(u8) {
 pub const ReceiverCallStyle = enum(u8) {
     explicit = 0,
     implicit_self = 1,
+    variable_call = 2,
 };
 
 pub const CALL_FLAG_IMPLICIT_SELF: u8 = 0x01;
 pub const CALL_FLAG_ARGS_ARRAY: u8 = 0x02;
 pub const CALL_FLAG_KW_HASH: u8 = 0x04;
+pub const CALL_FLAG_VARIABLE_CALL: u8 = 0x08;
 
 pub const SUPER_FLAG_ARGS_ARRAY: u8 = CALL_FLAG_ARGS_ARRAY;
 pub const SUPER_FLAG_KW_HASH: u8 = CALL_FLAG_KW_HASH;
 
 pub fn encodeCallFlags(receiver_style: ReceiverCallStyle, args_array_mode: bool) u8 {
     var flags: u8 = 0;
-    if (receiver_style == .implicit_self) flags |= CALL_FLAG_IMPLICIT_SELF;
+    if (receiver_style != .explicit) flags |= CALL_FLAG_IMPLICIT_SELF;
+    if (receiver_style == .variable_call) flags |= CALL_FLAG_VARIABLE_CALL;
     if (args_array_mode) flags |= CALL_FLAG_ARGS_ARRAY;
     return flags;
 }
@@ -153,6 +156,7 @@ pub fn addKwHashFlag(flags: u8, kw_hash_mode: bool) u8 {
 }
 
 pub fn decodeReceiverCallStyle(flags: u8) ReceiverCallStyle {
+    if ((flags & CALL_FLAG_VARIABLE_CALL) != 0) return .variable_call;
     return if ((flags & CALL_FLAG_IMPLICIT_SELF) != 0) .implicit_self else .explicit;
 }
 

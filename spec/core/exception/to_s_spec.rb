@@ -20,12 +20,10 @@ end
 
 describe "NameError#to_s" do
   it "raises its own message for an undefined variable" do
-    CORAFIXME "Error message is wrong", exception: SpecExpectationNotMetError do
-      begin
-        puts not_defined
-      rescue => exception
-        exception.message.should =~ /undefined local variable or method [`']not_defined'/
-      end
+    begin
+      puts not_defined
+    rescue => exception
+      exception.message.should =~ /undefined local variable or method [`']not_defined'/
     end
   end
 

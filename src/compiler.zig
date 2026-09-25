@@ -775,7 +775,12 @@ pub const Compiler = struct {
                     // Self is implicit receiver
                     try self.current_chunk.emitOp(.PUSH_SELF, line);
                 }
-                const receiver_style: bytecode.ReceiverCallStyle = if (call_node.receiver != null) .explicit else .implicit_self;
+                const receiver_style: bytecode.ReceiverCallStyle = if (call_node.receiver != null)
+                    .explicit
+                else if ((call_node.base.flags & prism.CALL_NODE_FLAGS_VARIABLE_CALL) != 0)
+                    .variable_call
+                else
+                    .implicit_self;
 
                 const args_ptr = if (call_node.arguments != null) @as(*prism.ArgumentsNode, @ptrCast(call_node.arguments.?)) else null;
                 // null = no forwarding; 0 = pure forwarding only; N>0 = N prefix args before `...`

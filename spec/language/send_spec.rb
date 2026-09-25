@@ -219,9 +219,7 @@ describe "Invoking a method" do
     end
 
     it "should omit the method_missing call from the backtrace for NameError" do
-      CORAFIXME "method_missing still appears at the top of NameError backtraces", exception: SpecExpectationNotMetError do
-        -> { no_such_method }.should raise_error { |e| e.backtrace.first.should_not include("method_missing") }
-      end
+      -> { no_such_method }.should raise_error { |e| e.backtrace.first.should_not include("method_missing") }
     end
 
     it "raises NoMethodError if invoked as an unambiguous method call" do

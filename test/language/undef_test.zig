@@ -35,7 +35,7 @@ test "undef keyword at top-level removes the method from Object" {
     , &stdout_buf, &stderr_buf);
 
     try std.testing.expectEqual(error.UnhandledException, result.err.?);
-    try std.testing.expect(std.mem.indexOf(u8, result.stderr, "NoMethodError") != null);
+    try std.testing.expect(std.mem.indexOf(u8, result.stderr, "NameError") != null);
 }
 
 test "undef keyword works in singleton class scope" {

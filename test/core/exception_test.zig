@@ -16,6 +16,18 @@ test "NoMethodError name identifies the missing method" {
     try std.testing.expectEqualStrings("missing_method", result.toSymbolObject().name);
 }
 
+test "bare missing variable calls raise NameError while explicit calls raise NoMethodError" {
+    const result = try evalCode(
+        \\bare = begin; unknown_name; rescue => error; [error.class, error.name]; end
+        \\explicit = begin; self.unknown_name; rescue => error; [error.class, error.name]; end
+        \\[bare, explicit]
+    );
+    const cases = result.toArrayObject().elements.items;
+    try std.testing.expect(cases[0].toArrayObject().elements.items[0].toClassObject() == cases[1].toArrayObject().elements.items[0].toClassObject().superclass.?);
+    try std.testing.expectEqualStrings("unknown_name", cases[0].toArrayObject().elements.items[1].toSymbolObject().name);
+    try std.testing.expectEqualStrings("unknown_name", cases[1].toArrayObject().elements.items[1].toSymbolObject().name);
+}
+
 test "Exception#message returns message string" {
     const result = try evalCode(
         \\begin
