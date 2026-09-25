@@ -89,7 +89,7 @@ pub fn register(vm: *VM) !void {
     try vm.numeric_class.module.methods.put(dup_sym, value.MethodEntry.builtin(&builtinNumericDup, .{ .exact = 0 }));
 
     const clone_sym = try vm.intern("clone");
-    try vm.numeric_class.module.methods.put(clone_sym, value.MethodEntry.builtin(&builtinNumericClone, .{ .variadic = 0 }));
+    try vm.numeric_class.module.methods.put(clone_sym, value.MethodEntry.keywordBuiltin(&builtinNumericClone, .{ .variadic = 0 }));
 
     const arg_entry = value.MethodEntry.builtin(&builtinNumericArg, .{ .exact = 0 });
     const arg_sym = try vm.intern("arg");

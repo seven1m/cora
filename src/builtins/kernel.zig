@@ -199,10 +199,10 @@ pub fn register(vm: *VM) !void {
     try vm.kernel_module.methods.put(kernel_string_convert_sym, value.MethodEntry.builtinWithVisibility(&builtinKernelStringConvert, .{ .exact = 1 }, .private));
 
     const kernel_integer_convert_sym = try vm.intern("Integer");
-    try vm.kernel_module.methods.put(kernel_integer_convert_sym, value.MethodEntry.builtinWithVisibility(&builtinKernelIntegerConvert, .{ .variadic = 1 }, .private));
+    try vm.kernel_module.methods.put(kernel_integer_convert_sym, value.MethodEntry.keywordBuiltinWithVisibility(&builtinKernelIntegerConvert, .{ .variadic = 1 }, .private));
 
     const kernel_float_convert_sym = try vm.intern("Float");
-    try vm.kernel_module.methods.put(kernel_float_convert_sym, value.MethodEntry.builtinWithVisibility(&builtinKernelFloatConvert, .{ .exact = 1 }, .private));
+    try vm.kernel_module.methods.put(kernel_float_convert_sym, value.MethodEntry.keywordBuiltinWithVisibility(&builtinKernelFloatConvert, .{ .exact = 1 }, .private));
 
     const puts_sym = try vm.intern("puts");
     try vm.kernel_module.methods.put(puts_sym, MethodEntry.builtinWithVisibility(&builtinKernelPuts, .{ .variadic = 0 }, .private));
@@ -214,12 +214,12 @@ pub fn register(vm: *VM) !void {
     try vm.kernel_module.methods.put(printf_sym, MethodEntry.builtinWithVisibility(&builtinKernelPrintf, .{ .variadic = 1 }, .private));
 
     const sprintf_sym = try vm.intern("sprintf");
-    try vm.kernel_module.methods.put(sprintf_sym, MethodEntry.builtinWithVisibility(&builtinKernelSprintf, .{ .variadic = 1 }, .private));
+    try vm.kernel_module.methods.put(sprintf_sym, MethodEntry.keywordBuiltinWithVisibility(&builtinKernelSprintf, .{ .variadic = 1 }, .private));
     const format_sym = try vm.intern("format");
-    try vm.kernel_module.methods.put(format_sym, MethodEntry.builtinWithVisibility(&builtinKernelSprintf, .{ .variadic = 1 }, .private));
+    try vm.kernel_module.methods.put(format_sym, MethodEntry.keywordBuiltinWithVisibility(&builtinKernelSprintf, .{ .variadic = 1 }, .private));
 
     const open_sym = try vm.intern("open");
-    try vm.kernel_module.methods.put(open_sym, MethodEntry.builtinWithVisibility(&builtinKernelOpen, .{ .variadic = 0 }, .private));
+    try vm.kernel_module.methods.put(open_sym, MethodEntry.keywordBuiltinWithVisibility(&builtinKernelOpen, .{ .variadic = 0 }, .private));
 
     const warn_sym = try vm.intern("warn");
     var warn_entry = MethodEntry.keywordBuiltinWithParameters(&builtinKernelWarn, .{ .variadic = 0 }, &warn_parameters);
@@ -242,7 +242,7 @@ pub fn register(vm: *VM) !void {
     try vm.kernel_module.methods.put(exit_bang_sym, value.MethodEntry.builtinWithVisibility(&builtinKernelExitBang, .{ .variadic = 0 }, .private));
 
     const system_sym = try vm.intern("system");
-    try vm.kernel_module.methods.put(system_sym, value.MethodEntry.builtinWithVisibility(&builtinKernelSystem, .{ .variadic = 0 }, .private));
+    try vm.kernel_module.methods.put(system_sym, value.MethodEntry.keywordBuiltinWithVisibility(&builtinKernelSystem, .{ .variadic = 0 }, .private));
 
     const spawn_sym = try vm.intern("spawn");
     try vm.kernel_module.methods.put(spawn_sym, value.MethodEntry.builtinWithVisibility(&process_builtin.builtinProcessSpawn, .{ .variadic = 1 }, .private));
@@ -317,14 +317,14 @@ pub fn register(vm: *VM) !void {
     const kernel_singleton = try vm.getOrCreateSingletonClass(kernel_module_val);
     try kernel_singleton.module.methods.put(kernel_array_convert_sym, value.MethodEntry.builtin(&builtinKernelArrayConvert, .{ .exact = 1 }));
     try kernel_singleton.module.methods.put(kernel_string_convert_sym, value.MethodEntry.builtin(&builtinKernelStringConvert, .{ .exact = 1 }));
-    try kernel_singleton.module.methods.put(kernel_integer_convert_sym, value.MethodEntry.builtin(&builtinKernelIntegerConvert, .{ .variadic = 1 }));
-    try kernel_singleton.module.methods.put(kernel_float_convert_sym, value.MethodEntry.builtin(&builtinKernelFloatConvert, .{ .exact = 1 }));
+    try kernel_singleton.module.methods.put(kernel_integer_convert_sym, value.MethodEntry.keywordBuiltin(&builtinKernelIntegerConvert, .{ .variadic = 1 }));
+    try kernel_singleton.module.methods.put(kernel_float_convert_sym, value.MethodEntry.keywordBuiltin(&builtinKernelFloatConvert, .{ .exact = 1 }));
     try kernel_singleton.module.methods.put(kernel_hash_convert_sym, value.MethodEntry.builtin(&builtinKernelHashConvert, .{ .exact = 1 }));
     try kernel_singleton.module.methods.put(printf_sym, MethodEntry.builtin(&builtinKernelPrintf, .{ .variadic = 1 }));
-    try kernel_singleton.module.methods.put(sprintf_sym, MethodEntry.builtin(&builtinKernelSprintf, .{ .variadic = 1 }));
+    try kernel_singleton.module.methods.put(sprintf_sym, MethodEntry.keywordBuiltin(&builtinKernelSprintf, .{ .variadic = 1 }));
     try kernel_singleton.module.methods.put(puts_sym, MethodEntry.builtin(&builtinKernelPuts, .{ .variadic = 0 }));
     try kernel_singleton.module.methods.put(print_sym, MethodEntry.builtin(&builtinKernelPrint, .{ .variadic = 0 }));
-    try kernel_singleton.module.methods.put(format_sym, MethodEntry.builtin(&builtinKernelSprintf, .{ .variadic = 1 }));
+    try kernel_singleton.module.methods.put(format_sym, MethodEntry.keywordBuiltin(&builtinKernelSprintf, .{ .variadic = 1 }));
     try kernel_singleton.module.methods.put(autoload_sym, MethodEntry.builtin(&builtinKernelSingletonAutoload, .{ .exact = 2 }));
     try kernel_singleton.module.methods.put(autoload_q_sym, MethodEntry.builtin(&builtinKernelSingletonAutoloadQ, .{ .variadic = 0 }));
     try kernel_singleton.module.methods.put(warn_sym, MethodEntry.keywordBuiltinWithParameters(&builtinKernelWarn, .{ .variadic = 0 }, &warn_parameters));
@@ -382,10 +382,10 @@ pub fn register(vm: *VM) !void {
     try vm.kernel_module.methods.put(dup_sym, value.MethodEntry.builtin(&builtinKernelDup, .{ .exact = 0 }));
 
     const clone_sym = try vm.intern("clone");
-    try vm.kernel_module.methods.put(clone_sym, value.MethodEntry.builtin(&builtinKernelClone, .{ .exact = 0 }));
+    try vm.kernel_module.methods.put(clone_sym, value.MethodEntry.keywordBuiltin(&builtinKernelClone, .{ .exact = 0 }));
 
     const initialize_clone_sym = try vm.intern("initialize_clone");
-    try vm.kernel_module.methods.put(initialize_clone_sym, value.MethodEntry.builtinWithVisibility(&builtinKernelInitializeClone, .{ .variadic = 0 }, .private));
+    try vm.kernel_module.methods.put(initialize_clone_sym, value.MethodEntry.keywordBuiltinWithVisibility(&builtinKernelInitializeClone, .{ .variadic = 0 }, .private));
 
     const block_given_sym = try vm.intern("block_given?");
     try vm.kernel_module.methods.put(block_given_sym, MethodEntry.builtin(&builtinKernelBlockGiven, .{ .exact = 0 }));
@@ -500,7 +500,7 @@ pub fn register(vm: *VM) !void {
     try vm.kernel_module.methods.put(trap_sym, value.MethodEntry.builtinWithVisibility(&builtinKernelTrap, .{ .variadic = 1 }, .private));
 
     const rational_sym = try vm.intern("Rational");
-    try vm.kernel_module.methods.put(rational_sym, value.MethodEntry.builtin(&builtinKernelRational, .{ .variadic = 0 }));
+    try vm.kernel_module.methods.put(rational_sym, value.MethodEntry.keywordBuiltin(&builtinKernelRational, .{ .variadic = 0 }));
 
     const complex_sym = try vm.intern("Complex");
     try vm.kernel_module.methods.put(complex_sym, value.MethodEntry.keywordBuiltin(&builtinKernelComplex, .{ .variadic = 0 }));

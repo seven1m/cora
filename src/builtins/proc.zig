@@ -13,7 +13,7 @@ pub fn register(vm: *VM) !void {
     const proc_singleton = try vm.getOrCreateSingletonClass(proc_class_val);
     try proc_singleton.module.methods.put(proc_new_sym, value.MethodEntry.keywordBuiltin(&builtinProcNew, .{ .variadic = 0 }));
 
-    const call_entry = value.MethodEntry.builtin(&builtinProcCall, .{ .variadic = 0 });
+    const call_entry = value.MethodEntry.keywordBuiltin(&builtinProcCall, .{ .variadic = 0 });
     const call_sym = try vm.intern("call");
     try vm.proc_class.module.methods.put(call_sym, call_entry);
 

@@ -12,7 +12,7 @@ pub fn register(vm: *VM) !void {
     const warning_singleton = try vm.getOrCreateSingletonClass(warning_obj);
 
     const warn_sym = try vm.intern("warn");
-    try warning_singleton.module.methods.put(warn_sym, value.MethodEntry.builtin(&builtinWarningWarn, .{ .exact = 1 }));
+    try warning_singleton.module.methods.put(warn_sym, value.MethodEntry.keywordBuiltin(&builtinWarningWarn, .{ .exact = 1 }));
 
     const get_sym = try vm.intern("[]");
     try warning_singleton.module.methods.put(get_sym, value.MethodEntry.builtin(&builtinWarningGet, .{ .exact = 1 }));

@@ -369,7 +369,7 @@ pub fn createBoundMethodObject(
     const singleton = try vm.getOrCreateSingletonClass(method_val);
 
     const call_sym = try vm.intern("call");
-    singleton.module.methods.put(call_sym, MethodEntry.builtin(builtins.call, .{ .variadic = 0 })) catch return error.Fatal;
+    singleton.module.methods.put(call_sym, MethodEntry.keywordBuiltin(builtins.call, .{ .variadic = 0 })) catch return error.Fatal;
 
     const equal_sym = try vm.intern("==");
     const equal_entry = MethodEntry.builtin(builtins.equal, .{ .exact = 1 });
@@ -456,7 +456,7 @@ pub fn createUnboundMethodObject(
     singleton.module.methods.put(bind_sym, MethodEntry.builtin(builtins.bind, .{ .exact = 1 })) catch return error.Fatal;
 
     const bind_call_sym = try vm.intern("bind_call");
-    singleton.module.methods.put(bind_call_sym, MethodEntry.builtin(builtins.bind_call, .{ .variadic = 1 })) catch return error.Fatal;
+    singleton.module.methods.put(bind_call_sym, MethodEntry.keywordBuiltin(builtins.bind_call, .{ .variadic = 1 })) catch return error.Fatal;
 
     const inspect_sym = try vm.intern("inspect");
     singleton.module.methods.put(inspect_sym, MethodEntry.builtin(builtins.inspect, .{ .exact = 0 })) catch return error.Fatal;

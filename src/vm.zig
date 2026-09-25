@@ -489,7 +489,7 @@ const TempKeywordPairs = struct {
     }
 };
 
-const Ruby2KeywordsDispatch = struct {
+const KeywordDispatch = struct {
     args: []const Value,
     kw_keys: ?[]const Value = null,
     kw_values: ?[]const Value = null,
@@ -6931,6 +6931,9 @@ pub const VM = struct {
                     .symbol, .callable => true,
                     .receiver_builtin, .builtin => false,
                 };
+                if (keyword_values.items.len > 0 and block.kind == .chunk and block.kind.chunk.chunk.no_keywords) {
+                    return self.raiseExceptionFmt(self.argument_error_class, "no keywords accepted", .{});
+                }
                 var effective_args: []const Value = splat_args;
                 var expanded_args: ?[]Value = null;
                 defer if (expanded_args) |buffer| self.allocator.free(buffer);
@@ -8163,7 +8166,7 @@ pub const VM = struct {
         return copied;
     }
 
-    fn normalizeRuby2KeywordsDispatch(
+    fn normalizeKeywordDispatch(
         self: *VM,
         entry: MethodEntry,
         args: []const Value,
@@ -8172,7 +8175,7 @@ pub const VM = struct {
         args_array_mode: bool,
         args_temp: *TempValueSlice,
         kw_temp: *TempKeywordPairs,
-    ) VMError!Ruby2KeywordsDispatch {
+    ) VMError!KeywordDispatch {
         if (kw_values) |vals| {
             if (vals.len > 0 and self.methodSupportsRuby2Keywords(entry)) {
                 const marked_hash = try self.createHashFromKeywordPairs(kw_keys.?, vals);
@@ -8184,7 +8187,7 @@ pub const VM = struct {
                 expanded[args.len] = marked_hash;
                 return .{ .args = expanded };
             }
-            if (vals.len > 0 and entry.keyword_hash_as_positional) {
+            if (vals.len > 0 and entry.method == .builtin and !entry.accepts_keywords) {
                 const kw_hash = try self.createHashFromKeywordPairs(kw_keys.?, vals);
                 const expanded = try args_temp.initUninitialized(self, args.len + 1);
                 if (args.len > 0) std.mem.copyForwards(Value, expanded[0..args.len], args);
@@ -8609,8 +8612,8 @@ pub const VM = struct {
         defer dispatch_kw_temp.deinit(self.allocator);
         const raw_kw_keys: ?[]const Value = if (keyword_ctx) |ctx| if (ctx.kw_values.len > 0) ctx.kw_keys else null else null;
         const raw_kw_values: ?[]const Value = if (keyword_ctx) |ctx| if (ctx.kw_values.len > 0) ctx.kw_values else null else null;
-        const dispatch: Ruby2KeywordsDispatch = if (raw_kw_values != null)
-            try self.normalizeRuby2KeywordsDispatch(
+        const dispatch: KeywordDispatch = if (raw_kw_values != null)
+            try self.normalizeKeywordDispatch(
                 resolved.entry,
                 args,
                 raw_kw_keys,
@@ -8996,7 +8999,7 @@ pub const VM = struct {
                 var args_to_bind = args;
 
                 if (has_kw and !chunkAcceptsKeywords(proc_chunk)) {
-                    if (proc_chunk.rest_param_index != null) {
+                    if (!proc_chunk.no_keywords) {
                         const kw_hash = try self.createHashFromKeywordPairs(kw_keys.?, kw_values.?);
                         const buf = self.allocator.alloc(Value, args.len + 1) catch return error.Fatal;
                         @memcpy(buf[0..args.len], args);
@@ -9004,7 +9007,7 @@ pub const VM = struct {
                         expanded_args = buf;
                         args_to_bind = buf;
                     } else {
-                        const exc = try self.createException(self.argument_error_class, "this method does not accept keyword arguments");
+                        const exc = try self.createException(self.argument_error_class, "no keywords accepted");
                         self.setPendingException(exc);
                         return error.Unwind;
                     }
@@ -9104,6 +9107,9 @@ pub const VM = struct {
                 const kw_keys = if (kw_ctx) |ctx| if (ctx.kw_values.len > 0) ctx.kw_keys else null else null;
                 const kw_values = if (kw_ctx) |ctx| if (ctx.kw_values.len > 0) ctx.kw_values else null else null;
                 const has_kw = kw_values != null;
+                if (has_kw and chunk_blk.chunk.no_keywords) {
+                    return self.raiseExceptionFmt(self.argument_error_class, "no keywords accepted", .{});
+                }
                 var expanded_args: ?[]Value = null;
                 defer if (expanded_args) |buf| self.allocator.free(buf);
                 var args_to_bind = args;
@@ -9220,7 +9226,7 @@ pub const VM = struct {
         var dispatch_kw_temp: TempKeywordPairs = .{};
         defer dispatch_kw_temp.deinit(self.allocator);
         const dispatch = if (args_array_mode or kwargc > 0)
-            try self.normalizeRuby2KeywordsDispatch(
+            try self.normalizeKeywordDispatch(
                 method.entry,
                 args,
                 if (kw_keys) |keys| keys else null,
@@ -9230,7 +9236,7 @@ pub const VM = struct {
                 &dispatch_kw_temp,
             )
         else
-            Ruby2KeywordsDispatch{ .args = args };
+            KeywordDispatch{ .args = args };
         const dispatch_kwargc: usize = if (dispatch.kw_values) |vals| vals.len else 0;
         const dispatch_kw_keys: ?[]Value = if (dispatch.kw_keys) |keys| @constCast(keys) else null;
         const dispatch_kw_values: ?[]Value = if (dispatch.kw_values) |vals| @constCast(vals) else null;
@@ -9308,7 +9314,7 @@ pub const VM = struct {
                         var args_to_bind = dispatch.args;
                         var bind_keywords = dispatch_kwargc > 0;
                         if (dispatch_kwargc > 0 and !chunkAcceptsKeywords(proc_chunk)) {
-                            if (proc_chunk.rest_param_index) |_| {
+                            if (!proc_chunk.no_keywords) {
                                 const kw_hash = try self.createHashFromKeywordPairs(dispatch_kw_keys.?[0..dispatch_kwargc], dispatch_kw_values.?[0..dispatch_kwargc]);
                                 const buf = self.allocator.alloc(Value, dispatch.args.len + 1) catch return error.Fatal;
                                 @memcpy(buf[0..dispatch.args.len], dispatch.args);
@@ -9317,7 +9323,7 @@ pub const VM = struct {
                                 args_to_bind = buf;
                                 bind_keywords = false;
                             } else {
-                                const exc = try self.createException(self.argument_error_class, "this method does not accept keyword arguments");
+                                const exc = try self.createException(self.argument_error_class, "no keywords accepted");
                                 self.setPendingException(exc);
                                 return error.Unwind;
                             }

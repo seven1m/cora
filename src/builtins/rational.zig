@@ -344,10 +344,10 @@ pub fn register(vm: *VM) !void {
     try vm.rational_class.module.methods.put(freeze_sym, value.MethodEntry.builtin(&builtinRationalFreeze, .{ .exact = 0 }));
 
     const clone_sym = try vm.intern("clone");
-    try vm.rational_class.module.methods.put(clone_sym, value.MethodEntry.builtin(&builtinRationalClone, .{ .variadic = 0 }));
+    try vm.rational_class.module.methods.put(clone_sym, value.MethodEntry.keywordBuiltin(&builtinRationalClone, .{ .variadic = 0 }));
 
     const dup_sym = try vm.intern("dup");
-    try vm.rational_class.module.methods.put(dup_sym, value.MethodEntry.builtin(&builtinRationalClone, .{ .variadic = 0 }));
+    try vm.rational_class.module.methods.put(dup_sym, value.MethodEntry.keywordBuiltin(&builtinRationalClone, .{ .variadic = 0 }));
 
     const hash_sym = try vm.intern("hash");
     try vm.rational_class.module.methods.put(hash_sym, value.MethodEntry.builtin(&builtinRationalHash, .{ .exact = 0 }));
@@ -390,7 +390,7 @@ pub fn register(vm: *VM) !void {
     try vm.rational_class.module.methods.put(truncate_sym, value.MethodEntry.builtin(&builtinRationalTruncate, .{ .variadic = 0 }));
 
     const round_sym = try vm.intern("round");
-    try vm.rational_class.module.methods.put(round_sym, value.MethodEntry.builtin(&builtinRationalRound, .{ .variadic = 0 }));
+    try vm.rational_class.module.methods.put(round_sym, value.MethodEntry.keywordBuiltin(&builtinRationalRound, .{ .variadic = 0 }));
 
     const floor_sym = try vm.intern("floor");
     try vm.rational_class.module.methods.put(floor_sym, value.MethodEntry.builtin(&builtinRationalFloor, .{ .variadic = 0 }));

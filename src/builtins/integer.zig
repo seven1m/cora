@@ -622,7 +622,7 @@ pub fn register(vm: *VM) !void {
     try vm.integer_class.module.methods.put(truncate_sym, value.MethodEntry.builtin(&builtinIntegerTruncate, .{ .variadic = 0 }));
 
     const round_sym = try vm.intern("round");
-    try vm.integer_class.module.methods.put(round_sym, value.MethodEntry.builtin(&builtinIntegerRound, .{ .variadic = 0 }));
+    try vm.integer_class.module.methods.put(round_sym, value.MethodEntry.keywordBuiltin(&builtinIntegerRound, .{ .variadic = 0 }));
 
     const inspect_sym = try vm.intern("inspect");
     try vm.integer_class.module.methods.put(inspect_sym, to_s_entry);

@@ -553,7 +553,7 @@ pub fn register(vm: *VM) !void {
     const array_singleton = try vm.getOrCreateSingletonClass(array_class_val);
 
     const class_bracket_sym = try vm.intern("[]");
-    try array_singleton.module.methods.put(class_bracket_sym, value.MethodEntry.positionalKeywordHashBuiltin(&builtinArrayClassBracket, .{ .variadic = 0 }));
+    try array_singleton.module.methods.put(class_bracket_sym, value.MethodEntry.builtin(&builtinArrayClassBracket, .{ .variadic = 0 }));
 
     const try_convert_sym = try vm.intern("try_convert");
     try array_singleton.module.methods.put(try_convert_sym, value.MethodEntry.builtin(&builtinArrayTryConvert, .{ .exact = 1 }));
@@ -795,10 +795,10 @@ pub fn register(vm: *VM) !void {
     try vm.array_class.module.methods.put(sort_by_bang_sym, value.MethodEntry.builtin(&builtinArraySortByBang, .{ .exact = 0 }));
 
     const shuffle_sym = try vm.intern("shuffle");
-    try vm.array_class.module.methods.put(shuffle_sym, value.MethodEntry.builtin(&builtinArrayShuffle, .{ .exact = 0 }));
+    try vm.array_class.module.methods.put(shuffle_sym, value.MethodEntry.keywordBuiltin(&builtinArrayShuffle, .{ .exact = 0 }));
 
     const shuffle_bang_sym = try vm.intern("shuffle!");
-    try vm.array_class.module.methods.put(shuffle_bang_sym, value.MethodEntry.builtin(&builtinArrayShuffleBang, .{ .exact = 0 }));
+    try vm.array_class.module.methods.put(shuffle_bang_sym, value.MethodEntry.keywordBuiltin(&builtinArrayShuffleBang, .{ .exact = 0 }));
 
     const max_sym = try vm.intern("max");
     try vm.array_class.module.methods.put(max_sym, value.MethodEntry.builtin(&builtinArrayMax, .{ .exact = 0 }));
@@ -855,7 +855,7 @@ pub fn register(vm: *VM) !void {
     try vm.array_class.module.methods.put(dup_sym, value.MethodEntry.builtin(&builtinArrayDup, .{ .exact = 0 }));
 
     const clone_sym = try vm.intern("clone");
-    try vm.array_class.module.methods.put(clone_sym, value.MethodEntry.builtin(&builtinArrayClone, .{ .variadic = 0 }));
+    try vm.array_class.module.methods.put(clone_sym, value.MethodEntry.keywordBuiltin(&builtinArrayClone, .{ .variadic = 0 }));
 
     const uniq_sym = try vm.intern("uniq");
     try vm.array_class.module.methods.put(uniq_sym, value.MethodEntry.builtin(&builtinArrayUniq, .{ .exact = 0 }));

@@ -13,7 +13,7 @@ pub fn register(vm: *VM) !void {
 
     // Class methods
     const new_sym = try vm.intern("new");
-    try mutex_singleton.module.methods.put(new_sym, value.MethodEntry.builtin(&builtinMutexNew, .{ .variadic = 0 }));
+    try mutex_singleton.module.methods.put(new_sym, value.MethodEntry.keywordBuiltin(&builtinMutexNew, .{ .variadic = 0 }));
 
     // Instance methods
     const initialize_sym = try vm.intern("initialize");

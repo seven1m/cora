@@ -58,7 +58,7 @@ pub fn register(vm: *VM) !void {
     try vm.match_data_class.module.methods.put(names_sym, value.MethodEntry.builtin(&builtinMatchDataNames, .{ .exact = 0 }));
 
     const named_captures_sym = try vm.intern("named_captures");
-    try vm.match_data_class.module.methods.put(named_captures_sym, value.MethodEntry.builtin(&builtinMatchDataNamedCaptures, .{ .variadic = 0 }));
+    try vm.match_data_class.module.methods.put(named_captures_sym, value.MethodEntry.keywordBuiltin(&builtinMatchDataNamedCaptures, .{ .variadic = 0 }));
 
     const to_s_sym = try vm.intern("to_s");
     try vm.match_data_class.module.methods.put(to_s_sym, value.MethodEntry.builtin(&builtinMatchDataToS, .{ .exact = 0 }));

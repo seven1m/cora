@@ -22,12 +22,12 @@ pub fn register(vm: *VM) !void {
 
     const singleton = try vm.getOrCreateSingletonClass(gc_value);
     const start_sym = try vm.intern("start");
-    try singleton.module.methods.put(start_sym, value.MethodEntry.builtin(&builtinGCStart, .{ .exact = 0 }));
+    try singleton.module.methods.put(start_sym, value.MethodEntry.keywordBuiltin(&builtinGCStart, .{ .exact = 0 }));
     const stat_sym = try vm.intern("stat");
     try singleton.module.methods.put(stat_sym, value.MethodEntry.builtin(&builtinGCStat, .{ .variadic = 0 }));
 
     const garbage_collect_sym = try vm.intern("garbage_collect");
-    try gc_module.methods.put(garbage_collect_sym, value.MethodEntry.builtin(&builtinGCStart, .{ .exact = 0 }));
+    try gc_module.methods.put(garbage_collect_sym, value.MethodEntry.keywordBuiltin(&builtinGCStart, .{ .exact = 0 }));
 }
 
 fn builtinGCStart(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {

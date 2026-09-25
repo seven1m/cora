@@ -13,7 +13,7 @@ pub fn register(vm: *VM) !void {
     const sized_queue_class_val = Value.fromObject(&vm.sized_queue_class.module.object);
 
     const new_sym = try vm.intern("new");
-    try queue_singleton.module.methods.put(new_sym, value.MethodEntry.builtin(&builtinQueueNew, .{ .variadic = 0 }));
+    try queue_singleton.module.methods.put(new_sym, value.MethodEntry.keywordBuiltin(&builtinQueueNew, .{ .variadic = 0 }));
 
     const initialize_sym = try vm.intern("initialize");
     try vm.queue_class.module.methods.put(initialize_sym, value.MethodEntry.builtinWithVisibility(&builtinQueueInitialize, .{ .variadic = 0 }, .private));
@@ -31,13 +31,13 @@ pub fn register(vm: *VM) !void {
     try vm.queue_class.module.methods.put(clear_sym, value.MethodEntry.builtin(&builtinQueueClear, .{ .exact = 0 }));
 
     const pop_sym = try vm.intern("pop");
-    try vm.queue_class.module.methods.put(pop_sym, value.MethodEntry.builtin(&builtinQueuePop, .{ .variadic = 0 }));
+    try vm.queue_class.module.methods.put(pop_sym, value.MethodEntry.keywordBuiltin(&builtinQueuePop, .{ .variadic = 0 }));
 
     const deq_sym = try vm.intern("deq");
-    try vm.queue_class.module.methods.put(deq_sym, value.MethodEntry.builtin(&builtinQueuePop, .{ .variadic = 0 }));
+    try vm.queue_class.module.methods.put(deq_sym, value.MethodEntry.keywordBuiltin(&builtinQueuePop, .{ .variadic = 0 }));
 
     const shift_sym = try vm.intern("shift");
-    try vm.queue_class.module.methods.put(shift_sym, value.MethodEntry.builtin(&builtinQueuePop, .{ .variadic = 0 }));
+    try vm.queue_class.module.methods.put(shift_sym, value.MethodEntry.keywordBuiltin(&builtinQueuePop, .{ .variadic = 0 }));
 
     const size_sym = try vm.intern("size");
     try vm.queue_class.module.methods.put(size_sym, value.MethodEntry.builtin(&builtinQueueSize, .{ .exact = 0 }));
@@ -63,9 +63,9 @@ pub fn register(vm: *VM) !void {
     const sized_queue_initialize_sym = try vm.intern("initialize");
     try vm.sized_queue_class.module.methods.put(sized_queue_initialize_sym, value.MethodEntry.builtinWithVisibility(&builtinSizedQueueInitialize, .{ .exact = 1 }, .private));
 
-    try vm.sized_queue_class.module.methods.put(append_sym, value.MethodEntry.builtin(&builtinSizedQueuePush, .{ .variadic = 1 }));
-    try vm.sized_queue_class.module.methods.put(push_sym, value.MethodEntry.builtin(&builtinSizedQueuePush, .{ .variadic = 1 }));
-    try vm.sized_queue_class.module.methods.put(enq_sym, value.MethodEntry.builtin(&builtinSizedQueuePush, .{ .variadic = 1 }));
+    try vm.sized_queue_class.module.methods.put(append_sym, value.MethodEntry.keywordBuiltin(&builtinSizedQueuePush, .{ .variadic = 1 }));
+    try vm.sized_queue_class.module.methods.put(push_sym, value.MethodEntry.keywordBuiltin(&builtinSizedQueuePush, .{ .variadic = 1 }));
+    try vm.sized_queue_class.module.methods.put(enq_sym, value.MethodEntry.keywordBuiltin(&builtinSizedQueuePush, .{ .variadic = 1 }));
 
     const max_sym = try vm.intern("max");
     try vm.sized_queue_class.module.methods.put(max_sym, value.MethodEntry.builtin(&builtinSizedQueueMax, .{ .exact = 0 }));

@@ -77,7 +77,7 @@ pub fn register(vm: *VM) !void {
     try string_singleton.module.methods.put(try_convert_sym, value.MethodEntry.builtin(&builtinStringTryConvert, .{ .exact = 1 }));
 
     const initialize_sym = try vm.intern("initialize");
-    try vm.string_class.module.methods.put(initialize_sym, value.MethodEntry.builtinWithVisibility(&builtinStringInitialize, .{ .variadic = 0 }, .private));
+    try vm.string_class.module.methods.put(initialize_sym, value.MethodEntry.keywordBuiltinWithVisibility(&builtinStringInitialize, .{ .variadic = 0 }, .private));
 
     const initialize_copy_sym = try vm.intern("initialize_copy");
     try vm.string_class.module.methods.put(initialize_copy_sym, value.MethodEntry.builtinWithVisibility(&builtinStringInitializeCopy, .{ .exact = 1 }, .private));
@@ -107,13 +107,13 @@ pub fn register(vm: *VM) !void {
     try vm.string_class.module.methods.put(string_replace_sym, value.MethodEntry.builtin(&builtinStringReplace, .{ .exact = 1 }));
 
     const string_gsub_sym = try vm.intern("gsub");
-    try vm.string_class.module.methods.put(string_gsub_sym, value.MethodEntry.positionalKeywordHashBuiltin(&builtinStringGsub, .{ .variadic = 0 }));
+    try vm.string_class.module.methods.put(string_gsub_sym, value.MethodEntry.builtin(&builtinStringGsub, .{ .variadic = 0 }));
     const string_gsub_bang_sym = try vm.intern("gsub!");
-    try vm.string_class.module.methods.put(string_gsub_bang_sym, value.MethodEntry.positionalKeywordHashBuiltin(&builtinStringGsubBang, .{ .variadic = 0 }));
+    try vm.string_class.module.methods.put(string_gsub_bang_sym, value.MethodEntry.builtin(&builtinStringGsubBang, .{ .variadic = 0 }));
     const string_sub_sym = try vm.intern("sub");
-    try vm.string_class.module.methods.put(string_sub_sym, value.MethodEntry.positionalKeywordHashBuiltin(&builtinStringSub, .{ .variadic = 0 }));
+    try vm.string_class.module.methods.put(string_sub_sym, value.MethodEntry.builtin(&builtinStringSub, .{ .variadic = 0 }));
     const string_sub_bang_sym = try vm.intern("sub!");
-    try vm.string_class.module.methods.put(string_sub_bang_sym, value.MethodEntry.positionalKeywordHashBuiltin(&builtinStringSubBang, .{ .variadic = 0 }));
+    try vm.string_class.module.methods.put(string_sub_bang_sym, value.MethodEntry.builtin(&builtinStringSubBang, .{ .variadic = 0 }));
 
     const string_equal_sym = try vm.intern("==");
     try vm.string_class.module.methods.put(string_equal_sym, value.MethodEntry.builtin(&builtinStringEqual, .{ .exact = 1 }));
@@ -138,10 +138,10 @@ pub fn register(vm: *VM) !void {
     try vm.string_class.module.methods.put(string_encoding_sym, value.MethodEntry.builtin(&builtinStringEncoding, .{ .exact = 0 }));
 
     const string_encode_sym = try vm.intern("encode");
-    try vm.string_class.module.methods.put(string_encode_sym, value.MethodEntry.builtin(&builtinStringEncode, .{ .variadic = 0 }));
+    try vm.string_class.module.methods.put(string_encode_sym, value.MethodEntry.keywordBuiltin(&builtinStringEncode, .{ .variadic = 0 }));
 
     const string_encode_bang_sym = try vm.intern("encode!");
-    try vm.string_class.module.methods.put(string_encode_bang_sym, value.MethodEntry.builtin(&builtinStringEncodeBang, .{ .variadic = 0 }));
+    try vm.string_class.module.methods.put(string_encode_bang_sym, value.MethodEntry.keywordBuiltin(&builtinStringEncodeBang, .{ .variadic = 0 }));
 
     const string_force_encoding_sym = try vm.intern("force_encoding");
     try vm.string_class.module.methods.put(string_force_encoding_sym, value.MethodEntry.builtin(&builtinStringForceEncoding, .{ .exact = 1 }));
@@ -169,7 +169,7 @@ pub fn register(vm: *VM) !void {
     try vm.string_class.module.methods.put(string_dup_sym, value.MethodEntry.builtin(&builtinStringDup, .{ .exact = 0 }));
 
     const string_clone_sym = try vm.intern("clone");
-    try vm.string_class.module.methods.put(string_clone_sym, value.MethodEntry.builtin(&builtinStringClone, .{ .variadic = 0 }));
+    try vm.string_class.module.methods.put(string_clone_sym, value.MethodEntry.keywordBuiltin(&builtinStringClone, .{ .variadic = 0 }));
 
     const string_bytesize_sym = try vm.intern("bytesize");
     try vm.string_class.module.methods.put(string_bytesize_sym, value.MethodEntry.builtin(&builtinStringBytesize, .{ .exact = 0 }));
@@ -245,10 +245,10 @@ pub fn register(vm: *VM) !void {
     try vm.string_class.module.methods.put(string_each_codepoint_sym, value.MethodEntry.builtin(&builtinStringEachCodepoint, .{ .exact = 0 }));
 
     const string_each_line_sym = try vm.intern("each_line");
-    try vm.string_class.module.methods.put(string_each_line_sym, value.MethodEntry.builtin(&builtinStringEachLine, .{ .variadic = 0 }));
+    try vm.string_class.module.methods.put(string_each_line_sym, value.MethodEntry.keywordBuiltin(&builtinStringEachLine, .{ .variadic = 0 }));
 
     const string_lines_sym = try vm.intern("lines");
-    try vm.string_class.module.methods.put(string_lines_sym, value.MethodEntry.builtin(&builtinStringLines, .{ .variadic = 0 }));
+    try vm.string_class.module.methods.put(string_lines_sym, value.MethodEntry.keywordBuiltin(&builtinStringLines, .{ .variadic = 0 }));
 
     const string_start_with_sym = try vm.intern("start_with?");
     try vm.string_class.module.methods.put(string_start_with_sym, value.MethodEntry.builtin(&builtinStringStartWith, .{ .variadic = 0 }));
@@ -416,10 +416,10 @@ pub fn register(vm: *VM) !void {
     try vm.string_class.module.methods.put(scan_sym, value.MethodEntry.builtin(&builtinStringScan, .{ .exact = 1 }));
 
     const unpack_sym = try vm.intern("unpack");
-    try vm.string_class.module.methods.put(unpack_sym, value.MethodEntry.builtin(&builtinStringUnpack, .{ .variadic = 1 }));
+    try vm.string_class.module.methods.put(unpack_sym, value.MethodEntry.keywordBuiltin(&builtinStringUnpack, .{ .variadic = 1 }));
 
     const unpack1_sym = try vm.intern("unpack1");
-    try vm.string_class.module.methods.put(unpack1_sym, value.MethodEntry.builtin(&builtinStringUnpack1, .{ .variadic = 1 }));
+    try vm.string_class.module.methods.put(unpack1_sym, value.MethodEntry.keywordBuiltin(&builtinStringUnpack1, .{ .variadic = 1 }));
 }
 
 const StringPercentFlags = struct {

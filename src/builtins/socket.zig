@@ -68,7 +68,7 @@ pub fn register(vm: *VM) !void {
     try unix_server_class.module.methods.put(accept_sym, value.MethodEntry.builtin(&builtinUNIXServerAccept, .{ .exact = 0 }));
 
     const accept_nonblock_sym = try vm.intern("accept_nonblock");
-    try tcp_server_class.module.methods.put(accept_nonblock_sym, value.MethodEntry.builtin(&builtinTCPServerAcceptNonblock, .{ .exact = 0 }));
+    try tcp_server_class.module.methods.put(accept_nonblock_sym, value.MethodEntry.keywordBuiltin(&builtinTCPServerAcceptNonblock, .{ .exact = 0 }));
 
     const open_sym = try vm.intern("open");
     try tcp_socket_singleton.module.methods.put(open_sym, value.MethodEntry.builtin(&builtinTCPSocketOpen, .{ .variadic = 0 }));

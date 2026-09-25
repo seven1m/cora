@@ -14,13 +14,13 @@ pub fn register(vm: *VM) !void {
 
     // Class methods
     const new_sym = try vm.intern("new");
-    try thread_singleton.module.methods.put(new_sym, value.MethodEntry.builtin(&builtinThreadNew, .{ .variadic = 0 }));
+    try thread_singleton.module.methods.put(new_sym, value.MethodEntry.keywordBuiltin(&builtinThreadNew, .{ .variadic = 0 }));
 
     const start_sym = try vm.intern("start");
-    try thread_singleton.module.methods.put(start_sym, value.MethodEntry.builtin(&builtinThreadNew, .{ .variadic = 0 }));
+    try thread_singleton.module.methods.put(start_sym, value.MethodEntry.keywordBuiltin(&builtinThreadNew, .{ .variadic = 0 }));
 
     const fork_sym = try vm.intern("fork");
-    try thread_singleton.module.methods.put(fork_sym, value.MethodEntry.builtin(&builtinThreadNew, .{ .variadic = 0 }));
+    try thread_singleton.module.methods.put(fork_sym, value.MethodEntry.keywordBuiltin(&builtinThreadNew, .{ .variadic = 0 }));
 
     const current_sym = try vm.intern("current");
     try thread_singleton.module.methods.put(current_sym, value.MethodEntry.builtin(&builtinThreadCurrent, .{ .exact = 0 }));
@@ -41,10 +41,10 @@ pub fn register(vm: *VM) !void {
     try thread_singleton.module.methods.put(kill_class_sym, value.MethodEntry.builtin(&builtinThreadKillClass, .{ .exact = 1 }));
 
     const handle_interrupt_sym = try vm.intern("handle_interrupt");
-    try thread_singleton.module.methods.put(handle_interrupt_sym, value.MethodEntry.positionalKeywordHashBuiltin(&builtinThreadHandleInterrupt, .{ .exact = 1 }));
+    try thread_singleton.module.methods.put(handle_interrupt_sym, value.MethodEntry.builtin(&builtinThreadHandleInterrupt, .{ .exact = 1 }));
 
     const each_caller_location_sym = try vm.intern("each_caller_location");
-    try thread_singleton.module.methods.put(each_caller_location_sym, value.MethodEntry.builtin(&builtinThreadEachCallerLocation, .{ .variadic = 0 }));
+    try thread_singleton.module.methods.put(each_caller_location_sym, value.MethodEntry.keywordBuiltin(&builtinThreadEachCallerLocation, .{ .variadic = 0 }));
 
     const class_abort_on_exception_sym = try vm.intern("abort_on_exception");
     try thread_singleton.module.methods.put(class_abort_on_exception_sym, value.MethodEntry.builtin(&builtinThreadClassAbortOnException, .{ .exact = 0 }));

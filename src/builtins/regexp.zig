@@ -66,7 +66,7 @@ pub fn register(vm: *VM) !void {
     try vm.regexp_class.module.methods.put(dup_sym, value.MethodEntry.builtin(&builtinRegexpDup, .{ .exact = 0 }));
 
     const clone_sym = try vm.intern("clone");
-    try vm.regexp_class.module.methods.put(clone_sym, value.MethodEntry.builtin(&builtinRegexpClone, .{ .variadic = 0 }));
+    try vm.regexp_class.module.methods.put(clone_sym, value.MethodEntry.keywordBuiltin(&builtinRegexpClone, .{ .variadic = 0 }));
 
     const names_sym = try vm.intern("names");
     try vm.regexp_class.module.methods.put(names_sym, value.MethodEntry.builtin(&builtinRegexpNames, .{ .exact = 0 }));

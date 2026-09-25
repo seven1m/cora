@@ -129,13 +129,13 @@ pub fn register(vm: *VM) !void {
     const struct_singleton = try vm.getOrCreateSingletonClass(Value.fromObject(&vm.struct_class.module.object));
 
     const new_sym = try vm.intern("new");
-    try struct_singleton.module.methods.put(new_sym, value.MethodEntry.builtin(&builtinStructNew, .{ .variadic = 0 }));
+    try struct_singleton.module.methods.put(new_sym, value.MethodEntry.keywordBuiltin(&builtinStructNew, .{ .variadic = 0 }));
 
     const bracket_sym = try vm.intern("[]");
-    try struct_singleton.module.methods.put(bracket_sym, value.MethodEntry.builtin(&builtinStructNew, .{ .variadic = 0 }));
+    try struct_singleton.module.methods.put(bracket_sym, value.MethodEntry.keywordBuiltin(&builtinStructNew, .{ .variadic = 0 }));
 
     const initialize_sym = try vm.intern("initialize");
-    try vm.struct_class.module.methods.put(initialize_sym, value.MethodEntry.builtin(&builtinStructInitialize, .{ .variadic = 0 }));
+    try vm.struct_class.module.methods.put(initialize_sym, value.MethodEntry.keywordBuiltin(&builtinStructInitialize, .{ .variadic = 0 }));
 
     const instance_members_sym = try vm.intern("members");
     try vm.struct_class.module.methods.put(instance_members_sym, value.MethodEntry.builtin(&builtinStructMembers, .{ .exact = 0 }));

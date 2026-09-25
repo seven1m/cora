@@ -212,7 +212,6 @@ pub const MethodEntry = struct {
     visibility: MethodVisibility = .public,
     ruby2_keywords: bool = false,
     accepts_keywords: bool = false,
-    keyword_hash_as_positional: bool = false,
     original_name: ?*SymbolObject = null,
     // Aliased methods start `super` lookup after their original definition site.
     original_defining_node: ?*ModuleObject = null,
@@ -227,13 +226,6 @@ pub const MethodEntry = struct {
         return .{
             .method = .{ .builtin = .{ .function = function, .arity = arity } },
             .accepts_keywords = true,
-        };
-    }
-
-    pub fn positionalKeywordHashBuiltin(function: *const fn (*VM, Value, []Value, ?Block) VMError!Value, arity: BuiltinArity) MethodEntry {
-        return .{
-            .method = .{ .builtin = .{ .function = function, .arity = arity } },
-            .keyword_hash_as_positional = true,
         };
     }
 
@@ -257,6 +249,16 @@ pub const MethodEntry = struct {
             .method = .{ .builtin = .{ .function = function, .arity = arity } },
             .visibility = visibility,
         };
+    }
+
+    pub fn keywordBuiltinWithVisibility(
+        function: *const fn (*VM, Value, []Value, ?Block) VMError!Value,
+        arity: BuiltinArity,
+        visibility: MethodVisibility,
+    ) MethodEntry {
+        var entry = builtinWithVisibility(function, arity, visibility);
+        entry.accepts_keywords = true;
+        return entry;
     }
 };
 

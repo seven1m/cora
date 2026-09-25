@@ -558,19 +558,19 @@ pub fn register(vm: *VM) !void {
     try vm.file_class.module.constants.put(path_separator_sym, .{ .value = try vm.newString(":", false) });
 
     const new_sym = try vm.intern("new");
-    try file_singleton.module.methods.put(new_sym, value.MethodEntry.builtin(&builtinFileNew, .{ .variadic = 0 }));
+    try file_singleton.module.methods.put(new_sym, value.MethodEntry.keywordBuiltin(&builtinFileNew, .{ .variadic = 0 }));
 
     const open_sym = try vm.intern("open");
-    try file_singleton.module.methods.put(open_sym, value.MethodEntry.builtin(&builtinFileOpen, .{ .variadic = 0 }));
+    try file_singleton.module.methods.put(open_sym, value.MethodEntry.keywordBuiltin(&builtinFileOpen, .{ .variadic = 0 }));
 
     const read_sym = try vm.intern("read");
-    try file_singleton.module.methods.put(read_sym, value.MethodEntry.builtin(&builtinFileRead, .{ .variadic = 0 }));
+    try file_singleton.module.methods.put(read_sym, value.MethodEntry.keywordBuiltin(&builtinFileRead, .{ .variadic = 0 }));
 
     const write_sym = try vm.intern("write");
     try file_singleton.module.methods.put(write_sym, value.MethodEntry.builtin(&builtinFileWrite, .{ .variadic = 0 }));
 
     const binwrite_sym = try vm.intern("binwrite");
-    try file_singleton.module.methods.put(binwrite_sym, value.MethodEntry.builtin(&builtinFileBinwrite, .{ .variadic = 0 }));
+    try file_singleton.module.methods.put(binwrite_sym, value.MethodEntry.keywordBuiltin(&builtinFileBinwrite, .{ .variadic = 0 }));
 
     const binread_sym = try vm.intern("binread");
     try file_singleton.module.methods.put(binread_sym, value.MethodEntry.builtin(&builtinFileBinread, .{ .variadic = 0 }));

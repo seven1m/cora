@@ -17,7 +17,7 @@ pub fn register(vm: *VM) !void {
     try data_singleton.module.methods.put(define_sym, value.MethodEntry.builtin(&builtinDataDefine, .{ .variadic = 0 }));
 
     const initialize_sym = try vm.intern("initialize");
-    try vm.data_class.module.methods.put(initialize_sym, value.MethodEntry.builtinWithVisibility(&builtinDataInitialize, .{ .variadic = 0 }, .private));
+    try vm.data_class.module.methods.put(initialize_sym, value.MethodEntry.keywordBuiltinWithVisibility(&builtinDataInitialize, .{ .variadic = 0 }, .private));
     const initialize_copy_sym = try vm.intern("initialize_copy");
     try vm.data_class.module.methods.put(initialize_copy_sym, value.MethodEntry.builtinWithVisibility(&builtinDataInitializeCopy, .{ .exact = 1 }, .private));
 

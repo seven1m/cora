@@ -15,7 +15,7 @@ pub fn register(vm: *VM) !void {
     const cv_singleton = try vm.getOrCreateSingletonClass(cv_class_val);
 
     const new_sym = try vm.intern("new");
-    try cv_singleton.module.methods.put(new_sym, value.MethodEntry.builtin(&builtinConditionVariableNew, .{ .variadic = 0 }));
+    try cv_singleton.module.methods.put(new_sym, value.MethodEntry.keywordBuiltin(&builtinConditionVariableNew, .{ .variadic = 0 }));
 
     const initialize_sym = try vm.intern("initialize");
     try vm.condition_variable_class.module.methods.put(initialize_sym, value.MethodEntry.builtin(&builtinConditionVariableInitialize, .{ .exact = 0 }));

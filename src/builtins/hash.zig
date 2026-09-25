@@ -98,7 +98,7 @@ pub fn register(vm: *VM) !void {
     try hash_singleton.module.methods.put(try_convert_sym, value.MethodEntry.builtin(&builtinHashTryConvert, .{ .exact = 1 }));
 
     const singleton_bracket_sym = try vm.intern("[]");
-    try hash_singleton.module.methods.put(singleton_bracket_sym, value.MethodEntry.builtin(&builtinHashConstructor, .{ .variadic = 0 }));
+    try hash_singleton.module.methods.put(singleton_bracket_sym, value.MethodEntry.keywordBuiltin(&builtinHashConstructor, .{ .variadic = 0 }));
 
     const ruby2_keywords_hash_q_sym = try vm.intern("ruby2_keywords_hash?");
     try hash_singleton.module.methods.put(ruby2_keywords_hash_q_sym, value.MethodEntry.builtin(&builtinHashRuby2KeywordsHashQ, .{ .exact = 1 }));
@@ -107,7 +107,7 @@ pub fn register(vm: *VM) !void {
     try hash_singleton.module.methods.put(ruby2_keywords_hash_sym, value.MethodEntry.builtin(&builtinHashRuby2KeywordsHash, .{ .exact = 1 }));
 
     const initialize_sym = try vm.intern("initialize");
-    try vm.hash_class.module.methods.put(initialize_sym, value.MethodEntry.builtinWithVisibility(&builtinHashInitialize, .{ .variadic = 0 }, .private));
+    try vm.hash_class.module.methods.put(initialize_sym, value.MethodEntry.keywordBuiltinWithVisibility(&builtinHashInitialize, .{ .variadic = 0 }, .private));
 
     const initialize_copy_sym = try vm.intern("initialize_copy");
     try vm.hash_class.module.methods.put(initialize_copy_sym, value.MethodEntry.builtinWithVisibility(&builtinHashInitializeCopy, .{ .exact = 1 }, .private));
@@ -265,13 +265,13 @@ pub fn register(vm: *VM) !void {
     try vm.hash_class.module.methods.put(compare_by_identity_q_sym, value.MethodEntry.builtin(&builtinHashCompareByIdentityQ, .{ .exact = 0 }));
 
     const merge_sym = try vm.intern("merge");
-    try vm.hash_class.module.methods.put(merge_sym, value.MethodEntry.builtin(&builtinHashMerge, .{ .variadic = 0 }));
+    try vm.hash_class.module.methods.put(merge_sym, value.MethodEntry.keywordBuiltin(&builtinHashMerge, .{ .variadic = 0 }));
 
     const merge_bang_sym = try vm.intern("merge!");
-    try vm.hash_class.module.methods.put(merge_bang_sym, value.MethodEntry.builtin(&builtinHashMergeBang, .{ .variadic = 0 }));
+    try vm.hash_class.module.methods.put(merge_bang_sym, value.MethodEntry.keywordBuiltin(&builtinHashMergeBang, .{ .variadic = 0 }));
 
     const update_sym = try vm.intern("update");
-    try vm.hash_class.module.methods.put(update_sym, value.MethodEntry.builtin(&builtinHashMergeBang, .{ .variadic = 0 }));
+    try vm.hash_class.module.methods.put(update_sym, value.MethodEntry.keywordBuiltin(&builtinHashMergeBang, .{ .variadic = 0 }));
 
     const compact_sym = try vm.intern("compact");
     try vm.hash_class.module.methods.put(compact_sym, value.MethodEntry.builtin(&builtinHashCompact, .{ .exact = 0 }));
@@ -283,7 +283,7 @@ pub fn register(vm: *VM) !void {
     try vm.hash_class.module.methods.put(shift_sym, value.MethodEntry.builtin(&builtinHashShift, .{ .exact = 0 }));
 
     const replace_sym = try vm.intern("replace");
-    try vm.hash_class.module.methods.put(replace_sym, value.MethodEntry.builtin(&builtinHashReplace, .{ .variadic = 0 }));
+    try vm.hash_class.module.methods.put(replace_sym, value.MethodEntry.keywordBuiltin(&builtinHashReplace, .{ .variadic = 0 }));
 
     const transform_keys_sym = try vm.intern("transform_keys");
     try vm.hash_class.module.methods.put(transform_keys_sym, value.MethodEntry.builtin(&builtinHashTransformKeys, .{ .variadic = 0 }));

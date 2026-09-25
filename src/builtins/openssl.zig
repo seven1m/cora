@@ -186,9 +186,9 @@ pub fn register(vm: *VM) !void {
 
     const kdf_singleton = try vm.getOrCreateSingletonClass(kdf_val);
     const pbkdf2_sym = try vm.intern("pbkdf2_hmac");
-    try kdf_singleton.module.methods.put(pbkdf2_sym, value.MethodEntry.builtin(&builtinOpenSSLKDFPbkdf2Hmac, .{ .variadic = 1 }));
+    try kdf_singleton.module.methods.put(pbkdf2_sym, value.MethodEntry.keywordBuiltin(&builtinOpenSSLKDFPbkdf2Hmac, .{ .variadic = 1 }));
     const scrypt_sym = try vm.intern("scrypt");
-    try kdf_singleton.module.methods.put(scrypt_sym, value.MethodEntry.builtin(&builtinOpenSSLKDFScrypt, .{ .variadic = 1 }));
+    try kdf_singleton.module.methods.put(scrypt_sym, value.MethodEntry.keywordBuiltin(&builtinOpenSSLKDFScrypt, .{ .variadic = 1 }));
 
     const pkcs5_name = try vm.intern("PKCS5");
     const pkcs5_val = try vm.newModule(pkcs5_name);

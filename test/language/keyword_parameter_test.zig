@@ -197,3 +197,34 @@ test "Keyword syntax becomes positional hash when method has no keyword params" 
     try std.testing.expect(result.toArrayObject().elements.items[0].isHash());
     try std.testing.expectEqual(@as(usize, 1), result.toArrayObject().elements.items[0].toHashObject().entries.items.len);
 }
+
+test "Builtins without keyword parameters receive a positional hash" {
+    const result = try evalCode(
+        \\direct = [1].include?(a: 1)
+        \\sent = [1].send(:include?, a: 1)
+        \\array = Array.[](a: 1)
+        \\wrong_arity = begin; :x.to_s(a: 1); rescue ArgumentError; true; end
+        \\[direct, sent, array, wrong_arity]
+    );
+    const values = result.toArrayObject().elements.items;
+    try std.testing.expect(values[0].isFalse());
+    try std.testing.expect(values[1].isFalse());
+    const array = values[2].toArrayObject().elements.items;
+    try std.testing.expectEqual(@as(usize, 1), array.len);
+    try std.testing.expect(array[0].isHash());
+    try std.testing.expect(values[3].isTrue());
+}
+
+test "Keyword dispatch handles proc methods and no-keyword blocks" {
+    const result = try evalCode(
+        \\klass = Class.new
+        \\klass.define_method(:value, &proc { |arg| arg })
+        \\method_value = klass.new.value(a: 1)
+        \\def emit; yield(a: 1); end
+        \\no_keywords = begin; emit { |**nil| :wrong }; rescue ArgumentError; true; end
+        \\[method_value, no_keywords]
+    );
+    const values = result.toArrayObject().elements.items;
+    try std.testing.expect(values[0].isHash());
+    try std.testing.expect(values[1].isTrue());
+}

@@ -69,7 +69,7 @@ pub fn register(vm: *VM) !void {
     try process_singleton.module.methods.put(detach_sym, value.MethodEntry.builtin(&builtinProcessDetach, .{ .exact = 1 }));
 
     const spawn_sym = try vm.intern("spawn");
-    try process_singleton.module.methods.put(spawn_sym, value.MethodEntry.builtin(&builtinProcessSpawn, .{ .variadic = 1 }));
+    try process_singleton.module.methods.put(spawn_sym, value.MethodEntry.keywordBuiltin(&builtinProcessSpawn, .{ .variadic = 1 }));
 
     const clock_realtime_sym = try vm.intern("CLOCK_REALTIME");
     try vm.process_module.constants.put(clock_realtime_sym, .{ .value = Value.integer(@intCast(@intFromEnum(std.posix.CLOCK.REALTIME))) });

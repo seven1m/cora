@@ -116,19 +116,19 @@ pub fn register(vm: *VM) !void {
     try dir_singleton.module.methods.put(unlink_sym, value.MethodEntry.builtin(&builtinDirRmdir, .{ .exact = 1 }));
 
     const children_sym = try vm.intern("children");
-    try dir_singleton.module.methods.put(children_sym, value.MethodEntry.builtin(&builtinDirChildren, .{ .variadic = 0 }));
+    try dir_singleton.module.methods.put(children_sym, value.MethodEntry.keywordBuiltin(&builtinDirChildren, .{ .variadic = 0 }));
 
     const glob_sym = try vm.intern("glob");
-    try dir_singleton.module.methods.put(glob_sym, value.MethodEntry.builtin(&builtinDirGlob, .{ .variadic = 1 }));
+    try dir_singleton.module.methods.put(glob_sym, value.MethodEntry.keywordBuiltin(&builtinDirGlob, .{ .variadic = 1 }));
 
     const bracket_sym = try vm.intern("[]");
-    try dir_singleton.module.methods.put(bracket_sym, value.MethodEntry.builtin(&builtinDirBracket, .{ .variadic = 0 }));
+    try dir_singleton.module.methods.put(bracket_sym, value.MethodEntry.keywordBuiltin(&builtinDirBracket, .{ .variadic = 0 }));
 
     const entries_sym = try vm.intern("entries");
-    try dir_singleton.module.methods.put(entries_sym, value.MethodEntry.builtin(&builtinDirEntries, .{ .variadic = 0 }));
+    try dir_singleton.module.methods.put(entries_sym, value.MethodEntry.keywordBuiltin(&builtinDirEntries, .{ .variadic = 0 }));
 
     const foreach_sym = try vm.intern("foreach");
-    try dir_singleton.module.methods.put(foreach_sym, value.MethodEntry.builtin(&builtinDirForeach, .{ .variadic = 1 }));
+    try dir_singleton.module.methods.put(foreach_sym, value.MethodEntry.keywordBuiltin(&builtinDirForeach, .{ .variadic = 1 }));
 
     const exist_sym = try vm.intern("exist?");
     try dir_singleton.module.methods.put(exist_sym, value.MethodEntry.builtin(&file_builtin.builtinFileDirectory, .{ .exact = 1 }));

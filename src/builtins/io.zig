@@ -47,7 +47,7 @@ pub fn register(vm: *VM) !void {
     try io_singleton.module.methods.put(pipe_sym, value.MethodEntry.builtin(&builtinIoPipe, .{ .exact = 0 }));
 
     const popen_sym = try vm.intern("popen");
-    try io_singleton.module.methods.put(popen_sym, value.MethodEntry.builtin(&builtinIoPopen, .{ .variadic = 0 }));
+    try io_singleton.module.methods.put(popen_sym, value.MethodEntry.keywordBuiltin(&builtinIoPopen, .{ .variadic = 0 }));
 
     const copy_stream_sym = try vm.intern("copy_stream");
     try io_singleton.module.methods.put(copy_stream_sym, value.MethodEntry.builtin(&builtinIoCopyStream, .{ .variadic = 2 }));
@@ -56,22 +56,22 @@ pub fn register(vm: *VM) !void {
     try io_singleton.module.methods.put(binread_sym, value.MethodEntry.builtin(&builtinIoBinread, .{ .variadic = 0 }));
 
     const binwrite_sym = try vm.intern("binwrite");
-    try io_singleton.module.methods.put(binwrite_sym, value.MethodEntry.builtin(&file_builtin.builtinFileBinwrite, .{ .variadic = 0 }));
+    try io_singleton.module.methods.put(binwrite_sym, value.MethodEntry.keywordBuiltin(&file_builtin.builtinFileBinwrite, .{ .variadic = 0 }));
 
     const read_class_sym = try vm.intern("read");
-    try io_singleton.module.methods.put(read_class_sym, value.MethodEntry.builtin(&file_builtin.builtinFileRead, .{ .variadic = 0 }));
+    try io_singleton.module.methods.put(read_class_sym, value.MethodEntry.keywordBuiltin(&file_builtin.builtinFileRead, .{ .variadic = 0 }));
 
     const foreach_sym = try vm.intern("foreach");
     try io_singleton.module.methods.put(foreach_sym, value.MethodEntry.builtin(&builtinIoForeach, .{ .variadic = 0 }));
 
     const open_sym = try vm.intern("open");
-    try io_singleton.module.methods.put(open_sym, value.MethodEntry.builtin(&builtinIoOpen, .{ .variadic = 0 }));
+    try io_singleton.module.methods.put(open_sym, value.MethodEntry.keywordBuiltin(&builtinIoOpen, .{ .variadic = 0 }));
 
     const sysopen_sym = try vm.intern("sysopen");
     try io_singleton.module.methods.put(sysopen_sym, value.MethodEntry.builtin(&builtinIoSysopen, .{ .variadic = 1 }));
 
     const initialize_sym = try vm.intern("initialize");
-    try vm.io_class.module.methods.put(initialize_sym, value.MethodEntry.builtinWithVisibility(&builtinIoInitialize, .{ .variadic = 1 }, .private));
+    try vm.io_class.module.methods.put(initialize_sym, value.MethodEntry.keywordBuiltinWithVisibility(&builtinIoInitialize, .{ .variadic = 1 }, .private));
 
     const initialize_copy_sym = try vm.intern("initialize_copy");
     try vm.io_class.module.methods.put(initialize_copy_sym, value.MethodEntry.builtinWithVisibility(&builtinIoInitializeCopy, .{ .exact = 1 }, .private));
@@ -89,7 +89,7 @@ pub fn register(vm: *VM) !void {
     try vm.io_class.module.methods.put(internal_encoding_sym, value.MethodEntry.builtin(&builtinIoInternalEncoding, .{ .exact = 0 }));
 
     const set_encoding_sym = try vm.intern("set_encoding");
-    try vm.io_class.module.methods.put(set_encoding_sym, value.MethodEntry.builtin(&builtinIoSetEncoding, .{ .variadic = 1 }));
+    try vm.io_class.module.methods.put(set_encoding_sym, value.MethodEntry.keywordBuiltin(&builtinIoSetEncoding, .{ .variadic = 1 }));
 
     const size_sym = try vm.intern("size");
     try vm.file_class.module.methods.put(size_sym, value.MethodEntry.builtin(&builtinIoSize, .{ .exact = 0 }));
@@ -135,7 +135,7 @@ pub fn register(vm: *VM) !void {
     try vm.io_class.module.methods.put(seek_sym, value.MethodEntry.builtin(&builtinIoSeek, .{ .variadic = 0 }));
 
     const read_nonblock_sym = try vm.intern("read_nonblock");
-    try vm.io_class.module.methods.put(read_nonblock_sym, value.MethodEntry.builtin(&builtinIoReadNonblock, .{ .variadic = 1 }));
+    try vm.io_class.module.methods.put(read_nonblock_sym, value.MethodEntry.keywordBuiltin(&builtinIoReadNonblock, .{ .variadic = 1 }));
 
     const readpartial_sym = try vm.intern("readpartial");
     try vm.io_class.module.methods.put(readpartial_sym, value.MethodEntry.builtin(&builtinIoReadpartial, .{ .variadic = 1 }));
@@ -159,7 +159,7 @@ pub fn register(vm: *VM) !void {
     try vm.io_class.module.methods.put(fsync_sym, value.MethodEntry.builtin(&builtinIoFsync, .{ .exact = 0 }));
 
     const write_nonblock_sym = try vm.intern("write_nonblock");
-    try vm.io_class.module.methods.put(write_nonblock_sym, value.MethodEntry.builtin(&builtinIoWriteNonblock, .{ .variadic = 1 }));
+    try vm.io_class.module.methods.put(write_nonblock_sym, value.MethodEntry.keywordBuiltin(&builtinIoWriteNonblock, .{ .variadic = 1 }));
 
     const print_sym = try vm.intern("print");
     try vm.io_class.module.methods.put(print_sym, value.MethodEntry.builtin(&builtinIoPrint, .{ .variadic = 0 }));
