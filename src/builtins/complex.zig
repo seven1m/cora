@@ -2,6 +2,7 @@ const std = @import("std");
 const enc = @import("../encoding.zig");
 const vm_mod = @import("../vm.zig");
 const value = @import("../value.zig");
+const rational_builtin = @import("rational.zig");
 
 const VM = vm_mod.VM;
 const VMError = vm_mod.VMError;
@@ -11,6 +12,97 @@ const BigInt = std.math.big.int.Managed;
 
 extern "c" fn erf(x: f64) f64;
 extern "c" fn erfc(x: f64) f64;
+
+fn scanComplexDigits(bytes: []const u8, index: *usize) bool {
+    var saw_digit = false;
+    while (index.* < bytes.len) {
+        if (std.ascii.isDigit(bytes[index.*])) {
+            saw_digit = true;
+            index.* += 1;
+        } else if (bytes[index.*] == '_' and saw_digit and index.* + 1 < bytes.len and std.ascii.isDigit(bytes[index.* + 1])) {
+            index.* += 1;
+        } else {
+            break;
+        }
+    }
+    return saw_digit;
+}
+
+fn parseComplexNumber(vm: *VM, bytes: []const u8) VMError!?Value {
+    if (bytes.len == 0) return null;
+    var index: usize = 0;
+    if (bytes[index] == '+' or bytes[index] == '-') index += 1;
+    if (index == bytes.len) return null;
+
+    const whole_digits = scanComplexDigits(bytes, &index);
+    var floating = false;
+    if (index < bytes.len and bytes[index] == '/') {
+        if (!whole_digits) return null;
+        index += 1;
+        if (!scanComplexDigits(bytes, &index)) return null;
+    } else {
+        if (index < bytes.len and bytes[index] == '.') {
+            floating = true;
+            index += 1;
+            if (!scanComplexDigits(bytes, &index)) return null;
+        } else if (!whole_digits) {
+            return null;
+        }
+        if (index < bytes.len and (bytes[index] == 'e' or bytes[index] == 'E')) {
+            floating = true;
+            index += 1;
+            if (index < bytes.len and (bytes[index] == '+' or bytes[index] == '-')) index += 1;
+            if (!scanComplexDigits(bytes, &index)) return null;
+        }
+    }
+    if (index != bytes.len) return null;
+
+    if (floating) {
+        var normalized: std.ArrayList(u8) = .empty;
+        defer normalized.deinit(vm.allocator);
+        for (bytes) |byte| {
+            if (byte != '_') normalized.append(vm.allocator, byte) catch return error.Fatal;
+        }
+        const parsed = std.fmt.parseFloat(f64, normalized.items) catch return null;
+        return try vm.newFloat(parsed);
+    }
+
+    const parts = try rational_builtin.parseStringToRational(vm, bytes) orelse return null;
+    if (parts.denominator.isInteger() and parts.denominator.toInteger() == 1) return parts.numerator;
+    return try vm.newRationalValues(parts.numerator, parts.denominator);
+}
+
+fn parseImaginaryPart(vm: *VM, bytes: []const u8) VMError!?Value {
+    if (bytes.len == 0 or (bytes.len == 1 and bytes[0] == '+')) return Value.integer(1);
+    if (bytes.len == 1 and bytes[0] == '-') return Value.integer(-1);
+    return parseComplexNumber(vm, bytes);
+}
+
+pub fn parseStringToComplex(vm: *VM, bytes: []const u8) VMError!?Value {
+    const trimmed = std.mem.trim(u8, bytes, " \t\n\r\x0B\x0C");
+    if (trimmed.len == 0) return null;
+    const last = trimmed[trimmed.len - 1];
+    const has_imaginary_unit = last == 'i' or last == 'I' or last == 'j' or last == 'J';
+    if (!has_imaginary_unit) {
+        const real = try parseComplexNumber(vm, trimmed) orelse return null;
+        return try vm.newComplex(real, Value.integer(0));
+    }
+
+    const body = trimmed[0 .. trimmed.len - 1];
+    var split: ?usize = null;
+    for (body, 0..) |byte, index| {
+        if (index > 0 and (byte == '+' or byte == '-') and body[index - 1] != 'e' and body[index - 1] != 'E') {
+            split = index;
+        }
+    }
+    if (split) |index| {
+        const real = try parseComplexNumber(vm, body[0..index]) orelse return null;
+        const imaginary = try parseImaginaryPart(vm, body[index..]) orelse return null;
+        return try vm.newComplex(real, imaginary);
+    }
+    const imaginary = try parseImaginaryPart(vm, body) orelse return null;
+    return try vm.newComplex(Value.integer(0), imaginary);
+}
 
 pub fn register(vm: *VM) !void {
     const i_sym = try vm.intern("I");

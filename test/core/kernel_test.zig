@@ -18,6 +18,27 @@ test "Kernel Rational raises ArgumentError for invalid strings" {
     for (items) |item| try std.testing.expect(item.isTruthy());
 }
 
+test "Kernel Complex parses numeric strings and rejects invalid strings" {
+    const result = try evalCode(
+        \\error = begin
+        \\  Complex("INVALID+COMPLEXi")
+        \\rescue => exception
+        \\  exception
+        \\end
+        \\[Complex("3+4i") == Complex(3, 4),
+        \\ Complex("-2-3i") == Complex(-2, -3),
+        \\ Complex("i") == Complex(0, 1),
+        \\ Complex("1/2+3/4i") == Complex(Rational(1, 2), Rational(3, 4)),
+        \\ Complex("1.5+2.25i") == Complex(1.5, 2.25),
+        \\ Complex("1e-2+3i") == Complex(0.01, 3),
+        \\ error.is_a?(ArgumentError),
+        \\ error.message == 'invalid value for convert(): "INVALID+COMPLEXi"',
+        \\ Complex("INVALID+COMPLEXi", exception: false).nil?]
+    );
+    const items = result.toArrayObject().elements.items;
+    for (items) |item| try std.testing.expect(item.isTruthy());
+}
+
 fn uniqueId() u64 {
     return @intCast(std.Io.Clock.boot.now(std.testing.io).nanoseconds);
 }

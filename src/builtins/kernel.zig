@@ -11,6 +11,7 @@ const object_builtin = @import("object.zig");
 const method_common = @import("method_common.zig");
 const openssl_builtin = @import("openssl.zig");
 const rational_builtin = @import("rational.zig");
+const complex_builtin = @import("complex.zig");
 const date_builtin = @import("date.zig");
 const stringio_builtin = @import("stringio.zig");
 const warning_builtin = @import("warning.zig");
@@ -496,7 +497,7 @@ pub fn register(vm: *VM) !void {
     try vm.kernel_module.methods.put(rational_sym, value.MethodEntry.builtin(&builtinKernelRational, .{ .variadic = 0 }));
 
     const complex_sym = try vm.intern("Complex");
-    try vm.kernel_module.methods.put(complex_sym, value.MethodEntry.builtin(&builtinKernelComplex, .{ .variadic = 0 }));
+    try vm.kernel_module.methods.put(complex_sym, value.MethodEntry.keywordBuiltin(&builtinKernelComplex, .{ .variadic = 0 }));
 }
 
 pub fn builtinKernelEql(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
@@ -506,11 +507,24 @@ pub fn builtinKernelEql(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMEr
 
 fn builtinKernelComplex(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCountRange(args, 1, 2);
+    const kw_exception = try vm.consumeKeywordArg("exception");
+    try vm.validateKeywordArgsConsumed();
+    const exception_mode = if (kw_exception) |option| option.isTruthy() else true;
+
     const real = args[0];
+    if (args.len == 1 and real.isString()) {
+        if (try complex_builtin.parseStringToComplex(vm, real.toStringObject().str)) |parsed| return parsed;
+        if (!exception_mode) return Value.nil();
+        const inspected = try vm.callMethodByName(real, "inspect", &.{}, null);
+        return vm.raiseExceptionFmt(vm.argument_error_class, "invalid value for convert(): {s}", .{inspected.toStringObject().str});
+    }
+    if (args.len == 1 and real.isComplex()) return real;
+
     const imaginary = if (args.len == 2) args[1] else Value.integer(0);
     if (!vm.isClassOrSubclassOf(vm.getClass(real), vm.numeric_class) or real.isComplex() or
         !vm.isClassOrSubclassOf(vm.getClass(imaginary), vm.numeric_class) or imaginary.isComplex())
     {
+        if (!exception_mode) return Value.nil();
         return vm.raiseExceptionFmt(vm.type_error_class, "not a real", .{});
     }
     return vm.newComplex(real, imaginary);
