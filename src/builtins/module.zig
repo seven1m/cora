@@ -170,9 +170,6 @@ fn lookupConstantOnReceiverWithFallback(vm: *VM, receiver: Value, name_sym: *Sym
             if (!inherit) break;
             current = klass.superclass;
         }
-        if (inherit and allow_object_fallback) {
-            if (lookupConstantOnEnclosingNamespaces(vm, receiver, name_sym)) |val| return val;
-        }
         return null;
     }
 
@@ -262,24 +259,6 @@ fn collectClassVariableSymbolsOnModule(
             try appendConstantSymbolUnique(vm, out, seen, entry.key_ptr.*);
         }
     }
-}
-
-fn lookupConstantOnEnclosingNamespaces(vm: *VM, receiver: Value, name_sym: *SymbolObject) ?Value {
-    const module_obj = moduleFromValue(receiver) orelse return null;
-    const classpath = module_obj.classpath orelse return null;
-    var end = classpath.str.len;
-
-    while (true) {
-        const sep = std.mem.lastIndexOf(u8, classpath.str[0..end], "::") orelse break;
-        const owner_path = classpath.str[0..sep];
-        const owner = vm.resolveConstantPath(owner_path) catch return null;
-        if (owner) |owner_val| {
-            if (lookupConstantOnReceiver(vm, owner_val, name_sym, false)) |val| return val;
-        }
-        end = sep;
-    }
-
-    return null;
 }
 
 fn lookupAutoloadOnReceiver(vm: *VM, receiver: Value, name_sym: *SymbolObject, inherit: bool) ?[]const u8 {

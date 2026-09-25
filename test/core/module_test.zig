@@ -482,17 +482,22 @@ test "Module const_get does not search enclosing namespaces for explicit receive
     try std.testing.expect(std.mem.indexOf(u8, bad.stderr, "uninitialized constant A::B::X") != null);
 }
 
-test "Class const_get searches enclosing namespaces for explicit receiver" {
+test "Class const_get does not search enclosing namespaces for explicit receiver" {
     const result = try evalCode(
         \\module A
         \\  X = 1
         \\  class B
+        \\    def self.lexical = X
         \\  end
         \\end
-        \\A::B.const_get(:X)
+        \\[A::B.const_defined?(:X),
+        \\ begin; A::B.const_get(:X); rescue NameError; :missing; end,
+        \\ A::B.lexical]
     );
-    try std.testing.expect(result.isInteger());
-    try std.testing.expectEqual(@as(i64, 1), result.toInteger());
+    const values = result.toArrayObject().elements.items;
+    try std.testing.expect(values[0].isFalse());
+    try std.testing.expectEqualStrings("missing", values[1].toSymbolObject().name);
+    try std.testing.expectEqual(@as(i64, 1), values[2].toInteger());
 }
 
 test "Module module_function creates module singleton method and privatizes instance method" {
