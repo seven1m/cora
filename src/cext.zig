@@ -1376,8 +1376,35 @@ export fn ruby_xfree(ptr: ?*anyopaque) void {
 // ─── Type checking ──────────────────────────────────────────────────────────
 
 export fn Check_Type(obj_raw: VALUE, t: c_int) void {
-    _ = obj_raw;
-    _ = t;
+    if (rb_type(obj_raw) == t) return;
+
+    const expected: []const u8 = switch (t) {
+        0x01 => "Object",
+        0x02 => "Class",
+        0x03 => "Module",
+        0x04 => "Float",
+        0x05 => "String",
+        0x06 => "Regexp",
+        0x07 => "Array",
+        0x08 => "Hash",
+        0x09 => "Struct",
+        0x0a => "Bignum",
+        0x0b => "File",
+        0x0c => "Data",
+        0x0d => "MatchData",
+        0x0e => "Complex",
+        0x0f => "Rational",
+        0x11 => "NilClass",
+        0x12 => "TrueClass",
+        0x13 => "FalseClass",
+        0x14 => "Symbol",
+        0x15 => "Integer",
+        else => "unknown",
+    };
+    const vm = getVM();
+    const actual = vm.getClass(Value{ .raw = obj_raw }).module.name.name;
+    _ = vm.raiseExceptionFmt(vm.type_error_class, "wrong argument type {s} (expected {s})", .{ actual, expected }) catch {};
+    if (vm.cext_jmp_buf) |buf| siglongjmp(buf, 1);
 }
 
 // ─── TypedData ──────────────────────────────────────────────────────────────

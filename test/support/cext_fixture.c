@@ -297,6 +297,14 @@ cext_scan_keywords(int argc, VALUE *argv, VALUE self)
     return rb_ary_new3(4, INT2NUM(positional), required, optional, keywords);
 }
 
+static VALUE
+cext_check_array_type(VALUE self, VALUE obj)
+{
+    (void)self;
+    Check_Type(obj, T_ARRAY);
+    return Qtrue;
+}
+
 void Init_fixture(void)
 {
     VALUE mCoraCExt = rb_define_module("CoraCExt");
@@ -330,6 +338,7 @@ void Init_fixture(void)
     rb_define_module_function(mCoraCExt, "string_value", cext_string_value, 1);
     rb_define_module_function(mCoraCExt, "undef_class_new", cext_undef_class_new, 1);
     rb_define_module_function(mCoraCExt, "scan_keywords", cext_scan_keywords, -1);
+    rb_define_module_function(mCoraCExt, "check_array_type", cext_check_array_type, 1);
 
     rb_define_method(rb_cString, "cora_cext_test", cora_cext_test, 0);
     rb_define_method(rb_cString, "cext_yield", cext_simple_yield, 1);

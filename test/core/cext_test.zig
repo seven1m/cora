@@ -12,6 +12,21 @@ test "C extension fixture loads and defines method" {
     try std.testing.expectEqual(true, result.toBool());
 }
 
+test "C extension Check_Type accepts arrays and raises for other types" {
+    const result = try evalCode(
+        \\$LOAD_PATH << "build/cext"
+        \\require "fixture.so"
+        \\begin
+        \\  CoraCExt.check_array_type(42)
+        \\rescue TypeError => error
+        \\  [CoraCExt.check_array_type([]), error.message]
+        \\end
+    );
+    const values = result.toArrayObject().elements.items;
+    try std.testing.expect(values[0].toBool());
+    try std.testing.expectEqualStrings("wrong argument type Integer (expected Array)", values[1].toStringObject().str);
+}
+
 test "C extension defines constants on modules" {
     const result = try evalCode(
         \\$LOAD_PATH << "build/cext"
