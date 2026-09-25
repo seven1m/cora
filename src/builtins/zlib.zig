@@ -244,15 +244,42 @@ fn inflateBytes(vm: *VM, input: []const u8, container: std.compress.flate.Contai
         error.EndOfStream => {},
     }
 
-    return output.toOwnedSlice();
+    const bytes = try output.toOwnedSlice();
+    errdefer vm.allocator.free(bytes);
+    if (container == .gzip) {
+        if (input.len < 8) return error.EndOfStream;
+        const expected_crc = littleEndianU32(input[input.len - 8 .. input.len - 4]);
+        const expected_size = littleEndianU32(input[input.len - 4 ..]);
+        if (crc32(bytes, 0) != expected_crc) return error.WrongGzipChecksum;
+        if (@as(u32, @truncate(bytes.len)) != expected_size) return error.WrongGzipSize;
+    }
+    return bytes;
+}
+
+fn littleEndianU32(bytes: []const u8) u32 {
+    return @as(u32, bytes[0]) |
+        (@as(u32, bytes[1]) << 8) |
+        (@as(u32, bytes[2]) << 16) |
+        (@as(u32, bytes[3]) << 24);
 }
 
 fn raiseZlibError(vm: *VM, kind: ContainerKind, err: anyerror) VMError {
     const class = errorClassFor(vm, kind, err) catch return error.Fatal;
-    return vm.raiseExceptionFmt(class, "{s}", .{@errorName(err)});
+    const message: []const u8 = switch (err) {
+        error.WrongGzipChecksum => "invalid compressed data -- crc error",
+        error.WrongGzipSize => "invalid compressed data -- length error",
+        else => @errorName(err),
+    };
+    return vm.raiseExceptionFmt(class, "{s}", .{message});
 }
 
 fn errorClassFor(vm: *VM, kind: ContainerKind, err: anyerror) VMError!*ClassObject {
+    if (err == error.WrongGzipChecksum) {
+        if (try vm.resolveConstantPath("Zlib::GzipFile::CRCError")) |val| return val.toClassObject();
+    }
+    if (err == error.WrongGzipSize) {
+        if (try vm.resolveConstantPath("Zlib::GzipFile::LengthError")) |val| return val.toClassObject();
+    }
     if (kind == .gzip or err == error.BadGzipHeader or err == error.WrongGzipChecksum or err == error.WrongGzipSize) {
         if (try vm.resolveConstantPath("Zlib::GzipFile::Error")) |val| return val.toClassObject();
     }

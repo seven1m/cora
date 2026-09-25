@@ -46,6 +46,28 @@ test "gzip reader reports compression level from the header" {
     try std.testing.expectEqualStrings("", result.stderr);
 }
 
+test "gzip reader validates CRC and uncompressed size" {
+    var stdout_buf: [1024]u8 = undefined;
+    var stderr_buf: [1024]u8 = undefined;
+    const result = evalCodeWithOutput(
+        \\require "zlib"
+        \\require "stringio"
+        \\io = StringIO.new
+        \\writer = Zlib::GzipWriter.new(io)
+        \\writer.write("payload")
+        \\writer.close
+        \\crc = io.string.dup
+        \\crc.setbyte(-8, crc.getbyte(-8) ^ 1)
+        \\size = io.string.dup
+        \\size.setbyte(-4, size.getbyte(-4) ^ 1)
+        \\errors = [crc, size].map { |data| begin; Zlib::GzipReader.new(StringIO.new(data)).read; rescue => error; [error.class, error.message]; end }
+        \\p errors
+    , &stdout_buf, &stderr_buf);
+    try std.testing.expect(result.err == null);
+    try std.testing.expectEqualStrings("[[Zlib::GzipFile::CRCError, \"invalid compressed data -- crc error\"], [Zlib::GzipFile::LengthError, \"invalid compressed data -- length error\"]]\n", result.stdout);
+    try std.testing.expectEqualStrings("", result.stderr);
+}
+
 test "require loads zlib deflate inflate helpers" {
     var stdout_buf: [1024]u8 = undefined;
     var stderr_buf: [1024]u8 = undefined;

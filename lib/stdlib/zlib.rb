@@ -27,6 +27,8 @@ module Zlib
 
   class GzipFile
     class Error < Zlib::Error; end unless const_defined?(:Error)
+    class CRCError < Error; end unless const_defined?(:CRCError)
+    class LengthError < Error; end unless const_defined?(:LengthError)
   end
 
   def self.container_for_window_bits(window_bits)
