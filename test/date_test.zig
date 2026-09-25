@@ -191,6 +191,22 @@ test "Date.strptime accepts calendar start and default arguments" {
     try std.testing.expectEqualStrings("", result.stderr);
 }
 
+test "Date.strptime requires implicit string conversion" {
+    var stdout_buf: [1024]u8 = undefined;
+    var stderr_buf: [1024]u8 = undefined;
+    const result = evalCodeWithOutput(
+        \\require "date"
+        \\begin
+        \\  Date.strptime(1384190018, "%Y-%m-%d")
+        \\rescue TypeError => error
+        \\  p [error.class, error.message]
+        \\end
+    , &stdout_buf, &stderr_buf);
+    try std.testing.expect(result.err == null);
+    try std.testing.expectEqualStrings("[TypeError, \"no implicit conversion of Integer into String\"]\n", result.stdout);
+    try std.testing.expectEqualStrings("", result.stderr);
+}
+
 test "DateTime#gregorian preserves class, time, offset, and chronological day" {
     var stdout_buf: [2048]u8 = undefined;
     var stderr_buf: [1024]u8 = undefined;

@@ -102,9 +102,15 @@ class Date
 
   def self._strptime(string, format)
     # Minimal implementation
+    unless string.respond_to?(:to_str)
+      raise TypeError, "no implicit conversion of #{string.class} into String"
+    end
+    unless format.respond_to?(:to_str)
+      raise TypeError, "no implicit conversion of #{format.class} into String"
+    end
     result = {}
-    s = string.to_s.dup
-    f = format.dup
+    s = string.to_str.dup
+    f = format.to_str.dup
 
     while f.length > 0 && s.length > 0
       case f[0]
