@@ -14,6 +14,24 @@ test "zlib exposes MRI compression levels and strategies" {
     try std.testing.expectEqualStrings("", result.stderr);
 }
 
+test "zlib treats nil compression level as the default" {
+    var stdout_buf: [1024]u8 = undefined;
+    var stderr_buf: [1024]u8 = undefined;
+    const result = evalCodeWithOutput(
+        \\require "zlib"
+        \\require "stringio"
+        \\deflated = Zlib::Deflate.deflate("hello", nil)
+        \\io = StringIO.new
+        \\writer = Zlib::GzipWriter.new(io, nil)
+        \\writer.write("hello")
+        \\writer.close
+        \\p [Zlib::Inflate.inflate(deflated), Zlib::GzipReader.new(StringIO.new(io.string)).read]
+    , &stdout_buf, &stderr_buf);
+    try std.testing.expect(result.err == null);
+    try std.testing.expectEqualStrings("[\"hello\", \"hello\"]\n", result.stdout);
+    try std.testing.expectEqualStrings("", result.stderr);
+}
+
 test "require loads zlib deflate inflate helpers" {
     var stdout_buf: [1024]u8 = undefined;
     var stderr_buf: [1024]u8 = undefined;

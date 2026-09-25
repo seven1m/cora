@@ -143,7 +143,7 @@ pub fn builtinZlibVersion(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!V
 pub fn builtinZlibDeflate(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 3);
     const input = try args[0].coerceToStringValue(vm, "no implicit conversion into String");
-    const level = try coerceIntegerArg(vm, args[1], "compression level must be an Integer");
+    const level = if (args[1].isNil()) @as(i64, -1) else try coerceIntegerArg(vm, args[1], "compression level must be an Integer");
     const kind = try coerceContainerKind(vm, args[2]);
     const container = switch (kind) {
         .raw => std.compress.flate.Container.raw,
