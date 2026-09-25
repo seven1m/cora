@@ -185,3 +185,27 @@ test "keyword splat preserves non-symbol keys only in keyword rest" {
     try std.testing.expectEqual(@as(?anyerror, error.UnhandledException), err_result.err);
     try std.testing.expect(std.mem.indexOf(u8, err_result.stderr, "missing keyword") != null);
 }
+
+test "string keyed keyword syntax reaches keyword rest parameters" {
+    const result = try evalCode(
+        \\def keywords(**options); options; end
+        \\def positional(options); options; end
+        \\[keywords("a" => 1)["a"], positional("b" => 2)["b"]]
+    );
+    const items = result.toArrayObject().elements.items;
+    try std.testing.expectEqual(@as(i64, 1), items[0].toInteger());
+    try std.testing.expectEqual(@as(i64, 2), items[1].toInteger());
+}
+
+test "keyword hashes become positional arguments for builtins without keyword parameters" {
+    const result = try evalCode(
+        \\[Array[1, 2, 3 => 4, 5 => 6], Array[1, **{2 => 3}]]
+    );
+    const cases = result.toArrayObject().elements.items;
+    const first = cases[0].toArrayObject().elements.items;
+    try std.testing.expectEqual(@as(usize, 3), first.len);
+    try std.testing.expectEqual(@as(i64, 4), first[2].toHashObject().entries.items[0].value.toInteger());
+    const second = cases[1].toArrayObject().elements.items;
+    try std.testing.expectEqual(@as(usize, 2), second.len);
+    try std.testing.expectEqual(@as(i64, 3), second[1].toHashObject().entries.items[0].value.toInteger());
+}

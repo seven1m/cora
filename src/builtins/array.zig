@@ -553,7 +553,7 @@ pub fn register(vm: *VM) !void {
     const array_singleton = try vm.getOrCreateSingletonClass(array_class_val);
 
     const class_bracket_sym = try vm.intern("[]");
-    try array_singleton.module.methods.put(class_bracket_sym, value.MethodEntry.builtin(&builtinArrayClassBracket, .{ .variadic = 0 }));
+    try array_singleton.module.methods.put(class_bracket_sym, value.MethodEntry.positionalKeywordHashBuiltin(&builtinArrayClassBracket, .{ .variadic = 0 }));
 
     const try_convert_sym = try vm.intern("try_convert");
     try array_singleton.module.methods.put(try_convert_sym, value.MethodEntry.builtin(&builtinArrayTryConvert, .{ .exact = 1 }));

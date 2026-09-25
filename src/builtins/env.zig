@@ -83,13 +83,13 @@ pub fn register(vm: *VM) !void {
     try env_singleton.module.methods.put(filter_bang_sym, value.MethodEntry.builtin(&builtinEnvSelectBang, .{ .exact = 0 }));
 
     const merge_sym = try vm.intern("merge");
-    try env_singleton.module.methods.put(merge_sym, value.MethodEntry.builtin(&builtinEnvMerge, .{ .variadic = 0 }));
+    try env_singleton.module.methods.put(merge_sym, value.MethodEntry.positionalKeywordHashBuiltin(&builtinEnvMerge, .{ .variadic = 0 }));
 
     const merge_bang_sym = try vm.intern("merge!");
-    try env_singleton.module.methods.put(merge_bang_sym, value.MethodEntry.builtin(&builtinEnvMergeBang, .{ .variadic = 0 }));
+    try env_singleton.module.methods.put(merge_bang_sym, value.MethodEntry.positionalKeywordHashBuiltin(&builtinEnvMergeBang, .{ .variadic = 0 }));
 
     const update_sym = try vm.intern("update");
-    try env_singleton.module.methods.put(update_sym, value.MethodEntry.builtin(&builtinEnvMergeBang, .{ .variadic = 0 }));
+    try env_singleton.module.methods.put(update_sym, value.MethodEntry.positionalKeywordHashBuiltin(&builtinEnvMergeBang, .{ .variadic = 0 }));
 
     const assoc_sym = try vm.intern("assoc");
     try env_singleton.module.methods.put(assoc_sym, value.MethodEntry.builtin(&builtinEnvAssoc, .{ .exact = 1 }));
@@ -104,7 +104,7 @@ pub fn register(vm: *VM) !void {
     try env_singleton.module.methods.put(empty_q_sym, value.MethodEntry.builtin(&builtinEnvEmpty, .{ .exact = 0 }));
 
     const replace_sym = try vm.intern("replace");
-    try env_singleton.module.methods.put(replace_sym, value.MethodEntry.builtin(&builtinEnvReplace, .{ .exact = 1 }));
+    try env_singleton.module.methods.put(replace_sym, value.MethodEntry.positionalKeywordHashBuiltin(&builtinEnvReplace, .{ .exact = 1 }));
 
     const except_sym = try vm.intern("except");
     try env_singleton.module.methods.put(except_sym, value.MethodEntry.builtin(&builtinEnvExcept, .{ .variadic = 0 }));

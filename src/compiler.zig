@@ -2062,6 +2062,12 @@ pub const Compiler = struct {
                         if (elem == .assoc_splat) {
                             has_keyword_splat = true;
                             break;
+                        } else if (elem == .assoc) {
+                            const key = try self.parser.asNode(@ptrCast(elem.assoc.key));
+                            if (key != .symbol) {
+                                has_keyword_splat = true;
+                                break;
+                            }
                         }
                     }
                 }
@@ -2227,46 +2233,8 @@ pub const Compiler = struct {
                     const arg = args.arguments.nodes[i];
                     const arg_node = try self.parser.asNode(arg);
                     if (arg_node == .keyword_hash) {
-                        const kw_hash = arg_node.keyword_hash;
-                        var j: usize = 0;
-                        while (j < kw_hash.elements.size) : (j += 1) {
-                            const elem = try self.parser.asNode(kw_hash.elements.nodes[j]);
-                            switch (elem) {
-                                .assoc => {
-                                    const assoc = elem.assoc;
-                                    const key_node = try self.parser.asNode(@ptrCast(assoc.key));
-                                    if (key_node != .symbol) {
-                                        std.debug.print("Error: non-symbol keyword key is not yet supported in calls\n", .{});
-                                        return error.UnsupportedNode;
-                                    }
-                                    const symbol_val = key_node.symbol.unescaped;
-                                    const symbol_name = prismStringSlice(symbol_val);
-                                    const symbol_idx = try self.current_chunk.addConstant(.{ .string = symbol_name });
-
-                                    const value_node = try self.parser.asNode(@ptrCast(assoc.value));
-                                    try self.compileNode(value_node, line);
-
-                                    if (result.kw_hash_mode) {
-                                        try self.current_chunk.emitOpU16(.HASH_SET_CONST_KEY, @intCast(symbol_idx), line);
-                                    } else {
-                                        try kw_names.append(self.allocator, @intCast(symbol_idx));
-                                        result.kwargc += 1;
-                                    }
-                                },
-                                .assoc_splat => {
-                                    if (!result.kw_hash_mode) return error.UnsupportedNode;
-
-                                    if (elem.assoc_splat.value) |value_ptr| {
-                                        const value_node = try self.parser.asNode(@ptrCast(value_ptr));
-                                        try self.compileNode(value_node, line);
-                                    } else {
-                                        try self.current_chunk.emitOp(.PUSH_NIL, line);
-                                    }
-                                    try self.current_chunk.emitOp(.HASH_MERGE_KW, line);
-                                },
-                                else => return error.UnsupportedNode,
-                            }
-                        }
+                        try self.compileNode(arg_node, line);
+                        try self.current_chunk.emitOp(.HASH_MERGE_KW, line);
                     }
                 }
             }

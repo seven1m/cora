@@ -8184,6 +8184,13 @@ pub const VM = struct {
                 expanded[args.len] = marked_hash;
                 return .{ .args = expanded };
             }
+            if (vals.len > 0 and entry.keyword_hash_as_positional) {
+                const kw_hash = try self.createHashFromKeywordPairs(kw_keys.?, vals);
+                const expanded = try args_temp.initUninitialized(self, args.len + 1);
+                if (args.len > 0) std.mem.copyForwards(Value, expanded[0..args.len], args);
+                expanded[args.len] = kw_hash;
+                return .{ .args = expanded };
+            }
         }
 
         if (kw_values != null or args.len == 0) {

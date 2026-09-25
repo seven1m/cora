@@ -41,7 +41,7 @@ pub fn register(vm: *VM) !void {
     try thread_singleton.module.methods.put(kill_class_sym, value.MethodEntry.builtin(&builtinThreadKillClass, .{ .exact = 1 }));
 
     const handle_interrupt_sym = try vm.intern("handle_interrupt");
-    try thread_singleton.module.methods.put(handle_interrupt_sym, value.MethodEntry.builtin(&builtinThreadHandleInterrupt, .{ .exact = 1 }));
+    try thread_singleton.module.methods.put(handle_interrupt_sym, value.MethodEntry.positionalKeywordHashBuiltin(&builtinThreadHandleInterrupt, .{ .exact = 1 }));
 
     const each_caller_location_sym = try vm.intern("each_caller_location");
     try thread_singleton.module.methods.put(each_caller_location_sym, value.MethodEntry.builtin(&builtinThreadEachCallerLocation, .{ .variadic = 0 }));

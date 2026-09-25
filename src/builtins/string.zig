@@ -107,13 +107,13 @@ pub fn register(vm: *VM) !void {
     try vm.string_class.module.methods.put(string_replace_sym, value.MethodEntry.builtin(&builtinStringReplace, .{ .exact = 1 }));
 
     const string_gsub_sym = try vm.intern("gsub");
-    try vm.string_class.module.methods.put(string_gsub_sym, value.MethodEntry.builtin(&builtinStringGsub, .{ .variadic = 0 }));
+    try vm.string_class.module.methods.put(string_gsub_sym, value.MethodEntry.positionalKeywordHashBuiltin(&builtinStringGsub, .{ .variadic = 0 }));
     const string_gsub_bang_sym = try vm.intern("gsub!");
-    try vm.string_class.module.methods.put(string_gsub_bang_sym, value.MethodEntry.builtin(&builtinStringGsubBang, .{ .variadic = 0 }));
+    try vm.string_class.module.methods.put(string_gsub_bang_sym, value.MethodEntry.positionalKeywordHashBuiltin(&builtinStringGsubBang, .{ .variadic = 0 }));
     const string_sub_sym = try vm.intern("sub");
-    try vm.string_class.module.methods.put(string_sub_sym, value.MethodEntry.builtin(&builtinStringSub, .{ .variadic = 0 }));
+    try vm.string_class.module.methods.put(string_sub_sym, value.MethodEntry.positionalKeywordHashBuiltin(&builtinStringSub, .{ .variadic = 0 }));
     const string_sub_bang_sym = try vm.intern("sub!");
-    try vm.string_class.module.methods.put(string_sub_bang_sym, value.MethodEntry.builtin(&builtinStringSubBang, .{ .variadic = 0 }));
+    try vm.string_class.module.methods.put(string_sub_bang_sym, value.MethodEntry.positionalKeywordHashBuiltin(&builtinStringSubBang, .{ .variadic = 0 }));
 
     const string_equal_sym = try vm.intern("==");
     try vm.string_class.module.methods.put(string_equal_sym, value.MethodEntry.builtin(&builtinStringEqual, .{ .exact = 1 }));
