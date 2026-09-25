@@ -9665,54 +9665,46 @@ pub const VM = struct {
 
     pub fn getChunkParameters(self: *VM, ch: *Chunk) VMError!Value {
         const result = try self.createArray();
-
-        var i: u8 = 0;
-        while (i < ch.arity) : (i += 1) {
-            const param_array = try self.createArray();
-            const req_sym = try self.intern("req");
-            param_array.elements.append(self.gc_allocator, Value.fromObject(&req_sym.object)) catch return error.Fatal;
-            result.elements.append(self.gc_allocator, Value.fromObject(&param_array.object)) catch return error.Fatal;
+        const required_kind: []const u8 = if (ch.is_lambda) "req" else "opt";
+        for (0..ch.arity) |slot| {
+            try self.appendChunkParameter(result, required_kind, ch.local_names.items[slot]);
         }
-
-        if (ch.rest_param_index) |_| {
-            const rest_array = try self.createArray();
-            const rest_sym = try self.intern("rest");
-            rest_array.elements.append(self.gc_allocator, Value.fromObject(&rest_sym.object)) catch return error.Fatal;
-            result.elements.append(self.gc_allocator, Value.fromObject(&rest_array.object)) catch return error.Fatal;
+        for (ch.optional_params.items) |optional| {
+            try self.appendChunkParameter(result, "opt", ch.local_names.items[optional.param_index]);
         }
-
-        i = 0;
-        while (i < ch.optional_params.items.len) : (i += 1) {
-            const opt_array = try self.createArray();
-            const opt_sym = try self.intern("opt");
-            opt_array.elements.append(self.gc_allocator, Value.fromObject(&opt_sym.object)) catch return error.Fatal;
-            result.elements.append(self.gc_allocator, Value.fromObject(&opt_array.object)) catch return error.Fatal;
+        if (ch.rest_param_index) |slot| {
+            try self.appendChunkParameter(result, "rest", ch.local_names.items[slot]);
         }
-
-        i = 0;
-        while (i < ch.post_required_count) : (i += 1) {
-            const post_array = try self.createArray();
-            const req_sym = try self.intern("req");
-            post_array.elements.append(self.gc_allocator, Value.fromObject(&req_sym.object)) catch return error.Fatal;
-            result.elements.append(self.gc_allocator, Value.fromObject(&post_array.object)) catch return error.Fatal;
+        const post_start: usize = if (ch.rest_param_index) |slot| slot + 1 else ch.arity + ch.optional_params.items.len;
+        for (0..ch.post_required_count) |index| {
+            try self.appendChunkParameter(result, required_kind, ch.local_names.items[post_start + index]);
         }
-
-        if (ch.keyword_rest_index) |_| {
-            const kwrest_array = try self.createArray();
-            const keyrest_sym = try self.intern("keyrest");
-            kwrest_array.elements.append(self.gc_allocator, Value.fromObject(&keyrest_sym.object)) catch return error.Fatal;
-            result.elements.append(self.gc_allocator, Value.fromObject(&kwrest_array.object)) catch return error.Fatal;
+        for (0..ch.local_names.items.len) |slot| {
+            for (ch.required_keywords.items) |keyword| {
+                if (keyword.param_slot == slot) try self.appendChunkParameter(result, "keyreq", ch.local_names.items[slot]);
+            }
+            for (ch.optional_keywords.items) |keyword| {
+                if (keyword.param_slot == slot) try self.appendChunkParameter(result, "key", ch.local_names.items[slot]);
+            }
         }
-
-        i = 0;
-        while (i < ch.required_keywords.items.len) : (i += 1) {
-            const key_array = try self.createArray();
-            const key_sym = try self.intern("key");
-            key_array.elements.append(self.gc_allocator, Value.fromObject(&key_sym.object)) catch return error.Fatal;
-            result.elements.append(self.gc_allocator, Value.fromObject(&key_array.object)) catch return error.Fatal;
+        if (ch.keyword_rest_index) |slot| {
+            try self.appendChunkParameter(result, "keyrest", ch.local_names.items[slot]);
+        } else if (ch.no_keywords) {
+            try self.appendChunkParameter(result, "nokey", "");
         }
-
+        if (ch.block_param_index) |slot| {
+            try self.appendChunkParameter(result, "block", ch.local_names.items[slot]);
+        }
         return Value.fromObject(&result.object);
+    }
+
+    fn appendChunkParameter(self: *VM, result: *value.ArrayObject, kind: []const u8, name: []const u8) VMError!void {
+        const param = try self.createArray();
+        param.elements.append(self.gc_allocator, Value.fromObject(&(try self.intern(kind)).object)) catch return error.Fatal;
+        if (name.len > 0 and !std.mem.eql(u8, name, "*") and !std.mem.eql(u8, name, "**") and !std.mem.eql(u8, name, "&")) {
+            param.elements.append(self.gc_allocator, Value.fromObject(&(try self.intern(name)).object)) catch return error.Fatal;
+        }
+        result.elements.append(self.gc_allocator, Value.fromObject(&param.object)) catch return error.Fatal;
     }
 
     /// Copy forwarding arguments into the provided buffer.

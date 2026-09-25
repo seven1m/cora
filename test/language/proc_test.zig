@@ -2,6 +2,16 @@ const std = @import("std");
 const test_helper = @import("../test_helper.zig");
 
 const evalCode = test_helper.evalCode;
+
+test "Proc parameters report names and required keyword kinds" {
+    const result = try evalCode(
+        \\lambda_params = ->(a, b = 1, *rest, c, required:, optional: 1, **keywords, &block) {}.parameters
+        \\proc_params = proc { |a, required:, optional: 1| }.parameters
+        \\lambda_params == [[:req, :a], [:opt, :b], [:rest, :rest], [:req, :c], [:keyreq, :required], [:key, :optional], [:keyrest, :keywords], [:block, :block]] &&
+        \\  proc_params == [[:opt, :a], [:keyreq, :required], [:key, :optional]]
+    );
+    try std.testing.expect(result.isTruthy());
+}
 const evalCodeWithOutput = test_helper.evalCodeWithOutput;
 
 test "Proc case equality calls the proc" {
