@@ -75,6 +75,9 @@ pub fn register(vm: *VM) !void {
     const load_sym = try vm.intern("_load");
     try time_singleton.module.methods.put(load_sym, value.MethodEntry.builtin(&builtinTimeLoad, .{ .exact = 1 }));
 
+    const dump_sym = try vm.intern("_dump");
+    try vm.time_class.module.methods.put(dump_sym, value.MethodEntry.builtinWithVisibility(&builtinTimeDump, .{ .variadic = 0 }, .private));
+
     const plus_sym = try vm.intern("+");
     try vm.time_class.module.methods.put(plus_sym, value.MethodEntry.builtin(&builtinTimePlus, .{ .exact = 1 }));
 
@@ -1244,6 +1247,30 @@ pub fn builtinTimeLoad(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMErr
         return vm.raiseExceptionFmt(vm.type_error_class, "marshaled time format differ", .{});
     };
     return vm.newTime(receiver.toClassObject(), epoch_nanoseconds);
+}
+
+pub fn builtinTimeDump(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCountRange(args, 0, 1);
+    const t = receiver.toTimeObject();
+    const parts = try timeParts(vm, t.timew);
+    const year = integerToI64(parts.year);
+    if (year < 1900 or year > 1900 + 0xffff) {
+        return vm.raiseExceptionFmt(vm.argument_error_class, "year out of range for marshaling", .{});
+    }
+
+    const packed_date: u32 = (@as(u32, 1) << 31) |
+        (if (t.is_utc) (@as(u32, 1) << 30) else 0) |
+        (@as(u32, @intCast(year - 1900)) << 14) |
+        (@as(u32, parts.month - 1) << 10) |
+        (@as(u32, parts.day) << 5) |
+        @as(u32, parts.hour);
+    const packed_time: u32 = (@as(u32, parts.minute) << 26) |
+        (@as(u32, parts.second) << 20) |
+        @divTrunc(parts.nanosecond, 1000);
+    var raw: [8]u8 = undefined;
+    std.mem.writeInt(u32, raw[0..4], packed_date, .little);
+    std.mem.writeInt(u32, raw[4..8], packed_time, .little);
+    return vm.newStringWithEncoding(&raw, false, .{ .ascii_8bit = .{} });
 }
 
 pub fn builtinTimeUtcInstance(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {

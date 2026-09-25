@@ -228,6 +228,10 @@ fn dumpValue(state: *DumpState, val: Value) VMError!void {
         try dumpBignumValue(state, val.toBigIntegerObject().value);
         return;
     }
+    if (val.isTime()) {
+        try dumpTime(state, val);
+        return;
+    }
     if (val.getObjectPointer() != null) {
         if (try state.vm.checkCallMethodByName(val, "marshal_dump", false, &.{}, null)) |dumped| {
             try dumpUserMarshaledObject(state, val, dumped);
@@ -302,6 +306,54 @@ fn dumpUserMarshaledObject(state: *DumpState, val: Value, dumped: Value) VMError
     try appendByte(state, Tag.user_marshaled_object);
     try dumpSymbolValue(state, try state.vm.intern(class_path));
     try dumpValue(state, dumped);
+}
+
+fn dumpTime(state: *DumpState, val: Value) VMError!void {
+    const key: usize = @intCast(val.raw);
+    if (state.object_refs.get(key)) |idx| {
+        try appendByte(state, Tag.object_link);
+        try dumpPackedInt(state, @intCast(idx));
+        return;
+    }
+
+    const class_path = (try marshalClassPath(state.vm, state.vm.getClass(val))) orelse
+        return state.vm.raiseExceptionFmt(state.vm.type_error_class, "can't dump anonymous class", .{});
+    const raw = try state.vm.callMethodByName(val, "_dump", &.{}, null);
+    if (!raw.isString()) return state.vm.raiseExceptionFmt(state.vm.type_error_class, "_dump() must return string", .{});
+    const bytes = raw.toStringObject().str;
+    const time = val.toTimeObject();
+    const nsec_value = try state.vm.callMethodByName(val, "nsec", &.{}, null);
+    const submicro: i64 = @mod(nsec_value.toInteger(), 1000);
+
+    state.object_refs.put(key, state.object_count) catch return error.Fatal;
+    state.object_count += 1;
+    try appendByte(state, Tag.ivar);
+    try appendByte(state, Tag.user_defined_object);
+    try dumpSymbolValue(state, try state.vm.intern(class_path));
+    try dumpPackedInt(state, @intCast(bytes.len));
+    state.out.appendSlice(state.vm.allocator, bytes) catch return error.Fatal;
+
+    const ivar_count: i64 = 1 + @as(i64, if (time.is_utc) 0 else 1) + @as(i64, if (submicro == 0) 0 else 3);
+    try dumpPackedInt(state, ivar_count);
+    if (submicro != 0) {
+        try dumpSymbolValue(state, try state.vm.intern("nano_num"));
+        try dumpValue(state, Value.integer(submicro));
+        try dumpSymbolValue(state, try state.vm.intern("nano_den"));
+        try dumpValue(state, Value.integer(1));
+        const bcd = [_]u8{ @intCast((@divTrunc(submicro, 100) << 4) | @mod(@divTrunc(submicro, 10), 10)), @intCast(@mod(submicro, 10) << 4) };
+        try dumpSymbolValue(state, try state.vm.intern("submicro"));
+        try dumpValue(state, try state.vm.newStringWithEncoding(if (bcd[1] == 0) bcd[0..1] else bcd[0..], false, .{ .ascii_8bit = .{} }));
+    }
+    if (!time.is_utc) {
+        try dumpSymbolValue(state, try state.vm.intern("offset"));
+        try dumpValue(state, Value.integer(@divTrunc(time.utc_offset_nanos, 1_000_000_000)));
+    }
+    try dumpSymbolValue(state, try state.vm.intern("zone"));
+    const zone = try state.vm.callMethodByName(val, "zone", &.{}, null);
+    try dumpValue(state, if (time.is_utc)
+        try state.vm.newStringWithEncoding("UTC", false, .{ .us_ascii = .{} })
+    else
+        zone);
 }
 
 fn dumpLinkedObject(state: *DumpState, val: Value, comptime body: fn (*DumpState, Value) VMError!void) VMError!void {
@@ -830,6 +882,10 @@ fn loadIvarWrapped(state: *LoadState) VMError!Value {
     }
 
     var encoding_override: ?enc.Encoding = null;
+    var time_nano_num: ?Value = null;
+    var time_nano_den: ?Value = null;
+    var time_offset: ?Value = null;
+    var time_zone: ?Value = null;
     var i: i64 = 0;
     while (i < ivar_count) : (i += 1) {
         const key = try loadValue(state);
@@ -849,8 +905,30 @@ fn loadIvarWrapped(state: *LoadState) VMError!Value {
                 else
                     return state.vm.raiseExceptionFmt(state.vm.argument_error_class, "invalid marshal encoding object", .{});
                 encoding_override = try marshalEncodingByName(state.vm, name_bytes);
+            } else if (base.isTime()) {
+                if (std.mem.eql(u8, key_name, "nano_num")) time_nano_num = ivar_value;
+                if (std.mem.eql(u8, key_name, "nano_den")) time_nano_den = ivar_value;
+                if (std.mem.eql(u8, key_name, "offset")) time_offset = ivar_value;
+                if (std.mem.eql(u8, key_name, "zone")) time_zone = ivar_value;
             }
         }
+    }
+
+    if (base.isTime()) {
+        const time = base.toTimeObject();
+        if (time_nano_num) |numerator| {
+            const denominator = time_nano_den orelse Value.integer(1);
+            const fraction = try state.vm.newRationalValues(numerator, denominator);
+            var add_args = [_]Value{fraction};
+            time.timew = try state.vm.callMethodByName(time.timew, "+", &add_args, null);
+        }
+        if (time_offset) |offset| {
+            if (!offset.isInteger()) return state.vm.raiseExceptionFmt(state.vm.argument_error_class, "invalid marshal time offset", .{});
+            time.utc_offset_nanos = offset.toInteger() * 1_000_000_000;
+            time.is_utc = false;
+            time.is_local = false;
+        }
+        if (time_zone) |zone| time.zone = zone;
     }
 
     if (encoding_override) |encoding_value| {
