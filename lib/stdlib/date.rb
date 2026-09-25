@@ -111,6 +111,10 @@ class Date
       return result
     end
 
+    if s =~ /\A\s*(\d{2})(\d{2})\s*\z/
+      return { mon: $1.to_i, mday: $2.to_i }
+    end
+
     # RFC 2822: "Mon, DD YYYY HH:MM:SS ZONE" or "DD Mon YYYY HH:MM:SS ZONE"
     if s =~ /\A\s*(?:\w+,\s*)?(\d{1,2})\s+(#{month_re})\s+(\d{4})\s+(\d{1,2}):(\d{2})(?::(\d{2}))?\s+([+-]\d{4}|[A-Z]{1,5})\s*\z/i
       result[:mday] = $1.to_i

@@ -431,3 +431,22 @@ test "Date strptime resolves common timezone abbreviations" {
     try std.testing.expectEqualStrings("{zone: \"PST\", offset: -28800}\n{zone: \"EDT\", offset: -14400}\n{zone: \"UTC\", offset: 0}\n{zone: \"XYZ\", offset: nil}\n", result.stdout);
     try std.testing.expectEqualStrings("", result.stderr);
 }
+
+test "Date parse reads compact month and day fields" {
+    var stdout_buf: [1024]u8 = undefined;
+    var stderr_buf: [1024]u8 = undefined;
+    const result = evalCodeWithOutput(
+        \\require "date"
+        \\p Date._parse("9000")
+        \\p Date._parse("1234")
+        \\begin
+        \\  Date.parse("9000")
+        \\rescue => error
+        \\  p [error.class, error.message]
+        \\end
+    , &stdout_buf, &stderr_buf);
+
+    try std.testing.expect(result.err == null);
+    try std.testing.expectEqualStrings("{mon: 90, mday: 0}\n{mon: 12, mday: 34}\n[Date::Error, \"invalid date\"]\n", result.stdout);
+    try std.testing.expectEqualStrings("", result.stderr);
+}
