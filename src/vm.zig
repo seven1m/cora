@@ -304,6 +304,7 @@ pub const Block = struct {
         chunk: *Chunk,
         defining_ep: [*]Value,
         defining_self: Value,
+        defining_local_names: []const []const u8 = &.{},
         enclosing_block_proc: ?*value.ProcObject = null,
     };
 
@@ -3839,6 +3840,7 @@ pub const VM = struct {
                         .chunk = bc,
                         .defining_ep = defining_ep,
                         .defining_self = frame.self_value,
+                        .defining_local_names = try self.copyLocalNames(frame.chunk.local_names.items),
                         .enclosing_block_proc = if (frame.block) |blk| try self.ensureBlockProc(blk) else null,
                     } },
                 };
@@ -6931,6 +6933,7 @@ pub const VM = struct {
                         .chunk = lambda_chunk,
                         .defining_ep = frame.ep,
                         .defining_self = frame.self_value,
+                        .defining_local_names = try self.copyLocalNames(frame.chunk.local_names.items),
                         .enclosing_block_proc = if (frame.block) |blk| try self.ensureBlockProc(blk) else null,
                     } },
                 };
@@ -11294,6 +11297,7 @@ pub const VM = struct {
                     .chunk = chunk_blk.chunk,
                     .defining_ep = self.promoteFrameToHeap(chunk_blk.defining_ep) catch return error.Fatal,
                     .defining_self = chunk_blk.defining_self,
+                    .defining_local_names = chunk_blk.defining_local_names,
                     .enclosing_block_proc = chunk_blk.enclosing_block_proc,
                 } } },
             },
@@ -12980,6 +12984,14 @@ pub const VM = struct {
             .lexical_scope = lexical_scope,
         };
         return binding_ptr;
+    }
+
+    pub fn copyLocalNames(self: *VM, names: []const []const u8) VMError![]const []const u8 {
+        const copies = self.gc_allocator.alloc([]const u8, names.len) catch return error.Fatal;
+        for (names, copies) |name, *copy| {
+            copy.* = self.gc_allocator.dupe(u8, name) catch return error.Fatal;
+        }
+        return copies;
     }
 
     pub const ArityMode = enum { strict, lenient };

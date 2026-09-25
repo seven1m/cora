@@ -35,6 +35,9 @@ pub fn register(vm: *VM) !void {
     const source_location_sym = try vm.intern("source_location");
     try vm.proc_class.module.methods.put(source_location_sym, value.MethodEntry.builtin(&builtinProcSourceLocation, .{ .exact = 0 }));
 
+    const binding_sym = try vm.intern("binding");
+    try vm.proc_class.module.methods.put(binding_sym, value.MethodEntry.builtin(&builtinProcBinding, .{ .exact = 0 }));
+
     const inspect_entry = value.MethodEntry.builtin(&builtinProcInspect, .{ .exact = 0 });
     const inspect_sym = try vm.intern("inspect");
     try vm.proc_class.module.methods.put(inspect_sym, inspect_entry);
@@ -101,6 +104,19 @@ pub fn builtinProcNew(vm: *VM, _: Value, args: []Value, block: ?Block) VMError!V
 pub fn builtinProcCall(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
     const proc_obj = receiver.toProcObject();
     return vm.callProcObject(proc_obj, args, block, null, null, null);
+}
+
+pub fn builtinProcBinding(vm: *VM, receiver: Value, _: []Value, _: ?Block) VMError!Value {
+    const chunk_block = switch (receiver.toProcObject().block.kind) {
+        .chunk => |chunk_block| chunk_block,
+        else => return vm.raiseExceptionFmt(vm.argument_error_class, "Can't create Binding from C level Proc", .{}),
+    };
+    const binding = try vm.createBinding(chunk_block.defining_self, chunk_block.defining_ep, chunk_block.chunk.lexical_scope);
+    for (chunk_block.defining_local_names) |name| {
+        binding.local_names.append(vm.gc_allocator, name) catch return error.Fatal;
+    }
+    binding.real_local_count = binding.local_names.items.len;
+    return Value.fromObject(&binding.object);
 }
 
 pub fn builtinProcIsLambda(_: *VM, receiver: Value, _: []Value, _: ?Block) VMError!Value {

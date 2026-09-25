@@ -40,6 +40,21 @@ test "Proc.call captures variables from defining scope" {
     try std.testing.expectEqualSlices(u8, "10\n", result.stdout);
 }
 
+test "Proc.binding retains defining scope after its frame returns" {
+    const result = try evalCode(
+        \\def make_proc
+        \\  value = 10
+        \\  proc { value }
+        \\end
+        \\captured = make_proc
+        \\captured.binding.eval("value += 5")
+        \\[captured.call, captured.binding.receiver.equal?(self)]
+    );
+    const values = result.toArrayObject().elements.items;
+    try std.testing.expectEqual(@as(i64, 15), values[0].toInteger());
+    try std.testing.expect(values[1].isTruthy());
+}
+
 test "Proc.call uses defining self" {
     const result = try evalCode(
         \\obj = Object.new
