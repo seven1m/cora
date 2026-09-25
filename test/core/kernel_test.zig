@@ -797,6 +797,25 @@ test "Dir.chdir restores cwd after block" {
     try std.testing.expectEqualStrings(original, result.toArrayObject().elements.items[2].toStringObject().str);
 }
 
+test "Kernel#abort writes its message and raises SystemExit" {
+    const result = try evalCode(
+        \\require "stringio"
+        \\original_stderr = $stderr
+        \\captured = StringIO.new
+        \\$stderr = captured
+        \\named = begin; abort("stopped"); rescue SystemExit => error; [error.status, error.message]; end
+        \\unnamed = begin; abort; rescue SystemExit => error; error.status; end
+        \\$stderr = original_stderr
+        \\[named, unnamed, captured.string]
+    );
+    const values = result.toArrayObject().elements.items;
+    const named = values[0].toArrayObject().elements.items;
+    try std.testing.expectEqual(@as(i64, 1), named[0].toInteger());
+    try std.testing.expectEqualStrings("stopped", named[1].toStringObject().str);
+    try std.testing.expectEqual(@as(i64, 1), values[1].toInteger());
+    try std.testing.expectEqualStrings("stopped\n", values[2].toStringObject().str);
+}
+
 test "Kernel#system updates $? and supports chdir keyword" {
     const allocator = std.testing.allocator;
     const dir_path = try std.fmt.allocPrint(allocator, "/tmp/cora-kernel-system-{d}", .{uniqueId()});

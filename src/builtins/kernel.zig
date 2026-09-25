@@ -1019,7 +1019,19 @@ pub fn builtinKernelPuts(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Va
 
 pub fn builtinKernelAbort(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCountRange(args, 0, 1);
-    return Value.nil();
+    var exit_args = [_]Value{Value.integer(1), Value.nil()};
+    const exit_arg_count: usize = if (args.len == 1) 2 else 1;
+    if (args.len == 1) {
+        const message = try args[0].coerceToStringValue(vm, "no implicit conversion into String");
+        var message_args = [_]Value{message};
+        _ = try vm.callMethodByName(vm.getGlobalValue("$stderr"), "puts", &message_args, null);
+        exit_args[1] = message;
+    }
+    const exc_value = try vm.newExceptionInstance(vm.system_exit_class, exit_args[0..exit_arg_count], null);
+    const exc = exc_value.toExceptionObject();
+    try vm.captureAndSetExceptionBacktrace(exc);
+    vm.setPendingException(exc);
+    return error.Unwind;
 }
 
 pub fn builtinKernelExit(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
