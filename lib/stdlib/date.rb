@@ -45,6 +45,18 @@ class Date
     month_re = month_names.join('|')
     weekday_names = %w[Sunday Monday Tuesday Wednesday Thursday Friday Saturday]
     weekday_re = weekday_names.join('|')
+    if s =~ /\A\s*(Sun|Mon|Tue|Wed|Thu|Fri|Sat)\s+(#{month_re})\s+(\d{1,2})\s+(\d{4})\s+(\d{1,2}):(\d{2}):(\d{2})\s+GMT([+-]\d{4})\s+\([A-Za-z]+\)\s*\z/i
+      result[:wday] = weekday_names.index { |name| name.start_with?($1.capitalize) }
+      result[:mon] = month_names.index($2.capitalize) + 1
+      result[:mday] = $3.to_i
+      result[:year] = $4.to_i
+      result[:hour] = $5.to_i
+      result[:min] = $6.to_i
+      result[:sec] = $7.to_i
+      add_zone_parts(result, $8)
+      result[:zone] = "GMT#{$8}"
+      return result
+    end
     if s =~ /\A\s*(#{weekday_re}),\s*(\d{1,2})-(#{month_re})-(\d{2})\s+(\d{1,2}):(\d{2}):(\d{2})\s+(GMT|UTC)\s*\z/i
       year = $4.to_i
       result[:wday] = weekday_names.index($1.capitalize)
