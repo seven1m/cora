@@ -908,7 +908,10 @@ pub fn builtinTCPSocketSetsockopt(vm: *VM, receiver: Value, args: []Value, _: ?B
 
     const level: c_int = @intCast(try args[0].integerArgToI64(vm, "no implicit conversion into Integer", "integer out of range"));
     const optname: u32 = @intCast(try args[1].integerArgToI64(vm, "no implicit conversion into Integer", "integer out of range"));
-    const optval: c_int = @intCast(try args[2].integerArgToI64(vm, "no implicit conversion into Integer", "integer out of range"));
+    const optval: c_int = if (args[2].isBool())
+        @intFromBool(args[2].toBool())
+    else
+        @intCast(try args[2].integerArgToI64(vm, "no implicit conversion into Integer", "integer out of range"));
 
     if (std.c.setsockopt(io.fd, level, optname, &optval, @sizeOf(c_int)) != 0) {
         return socketError(vm, "setsockopt() failed", .{});

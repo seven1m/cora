@@ -15,6 +15,21 @@ test "TCPSocket subclass connections retain their class" {
     try std.testing.expect(result.isTruthy());
 }
 
+test "TCPSocket setsockopt accepts boolean values" {
+    const result = try test_helper.evalCode(
+        \\require "socket"
+        \\server = TCPServer.new("127.0.0.1", 0)
+        \\client = TCPSocket.new("127.0.0.1", server.addr[1])
+        \\values = [true, false].map { |value| client.setsockopt(Socket::IPPROTO_TCP, Socket::TCP_NODELAY, value) }
+        \\client.close
+        \\server.close
+        \\values
+    );
+    const values = result.toArrayObject().elements.items;
+    try std.testing.expectEqual(@as(i64, 0), values[0].toInteger());
+    try std.testing.expectEqual(@as(i64, 0), values[1].toInteger());
+}
+
 test "UNIXServer and UNIXSocket exchange data" {
     const result = try test_helper.evalCode(
         \\require "socket"
