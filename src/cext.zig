@@ -889,6 +889,7 @@ export fn rb_type(obj_raw: VALUE) c_int {
         .regexp => 0x06,
         .array => 0x07,
         .hash => 0x08,
+        .big_integer => 0x0a,
         .class => 0x02,
         .module => 0x03,
         .match_data => 0x0d,
@@ -1586,7 +1587,9 @@ export fn RARRAY_LEN(ary_raw: VALUE) c_long {
 }
 
 export fn INT2NUM(v: c_long) VALUE {
-    return Value.integer(v).raw;
+    if (std.math.cast(i63, v) != null) return Value.integer(v).raw;
+    const vm = getVM();
+    return (vm.newBigIntegerFromI64(v) catch return 0).raw;
 }
 
 fn numToLong(v_raw: VALUE) c_long {

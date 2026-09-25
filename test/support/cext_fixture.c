@@ -271,6 +271,20 @@ cext_append_raw_utf16(VALUE self, VALUE string)
 }
 
 static VALUE
+cext_integer_type(VALUE self, VALUE integer)
+{
+    (void)self;
+    return INT2NUM(TYPE(integer));
+}
+
+static VALUE
+cext_long_roundtrip(VALUE self, VALUE integer)
+{
+    (void)self;
+    return LONG2NUM(NUM2LONG(integer));
+}
+
+static VALUE
 cext_integer_pack(VALUE self, VALUE integer)
 {
     (void)self;
@@ -366,6 +380,8 @@ void Init_fixture(void)
     rb_define_module_function(mCoraCExt, "path_to_class", cext_path_to_class, 1);
     rb_define_module_function(mCoraCExt, "associate_utf16le", cext_associate_utf16le, 1);
     rb_define_module_function(mCoraCExt, "append_raw_utf16", cext_append_raw_utf16, 1);
+    rb_define_module_function(mCoraCExt, "integer_type", cext_integer_type, 1);
+    rb_define_module_function(mCoraCExt, "long_roundtrip", cext_long_roundtrip, 1);
     rb_define_module_function(mCoraCExt, "integer_pack", cext_integer_pack, 1);
     rb_define_module_function(mCoraCExt, "string_encoding_helpers", cext_string_encoding_helpers, 0);
     rb_define_module_function(mCoraCExt, "string_encoding_creation", cext_string_encoding_creation, 0);

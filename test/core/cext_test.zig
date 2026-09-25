@@ -185,6 +185,21 @@ test "C extension packs signed 64-bit integers" {
     try std.testing.expectEqualStrings("-9223372036854775808", rows[1].toArrayObject().elements.items[1].toStringObject().str);
 }
 
+test "C extension identifies large integers as bignums" {
+    const result = try evalCode(
+        \\$LOAD_PATH << "build/cext"
+        \\require "fixture.so"
+        \\[CoraCExt.integer_type(42), CoraCExt.integer_type(2 ** 63),
+        \\ CoraCExt.long_roundtrip(2 ** 63 - 1).to_s,
+        \\ CoraCExt.long_roundtrip(-(2 ** 63)).to_s]
+    );
+    const values = result.toArrayObject().elements.items;
+    try std.testing.expectEqual(@as(i64, 0x15), values[0].toInteger());
+    try std.testing.expectEqual(@as(i64, 0x0a), values[1].toInteger());
+    try std.testing.expectEqualStrings("9223372036854775807", values[2].toStringObject().str);
+    try std.testing.expectEqualStrings("-9223372036854775808", values[3].toStringObject().str);
+}
+
 test "C extension concatenates and encodes strings" {
     const result = try evalCode(
         \\$LOAD_PATH << "build/cext"
