@@ -1,6 +1,7 @@
 const std = @import("std");
 const vm_mod = @import("../vm.zig");
 const value = @import("../value.zig");
+const thread_builtin = @import("thread.zig");
 
 const VM = vm_mod.VM;
 const VMError = vm_mod.VMError;
@@ -19,6 +20,11 @@ pub fn register(vm: *VM) !void {
 
     const yield_sym = try vm.intern("yield");
     try fiber_singleton.module.methods.put(yield_sym, value.MethodEntry.builtin(&builtinFiberYield, .{ .variadic = 0 }));
+
+    const get_sym = try vm.intern("[]");
+    try fiber_singleton.module.methods.put(get_sym, value.MethodEntry.builtin(&builtinFiberStorageGet, .{ .exact = 1 }));
+    const set_sym = try vm.intern("[]=");
+    try fiber_singleton.module.methods.put(set_sym, value.MethodEntry.builtin(&builtinFiberStorageSet, .{ .exact = 2 }));
 
     const resume_sym = try vm.intern("resume");
     try vm.fiber_class.module.methods.put(resume_sym, value.MethodEntry.builtin(&builtinFiberResume, .{ .variadic = 0 }));
@@ -60,6 +66,34 @@ pub fn builtinFiberNew(vm: *VM, receiver: Value, args: []Value, block: ?Block) V
 pub fn builtinFiberCurrent(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
     return Value.fromObject(&vm.current_fiber.object);
+}
+
+fn builtinFiberStorageGet(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    const key = try thread_builtin.symbolArg(vm, args[0]);
+    if (vm.current_fiber.storage) |*storage| {
+        return storage.get(key) orelse Value.nil();
+    }
+    return Value.nil();
+}
+
+fn builtinFiberStorageSet(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 2);
+    const key = try thread_builtin.symbolArg(vm, args[0]);
+    const fiber = vm.current_fiber;
+    if (args[1].isNil()) {
+        if (fiber.storage) |*storage| {
+            const previous = storage.get(key) orelse Value.nil();
+            _ = storage.remove(key);
+            return previous;
+        }
+        return Value.nil();
+    }
+    if (fiber.storage == null) {
+        fiber.storage = std.AutoHashMap(*value.SymbolObject, Value).init(vm.gc_allocator);
+    }
+    fiber.storage.?.put(key, args[1]) catch return error.Fatal;
+    return args[1];
 }
 
 pub fn builtinFiberYield(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {

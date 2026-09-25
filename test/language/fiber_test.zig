@@ -4,6 +4,28 @@ const test_helper = @import("../test_helper.zig");
 const evalCode = test_helper.evalCode;
 const evalCodeWithOutput = test_helper.evalCodeWithOutput;
 
+test "Fiber storage inherits keys and isolates assignments" {
+    const result = try evalCode(
+        \\Fiber[:example] = 1
+        \\child = Fiber.new do
+        \\  before = Fiber[:example]
+        \\  Fiber[:example] = 2
+        \\  [before, Fiber[:example]]
+        \\end
+        \\before_resume = Fiber[:example]
+        \\child_values = child.resume
+        \\[before_resume, child_values, Fiber[:example], Fiber.send(:[]=, :example, nil), Fiber[:example]]
+    );
+    const values = result.toArrayObject().elements.items;
+    try std.testing.expectEqual(@as(i64, 1), values[0].toInteger());
+    const child_values = values[1].toArrayObject().elements.items;
+    try std.testing.expectEqual(@as(i64, 1), child_values[0].toInteger());
+    try std.testing.expectEqual(@as(i64, 2), child_values[1].toInteger());
+    try std.testing.expectEqual(@as(i64, 1), values[2].toInteger());
+    try std.testing.expectEqual(@as(i64, 1), values[3].toInteger());
+    try std.testing.expect(values[4].isNil());
+}
+
 test "Fiber.new does not invoke block until resume" {
     const result = try evalCode(
         \\invoked = false

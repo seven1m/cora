@@ -889,7 +889,7 @@ fn optionalTimeoutArg(vm: *VM, args: []Value) VMError!?f64 {
     return vm.raiseExceptionFmt(vm.type_error_class, "can't convert into Float", .{});
 }
 
-fn symbolArg(vm: *VM, arg: Value) VMError!*value.SymbolObject {
+pub fn symbolArg(vm: *VM, arg: Value) VMError!*value.SymbolObject {
     if (arg.isSymbol()) return arg.toSymbolObject();
     switch (try vm.probeToStringValue(arg)) {
         .string => |coerced| return try vm.intern(coerced.toStringObject().str),

@@ -2085,6 +2085,7 @@ pub const VM = struct {
         main_fiber_obj.first_resume_args = undefined;
         main_fiber_obj.first_resume_argc = 0;
         main_fiber_obj.fiber_locals = null;
+        main_fiber_obj.storage = null;
         main_fiber_obj.owner_thread = null;
         main_fiber_obj.owner_vm = self;
         self.main_fiber = main_fiber_obj;
@@ -4629,6 +4630,7 @@ pub const VM = struct {
         root_fiber.first_resume_args = undefined;
         root_fiber.first_resume_argc = 0;
         root_fiber.fiber_locals = null;
+        root_fiber.storage = null;
         root_fiber.owner_thread = thread_obj;
         root_fiber.owner_vm = self;
         thread_obj.main_fiber = root_fiber;
@@ -10255,6 +10257,15 @@ pub const VM = struct {
         fiber_obj.first_resume_args = undefined;
         fiber_obj.first_resume_argc = 0;
         fiber_obj.fiber_locals = null;
+        fiber_obj.storage = null;
+        if (self.current_fiber.storage) |*current_storage| {
+            var inherited = std.AutoHashMap(*value.SymbolObject, Value).init(self.gc_allocator);
+            var entries = current_storage.iterator();
+            while (entries.next()) |entry| {
+                inherited.put(entry.key_ptr.*, entry.value_ptr.*) catch return error.Fatal;
+            }
+            fiber_obj.storage = inherited;
+        }
         fiber_obj.owner_thread = self.current_thread;
         fiber_obj.owner_vm = self;
         try self.ensureFiberCatchStack(fiber_obj);
