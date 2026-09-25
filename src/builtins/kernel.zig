@@ -489,7 +489,8 @@ pub fn register(vm: *VM) !void {
 
     const fork_sym = try vm.intern("fork");
     const fork_entry = value.MethodEntry.builtin(&builtinKernelFork, .{ .exact = 0 });
-    try vm.kernel_module.methods.put(fork_sym, fork_entry);
+    try vm.kernel_module.methods.put(fork_sym, value.MethodEntry.builtinWithVisibility(&builtinKernelFork, .{ .exact = 0 }, .private));
+    try kernel_singleton.module.methods.put(fork_sym, fork_entry);
     const process_singleton = try vm.getOrCreateSingletonClass(Value.fromObject(&vm.process_module.object));
     try process_singleton.module.methods.put(fork_sym, fork_entry);
 

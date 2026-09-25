@@ -263,6 +263,13 @@ test "Process and Kernel fork invoke overridable Process._fork" {
     try std.testing.expect(result.isTruthy());
 }
 
+test "Kernel fork is private on instances and public on the module" {
+    const result = try evalCode(
+        \\!Object.new.respond_to?(:fork) && Object.new.respond_to?(:fork, true) && Kernel.respond_to?(:fork)
+    );
+    try std.testing.expect(result.isTruthy());
+}
+
 test "Process.detach thread value has correct pid" {
     if (builtin.os.tag == .windows) return;
 
