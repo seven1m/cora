@@ -37,6 +37,9 @@ pub fn register(vm: *VM) !void {
     const backtrace_sym = try vm.intern("backtrace");
     try vm.exception_class.module.methods.put(backtrace_sym, value.MethodEntry.builtin(&builtinExceptionBacktrace, .{ .exact = 0 }));
 
+    const backtrace_locations_sym = try vm.intern("backtrace_locations");
+    try vm.exception_class.module.methods.put(backtrace_locations_sym, value.MethodEntry.builtin(&builtinExceptionBacktraceLocations, .{ .exact = 0 }));
+
     const set_backtrace_sym = try vm.intern("set_backtrace");
     try vm.exception_class.module.methods.put(set_backtrace_sym, value.MethodEntry.builtin(&builtinExceptionSetBacktrace, .{ .exact = 1 }));
 
@@ -115,6 +118,7 @@ pub fn builtinExceptionInitializeCopy(vm: *VM, receiver: Value, args: []Value, _
     const src = args[0].toExceptionObject();
     dst.message = src.message;
     dst.backtrace = src.backtrace;
+    dst.backtrace_locations = src.backtrace_locations;
     dst.cause = src.cause;
     dst.receiver = src.receiver;
     dst.key = src.key;
@@ -290,6 +294,14 @@ pub fn builtinExceptionBacktrace(vm: *VM, receiver: Value, args: []Value, _: ?Bl
     const exc = receiver.toExceptionObject();
     if (exc.backtrace) |backtrace| {
         return Value.fromObject(&backtrace.object);
+    }
+    return Value.nil();
+}
+
+pub fn builtinExceptionBacktraceLocations(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    if (receiver.toExceptionObject().backtrace_locations) |locations| {
+        return Value.fromObject(&locations.object);
     }
     return Value.nil();
 }

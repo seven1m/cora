@@ -56,6 +56,25 @@ test "Exception.new does not capture a backtrace" {
     try std.testing.expect(result.isNil());
 }
 
+test "Exception backtrace locations survive a replacement backtrace" {
+    const result = try evalCode(
+        \\error = RuntimeError.new("boom")
+        \\before = error.backtrace_locations
+        \\begin
+        \\  raise error
+        \\rescue => caught
+        \\  first = caught.backtrace_locations.first
+        \\  original = first.to_s
+        \\  matches = original == caught.backtrace.first
+        \\  caught.set_backtrace(["replacement:1"])
+        \\  [before.nil?, first.class == Thread::Backtrace::Location, matches, caught.backtrace_locations.first.to_s == original, caught.backtrace.first]
+        \\end
+    );
+    const values = result.toArrayObject().elements.items;
+    for (values[0..4]) |item| try std.testing.expect(item.isTrue());
+    try std.testing.expectEqualStrings("replacement:1", values[4].toStringObject().str);
+}
+
 test "raise calls an overridden Exception#set_backtrace" {
     const result = try evalCode(
         \\class BacktraceOverrideError < RuntimeError

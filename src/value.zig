@@ -352,6 +352,7 @@ pub const ExceptionObject = struct {
     object: Object,
     message: *StringObject,
     backtrace: ?*ArrayObject,
+    backtrace_locations: ?*ArrayObject = null,
     cause: ?*ExceptionObject,
     receiver: ?Value = null,
     key: ?Value = null,

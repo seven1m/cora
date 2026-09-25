@@ -13553,6 +13553,7 @@ pub const VM = struct {
         const exc = self.gc_allocator.create(value.ExceptionObject) catch return error.Fatal;
         const msg_str = try self.newString(message, false);
         const backtrace = if (capture_bt) try self.captureBacktrace() else null;
+        const backtrace_locations = if (capture_bt) try self.captureBacktraceLocations() else null;
         const rescued_exceptions = self.currentRescuedExceptions();
         const cause = self.pendingException() orelse if (rescued_exceptions.items.len > 0)
             rescued_exceptions.items[rescued_exceptions.items.len - 1]
@@ -13569,6 +13570,7 @@ pub const VM = struct {
             },
             .message = msg_str.toStringObject(),
             .backtrace = backtrace,
+            .backtrace_locations = backtrace_locations,
             .cause = cause,
             .receiver = null,
             .key = null,
@@ -13644,9 +13646,36 @@ pub const VM = struct {
         return self.captureBacktraceFromFrames(self.frames.items);
     }
 
+    fn captureBacktraceLocations(self: *VM) VMError!?*value.ArrayObject {
+        if (self.frames.items.len == 0) return null;
+        const result = try self.createArray();
+        var i = self.frames.items.len;
+        while (i > 0) {
+            i -= 1;
+            const frame = &self.frames.items[i];
+            const source = frame.chunk.source_file orelse frame.chunk.name;
+            const label = if (frame.method_name) |method_name|
+                if (frame.frame_type == .builtin)
+                    method_name
+                else
+                    std.fmt.allocPrint(self.gc_allocator, "{s}#{s}", .{ self.getClass(frame.self_value).module.name.name, method_name }) catch return error.Fatal
+            else if (frame.frame_type == .proc or frame.frame_type == .lambda)
+                if (enclosingMethodEnvironment(frame)) |environment|
+                    std.fmt.allocPrint(self.gc_allocator, "block in {s}#{s}", .{ self.getClass(frame.self_value).module.name.name, environment.context.method_name }) catch return error.Fatal
+                else
+                    "<main>"
+            else
+                "<main>";
+            const location = try self.newBacktraceLocation(source, self.backtraceLineForFrame(frame), label);
+            result.elements.append(self.gc_allocator, location) catch return error.Fatal;
+        }
+        return result;
+    }
+
     pub fn captureAndSetExceptionBacktrace(self: *VM, exc: *value.ExceptionObject) VMError!void {
         if (exc.backtrace == null) {
             const captured = try self.captureBacktrace();
+            exc.backtrace_locations = try self.captureBacktraceLocations();
             const backtrace = if (captured) |array| Value.fromObject(&array.object) else Value.nil();
             var args = [_]Value{backtrace};
             _ = try self.callMethodByName(Value.fromObject(&exc.object), "set_backtrace", &args, null);
