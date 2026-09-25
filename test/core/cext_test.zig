@@ -132,6 +132,22 @@ test "C extension path to class raises for missing and nonclass constants" {
     try std.testing.expectEqualStrings("CoraPathValue does not refer to class/module", values[2].toStringObject().str);
 }
 
+test "C extension associates string encodings by index" {
+    const result = try evalCode(
+        \\$LOAD_PATH << "build/cext"
+        \\require "fixture.so"
+        \\bytes = "text".encode("UTF-16LE").force_encoding(Encoding::BINARY)
+        \\encoded = CoraCExt.associate_utf16le(bytes)
+        \\[encoded.equal?(bytes), encoded.encoding.name, encoded.codepoints]
+    );
+    const values = result.toArrayObject().elements.items;
+    try std.testing.expect(values[0].isTrue());
+    try std.testing.expectEqualStrings("UTF-16LE", values[1].toStringObject().str);
+    const codepoints = values[2].toArrayObject().elements.items;
+    const expected = [_]i64{ 't', 'e', 'x', 't' };
+    for (codepoints, expected) |actual, codepoint| try std.testing.expectEqual(codepoint, actual.toInteger());
+}
+
 test "C extension packs signed 64-bit integers" {
     const result = try evalCode(
         \\$LOAD_PATH << "build/cext"

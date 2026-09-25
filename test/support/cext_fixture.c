@@ -257,6 +257,13 @@ cext_path_to_class(VALUE self, VALUE path)
 }
 
 static VALUE
+cext_associate_utf16le(VALUE self, VALUE string)
+{
+    (void)self;
+    return rb_enc_associate_index(string, rb_enc_find_index("UTF-16LE"));
+}
+
+static VALUE
 cext_integer_pack(VALUE self, VALUE integer)
 {
     (void)self;
@@ -350,6 +357,7 @@ void Init_fixture(void)
     rb_define_module_function(mCoraCExt, "exception_message", cext_exception_message, 0);
     rb_define_module_function(mCoraCExt, "exception_ivar_message", cext_exception_ivar_message, 0);
     rb_define_module_function(mCoraCExt, "path_to_class", cext_path_to_class, 1);
+    rb_define_module_function(mCoraCExt, "associate_utf16le", cext_associate_utf16le, 1);
     rb_define_module_function(mCoraCExt, "integer_pack", cext_integer_pack, 1);
     rb_define_module_function(mCoraCExt, "string_encoding_helpers", cext_string_encoding_helpers, 0);
     rb_define_module_function(mCoraCExt, "string_encoding_creation", cext_string_encoding_creation, 0);

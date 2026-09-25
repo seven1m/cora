@@ -1301,7 +1301,23 @@ export fn rb_enc_find_index(name: [*c]const u8) c_int {
 }
 
 export fn rb_enc_associate_index(obj_raw: VALUE, idx: c_int) VALUE {
-    _ = idx;
+    const vm = getVM();
+    const pending_unwind_before = vm.pendingUnwind();
+    const obj = Value{ .raw = obj_raw };
+    vm.guardNotFrozen(obj) catch {
+        checkPendingUnwind(vm, pending_unwind_before);
+        return obj_raw;
+    };
+    if (idx < 0 or idx >= encoding_instances.len) {
+        _ = vm.raiseExceptionFmt(vm.argument_error_class, "invalid encoding index", .{}) catch {};
+        checkPendingUnwind(vm, pending_unwind_before);
+        return obj_raw;
+    }
+    if (obj.isString()) {
+        const str = obj.toStringObject();
+        str.encoding = encoding_instances[@intCast(idx)];
+        str.validity = .unknown;
+    }
     return obj_raw;
 }
 
