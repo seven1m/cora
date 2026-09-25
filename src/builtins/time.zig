@@ -105,6 +105,9 @@ pub fn register(vm: *VM) !void {
     const localtime_sym = try vm.intern("localtime");
     try vm.time_class.module.methods.put(localtime_sym, value.MethodEntry.builtin(&builtinTimeLocaltime, .{ .variadic = 0 }));
 
+    const getlocal_sym = try vm.intern("getlocal");
+    try vm.time_class.module.methods.put(getlocal_sym, value.MethodEntry.builtin(&builtinTimeGetLocal, .{ .variadic = 0 }));
+
     const utc_offset_sym = try vm.intern("utc_offset");
     try vm.time_class.module.methods.put(utc_offset_sym, value.MethodEntry.builtin(&builtinTimeUtcOffset, .{ .exact = 0 }));
 
@@ -1246,6 +1249,20 @@ pub fn builtinTimeUtcInstance(vm: *VM, receiver: Value, args: []Value, _: ?Block
 pub fn builtinTimeGetUtc(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
     return vm.newTime(receiver.toTimeObject().object.class.?, receiver.toTimeObject().timew);
+}
+
+pub fn builtinTimeGetLocal(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCountRange(args, 0, 1);
+    const source = receiver.toTimeObject();
+    const class_obj = source.object.class.?;
+    const copy = if (source.is_utc)
+        try vm.newTime(class_obj, source.timew)
+    else if (source.is_local)
+        try vm.newTimeLocal(class_obj, source.timew, source.utc_offset_nanos)
+    else
+        try vm.newTimeWithOffset(class_obj, source.timew, source.utc_offset_nanos);
+    copy.toTimeObject().zone = source.zone;
+    return builtinTimeLocaltime(vm, copy, args, null);
 }
 
 pub fn builtinTimeUtcQ(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {

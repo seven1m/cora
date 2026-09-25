@@ -23,6 +23,24 @@ test "Time.now returns a Time instance" {
     try std.testing.expectEqual(true, result.toBool());
 }
 
+test "Time#getlocal returns a converted copy of a frozen time" {
+    const result = try evalCode(
+        \\original = Time.at(0).utc.freeze
+        \\converted = original.getlocal("+03:00")
+        \\local_copy = original.getlocal
+        \\[original.utc?, original.utc_offset, converted.utc?, converted.utc_offset, converted.hour, converted.equal?(original), local_copy.equal?(original), local_copy.utc_offset == Time.at(0).localtime.utc_offset]
+    );
+    const values = result.toArrayObject().elements.items;
+    try std.testing.expect(values[0].isTrue());
+    try std.testing.expectEqual(@as(i64, 0), values[1].toInteger());
+    try std.testing.expect(values[2].isFalse());
+    try std.testing.expectEqual(@as(i64, 10800), values[3].toInteger());
+    try std.testing.expectEqual(@as(i64, 3), values[4].toInteger());
+    try std.testing.expect(values[5].isFalse());
+    try std.testing.expect(values[6].isFalse());
+    try std.testing.expect(values[7].isTrue());
+}
+
 test "Time.utc exposes UTC date parts" {
     const result = try evalCode(
         \\t = Time.utc(2024, 6, 15, 12, 34, 56)
