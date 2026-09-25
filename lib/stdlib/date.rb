@@ -226,7 +226,7 @@ class Date
           f = f[(colon_count + 2)..]
         when 'Z'
           if s =~ /\A([A-Z]{1,5})/
-            result[:zone] = $1
+            add_zone_parts(result, $1)
             s = $'
             f = f[2..]
           else
@@ -336,9 +336,7 @@ class Date
 
   def self.add_zone_parts(result, zone)
     result[:zone] = zone
-    if zone == "Z" || zone == "z"
-      result[:offset] = 0
-    else
+    if zone.start_with?("+", "-")
       sign = zone[0] == "-" ? -1 : 1
       digits = zone.delete(":")
       hour_digits = digits[1..]
@@ -346,6 +344,18 @@ class Date
       minutes = hour_digits.length >= 4 ? hour_digits[2, 2].to_i : 0
       seconds = hour_digits.length >= 6 ? hour_digits[4, 2].to_i : 0
       result[:offset] = sign * (hours * 3600 + minutes * 60 + seconds)
+    else
+      result[:offset] = case zone.upcase
+      when "Z", "UTC", "GMT" then 0
+      when "EST" then -5 * 3600
+      when "EDT" then -4 * 3600
+      when "CST" then -6 * 3600
+      when "CDT" then -5 * 3600
+      when "MST" then -7 * 3600
+      when "MDT" then -6 * 3600
+      when "PST" then -8 * 3600
+      when "PDT" then -7 * 3600
+      end
     end
   end
   private_class_method :add_zone_parts
