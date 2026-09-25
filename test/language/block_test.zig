@@ -73,6 +73,36 @@ test "yield splat expands array arguments" {
     try std.testing.expectEqual(@as(i64, 3), result.toArrayObject().elements.items[2].toInteger());
 }
 
+test "yield separates splatted positional arguments from keyword arguments" {
+    const result = try evalCode(
+        \\def emit(*values, **keywords)
+        \\  yield(*values, **keywords)
+        \\end
+        \\[
+        \\  emit(1, 2, **{}) { |a, b| [a, b] },
+        \\  emit(1, k: 2) { |a, **kw| [a, kw[:k]] },
+        \\  emit(1, k: 2) { |a, opts| [a, opts[:k]] }
+        \\]
+    );
+    const cases = result.toArrayObject().elements.items;
+    try std.testing.expectEqual(@as(usize, 3), cases.len);
+    for (cases) |case| {
+        const items = case.toArrayObject().elements.items;
+        try std.testing.expectEqual(@as(i64, 1), items[0].toInteger());
+        try std.testing.expectEqual(@as(i64, 2), items[1].toInteger());
+    }
+
+    const direct = try evalCode(
+        \\def emit
+        \\  yield(1, **{})
+        \\end
+        \\emit { |a, b| [a, b] }
+    );
+    const direct_items = direct.toArrayObject().elements.items;
+    try std.testing.expectEqual(@as(i64, 1), direct_items[0].toInteger());
+    try std.testing.expect(direct_items[1].isNil());
+}
+
 test "Block with multiple parameters" {
     const result = try evalCode(
         \\def add_them

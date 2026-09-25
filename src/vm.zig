@@ -6907,11 +6907,40 @@ pub const VM = struct {
             },
 
             .YIELD_SPLAT => {
+                const has_keyword_hash = readByteFrom(frame, operands, &operand_cursor) != 0;
+                const keyword_hash = if (has_keyword_hash) self.pop() else Value.nil();
                 const args_array_val = try self.expandSplatValue(self.pop());
 
                 const block = try self.requireYieldBlock(frame.block);
 
                 const splat_args = args_array_val.toArrayObject().elements.items;
+                var keyword_keys: std.ArrayList(Value) = .empty;
+                defer keyword_keys.deinit(self.allocator);
+                var keyword_values: std.ArrayList(Value) = .empty;
+                defer keyword_values.deinit(self.allocator);
+                if (has_keyword_hash) {
+                    if (!keyword_hash.isHash()) return self.raiseExceptionFmt(self.type_error_class, "no implicit conversion into Hash", .{});
+                    for (keyword_hash.toHashObject().entries.items) |entry| {
+                        keyword_keys.append(self.allocator, entry.key) catch return error.Fatal;
+                        keyword_values.append(self.allocator, entry.value) catch return error.Fatal;
+                    }
+                }
+
+                const accepts_keywords = switch (block.kind) {
+                    .chunk => |chunk_blk| chunkAcceptsKeywords(chunk_blk.chunk),
+                    .symbol, .callable => true,
+                    .receiver_builtin, .builtin => false,
+                };
+                var effective_args: []const Value = splat_args;
+                var expanded_args: ?[]Value = null;
+                defer if (expanded_args) |buffer| self.allocator.free(buffer);
+                if (keyword_values.items.len > 0 and !accepts_keywords) {
+                    const buffer = self.allocator.alloc(Value, splat_args.len + 1) catch return error.Fatal;
+                    @memcpy(buffer[0..splat_args.len], splat_args);
+                    buffer[splat_args.len] = keyword_hash;
+                    expanded_args = buffer;
+                    effective_args = buffer;
+                }
                 switch (block.kind) {
                     .chunk => |chunk_blk| {
                         // De-recursed: push block frame inline, return to dispatch loop
@@ -6922,22 +6951,25 @@ pub const VM = struct {
 
                         const arity_mode: ArityMode = if (chunk_blk.chunk.is_lambda) .strict else .lenient;
                         const block_frame = self.currentFrame();
-                        try self.copyArgumentsWithRestParam(chunk_blk.chunk, block_frame, splat_args, arity_mode);
+                        try self.copyArgumentsWithRestParam(chunk_blk.chunk, block_frame, effective_args, arity_mode);
+                        if (accepts_keywords) {
+                            try self.bindKeywordArguments(chunk_blk.chunk, block_frame, keyword_keys.items, keyword_values.items);
+                        }
                     },
                     .receiver_builtin => |builtin_data| {
-                        const result = try builtin_data.func(self, builtin_data.receiver, @constCast(splat_args));
+                        const result = try builtin_data.func(self, builtin_data.receiver, @constCast(effective_args));
                         try self.push(result);
                     },
                     .symbol => |sym| {
-                        const result = try self.invokeSymbolProc(sym, splat_args, null);
+                        const result = try self.invokeSymbolProcWithKeywords(sym, effective_args, keyword_keys.items, keyword_values.items, null);
                         try self.push(result);
                     },
                     .builtin => |func| {
-                        const result = try func(self, @constCast(splat_args));
+                        const result = try func(self, @constCast(effective_args));
                         try self.push(result);
                     },
                     .callable => |callable| {
-                        const result = try self.callMethodByName(callable, "call", @constCast(splat_args), null);
+                        const result = try self.callMethodByNameWithKeywords(callable, "call", @constCast(effective_args), keyword_keys.items, keyword_values.items, null);
                         try self.push(result);
                     },
                 }
@@ -9008,10 +9040,15 @@ pub const VM = struct {
     }
 
     fn invokeSymbolProc(self: *VM, symbol: *SymbolObject, args: []const Value, block: ?Block) VMError!Value {
+        return self.invokeSymbolProcWithKeywords(symbol, args, &.{}, &.{}, block);
+    }
+
+    fn invokeSymbolProcWithKeywords(self: *VM, symbol: *SymbolObject, args: []const Value, kw_keys: []const Value, kw_values: []const Value, block: ?Block) VMError!Value {
         try self.requireMinArgCount(args, 1);
         const receiver = args[0];
         const method_name_sym = symbol;
         const resolved = try self.findMethod(receiver, method_name_sym);
+        const keyword_ctx = try self.copyKeywordContext(kw_keys, kw_values);
 
         const r = resolved orelse {
             var missing_args: [256]Value = undefined;
@@ -9019,7 +9056,7 @@ pub const VM = struct {
             for (remaining, 0..) |arg, i| {
                 missing_args[i] = arg;
             }
-            return self.invokeMethodMissing(receiver, method_name_sym, missing_args[0..remaining.len], null, block);
+            return self.invokeMethodMissing(receiver, method_name_sym, missing_args[0..remaining.len], keyword_ctx, block);
         };
 
         if (r.entry.visibility != .public) {
@@ -9037,7 +9074,7 @@ pub const VM = struct {
         if (args.len > 1) {
             @memcpy(forwarded_args[0 .. args.len - 1], args[1..]);
         }
-        return self.invokeResolvedMethod(r, receiver, forwarded_args[0 .. args.len - 1], block);
+        return self.invokeResolvedMethodWithKeywords(r, receiver, forwarded_args[0 .. args.len - 1], block, keyword_ctx);
     }
 
     pub fn callProcObject(

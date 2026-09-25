@@ -89,7 +89,7 @@ pub const OpCode = enum(u8) {
 
     // Blocks
     YIELD, // Operand: u8 (argc)
-    YIELD_SPLAT, // No operands
+    YIELD_SPLAT, // Operand: u8 (has keyword hash)
     PUSH_LAMBDA, // Operand: u16 (chunk_id)
 
     // Constant path resolution
@@ -210,7 +210,6 @@ pub fn opcodeOperandSize(op: OpCode) usize {
         .ENSURE_END,
         .BREAK,
         .NEXT,
-        .YIELD_SPLAT,
         .MULTI_ASSIGN_PREPARE,
         .BLOCK_GIVEN,
         => 0,
@@ -219,6 +218,7 @@ pub fn opcodeOperandSize(op: OpCode) usize {
         .DUP_N,
         .SETN,
         .YIELD,
+        .YIELD_SPLAT,
         .RETURN,
         .WHEN_SPLAT,
         .PUSH_RANGE,

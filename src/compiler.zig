@@ -979,16 +979,18 @@ pub const Compiler = struct {
                 if (yield_node.arguments) |args_ptr| {
                     const args = @as(*prism.ArgumentsNode, @ptrCast(args_ptr));
                     var has_splat = false;
+                    var keyword_hash: ?prism.Node = null;
                     var i: usize = 0;
                     while (i < args.arguments.size) : (i += 1) {
                         const arg_node = try self.parser.asNode(args.arguments.nodes[i]);
                         if (arg_node == .splat) {
                             has_splat = true;
-                            break;
+                        } else if (arg_node == .keyword_hash) {
+                            keyword_hash = arg_node;
                         }
                     }
 
-                    if (!has_splat) {
+                    if (!has_splat and keyword_hash == null) {
                         i = 0;
                         while (i < args.arguments.size) : (i += 1) {
                             const arg = args.arguments.nodes[i];
@@ -1007,12 +1009,15 @@ pub const Compiler = struct {
                                 const expr = try self.parser.asNode(@ptrCast(expr_ptr));
                                 try self.compileNode(expr, line);
                                 try self.current_chunk.emitOp(.ARRAY_CONCAT_ARRAY, line);
+                            } else if (arg_node == .keyword_hash) {
+                                continue;
                             } else {
                                 try self.compileNode(arg_node, line);
                                 try self.current_chunk.emitOp(.ARRAY_APPEND, line);
                             }
                         }
-                        try self.current_chunk.emitOp(.YIELD_SPLAT, line);
+                        if (keyword_hash) |kw| try self.compileNode(kw, line);
+                        try self.current_chunk.emitOpU8(.YIELD_SPLAT, if (keyword_hash != null) 1 else 0, line);
                     }
                 } else {
                     // Emit YIELD with argument count
