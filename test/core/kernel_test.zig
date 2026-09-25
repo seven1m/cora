@@ -17,6 +17,15 @@ test "Kernel.require is a public module function and private instance method" {
     try std.testing.expect(result.isTruthy());
 }
 
+test "Kernel load searches LOAD_PATH for a relative file" {
+    const result = try evalCode(
+        \\$LOAD_PATH.unshift(File.expand_path("test/support", Dir.pwd))
+        \\load "sets_global.rb"
+        \\$my_global
+    );
+    try std.testing.expectEqualStrings("from required file", result.toStringObject().str);
+}
+
 test "Kernel.load is private on instances" {
     const result = try evalCode(
         \\Kernel.private_instance_methods.include?(:load) &&

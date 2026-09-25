@@ -997,6 +997,10 @@ pub fn builtinKernelLoad(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Va
         }
     }
 
+    if (absolute_path == null and !std.fs.path.isAbsolute(filename)) {
+        absolute_path = try vm.searchLoadPath(filename);
+    }
+
     if (absolute_path == null) {
         return vm.raiseExceptionFmt(vm.load_error_class, "cannot load such file -- {s}", .{filename});
     }
