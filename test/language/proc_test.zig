@@ -55,6 +55,24 @@ test "Proc.binding retains defining scope after its frame returns" {
     try std.testing.expect(values[1].isTruthy());
 }
 
+test "Binding local_variable_defined? checks captured and eval locals" {
+    const result = try evalCode(
+        \\def captured_binding
+        \\  count = 2
+        \\  binding
+        \\end
+        \\b = captured_binding
+        \\first = [b.local_variable_defined?(:count), b.local_variable_defined?("missing")]
+        \\b.eval("added = 3")
+        \\first << b.local_variable_defined?(:added)
+        \\first
+    );
+    const values = result.toArrayObject().elements.items;
+    try std.testing.expect(values[0].isTrue());
+    try std.testing.expect(values[1].isFalse());
+    try std.testing.expect(values[2].isTrue());
+}
+
 test "Proc.call uses defining self" {
     const result = try evalCode(
         \\obj = Object.new

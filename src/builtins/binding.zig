@@ -15,6 +15,9 @@ pub fn register(vm: *VM) !void {
     const local_variables_sym = try vm.intern("local_variables");
     try vm.binding_class.module.methods.put(local_variables_sym, MethodEntry.builtin(&builtinBindingLocalVariables, .{ .exact = 0 }));
 
+    const local_variable_defined_sym = try vm.intern("local_variable_defined?");
+    try vm.binding_class.module.methods.put(local_variable_defined_sym, MethodEntry.builtin(&builtinBindingLocalVariableDefined, .{ .exact = 1 }));
+
     const receiver_sym = try vm.intern("receiver");
     try vm.binding_class.module.methods.put(receiver_sym, MethodEntry.builtin(&builtinBindingReceiver, .{ .exact = 0 }));
 
@@ -96,6 +99,17 @@ pub fn builtinBindingLocalVariables(vm: *VM, receiver: Value, args: []Value, _: 
         result.elements.append(vm.gc_allocator, Value.fromObject(&sym.object)) catch return error.Fatal;
     }
     return Value.fromObject(&result.object);
+}
+
+/// Binding#local_variable_defined?(name) -> true or false
+pub fn builtinBindingLocalVariableDefined(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    const name = if (args[0].isSymbol()) args[0].toSymbolObject().name else try args[0].coerceToStr(vm, "no implicit conversion into String");
+    const binding_obj = receiver.toBindingObject();
+    for (binding_obj.local_names.items) |local_name| {
+        if (std.mem.eql(u8, name, local_name)) return Value.TRUE;
+    }
+    return Value.FALSE;
 }
 
 /// Binding#receiver -> Object
