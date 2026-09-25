@@ -30,6 +30,19 @@ test "lambda: strict arity - exact match succeeds" {
     try std.testing.expectEqual(@as(i64, 8), result.toInteger());
 }
 
+test "lambda and proc pass keywords as a positional hash without keyword parameters" {
+    const result = try evalCode(
+        \\l = ->(key, options) { [key, options] }
+        \\p = proc { |key, options| [key, options] }
+        \\[l.call(:nth, number: 3), p.call(:nth, number: 3)]
+    );
+    for (result.toArrayObject().elements.items) |row| {
+        const values = row.toArrayObject().elements.items;
+        try std.testing.expectEqualStrings("nth", values[0].toSymbolObject().name);
+        try std.testing.expect(values[1].isHash());
+    }
+}
+
 test "lambda: strict arity - too few arguments raises ArgumentError" {
     try std.testing.expectError(error.UnhandledException, evalCode("l = lambda { |x, y| x + y }; l.call(3)"));
 }

@@ -120,11 +120,9 @@ describe "String#encode" do
     end
 
     it "replaces undefined encoding in destination using a fallback proc" do
-      CORAFIXME "fallback proc support not implemented in encode" do
-        encoded = "B\ufffd".encode(Encoding::US_ASCII, fallback: proc {|x| "bar"})
-        encoded.should == "Bbar".encode(Encoding::US_ASCII)
-        encoded.encode("UTF-8").should == "Bbar"
-      end
+      encoded = "B\ufffd".encode(Encoding::US_ASCII, fallback: proc {|x| "bar"})
+      encoded.should == "Bbar".encode(Encoding::US_ASCII)
+      encoded.encode("UTF-8").should == "Bbar"
     end
 
     it "replaces invalid encoding in source using replace even when fallback is given as proc" do

@@ -9032,7 +9032,7 @@ pub const VM = struct {
                 defer if (expanded_args) |buf| self.allocator.free(buf);
                 var args_to_bind = args;
 
-                if (has_kw and !chunkAcceptsKeywords(chunk_blk.chunk) and chunk_blk.chunk.rest_param_index != null) {
+                if (has_kw and !chunkAcceptsKeywords(chunk_blk.chunk) and !chunk_blk.chunk.no_keywords) {
                     const kw_hash = try self.createHashFromKeywordPairs(kw_keys.?, kw_values.?);
                     if (proc_obj.ruby2_keywords) {
                         kw_hash.toHashObject().object.flags |= value.HASH_RUBY2_KEYWORDS_FLAG;
