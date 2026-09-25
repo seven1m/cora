@@ -10571,6 +10571,18 @@ pub const VM = struct {
     }
 
     pub fn getGlobalValue(self: *VM, name: []const u8) Value {
+        if (std.mem.eql(u8, name, "$+")) {
+            const match_val = self.getGlobalValue("$~");
+            if (!match_val.isMatchData()) return Value.nil();
+            const captures = match_val.toMatchDataObject().captures.items;
+            if (captures.len < 2) return Value.nil();
+            var i = captures.len;
+            while (i > 1) {
+                i -= 1;
+                if (!captures[i].isNil()) return captures[i];
+            }
+            return Value.nil();
+        }
         if (std.mem.eql(u8, name, "$!")) {
             if (self.pendingException()) |exc| return Value.fromObject(&exc.object);
             const rescued_exceptions = self.currentRescuedExceptions();

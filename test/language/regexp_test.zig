@@ -4,6 +4,18 @@ const test_helper = @import("../test_helper.zig");
 const evalCode = test_helper.evalCode;
 const evalCodeWithOutput = test_helper.evalCodeWithOutput;
 
+test "$+ returns the last non-nil regexp capture during scan" {
+    const result = try evalCode(
+        \\captures = []
+        \\"ab".scan(/(a)(b)?/) { captures << $+ }
+        \\"a".scan(/(a)(b)?/) { captures << $+ }
+        \\captures
+    );
+    const captures = result.toArrayObject().elements.items;
+    try std.testing.expectEqualStrings("b", captures[0].toStringObject().str);
+    try std.testing.expectEqualStrings("a", captures[1].toStringObject().str);
+}
+
 test "Regexp inspect" {
     const result = try evalCode("/hello/.inspect");
     try std.testing.expect(result.isString());
