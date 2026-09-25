@@ -70,7 +70,7 @@ typedef struct { int _; } rb_encoding;
 #define RB_OBJ_FROZEN_RAW(obj) rb_obj_frozen_p(obj)
 
 #define INT2FIX(x) (((VALUE)(x)) << 1 | RUBY_FIXNUM_FLAG)
-#define FIX2LONG(x) ((long)((x) >> 1))
+#define FIX2LONG(x) (((long)(x)) >> 1)
 #define FIX2INT(x)  ((int)FIX2LONG(x))
 #define LONG2FIX(x) INT2FIX(x)
 

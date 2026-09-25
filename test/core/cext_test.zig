@@ -561,6 +561,19 @@ test "C extension NUM2LONG rejects out-of-range integers" {
     try std.testing.expectEqualStrings("bignum too big to convert into 'long'", elems[1].toStringObject().str);
 }
 
+test "C extension FIX2LONG preserves negative fixnums" {
+    const result = try evalCode(
+        \\$LOAD_PATH << "build/cext"
+        \\require "fixture.so"
+        \\[-10, -1, 0, 1, 10].map { |value| CoraCExt.fixnum_to_long(value) }
+    );
+    const values = result.toArrayObject().elements.items;
+    const expected = [_]i64{ -10, -1, 0, 1, 10 };
+    for (values, expected) |value, number| {
+        try std.testing.expectEqual(number, value.toInteger());
+    }
+}
+
 test "C extension typed data preserves type and payload" {
     const result = try evalCode(
         \\$LOAD_PATH << "build/cext"
