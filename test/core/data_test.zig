@@ -71,3 +71,19 @@ test "Data copies preserve member values and frozen state" {
     const items = result.toArrayObject().elements.items;
     for (items) |item| try std.testing.expect(item.isTruthy());
 }
+
+test "Data with applies keyword changes through the constructor" {
+    const result = try test_helper.evalCode(
+        \\klass = Data.define(:x, :y)
+        \\origin = klass.new(1, 2)
+        \\changed = origin.with(y: 3)
+        \\error = begin
+        \\  origin.with(z: 4)
+        \\rescue => exception
+        \\  exception
+        \\end
+        \\[origin.with.equal?(origin), changed.x == 1, changed.y == 3, changed.frozen?, origin.y == 2, error.is_a?(ArgumentError)]
+    );
+    const items = result.toArrayObject().elements.items;
+    for (items) |item| try std.testing.expect(item.isTruthy());
+}

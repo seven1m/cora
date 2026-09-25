@@ -34,7 +34,7 @@ pub fn register(vm: *VM) !void {
     try vm.data_class.module.methods.put(to_h_sym, value.MethodEntry.builtin(&builtinDataToH, .{ .exact = 0 }));
 
     const with_sym = try vm.intern("with");
-    try vm.data_class.module.methods.put(with_sym, value.MethodEntry.builtin(&builtinDataWith, .{ .variadic = 0 }));
+    try vm.data_class.module.methods.put(with_sym, value.MethodEntry.keywordBuiltin(&builtinDataWith, .{ .variadic = 0 }));
 
     const eq_sym = try vm.intern("==");
     try vm.data_class.module.methods.put(eq_sym, value.MethodEntry.builtin(&builtinDataEqual, .{ .exact = 1 }));
@@ -70,7 +70,7 @@ fn memberNames(vm: *VM, receiver: Value) VMError![]const []const u8 {
     return names;
 }
 
-fn memberValues(vm: *VM, receiver: Value, members: []const []const u8) VMError![]const Value {
+fn memberValues(vm: *VM, receiver: Value, members: []const []const u8) VMError![]Value {
     const vals = vm.allocator.alloc(Value, members.len) catch return error.Fatal;
     const stored = receiver.getObjectPointer().?.data_values;
     for (vals, 0..) |*val, i| {
@@ -260,36 +260,25 @@ pub fn builtinDataInspect(vm: *VM, receiver: Value, args: []Value, _: ?Block) VM
 }
 
 pub fn builtinDataWith(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
-    // Clone and re-initialize with overrides
+    try vm.requireArgCount(args, 0);
+    if (!vm.keywordArgsGiven()) return receiver;
+
     const members = try memberNames(vm, receiver);
+    defer vm.allocator.free(members);
     const vals = try memberValues(vm, receiver, members);
     defer vm.allocator.free(vals);
 
-    var new_args = std.ArrayList(Value).empty;
-    defer new_args.deinit(vm.allocator);
-
+    const keys = vm.allocator.alloc(Value, members.len) catch return error.Fatal;
+    defer vm.allocator.free(keys);
     for (members, 0..) |name, i| {
-        new_args.append(vm.allocator, try vm.newString(name, false)) catch return error.Fatal;
-        new_args.append(vm.allocator, vals[i]) catch return error.Fatal;
+        const symbol = try vm.intern(name);
+        keys[i] = Value.fromObject(&symbol.object);
+        if (try vm.consumeKeywordArg(name)) |override| vals[i] = override;
     }
+    try vm.validateKeywordArgsConsumed();
 
-    // Apply keyword overrides from args
-    var ki: usize = 0;
-    while (ki + 1 < args.len) : (ki += 2) {
-        const key = args[ki];
-        if (key.isSymbol()) {
-            const key_name = key.toSymbolObject().name;
-            for (members, 0..) |m, mi| {
-                if (std.mem.eql(u8, m, key_name)) {
-                    new_args.items[mi * 2 + 1] = args[ki + 1];
-                }
-            }
-        }
-    }
-
-    const instance = try vm.newObjectForClass(vm.getClass(receiver));
-    _ = try vm.callMethodByNameForwardingKeywords(instance, "initialize", new_args.items, null);
-    return instance;
+    const class_value = Value.fromObject(&vm.getClass(receiver).module.object);
+    return vm.callMethodByNameWithKeywords(class_value, "new", &.{}, keys, vals, null);
 }
 
 pub fn builtinDataEqual(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
