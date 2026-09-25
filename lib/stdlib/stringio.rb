@@ -408,14 +408,20 @@ class StringIO
       @pos = @string.bytesize
     end
 
-    if @pos > @string.bytesize
-      @string.concat("\x00" * (@pos - @string.bytesize))
-    end
+    encoding = @string.encoding
+    @string.force_encoding(Encoding::ASCII_8BIT)
+    begin
+      if @pos > @string.bytesize
+        @string.concat("\x00" * (@pos - @string.bytesize))
+      end
 
-    if @pos < @string.bytesize
-      @string[@pos, string.bytesize] = string
-    else
-      @string.concat(string)
+      if @pos < @string.bytesize
+        @string[@pos, string.bytesize] = string.b
+      else
+        @string.concat(string.b)
+      end
+    ensure
+      @string.force_encoding(encoding)
     end
 
     @pos += string.bytesize

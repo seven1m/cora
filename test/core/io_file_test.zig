@@ -613,6 +613,24 @@ test "standard streams expose distinct MRI paths" {
     try std.testing.expectEqualStrings("<STDERR>", paths[2].toStringObject().str);
 }
 
+test "StringIO writes binary bytes while preserving the buffer encoding" {
+    const result = try evalCode(
+        \\require "stringio"
+        \\io = StringIO.new
+        \\io.write("é")
+        \\io.write("\xff".b)
+        \\[io.string.encoding.name, io.string.bytes, io.string.valid_encoding?]
+    );
+    const values = result.toArrayObject().elements.items;
+    try std.testing.expectEqualStrings("UTF-8", values[0].toStringObject().str);
+    const bytes = values[1].toArrayObject().elements.items;
+    const expected = [_]i64{ 0xc3, 0xa9, 0xff };
+    for (bytes, expected) |byte, number| {
+        try std.testing.expectEqual(number, byte.toInteger());
+    }
+    try std.testing.expect(!values[2].toBool());
+}
+
 test "Dir.children and File::Stat#directory? support vendored fileutils traversal" {
     var root_buf: [128]u8 = undefined;
     const root = try uniquePath(&root_buf);
