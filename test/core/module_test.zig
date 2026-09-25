@@ -836,6 +836,32 @@ test "Module ancestry is consistent across lookup APIs" {
     try std.testing.expectEqualSlices(u8, "A", module_ancestors[1].toModuleObject().name.name);
 }
 
+test "Module include reuses ancestors already present in the lookup chain" {
+    const result = try evalCode(
+        \\module SharedAncestor; end
+        \\module WrapperAncestor; include SharedAncestor; end
+        \\class DirectAncestor
+        \\  include SharedAncestor
+        \\  include WrapperAncestor
+        \\end
+        \\class ParentAncestor; include SharedAncestor; end
+        \\class InheritedAncestor < ParentAncestor; include WrapperAncestor; end
+        \\[DirectAncestor.ancestors, InheritedAncestor.ancestors]
+    );
+    const chains = result.toArrayObject().elements.items;
+    const direct = chains[0].toArrayObject().elements.items;
+    try std.testing.expectEqualStrings("DirectAncestor", direct[0].toClassObject().module.name.name);
+    try std.testing.expectEqualStrings("WrapperAncestor", direct[1].toModuleObject().name.name);
+    try std.testing.expectEqualStrings("SharedAncestor", direct[2].toModuleObject().name.name);
+    try std.testing.expectEqualStrings("Object", direct[3].toClassObject().module.name.name);
+
+    const inherited = chains[1].toArrayObject().elements.items;
+    try std.testing.expectEqualStrings("InheritedAncestor", inherited[0].toClassObject().module.name.name);
+    try std.testing.expectEqualStrings("WrapperAncestor", inherited[1].toModuleObject().name.name);
+    try std.testing.expectEqualStrings("ParentAncestor", inherited[2].toClassObject().module.name.name);
+    try std.testing.expectEqualStrings("SharedAncestor", inherited[3].toModuleObject().name.name);
+}
+
 test "Module comparison operators follow ancestry" {
     const result = try evalCode(
         \\module A

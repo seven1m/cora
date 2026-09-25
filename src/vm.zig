@@ -11544,6 +11544,7 @@ pub const VM = struct {
         while (i > 0) {
             i -= 1;
             const visible_module = visible_ancestors.items[i];
+            if (search_super and self.moduleInSuperChain(target, visible_module)) continue;
             const iclass = try self.includeClassNew(visible_module, next_super);
             iclass.module.includer = target;
             next_super = &iclass.module;
