@@ -237,6 +237,19 @@ test "C extension creates strings and copies their encoding" {
     }
 }
 
+test "C extension string constructors assign MRI encodings" {
+    const result = try evalCode(
+        \\$LOAD_PATH << "build/cext"
+        \\require "fixture.so"
+        \\CoraCExt.string_constructor_encodings.map { |string| string.encoding.name }
+    );
+    const names = result.toArrayObject().elements.items;
+    const expected = [_][]const u8{ "ASCII-8BIT", "ASCII-8BIT", "UTF-8", "UTF-8", "US-ASCII" };
+    for (names, expected) |name, encoding_name| {
+        try std.testing.expectEqualStrings(encoding_name, name.toStringObject().str);
+    }
+}
+
 test "C extension StringValue accepts embedded null bytes" {
     const result = try evalCode(
         \\$LOAD_PATH << "build/cext"

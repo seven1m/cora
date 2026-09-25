@@ -273,7 +273,7 @@ fn allocMutableString(vm: *VM, len: usize) VALUE {
     string_obj.* = .{
         .object = .{ .type_tag = .string, .flags = 0, .class = vm.string_class, .singleton_class = null, .instance_variables = null },
         .str = buf,
-        .encoding = .{ .utf8 = .{} },
+        .encoding = .{ .ascii_8bit = .{} },
     };
     return Value.fromObject(&string_obj.object).raw;
 }
@@ -286,14 +286,14 @@ export fn rb_str_new(ptr: [*c]const u8, len: c_long) VALUE {
     }
     if (ptr == null) return allocMutableString(vm, @intCast(len));
     const s: []const u8 = ptr[0..@intCast(len)];
-    const val = vm.newString(s, false) catch return 0;
+    const val = vm.newStringWithEncoding(s, false, .{ .ascii_8bit = .{} }) catch return 0;
     return val.raw;
 }
 
 export fn rb_str_new2(ptr: [*c]const u8) VALUE {
     const vm = getVM();
     const s = if (ptr != null) std.mem.span(ptr) else "";
-    const val = vm.newString(s, false) catch return 0;
+    const val = vm.newStringWithEncoding(s, false, .{ .ascii_8bit = .{} }) catch return 0;
     return val.raw;
 }
 
@@ -308,7 +308,7 @@ export fn rb_str_new_static(ptr: [*c]const u8, len: c_long) VALUE {
 export fn rb_usascii_str_new_cstr(ptr: [*c]const u8) VALUE {
     const vm = getVM();
     const s = if (ptr != null) std.mem.span(ptr) else "";
-    const val = vm.newString(s, false) catch return 0;
+    const val = vm.newStringWithEncoding(s, false, .{ .us_ascii = .{} }) catch return 0;
     return val.raw;
 }
 
@@ -326,11 +326,12 @@ export fn rb_enc_str_new(ptr: [*c]const u8, len: c_long, enc_ptr: ?*anyopaque) V
 }
 
 export fn rb_utf8_str_new(ptr: [*c]const u8, len: c_long) VALUE {
-    return rb_str_new(ptr, len);
+    return rb_enc_str_new(ptr, len, rb_utf8_encoding());
 }
 
 export fn rb_utf8_str_new_cstr(ptr: [*c]const u8) VALUE {
-    return rb_str_new2(ptr);
+    const s = if (ptr != null) std.mem.span(ptr) else "";
+    return rb_utf8_str_new(ptr, @intCast(s.len));
 }
 
 export fn rb_str_buf_new(len: c_long) VALUE {

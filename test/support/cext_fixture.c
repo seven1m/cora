@@ -324,6 +324,19 @@ cext_string_encoding_creation(VALUE self)
 }
 
 static VALUE
+cext_string_constructor_encodings(VALUE self)
+{
+    (void)self;
+    VALUE values = rb_ary_new();
+    rb_ary_push(values, rb_str_new("abc", 3));
+    rb_ary_push(values, rb_str_new_cstr("abc"));
+    rb_ary_push(values, rb_utf8_str_new("abc", 3));
+    rb_ary_push(values, rb_utf8_str_new_cstr("abc"));
+    rb_ary_push(values, rb_usascii_str_new_cstr("abc"));
+    return values;
+}
+
+static VALUE
 cext_string_value(VALUE self, VALUE string)
 {
     (void)self;
@@ -393,6 +406,7 @@ void Init_fixture(void)
     rb_define_module_function(mCoraCExt, "integer_pack", cext_integer_pack, 1);
     rb_define_module_function(mCoraCExt, "string_encoding_helpers", cext_string_encoding_helpers, 0);
     rb_define_module_function(mCoraCExt, "string_encoding_creation", cext_string_encoding_creation, 0);
+    rb_define_module_function(mCoraCExt, "string_constructor_encodings", cext_string_constructor_encodings, 0);
     rb_define_module_function(mCoraCExt, "string_value", cext_string_value, 1);
     rb_define_module_function(mCoraCExt, "undef_class_new", cext_undef_class_new, 1);
     rb_define_module_function(mCoraCExt, "scan_keywords", cext_scan_keywords, -1);
