@@ -413,9 +413,10 @@ fn buildCExtFixture(b: *std.Build) *std.Build.Step {
     return fixture_build_step;
 }
 
-fn linkOpenSSL(module: *std.Build.Module) void {
+fn linkSystemLibraries(module: *std.Build.Module) void {
     module.linkSystemLibrary("ssl", .{});
     module.linkSystemLibrary("crypto", .{});
+    module.linkSystemLibrary("z", .{});
 }
 
 fn optimizeOptionDefaultReleaseFast(b: *std.Build) std.builtin.OptimizeMode {
@@ -608,7 +609,7 @@ pub fn build(b: *std.Build) void {
     exe.root_module.addIncludePath(b.path(tinycc_build_root));
 
     exe.root_module.link_libc = true;
-    linkOpenSSL(exe.root_module);
+    linkSystemLibraries(exe.root_module);
 
     exe.rdynamic = true;
 
@@ -821,7 +822,7 @@ pub fn build(b: *std.Build) void {
     test_exe.root_module.addIncludePath(b.path(tinycc_build_root));
     test_exe.root_module.link_libc = true;
     test_exe.rdynamic = true;
-    linkOpenSSL(test_exe.root_module);
+    linkSystemLibraries(test_exe.root_module);
 
     test_exe.root_module.addImport("bdwgc", bdwgc.module("bdwgc"));
     test_exe.root_module.addImport("build_options", build_options_mod);
@@ -837,7 +838,7 @@ pub fn build(b: *std.Build) void {
     cora_mod.addIncludePath(b.path(prism_build_root ++ "/include"));
     cora_mod.addIncludePath(b.path(onigmo_build_root ++ "/"));
     cora_mod.addObjectFile(b.path(onigmo_build_root ++ "/.libs/libonigmo.a"));
-    linkOpenSSL(cora_mod);
+    linkSystemLibraries(cora_mod);
     cora_mod.addIncludePath(b.path(tinycc_build_root));
     test_exe.root_module.addImport("cora", cora_mod);
 

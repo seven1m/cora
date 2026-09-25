@@ -46,6 +46,20 @@ test "gzip reader reports compression level from the header" {
     try std.testing.expectEqualStrings("", result.stderr);
 }
 
+test "gzip compression levels match zlib output sizes" {
+    var stdout_buf: [1024]u8 = undefined;
+    var stderr_buf: [1024]u8 = undefined;
+    const result = evalCodeWithOutput(
+        \\require "zlib"
+        \\require "stringio"
+        \\source = "Hello World" * 100
+        \\p [0, 1, 9].map { |level| io = StringIO.new; writer = Zlib::GzipWriter.new(io, level); writer.write(source); writer.close; io.string.bytesize }
+    , &stdout_buf, &stderr_buf);
+    try std.testing.expect(result.err == null);
+    try std.testing.expectEqualStrings("[1123, 44, 41]\n", result.stdout);
+    try std.testing.expectEqualStrings("", result.stderr);
+}
+
 test "gzip reader validates CRC and uncompressed size" {
     var stdout_buf: [1024]u8 = undefined;
     var stderr_buf: [1024]u8 = undefined;

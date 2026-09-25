@@ -1,4 +1,7 @@
 const std = @import("std");
+const c = @cImport({
+    @cInclude("zlib.h");
+});
 const enc = @import("../encoding.zig");
 const vm_mod = @import("../vm.zig");
 const value = @import("../value.zig");
@@ -184,31 +187,30 @@ fn coerceContainerKind(vm: *VM, arg: Value) VMError!ContainerKind {
     };
 }
 
-fn compressionOptions(level: i64) std.compress.flate.Compress.Options {
-    return switch (level) {
-        0, 1 => .level_1,
-        2 => .level_2,
-        3 => .level_3,
-        4 => .level_4,
-        5 => .level_5,
-        -1, 6 => .level_6,
-        7 => .level_7,
-        8 => .level_8,
-        9 => .level_9,
-        else => if (level < 0) .default else .best,
-    };
-}
-
 fn compressBytes(vm: *VM, input: []const u8, container: std.compress.flate.Container, level: i64) ![]u8 {
-    var output: std.Io.Writer.Allocating = try .initCapacity(vm.allocator, @max(input.len / 2 + 64, 64));
-    defer output.deinit();
+    if (input.len > std.math.maxInt(c.uInt) or level < -1 or level > 9) return error.InvalidCompressionLevel;
 
-    var history: [std.compress.flate.max_window_len]u8 = undefined;
-    var compressor = try std.compress.flate.Compress.init(&output.writer, &history, container, compressionOptions(level));
-    try compressor.writer.writeAll(input);
-    try compressor.finish();
+    var stream: c.z_stream = std.mem.zeroes(c.z_stream);
+    const window_bits: c_int = switch (container) {
+        .raw => -c.MAX_WBITS,
+        .gzip => c.MAX_WBITS + 16,
+        .zlib => c.MAX_WBITS,
+    };
+    if (c.deflateInit2_(&stream, @intCast(level), c.Z_DEFLATED, window_bits, c.MAX_MEM_LEVEL, c.Z_DEFAULT_STRATEGY, c.zlibVersion(), @sizeOf(c.z_stream)) != c.Z_OK) {
+        return error.CompressionInitFailed;
+    }
+    defer _ = c.deflateEnd(&stream);
 
-    return output.toOwnedSlice();
+    const capacity: usize = @intCast(c.deflateBound(&stream, @intCast(input.len)));
+    if (capacity > std.math.maxInt(c.uInt)) return error.CompressedOutputTooLarge;
+    const output = try vm.allocator.alloc(u8, capacity);
+    errdefer vm.allocator.free(output);
+    stream.next_in = @constCast(input.ptr);
+    stream.avail_in = @intCast(input.len);
+    stream.next_out = output.ptr;
+    stream.avail_out = @intCast(output.len);
+    if (c.deflate(&stream, c.Z_FINISH) != c.Z_STREAM_END) return error.CompressionFailed;
+    return try vm.allocator.realloc(output, @intCast(stream.total_out));
 }
 
 fn inflateByKind(vm: *VM, input: []const u8, kind: ContainerKind) ![]u8 {
