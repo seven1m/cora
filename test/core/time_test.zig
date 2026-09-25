@@ -71,6 +71,32 @@ test "Time constructors report MRI month range errors" {
     try std.testing.expectEqualStrings("argument out of range", items[3].toStringObject().str);
 }
 
+test "Time timezone objects work through new and forwarded at" {
+    const result = try evalCode(
+        \\require "time"
+        \\zone = Object.new
+        \\def zone.local_to_utc(time); time + (time.month == 6 ? 14400 : 18000); end
+        \\def zone.utc_to_local(time); time - (time.month == 6 ? 14400 : 18000); end
+        \\def zone.abbr(time); time.month == 6 ? "EDT" : "EST"; end
+        \\def zone.dst?(time); time.month == 6; end
+        \\class << Time
+        \\  def forwarded_at(*args); at(*args); end
+        \\  ruby2_keywords :forwarded_at
+        \\end
+        \\summer = Time.new(2000, 6, 1, 1, in: zone)
+        \\epoch = Time.forwarded_at(0, in: zone)
+        \\[summer.zone.equal?(zone), summer.iso8601, summer.strftime("%Z"), summer.dst?, epoch.zone.equal?(zone), epoch.utc_offset, epoch.strftime("%Z")]
+    );
+    const items = result.toArrayObject().elements.items;
+    try std.testing.expect(items[0].isTrue());
+    try std.testing.expectEqualStrings("2000-06-01T01:00:00-04:00", items[1].toStringObject().str);
+    try std.testing.expectEqualStrings("EDT", items[2].toStringObject().str);
+    try std.testing.expect(items[3].isTrue());
+    try std.testing.expect(items[4].isTrue());
+    try std.testing.expectEqual(@as(i64, -18000), items[5].toInteger());
+    try std.testing.expectEqualStrings("EST", items[6].toStringObject().str);
+}
+
 test "Time#to_s formats numeric UTC offsets without a colon" {
     const result = try evalCode(
         \\[Time.new(2017, 4, 13, 12, 0, 0, "+09:00").to_s,

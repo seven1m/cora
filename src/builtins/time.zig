@@ -52,7 +52,7 @@ pub fn register(vm: *VM) !void {
     const time_singleton = try vm.getOrCreateSingletonClass(time_class_val);
 
     const new_sym = try vm.intern("new");
-    try time_singleton.module.methods.put(new_sym, value.MethodEntry.builtin(&builtinTimeNew, .{ .variadic = 0 }));
+    try time_singleton.module.methods.put(new_sym, value.MethodEntry.keywordBuiltin(&builtinTimeNew, .{ .variadic = 0 }));
 
     const now_sym = try vm.intern("now");
     try time_singleton.module.methods.put(now_sym, value.MethodEntry.builtin(&builtinTimeNow, .{ .variadic = 0 }));
@@ -70,7 +70,7 @@ pub fn register(vm: *VM) !void {
     try time_singleton.module.methods.put(mktime_sym, value.MethodEntry.builtin(&builtinTimeLocal, .{ .variadic = 0 }));
 
     const at_sym = try vm.intern("at");
-    try time_singleton.module.methods.put(at_sym, value.MethodEntry.builtin(&builtinTimeAt, .{ .variadic = 1 }));
+    try time_singleton.module.methods.put(at_sym, value.MethodEntry.keywordBuiltin(&builtinTimeAt, .{ .variadic = 1 }));
 
     const load_sym = try vm.intern("_load");
     try time_singleton.module.methods.put(load_sym, value.MethodEntry.builtin(&builtinTimeLoad, .{ .exact = 1 }));
@@ -1062,18 +1062,26 @@ fn buildStrftimeValue(vm: *VM, receiver: Value, format_bytes: []const u8) VMErro
     return strftime_fmt.build(vm, parts, .{
         .utc_offset_nanos = t.utc_offset_nanos,
         .is_utc = t.is_utc,
+        .zone_object = t.zone,
+        .time_value = receiver,
     }, format_bytes);
 }
 
 pub fn builtinTimeNew(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     std.debug.assert(receiver.isClass());
     const class_obj = receiver.toClassObject();
+    const keyword_zone = try vm.consumeKeywordArg("in");
     if (args.len == 0) {
         // Time.new with no args: current local time
         const epoch_nanos = currentEpochNanoseconds();
         const epoch_seconds = floorDiv(epoch_nanos, nanos_per_second);
         const offset_nanos = localUtcOffsetNanos(vm.io, epoch_seconds);
-        return vm.newTimeLocal(class_obj, Value.integer(epoch_nanos), offset_nanos);
+        const result = try vm.newTimeLocal(class_obj, Value.integer(epoch_nanos), offset_nanos);
+        if (keyword_zone) |zone| {
+            if (!zone.isNil()) return applyZoneToInstant(vm, class_obj, result, zone);
+        }
+        try vm.validateKeywordArgsConsumed();
+        return result;
     }
     if (args.len == 1 and (args[0].isString() or args[0].isSymbol())) {
         const time_string = try args[0].coerceToStringValue(vm, "no implicit conversion into String");
@@ -1086,7 +1094,11 @@ pub fn builtinTimeNew(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMErro
                 if (digits >= 0) precision = @intCast(digits);
             }
         }
-        return vm.newTime(class_obj, try parseTimeString(vm, time_string.toStringObject().str, precision));
+        const result = try vm.newTime(class_obj, try parseTimeString(vm, time_string.toStringObject().str, precision));
+        if (keyword_zone) |zone| {
+            if (!zone.isNil()) return applyZoneToInstant(vm, class_obj, result, zone);
+        }
+        return result;
     }
     // Time.new(year, month, day, hour, min, sec, utc_offset)
     // Components are wall-clock in the given offset zone.
@@ -1113,7 +1125,17 @@ pub fn builtinTimeNew(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMErro
     // 7th arg is utc_offset
     var offset_nanos: i64 = 0;
     var has_explicit_offset = false;
-    if (args.len >= 7) {
+    if (args.len >= 7 and keyword_zone != null and !keyword_zone.?.isNil() and !args[6].isNil()) {
+        return vm.raiseExceptionFmt(vm.argument_error_class, "timezone argument given as positional and keyword arguments", .{});
+    }
+    var supplied_zone = if (args.len >= 7) args[6] else Value.nil();
+    if (keyword_zone) |zone| {
+        if (!zone.isNil()) supplied_zone = zone;
+    }
+    if (!supplied_zone.isNil() and (supplied_zone.isString() or supplied_zone.isSymbol() or supplied_zone.isInteger() or supplied_zone.isFloat() or supplied_zone.isRational())) {
+        offset_nanos = try parseUtcOffsetArg(vm, supplied_zone);
+        has_explicit_offset = true;
+    } else if (args.len >= 7 and keyword_zone == null) {
         offset_nanos = try parseUtcOffsetArg(vm, args[6]);
         has_explicit_offset = true;
     } else {
@@ -1125,7 +1147,30 @@ pub fn builtinTimeNew(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMErro
 
     try validateUtcComponents(vm, year, month, day, hour, minute, second);
     const wall_epoch_nanos = try exactAdd(vm, try epochNanosecondsFromUtcComponents(vm, year, month, day, hour, minute, second, 0), sec_sub_timew);
+    if (!supplied_zone.isNil() and !has_explicit_offset) {
+        const wall_time = try vm.newTime(class_obj, wall_epoch_nanos);
+        var zone_args = [_]Value{wall_time};
+        const utc_time = (try vm.checkCallMethodByName(supplied_zone, "local_to_utc", false, &zone_args, null)) orelse
+            return vm.raiseExceptionFmt(vm.argument_error_class, "invalid utc_offset", .{});
+        if (!utc_time.isTime()) return vm.raiseExceptionFmt(vm.type_error_class, "can't convert into Time", .{});
+        const zone_offset = try exactSub(vm, wall_epoch_nanos, utc_time.toTimeObject().timew);
+        const offset_integer = try exactFloorDivByInteger(vm, zone_offset, 1);
+        if ((try exactCompare(vm, zone_offset, offset_integer)) != .eq) {
+            return vm.raiseExceptionFmt(vm.argument_error_class, "utc_offset must be an exact number", .{});
+        }
+        offset_nanos = if (offset_integer.isInteger()) offset_integer.toInteger() else
+            offset_integer.toBigIntegerObject().value.toInt(i64) catch
+                return vm.raiseExceptionFmt(vm.argument_error_class, "utc_offset out of range", .{});
+        if (offset_nanos <= -86400 * nanos_per_second or offset_nanos >= 86400 * nanos_per_second) {
+            return vm.raiseExceptionFmt(vm.argument_error_class, "utc_offset out of range", .{});
+        }
+        const result = try vm.newTimeWithOffset(class_obj, utc_time.toTimeObject().timew, offset_nanos);
+        result.toTimeObject().zone = supplied_zone;
+        try vm.validateKeywordArgsConsumed();
+        return result;
+    }
     const epoch_nanos = try exactSub(vm, wall_epoch_nanos, Value.integer(offset_nanos));
+    try vm.validateKeywordArgsConsumed();
     if (has_explicit_offset) {
         return vm.newTimeWithOffset(class_obj, epoch_nanos, offset_nanos);
     }
@@ -1157,6 +1202,44 @@ pub fn builtinTimeLocal(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMEr
         return constructLocalTime(vm, receiver.toClassObject(), &reordered);
     }
     return constructLocalTime(vm, receiver.toClassObject(), args);
+}
+
+fn applyZoneToInstant(vm: *VM, class_obj: *value.ClassObject, result: Value, zone: Value) VMError!Value {
+    const result_time = result.toTimeObject();
+    if (zone.isString() or zone.isSymbol() or zone.isInteger() or zone.isFloat() or zone.isRational()) {
+        const offset_nanos = try parseUtcOffsetArg(vm, zone);
+        const is_utc_zone = if (zone.isString() or zone.isSymbol()) blk: {
+            const name = zone.toStringObject().str;
+            break :blk std.mem.eql(u8, name, "UTC") or std.mem.eql(u8, name, "Z") or std.mem.eql(u8, name, "-00:00");
+        } else false;
+        result_time.utc_offset_nanos = offset_nanos;
+        result_time.is_utc = is_utc_zone;
+        result_time.is_local = false;
+        result_time.zone = null;
+        return result;
+    }
+
+    const utc_time = try vm.newTime(class_obj, result_time.timew);
+    var zone_args = [_]Value{utc_time};
+    const localized = (try vm.checkCallMethodByName(zone, "utc_to_local", false, &zone_args, null)) orelse
+        return vm.raiseExceptionFmt(vm.argument_error_class, "invalid utc_offset", .{});
+    if (!localized.isTime()) return vm.raiseExceptionFmt(vm.type_error_class, "can't convert into Time", .{});
+    const offset_value = try exactSub(vm, localized.toTimeObject().timew, result_time.timew);
+    const offset_integer = try exactFloorDivByInteger(vm, offset_value, 1);
+    if ((try exactCompare(vm, offset_value, offset_integer)) != .eq) {
+        return vm.raiseExceptionFmt(vm.argument_error_class, "utc_offset must be an exact number", .{});
+    }
+    const offset_nanos = if (offset_integer.isInteger()) offset_integer.toInteger() else
+        offset_integer.toBigIntegerObject().value.toInt(i64) catch
+            return vm.raiseExceptionFmt(vm.argument_error_class, "utc_offset out of range", .{});
+    if (offset_nanos <= -86400 * nanos_per_second or offset_nanos >= 86400 * nanos_per_second) {
+        return vm.raiseExceptionFmt(vm.argument_error_class, "utc_offset out of range", .{});
+    }
+    result_time.utc_offset_nanos = offset_nanos;
+    result_time.is_utc = false;
+    result_time.is_local = false;
+    result_time.zone = zone;
+    return result;
 }
 
 pub fn builtinTimeAt(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
@@ -1201,43 +1284,7 @@ pub fn builtinTimeAt(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError
         result = try vm.newTimeLocal(class_obj, timew, offset_nanos);
     }
 
-    if (keyword_zone) |zone| {
-        const result_time = result.toTimeObject();
-        if (zone.isString() or zone.isSymbol() or zone.isInteger() or zone.isFloat() or zone.isRational()) {
-            const offset_nanos = try parseUtcOffsetArg(vm, zone);
-            const is_utc_zone = if (zone.isString() or zone.isSymbol()) blk: {
-                const name = zone.toStringObject().str;
-                break :blk std.mem.eql(u8, name, "UTC") or std.mem.eql(u8, name, "Z") or std.mem.eql(u8, name, "-00:00");
-            } else false;
-            result_time.utc_offset_nanos = offset_nanos;
-            result_time.is_utc = is_utc_zone;
-            result_time.is_local = false;
-            result_time.zone = null;
-        } else {
-            const utc_time = try vm.newTime(class_obj, result_time.timew);
-            var zone_args = [_]Value{utc_time};
-            const localized = (try vm.checkCallMethodByName(zone, "utc_to_local", false, &zone_args, null)) orelse
-                return vm.raiseExceptionFmt(vm.argument_error_class, "invalid utc_offset", .{});
-            if (!localized.isTime()) return vm.raiseExceptionFmt(vm.type_error_class, "can't convert into Time", .{});
-            const offset_value = try exactSub(vm, localized.toTimeObject().timew, result_time.timew);
-            const offset_integer = try exactFloorDivByInteger(vm, offset_value, 1);
-            if ((try exactCompare(vm, offset_value, offset_integer)) != .eq) {
-                return vm.raiseExceptionFmt(vm.argument_error_class, "utc_offset must be an exact number", .{});
-            }
-            const offset_nanos = if (offset_integer.isInteger())
-                offset_integer.toInteger()
-            else
-                offset_integer.toBigIntegerObject().value.toInt(i64) catch
-                    return vm.raiseExceptionFmt(vm.argument_error_class, "utc_offset out of range", .{});
-            if (offset_nanos <= -86400 * nanos_per_second or offset_nanos >= 86400 * nanos_per_second) {
-                return vm.raiseExceptionFmt(vm.argument_error_class, "utc_offset out of range", .{});
-            }
-            result_time.utc_offset_nanos = offset_nanos;
-            result_time.is_utc = false;
-            result_time.is_local = false;
-            result_time.zone = zone;
-        }
-    }
+    if (keyword_zone) |zone| result = try applyZoneToInstant(vm, class_obj, result, zone);
     try vm.validateKeywordArgsConsumed();
     return result;
 }
@@ -1593,6 +1640,12 @@ pub fn builtinTimeYday(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMErr
 pub fn builtinTimeDst(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
     const t = receiver.toTimeObject();
+    if (t.zone) |zone| {
+        var zone_args = [_]Value{receiver};
+        if (try vm.checkCallMethodByName(zone, "dst?", false, &zone_args, null)) |result| {
+            return Value.boolean(result.isTruthy());
+        }
+    }
     if (t.is_utc or !t.is_local) return Value.boolean(false);
     const epoch_seconds = try epochSecondsForTimezone(vm, t.timew);
     if (zoneinfoIsDst(vm.io, epoch_seconds)) |is_dst| return Value.boolean(is_dst);

@@ -28,6 +28,8 @@ pub const Zone = struct {
     utc_offset_nanos: i64,
     is_utc: bool,
     name_style: NameStyle = .time,
+    zone_object: ?Value = null,
+    time_value: ?Value = null,
 };
 
 pub const NameStyle = enum {
@@ -167,6 +169,20 @@ pub fn build(vm: *VM, parts: Parts, zone: Zone, format_bytes: []const u8) VMErro
                 try appendPaddedDecimal(&out, vm.allocator, parts.second, 2);
             },
             'Z' => {
+                if (zone.name_style == .time and zone.zone_object != null and zone.time_value != null) {
+                    var name_args = [_]Value{zone.time_value.?};
+                    const name = try vm.checkCallMethodByName(zone.zone_object.?, "abbr", false, &name_args, null);
+                    if (name) |abbr| {
+                        if (abbr.isString()) {
+                            out.appendSlice(vm.allocator, abbr.toStringObject().str) catch return error.Fatal;
+                            continue;
+                        }
+                        if (abbr.isSymbol()) {
+                            out.appendSlice(vm.allocator, abbr.toSymbolObject().name) catch return error.Fatal;
+                            continue;
+                        }
+                    }
+                }
                 if (zone.name_style == .time and zone.is_utc) {
                     out.appendSlice(vm.allocator, "UTC") catch return error.Fatal;
                 } else {
