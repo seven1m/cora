@@ -20,6 +20,9 @@ pub fn register(vm: *VM) !void {
     const bracket_sym = try vm.intern("[]");
     try vm.proc_class.module.methods.put(bracket_sym, call_entry);
 
+    const case_equal_sym = try vm.intern("===");
+    try vm.proc_class.module.methods.put(case_equal_sym, call_entry);
+
     const yield_sym = try vm.intern("yield");
     try vm.proc_class.module.methods.put(yield_sym, call_entry);
 

@@ -4,6 +4,17 @@ const test_helper = @import("../test_helper.zig");
 const evalCode = test_helper.evalCode;
 const evalCodeWithOutput = test_helper.evalCodeWithOutput;
 
+test "Proc case equality calls the proc" {
+    const result = try evalCode(
+        \\predicate = ->(value) { value == 3 }
+        \\[predicate === 3, predicate === 4, (case 3; when predicate; :matched; end)]
+    );
+    const values = result.toArrayObject().elements.items;
+    try std.testing.expect(values[0].isTrue());
+    try std.testing.expect(values[1].isFalse());
+    try std.testing.expectEqualStrings("matched", values[2].toSymbolObject().name);
+}
+
 test "Proc subclass new preserves class and calls initialize" {
     const result = try evalCode(
         \\class NamedProc < Proc
