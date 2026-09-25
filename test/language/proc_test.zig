@@ -4,6 +4,23 @@ const test_helper = @import("../test_helper.zig");
 const evalCode = test_helper.evalCode;
 const evalCodeWithOutput = test_helper.evalCodeWithOutput;
 
+test "Proc subclass new preserves class and calls initialize" {
+    const result = try evalCode(
+        \\class NamedProc < Proc
+        \\  attr_reader :name
+        \\  def initialize(name)
+        \\    @name = name
+        \\  end
+        \\end
+        \\callable = NamedProc.new("example") { |value| value * 2 }
+        \\[callable.class == NamedProc, callable.name, callable.call(3)]
+    );
+    const values = result.toArrayObject().elements.items;
+    try std.testing.expect(values[0].isTrue());
+    try std.testing.expectEqualStrings("example", values[1].toStringObject().str);
+    try std.testing.expectEqual(@as(i64, 6), values[2].toInteger());
+}
+
 test "Proc.call with parameters" {
     var stdout_buf: [8192]u8 = undefined;
     var stderr_buf: [8192]u8 = undefined;

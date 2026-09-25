@@ -11,7 +11,7 @@ pub fn register(vm: *VM) !void {
     const proc_new_sym = try vm.intern("new");
     const proc_class_val = Value.fromObject(&vm.proc_class.module.object);
     const proc_singleton = try vm.getOrCreateSingletonClass(proc_class_val);
-    try proc_singleton.module.methods.put(proc_new_sym, value.MethodEntry.builtin(&builtinProcNew, .{ .variadic = 0 }));
+    try proc_singleton.module.methods.put(proc_new_sym, value.MethodEntry.keywordBuiltin(&builtinProcNew, .{ .variadic = 0 }));
 
     const call_entry = value.MethodEntry.builtin(&builtinProcCall, .{ .variadic = 0 });
     const call_sym = try vm.intern("call");
@@ -91,14 +91,15 @@ pub fn builtinProcEqual(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMEr
     return Value.boolean(equal);
 }
 
-pub fn builtinProcNew(vm: *VM, _: Value, args: []Value, block: ?Block) VMError!Value {
-    try vm.requireArgCount(args, 0);
-
+pub fn builtinProcNew(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
     const blk = block orelse {
         return vm.raiseExceptionFmt(vm.argument_error_class, "tried to create Proc object without a block", .{});
     };
 
-    return try vm.newProc(blk);
+    const proc_val = try vm.newProc(blk);
+    proc_val.toProcObject().object.class = receiver.toClassObject();
+    _ = try vm.callMethodByNameForwardingKeywords(proc_val, "initialize", args, block);
+    return proc_val;
 }
 
 pub fn builtinProcCall(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
