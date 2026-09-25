@@ -7944,12 +7944,13 @@ pub const VM = struct {
         return error.Unwind;
     }
 
-    fn raiseMethodVisibilityError(self: *VM, method_name: []const u8, visibility: MethodVisibility) VMError {
+    fn raiseMethodVisibilityError(self: *VM, receiver: Value, method_name: []const u8, visibility: MethodVisibility) VMError {
         const message = std.fmt.allocPrint(self.gc_allocator, "{s} method `{s}' called", .{
             if (visibility == .private) "private" else "protected",
             method_name,
         }) catch return error.Fatal;
         const exc = self.createException(self.no_method_error_class, message) catch return error.Fatal;
+        exc.receiver = receiver;
         const name_sym = self.intern(method_name) catch return error.Fatal;
         self.setInstanceVariable(Value.fromObject(&exc.object), "@name", Value.fromObject(&name_sym.object)) catch return error.Fatal;
         self.setPendingException(exc);
@@ -8695,7 +8696,7 @@ pub const VM = struct {
 
         if (resolved) |r| {
             if (r.entry.visibility != .public) {
-                return self.raiseMethodVisibilityError(method_name_sym.name, r.entry.visibility);
+                return self.raiseMethodVisibilityError(receiver, method_name_sym.name, r.entry.visibility);
             }
             return self.invokeResolvedMethodWithKeywords(r, receiver, args, block, keyword_ctx);
         }
@@ -9132,6 +9133,13 @@ pub const VM = struct {
         const should_fallback = resolved == null or !self.isMethodCallable(receiver, resolved.?, call_style);
         const kwargc: usize = if (kw_values) |vals| vals.len else 0;
         if (should_fallback) {
+            if (resolved) |inaccessible| {
+                const missing_sym = try self.intern("method_missing");
+                const missing_method = try self.findMethod(receiver, missing_sym);
+                if (missing_method == null or missing_method.?.owner_class == self.basic_object_class) {
+                    return self.raiseMethodVisibilityError(receiver, method_name_sym.name, inaccessible.entry.visibility);
+                }
+            }
             if (call_style == .variable_call) {
                 const missing_sym = try self.intern("method_missing");
                 const missing_method = try self.findMethod(receiver, missing_sym);

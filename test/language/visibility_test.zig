@@ -4,6 +4,25 @@ const test_helper = @import("../test_helper.zig");
 const evalCode = test_helper.evalCode;
 const evalCodeWithOutput = test_helper.evalCodeWithOutput;
 
+test "explicit private method calls identify private visibility" {
+    const result = try evalCode(
+        \\class PrivateReader
+        \\  private
+        \\  def reader; 1; end
+        \\end
+        \\obj = PrivateReader.new
+        \\begin
+        \\  obj.reader
+        \\rescue NoMethodError => error
+        \\  [error.message, error.name, error.receiver.equal?(obj)]
+        \\end
+    );
+    const values = result.toArrayObject().elements.items;
+    try std.testing.expect(std.mem.indexOf(u8, values[0].toStringObject().str, "private method") != null);
+    try std.testing.expectEqualStrings("reader", values[1].toSymbolObject().name);
+    try std.testing.expect(values[2].isTrue());
+}
+
 test "private without args affects following defs and explicit self call works" {
     const ok = try evalCode(
         \\class C
