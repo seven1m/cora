@@ -101,9 +101,8 @@ pub fn register(vm: *VM) !void {
     try date_class.module.methods.put(try vm.intern("next_day"), value.MethodEntry.builtin(&builtinDateNextDay, .{ .variadic = 0 }));
     try date_class.module.methods.put(try vm.intern("prev_day"), value.MethodEntry.builtin(&builtinDatePrevDay, .{ .variadic = 0 }));
     try date_class.module.methods.put(try vm.intern("<=>"), value.MethodEntry.builtin(&builtinDateCompare, .{ .exact = 1 }));
-    const equal_entry = value.MethodEntry.builtin(&builtinDateEqual, .{ .exact = 1 });
-    try date_class.module.methods.put(try vm.intern("=="), equal_entry);
-    try date_class.module.methods.put(try vm.intern("==="), equal_entry);
+    try date_class.module.methods.put(try vm.intern("=="), value.MethodEntry.builtin(&builtinDateEqual, .{ .exact = 1 }));
+    try date_class.module.methods.put(try vm.intern("==="), value.MethodEntry.builtin(&builtinDateCaseEqual, .{ .exact = 1 }));
 
     try datetime_class.module.methods.put(try vm.intern("hour"), value.MethodEntry.builtin(&builtinDateTimeHour, .{ .exact = 0 }));
     const minute_entry = value.MethodEntry.builtin(&builtinDateTimeMinute, .{ .exact = 0 });
@@ -871,6 +870,12 @@ fn builtinDateCompare(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMErro
 }
 
 fn builtinDateEqual(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    const comparison = try vm.callMethodByName(receiver, "<=>", args, null);
+    return Value.boolean(comparison.isInteger() and comparison.toInteger() == 0);
+}
+
+fn builtinDateCaseEqual(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     const comparison = try builtinDateCompare(vm, receiver, args, null);
     return Value.boolean(comparison.isInteger() and comparison.toInteger() == 0);
 }

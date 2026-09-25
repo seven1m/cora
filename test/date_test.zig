@@ -219,6 +219,22 @@ test "DateTime.parse handles compact and offset timestamps" {
     try std.testing.expectEqualStrings("", result.stderr);
 }
 
+test "DateTime equality follows overridden comparison" {
+    var stdout_buf: [1024]u8 = undefined;
+    var stderr_buf: [1024]u8 = undefined;
+    const result = evalCodeWithOutput(
+        \\require "date"
+        \\date = DateTime.new(2013, 11, 12)
+        \\def date.<=>(other)
+        \\  0
+        \\end
+        \\p date == Object.new
+    , &stdout_buf, &stderr_buf);
+    try std.testing.expect(result.err == null);
+    try std.testing.expectEqualStrings("true\n", result.stdout);
+    try std.testing.expectEqualStrings("", result.stderr);
+}
+
 test "DateTime#gregorian preserves class, time, offset, and chronological day" {
     var stdout_buf: [2048]u8 = undefined;
     var stderr_buf: [1024]u8 = undefined;
