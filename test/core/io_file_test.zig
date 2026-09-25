@@ -4,6 +4,20 @@ const test_helper = @import("../test_helper.zig");
 const evalCode = test_helper.evalCode;
 const evalCodeWithOutput = test_helper.evalCodeWithOutput;
 
+test "File.utime nil timestamps set the current time" {
+    const result = try evalCode(
+        \\path = "/tmp/cora_utime_#{Process.pid}"
+        \\File.write(path, "x")
+        \\File.utime(Time.at(1), Time.at(1), path)
+        \\old_time = File.mtime(path)
+        \\File.utime(nil, nil, path)
+        \\new_time = File.mtime(path)
+        \\File.delete(path)
+        \\old_time.to_i == 1 && new_time.to_i > 1
+    );
+    try std.testing.expect(result.isTruthy());
+}
+
 fn uniquePath(buf: *[128]u8) ![]const u8 {
     return std.fmt.bufPrint(buf, "/tmp/cora_io_{d}.txt", .{@as(i128, @intCast(std.Io.Clock.boot.now(std.testing.io).nanoseconds))});
 }

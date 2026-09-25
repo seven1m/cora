@@ -2701,7 +2701,7 @@ pub fn builtinFileUmask(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Val
 }
 
 fn coerceTimeval(vm: *VM, arg: Value) VMError!i64 {
-    if (arg.isNil()) return @as(i64, 0);
+    if (arg.isNil()) return vm.raiseExceptionFmt(vm.type_error_class, "can't convert NilClass into time", .{});
     if (arg.isInteger()) return arg.toInteger();
     if (arg.isFloat()) return @intFromFloat(arg.toFloatObject().val);
     const result = try vm.callMethodByName(arg, "to_i", &.{}, null);
@@ -2715,8 +2715,9 @@ pub fn builtinFileUtime(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Val
         return vm.raiseExceptionFmt(vm.not_implemented_error_class, "File.utime is not implemented on Windows", .{});
     }
 
-    const atime_secs = try coerceTimeval(vm, args[0]);
-    const mtime_secs = try coerceTimeval(vm, args[1]);
+    const use_current_time = args[0].isNil() and args[1].isNil();
+    const atime_secs = if (use_current_time) @as(i64, 0) else try coerceTimeval(vm, args[0]);
+    const mtime_secs = if (use_current_time) @as(i64, 0) else try coerceTimeval(vm, args[1]);
     var changed: usize = 0;
 
     for (args[2..]) |arg| {
@@ -2728,7 +2729,7 @@ pub fn builtinFileUtime(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Val
             .{ .sec = atime_secs, .nsec = 0 },
             .{ .sec = mtime_secs, .nsec = 0 },
         };
-        const result = std.c.utimensat(-100, path_z.ptr, &ts, 0);
+        const result = std.c.utimensat(-100, path_z.ptr, if (use_current_time) null else &ts, 0);
         if (result != 0) {
             return vm.raiseErrnoFmt(std.posix.errno(result), "failed to utime: {s}", .{path});
         }
