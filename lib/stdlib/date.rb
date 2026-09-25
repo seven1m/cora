@@ -78,6 +78,15 @@ class Date
       return result
     end
 
+    if s =~ /\A\s*([A-Za-z]{3,})\.?(?:\s+(\d{4}))?\s*\z/
+      month = month_names.index($1[0, 3].capitalize)
+      if month
+        result[:year] = $2.to_i if $2
+        result[:mon] = month + 1
+        return result
+      end
+    end
+
     # MM/DD/YY or DD/MM/YY
     # ...
 
