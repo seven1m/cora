@@ -9,6 +9,11 @@ test "Float literal evaluates to Float value" {
     try std.testing.expectApproxEqAbs(@as(f64, 1.25), result.toFloatObject().val, 0.0000000001);
 }
 
+test "Float and large Integer values are frozen" {
+    const result = try evalCode("[1.25.frozen?, (2 ** 100).frozen?]");
+    for (result.toArrayObject().elements.items) |item| try std.testing.expect(item.isTrue());
+}
+
 test "Float class identity and Numeric ancestry" {
     var result = try evalCode("1.0.instance_of?(Float)");
     try std.testing.expectEqual(true, result.toBool());

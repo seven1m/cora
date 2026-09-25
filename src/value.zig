@@ -1027,8 +1027,8 @@ pub const Value = struct {
         if (self.isInteger() or self.isNil() or self.isBool()) return true;
         if (!self.isObject()) return true;
         const tag = self.objectTypeTag();
-        // Encoding objects are always frozen singletons.
-        if (tag == .encoding_obj) return true;
+        // Numeric values and encoding objects are immutable.
+        if (tag == .float or tag == .big_integer or tag == .encoding_obj) return true;
         const obj = self.getObjectPointer().?;
         return (obj.flags & Object.FROZEN_FLAG) != 0;
     }
