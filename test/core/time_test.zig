@@ -3,6 +3,21 @@ const test_helper = @import("../test_helper.zig");
 
 const evalCode = test_helper.evalCode;
 
+test "Date parses RFC 850 dates for Time.parse" {
+    const result = try evalCode(
+        \\require "time"
+        \\text = "Wednesday, 09-Nov-99 23:12:40 GMT"
+        \\parts = Date._parse(text)
+        \\[parts[:wday], parts[:year], parts[:offset], Date._parse(text, false)[:year], Time.parse(text) == Time.utc(1999, 11, 9, 23, 12, 40)]
+    );
+    const values = result.toArrayObject().elements.items;
+    try std.testing.expectEqual(@as(i64, 3), values[0].toInteger());
+    try std.testing.expectEqual(@as(i64, 1999), values[1].toInteger());
+    try std.testing.expectEqual(@as(i64, 0), values[2].toInteger());
+    try std.testing.expectEqual(@as(i64, 99), values[3].toInteger());
+    try std.testing.expect(values[4].isTrue());
+}
+
 test "Time.now returns a Time instance" {
     const result = try evalCode("Time.now.instance_of?(Time)");
     try std.testing.expectEqual(true, result.toBool());

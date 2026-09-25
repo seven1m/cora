@@ -32,6 +32,22 @@ class Date
     # DD Mon YYYY HH:MM:SS or Mon DD HH:MM:SS YYYY
     month_names = %w[Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec]
     month_re = month_names.join('|')
+    weekday_names = %w[Sunday Monday Tuesday Wednesday Thursday Friday Saturday]
+    weekday_re = weekday_names.join('|')
+    if s =~ /\A\s*(#{weekday_re}),\s*(\d{1,2})-(#{month_re})-(\d{2})\s+(\d{1,2}):(\d{2}):(\d{2})\s+(GMT|UTC)\s*\z/i
+      year = $4.to_i
+      result[:wday] = weekday_names.index($1.capitalize)
+      result[:mday] = $2.to_i
+      result[:mon] = month_names.index($3.capitalize) + 1
+      result[:year] = comp ? year + (year >= 69 ? 1900 : 2000) : year
+      result[:hour] = $5.to_i
+      result[:min] = $6.to_i
+      result[:sec] = $7.to_i
+      result[:zone] = $8.upcase
+      result[:offset] = 0
+      return result
+    end
+
     if s =~ /\A\s*(\d{1,2})\s+(#{month_re})\s+(\d{4})(?:\s+(\d{1,2}):(\d{2})(?::(\d{2}))?)?\s*\z/i
       result[:mday] = $1.to_i
       result[:mon] = month_names.index($2.capitalize) + 1
