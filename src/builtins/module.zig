@@ -156,6 +156,11 @@ fn lookupConstantOnReceiver(vm: *VM, receiver: Value, name_sym: *SymbolObject, i
     return lookupConstantOnReceiverWithFallback(vm, receiver, name_sym, inherit, true);
 }
 
+fn lookupOrLoadConstantOnReceiver(vm: *VM, receiver: Value, name_sym: *SymbolObject, inherit: bool, allow_object_fallback: bool) VMError!?Value {
+    if (lookupConstantOnReceiverWithFallback(vm, receiver, name_sym, inherit, allow_object_fallback)) |val| return val;
+    return vm.loadAutoloadConstant(moduleFromValue(receiver).?, name_sym);
+}
+
 fn lookupConstantOnReceiverWithFallback(vm: *VM, receiver: Value, name_sym: *SymbolObject, inherit: bool, allow_object_fallback: bool) ?Value {
     if (receiver.isClass()) {
         var current: ?*ClassObject = receiver.toClassObject();
@@ -429,7 +434,7 @@ fn getConstantPath(vm: *VM, receiver: Value, name: []const u8, inherit: bool) VM
         _ = moduleFromValue(current) orelse {
             return vm.raiseExceptionFmt(vm.name_error_class, "uninitialized constant {s}", .{name});
         };
-        current = lookupConstantOnReceiverWithFallback(vm, current, name_sym, use_inherit, first) orelse {
+        current = (try lookupOrLoadConstantOnReceiver(vm, current, name_sym, use_inherit, first)) orelse {
             return vm.raiseExceptionFmt(vm.name_error_class, "uninitialized constant {s}", .{name});
         };
         first = false;
@@ -2100,7 +2105,7 @@ pub fn builtinModuleConstGet(vm: *VM, receiver: Value, args: []Value, _: ?Block)
     }
 
     const name_sym = try vm.intern(name);
-    const constant_value = lookupConstantOnReceiver(vm, receiver, name_sym, inherit) orelse {
+    const constant_value = (try lookupOrLoadConstantOnReceiver(vm, receiver, name_sym, inherit, true)) orelse {
         return vm.raiseExceptionFmt(vm.name_error_class, "uninitialized constant {s}::{s}", .{ storedModuleName(receiver), name });
     };
     try warnDeprecatedConstant(vm, receiver, name_sym, isDeprecatedConstant(receiver, name_sym));

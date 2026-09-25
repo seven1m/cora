@@ -394,6 +394,18 @@ test "Module const_get excludes Object fallback after the first path segment" {
     for (result.toArrayObject().elements.items) |item| try std.testing.expect(item.isTrue());
 }
 
+test "Module const_get loads registered autoloads and propagates load errors" {
+    const result = try evalCode(
+        \\Object.autoload(:AutoloadRaises, File.expand_path("test/support/autoload_raises", Dir.pwd))
+        \\begin
+        \\  Object.const_get(:AutoloadRaises)
+        \\rescue LoadError => error
+        \\  error.message
+        \\end
+    );
+    try std.testing.expectEqualStrings("autoload fixture failed", result.toStringObject().str);
+}
+
 test "Object const_get resolves Gem::Specification" {
     const result = try evalCode(
         \\$LOAD_PATH.unshift(File.expand_path("build/ext/rubygems/lib", Dir.pwd))

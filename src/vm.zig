@@ -2525,6 +2525,13 @@ pub const VM = struct {
         return .attempted;
     }
 
+    pub fn loadAutoloadConstant(self: *VM, module_obj: *value.ModuleObject, name_sym: *value.SymbolObject) VMError!?Value {
+        return switch (try self.triggerAutoload(module_obj, name_sym)) {
+            .loaded => |val| val,
+            .missing, .attempted => null,
+        };
+    }
+
     fn findConstantInLexicalScope(self: *VM, scope: *LexicalScope, name: *value.SymbolObject) VMError!LexicalConstantLookupResult {
         var result = LexicalConstantLookupResult{};
         var current_scope: ?*LexicalScope = scope;
