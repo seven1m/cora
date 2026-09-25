@@ -24,6 +24,40 @@ test "Basic super with explicit arguments" {
     try std.testing.expectEqual(20, result.toInteger()); // (5 * 2) + 10 = 20
 }
 
+test "Explicit super arguments forward the original block" {
+    const result = try evalCode(
+        \\class BlockParent
+        \\  def call(value)
+        \\    yield value
+        \\  end
+        \\end
+        \\class BlockChild < BlockParent
+        \\  def call(value)
+        \\    super(value + 1)
+        \\  end
+        \\end
+        \\BlockChild.new.call(2) { |value| value * 2 }
+    );
+    try std.testing.expectEqual(@as(i64, 6), result.toInteger());
+}
+
+test "Explicit nil block in super suppresses forwarding" {
+    const result = try evalCode(
+        \\class BlockParent
+        \\  def call
+        \\    block_given?
+        \\  end
+        \\end
+        \\class BlockChild < BlockParent
+        \\  def call
+        \\    super(&nil)
+        \\  end
+        \\end
+        \\BlockChild.new.call { :original }
+    );
+    try std.testing.expect(!result.isTruthy());
+}
+
 test "Bare super forwards all arguments" {
     const result = try evalCode(
         \\class A

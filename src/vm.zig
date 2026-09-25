@@ -7302,7 +7302,10 @@ pub const VM = struct {
                 const block_chunk_id = readU16From(frame, operands, &operand_cursor);
 
                 // Resolve block first (may pop from stack for &variable syntax)
-                const block = try self.resolveBlock(block_chunk_id, frame);
+                const block = if (block_chunk_id == 0)
+                    self.enclosingMethodFrame(frame).block
+                else
+                    try self.resolveBlock(block_chunk_id, frame);
 
                 var args: [256]Value = undefined;
                 var positional_argc: usize = 0;
@@ -7338,7 +7341,10 @@ pub const VM = struct {
                 const args_array_mode = (flags & bytecode.SUPER_FLAG_ARGS_ARRAY) != 0;
                 const kw_hash_mode = (flags & bytecode.SUPER_FLAG_KW_HASH) != 0;
 
-                const block = try self.resolveBlock(block_chunk_id, frame);
+                const block = if (block_chunk_id == 0)
+                    self.enclosingMethodFrame(frame).block
+                else
+                    try self.resolveBlock(block_chunk_id, frame);
 
                 // Pop keyword values and build keyword context
                 var kw_key_slice: ?[]Value = null;
