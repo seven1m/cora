@@ -146,6 +146,22 @@ test "Exception.new gets an implicit cause only when raised" {
     try std.testing.expect(values[1].isTrue());
 }
 
+test "Kernel.raise accepts an explicit cause" {
+    const result = try evalCode(
+        \\original = RuntimeError.new("original")
+        \\with_cause = begin; raise RuntimeError, "outer", [], cause: original; rescue => error; error.cause; end
+        \\without_cause = begin; raise RuntimeError, "outer", [], cause: nil; rescue => error; error.cause; end
+        \\bad_cause = begin; raise "outer", cause: 1; rescue => error; [error.class.name, error.message]; end
+        \\[with_cause.equal?(original), without_cause.nil?, bad_cause]
+    );
+    const values = result.toArrayObject().elements.items;
+    try std.testing.expect(values[0].isTrue());
+    try std.testing.expect(values[1].isTrue());
+    const bad = values[2].toArrayObject().elements.items;
+    try std.testing.expectEqualStrings("TypeError", bad[0].toStringObject().str);
+    try std.testing.expectEqualStrings("exception object expected", bad[1].toStringObject().str);
+}
+
 test "Errno class exception builds default errno message" {
     const result = try evalCode(
         \\e = Errno::EMFILE.exception

@@ -347,10 +347,12 @@ pub fn register(vm: *VM) !void {
     try kernel_singleton.module.methods.put(p_sym, MethodEntry.builtin(&builtinKernelP, .{ .variadic = 0 }));
 
     const raise_sym = try vm.intern("raise");
-    try vm.kernel_module.methods.put(raise_sym, MethodEntry.builtinWithVisibility(&builtinKernelRaise, .{ .variadic = 0 }, .private));
+    var raise_entry = MethodEntry.builtinWithVisibility(&builtinKernelRaise, .{ .variadic = 0 }, .private);
+    raise_entry.accepts_keywords = true;
+    try vm.kernel_module.methods.put(raise_sym, raise_entry);
 
     const fail_sym = try vm.intern("fail");
-    try vm.kernel_module.methods.put(fail_sym, MethodEntry.builtinWithVisibility(&builtinKernelRaise, .{ .variadic = 0 }, .private));
+    try vm.kernel_module.methods.put(fail_sym, raise_entry);
 
     const is_a_sym = try vm.intern("is_a?");
     try vm.kernel_module.methods.put(is_a_sym, MethodEntry.builtin(&builtinKernelIsA, .{ .exact = 1 }));
@@ -1038,7 +1040,7 @@ pub fn builtinKernelPuts(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Va
 
 pub fn builtinKernelAbort(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCountRange(args, 0, 1);
-    var exit_args = [_]Value{Value.integer(1), Value.nil()};
+    var exit_args = [_]Value{ Value.integer(1), Value.nil() };
     const exit_arg_count: usize = if (args.len == 1) 2 else 1;
     if (args.len == 1) {
         const message = try args[0].coerceToStringValue(vm, "no implicit conversion into String");
@@ -1799,10 +1801,13 @@ pub fn builtinKernelLambda(vm: *VM, _: Value, args: []Value, block: ?Block) VMEr
 }
 
 pub fn builtinKernelRaise(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+    var cause: ?Value = null;
+    try vm.consumeKeywordArgs(.{"cause"}, .{&cause});
+    try vm.validateKeywordArgsConsumed();
     if (vm.frames.items.len > 0 and vm.currentFrame().frame_type == .builtin) {
         vm.popCurrentBuiltinFrame();
     }
-    return vm.raiseFromArgs(args, "No exception to re-raise");
+    return vm.raiseFromArgsWithCause(args, "No exception to re-raise", cause);
 }
 
 fn moduleIncludedInChain(vm: *VM, receiver: Value, mod: *const ModuleObject) bool {

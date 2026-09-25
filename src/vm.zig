@@ -12311,6 +12311,23 @@ pub const VM = struct {
         return self.raiseArgumentErrorWrongArgCountGeneric();
     }
 
+    pub fn raiseFromArgsWithCause(self: *VM, args: []const Value, no_current_exception_message: []const u8, cause: ?Value) VMError {
+        if (cause) |specified| {
+            if (!specified.isNil() and !specified.isException()) {
+                return self.raiseExceptionFmt(self.type_error_class, "exception object expected", .{});
+            }
+        }
+        const raised = self.raiseFromArgs(args, no_current_exception_message);
+        if (raised == error.Unwind) {
+            if (cause) |specified| {
+                if (self.pendingException()) |exception| {
+                    exception.cause = if (specified.isNil()) null else specified.toExceptionObject();
+                }
+            }
+        }
+        return raised;
+    }
+
     pub fn resetLoadedFilesFromGlobal(self: *VM) VMError!void {
         const loaded_val = self.getGlobalValue("$LOADED_FEATURES");
         if (!loaded_val.isArray()) return;
