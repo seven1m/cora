@@ -20,6 +20,18 @@ test "require lazily registers native Date classes" {
     try std.testing.expectEqualStrings("", result.stderr);
 }
 
+test "Date provides frozen month and weekday names" {
+    var stdout_buf: [1024]u8 = undefined;
+    var stderr_buf: [1024]u8 = undefined;
+    const result = evalCodeWithOutput(
+        \\require "date"
+        \\p [Date::MONTHNAMES[0], Date::MONTHNAMES[12], Date::ABBR_MONTHNAMES[1], Date::DAYNAMES[0], Date::ABBR_DAYNAMES[6], Date::MONTHNAMES.frozen?, Date::DAYNAMES[0].frozen?]
+    , &stdout_buf, &stderr_buf);
+    try std.testing.expect(result.err == null);
+    try std.testing.expectEqualStrings("[nil, \"December\", \"Jan\", \"Sunday\", \"Sat\", true, true]\n", result.stdout);
+    try std.testing.expectEqualStrings("", result.stderr);
+}
+
 test "Time#to_date is registered with Date support and preserves local civil date" {
     var stdout_buf: [1024]u8 = undefined;
     var stderr_buf: [1024]u8 = undefined;

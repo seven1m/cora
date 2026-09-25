@@ -2,6 +2,11 @@ class Date
   class Error < ArgumentError
   end
 
+  MONTHNAMES = [nil, "January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"].each { |name| name.freeze if name }.freeze
+  ABBR_MONTHNAMES = [nil, "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"].each { |name| name.freeze if name }.freeze
+  DAYNAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"].each(&:freeze).freeze
+  ABBR_DAYNAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].each(&:freeze).freeze
+
   def self._parse(string, comp=true)
     result = {}
     s = string.to_str
