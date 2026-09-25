@@ -6,6 +6,10 @@ module SecureRandom
   VERSION = "0.1.0" unless const_defined?(:VERSION)
 
   class << self
+    def bytes(n)
+      gen_random(n)
+    end
+
     private
 
     def gen_random(n)

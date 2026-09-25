@@ -38,3 +38,13 @@ test "Random formatter adds random_number for SecureRandom-style receivers" {
     try std.testing.expect(result.toInteger() >= 0);
     try std.testing.expect(result.toInteger() < 10);
 }
+
+test "SecureRandom.bytes supplies random bytes to its formatter" {
+    const result = try evalCode(
+        \\require "securerandom"
+        \\[SecureRandom.bytes(12).bytesize, SecureRandom.alphanumeric(8).length]
+    );
+    const items = result.toArrayObject().elements.items;
+    try std.testing.expectEqual(@as(i64, 12), items[0].toInteger());
+    try std.testing.expectEqual(@as(i64, 8), items[1].toInteger());
+}
