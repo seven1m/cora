@@ -368,6 +368,32 @@ test "Module const_get resolves nested constant paths" {
     try std.testing.expectEqualSlices(u8, "B", result.toModuleObject().name.name);
 }
 
+test "Module const_get excludes Object fallback after the first path segment" {
+    const result = try evalCode(
+        \\module VisibleGlobally; end
+        \\module Namespace
+        \\  class Child; end
+        \\end
+        \\[
+        \\  Namespace.const_get(:VisibleGlobally) == VisibleGlobally,
+        \\  begin
+        \\    Object.const_get("Namespace::VisibleGlobally")
+        \\    false
+        \\  rescue NameError
+        \\    true
+        \\  end,
+        \\  Namespace.const_defined?("VisibleGlobally::Missing") == false,
+        \\  begin
+        \\    Object.const_get("Namespace::Child::VisibleGlobally")
+        \\    false
+        \\  rescue NameError
+        \\    true
+        \\  end
+        \\]
+    );
+    for (result.toArrayObject().elements.items) |item| try std.testing.expect(item.isTrue());
+}
+
 test "Object const_get resolves Gem::Specification" {
     const result = try evalCode(
         \\$LOAD_PATH.unshift(File.expand_path("build/ext/rubygems/lib", Dir.pwd))

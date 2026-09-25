@@ -153,14 +153,19 @@ fn lookupAutoloadOnModule(module_obj: *value.ModuleObject, name_sym: *SymbolObje
 }
 
 fn lookupConstantOnReceiver(vm: *VM, receiver: Value, name_sym: *SymbolObject, inherit: bool) ?Value {
+    return lookupConstantOnReceiverWithFallback(vm, receiver, name_sym, inherit, true);
+}
+
+fn lookupConstantOnReceiverWithFallback(vm: *VM, receiver: Value, name_sym: *SymbolObject, inherit: bool, allow_object_fallback: bool) ?Value {
     if (receiver.isClass()) {
         var current: ?*ClassObject = receiver.toClassObject();
         while (current) |klass| {
+            if (!allow_object_fallback and klass == vm.object_class and receiver.toClassObject() != vm.object_class) break;
             if (lookupConstantOnModule(&klass.module, name_sym)) |val| return val;
             if (!inherit) break;
             current = klass.superclass;
         }
-        if (inherit) {
+        if (inherit and allow_object_fallback) {
             if (lookupConstantOnEnclosingNamespaces(vm, receiver, name_sym)) |val| return val;
         }
         return null;
@@ -168,7 +173,7 @@ fn lookupConstantOnReceiver(vm: *VM, receiver: Value, name_sym: *SymbolObject, i
 
     if (receiver.isModule()) {
         if (lookupConstantOnModule(receiver.toModuleObject(), name_sym)) |val| return val;
-        if (inherit) {
+        if (inherit and allow_object_fallback) {
             if (lookupConstantOnModule(&vm.object_class.module, name_sym)) |val| return val;
         }
         return null;
@@ -401,7 +406,7 @@ fn constantPathDefined(vm: *VM, receiver: Value, name: []const u8, inherit: bool
         const name_sym = try vm.intern(part);
         const use_inherit = if (first and !rooted) inherit else true;
         _ = moduleFromValue(current) orelse return false;
-        current = lookupConstantOnReceiver(vm, current, name_sym, use_inherit) orelse return false;
+        current = lookupConstantOnReceiverWithFallback(vm, current, name_sym, use_inherit, first) orelse return false;
         first = false;
     }
 
@@ -424,7 +429,7 @@ fn getConstantPath(vm: *VM, receiver: Value, name: []const u8, inherit: bool) VM
         _ = moduleFromValue(current) orelse {
             return vm.raiseExceptionFmt(vm.name_error_class, "uninitialized constant {s}", .{name});
         };
-        current = lookupConstantOnReceiver(vm, current, name_sym, use_inherit) orelse {
+        current = lookupConstantOnReceiverWithFallback(vm, current, name_sym, use_inherit, first) orelse {
             return vm.raiseExceptionFmt(vm.name_error_class, "uninitialized constant {s}", .{name});
         };
         first = false;
