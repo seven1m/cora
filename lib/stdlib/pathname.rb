@@ -67,6 +67,10 @@ class Pathname
     File.readable?(@path)
   end
 
+  def owned?
+    File.owned?(@path)
+  end
+
   def writable?
     File.writable?(@path)
   end

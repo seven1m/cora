@@ -110,6 +110,19 @@ test "Pathname accepts File objects and copies String paths" {
     for (result.toArrayObject().elements.items) |item| try std.testing.expect(item.isTruthy());
 }
 
+test "Pathname owned? delegates to File ownership checks" {
+    const result = try evalCode(
+        \\require "pathname"
+        \\path = "/tmp/cora_pathname_owned_#{Process.pid}"
+        \\File.write(path, "x")
+        \\owned = Pathname.new(path).owned?
+        \\expected = File.owned?(path)
+        \\File.delete(path)
+        \\owned == expected
+    );
+    try std.testing.expect(result.isTruthy());
+}
+
 test "Kernel.load is private on instances" {
     const result = try evalCode(
         \\Kernel.private_instance_methods.include?(:load) &&
