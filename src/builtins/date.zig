@@ -276,10 +276,21 @@ fn numberToF64(value_arg: Value) ?f64 {
 }
 
 fn parseOffsetString(bytes: []const u8) ?i64 {
-    if (bytes.len != 6 or (bytes[0] != '+' and bytes[0] != '-') or bytes[3] != ':') return null;
-    if (!std.ascii.isDigit(bytes[1]) or !std.ascii.isDigit(bytes[2]) or !std.ascii.isDigit(bytes[4]) or !std.ascii.isDigit(bytes[5])) return null;
-    const hours = @as(i64, bytes[1] - '0') * 10 + (bytes[2] - '0');
-    const minutes = @as(i64, bytes[4] - '0') * 10 + (bytes[5] - '0');
+    if (std.ascii.eqlIgnoreCase(bytes, "Z") or std.ascii.eqlIgnoreCase(bytes, "UTC") or std.ascii.eqlIgnoreCase(bytes, "GMT")) return 0;
+    if (bytes.len < 2 or (bytes[0] != '+' and bytes[0] != '-')) return null;
+    const digits = bytes[1..];
+    var hours: i64 = 0;
+    var minutes: i64 = 0;
+    if (std.mem.indexOfScalar(u8, digits, ':')) |separator| {
+        if (separator < 1 or separator > 2 or digits.len != separator + 3) return null;
+        hours = std.fmt.parseInt(i64, digits[0..separator], 10) catch return null;
+        minutes = std.fmt.parseInt(i64, digits[separator + 1 ..], 10) catch return null;
+    } else if (digits.len >= 1 and digits.len <= 2) {
+        hours = std.fmt.parseInt(i64, digits, 10) catch return null;
+    } else if (digits.len == 3 or digits.len == 4) {
+        hours = std.fmt.parseInt(i64, digits[0 .. digits.len - 2], 10) catch return null;
+        minutes = std.fmt.parseInt(i64, digits[digits.len - 2 ..], 10) catch return null;
+    } else return null;
     if (hours > 23 or minutes > 59) return null;
     const seconds = hours * 3600 + minutes * 60;
     return if (bytes[0] == '-') -seconds else seconds;

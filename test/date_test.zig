@@ -86,6 +86,18 @@ test "DateTime arithmetic inherits Date methods" {
     try std.testing.expectEqualStrings("", result.stderr);
 }
 
+test "DateTime accepts compact and short string offsets" {
+    var stdout_buf: [1024]u8 = undefined;
+    var stderr_buf: [1024]u8 = undefined;
+    const result = evalCodeWithOutput(
+        \\require "date"
+        \\p ["+7", "-3", "+0700", "+7:30", "UTC"].map { |offset| DateTime.new(2001, 2, 3, 4, 5, 6, offset).strftime("%:z") }
+    , &stdout_buf, &stderr_buf);
+    try std.testing.expect(result.err == null);
+    try std.testing.expectEqualStrings("[\"+07:00\", \"-03:00\", \"+07:00\", \"+07:30\", \"+00:00\"]\n", result.stdout);
+    try std.testing.expectEqualStrings("", result.stderr);
+}
+
 test "Time#to_date is registered with Date support and preserves local civil date" {
     var stdout_buf: [1024]u8 = undefined;
     var stderr_buf: [1024]u8 = undefined;
