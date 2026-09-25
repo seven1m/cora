@@ -12,6 +12,27 @@ test "Constants can be set and read" {
     try std.testing.expectEqual(@as(i64, 42), result.toInteger());
 }
 
+test "lexical module methods find constants in modules included by Object" {
+    const result = try evalCode(
+        \\module SharedConstants
+        \\  class Case; end
+        \\end
+        \\class Object
+        \\  include SharedConstants
+        \\end
+        \\module Reader
+        \\  def read_case
+        \\    Case
+        \\  end
+        \\end
+        \\class ReaderHost
+        \\  include Reader
+        \\end
+        \\ReaderHost.new.read_case == SharedConstants::Case
+    );
+    try std.testing.expect(result.isTrue());
+}
+
 test "shareable constant wrapper compiles constant assignment" {
     const result = try evalCode(
         \\# shareable_constant_value: literal

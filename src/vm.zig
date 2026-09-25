@@ -5600,6 +5600,10 @@ pub const VM = struct {
                             },
                         }
                     }
+                    if (try self.findConstantInClassAncestors(self.object_class, name_sym, true)) |val| {
+                        try self.push(val);
+                        return;
+                    }
                     return self.raiseUninitializedLexicalConstant(lexical_scope, name_sym);
                 }
             },
@@ -5631,7 +5635,11 @@ pub const VM = struct {
                             },
                         }
                     }
-                    try self.push(Value.nil());
+                    if (try self.findConstantInClassAncestors(self.object_class, name_sym, true)) |val| {
+                        try self.push(val);
+                    } else {
+                        try self.push(Value.nil());
+                    }
                 }
             },
 
