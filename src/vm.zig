@@ -13831,15 +13831,18 @@ pub const VM = struct {
             }
 
             if (self.pendingControlFlow() != null) {
-                if (try self.findEnsureHandler(frame_idx)) |ensure_byte_offset| {
+                if (try self.findEnsureHandler(frame_idx, true)) |ensure_byte_offset| {
                     try setFrameIp(&self.frames.items[frame_idx], ensure_byte_offset);
                     return true;
                 }
             } else if (self.pendingThrow() != null) {
-                if (try self.findEnsureHandler(frame_idx)) |ensure_byte_offset| {
+                if (try self.findEnsureHandler(frame_idx, true)) |ensure_byte_offset| {
                     try setFrameIp(&self.frames.items[frame_idx], ensure_byte_offset);
                     return true;
                 }
+            } else if (try self.findEnsureHandler(frame_idx, false)) |ensure_byte_offset| {
+                try setFrameIp(&self.frames.items[frame_idx], ensure_byte_offset);
+                return true;
             } else if (try self.findExceptionHandler(frame_idx)) |handler_info| {
                 if (handler_info.rescue_idx) |rescue_idx| {
                     const rescue_handler = &handler_info.handler.rescue_handlers.items[rescue_idx];
@@ -13891,14 +13894,27 @@ pub const VM = struct {
         return false;
     }
 
-    fn findEnsureHandler(self: *VM, frame_idx: usize) VMError!?usize {
-        const frame = self.frames.items[frame_idx];
+    fn findEnsureHandler(self: *VM, frame_idx: usize, include_try: bool) VMError!?usize {
+        const frame = &self.frames.items[frame_idx];
         const ip = frame.ip;
 
         for (frame.chunk.exception_handlers.items) |*handler| {
-            if (ip >= handler.try_start_byte_offset and ip < handler.try_end_byte_offset) {
-                if (handler.ensure_byte_offset) |ensure_byte_offset| return ensure_byte_offset;
+            if (self.pendingControlFlow()) |cf| {
+                if (cf.kind == .retry_ and cf.target_frame == frame and cf.target_ip == handler.try_start_byte_offset)
+                    continue;
             }
+            const ensure_byte_offset = handler.ensure_byte_offset orelse continue;
+            for (handler.rescue_handlers.items) |rescue| {
+                if (ip >= rescue.catch_byte_offset and ip < rescue.catch_end_byte_offset) {
+                    self.exitRescueBodyForSameFrameJump(frame);
+                    return ensure_byte_offset;
+                }
+            }
+            if (handler.else_byte_offset) |else_byte_offset| {
+                if (ip >= else_byte_offset and ip < ensure_byte_offset) return ensure_byte_offset;
+            }
+            if (include_try and ip >= handler.try_start_byte_offset and ip < handler.try_end_byte_offset)
+                return ensure_byte_offset;
         }
 
         return null;

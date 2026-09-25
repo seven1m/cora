@@ -44,6 +44,30 @@ test "Ensure clause runs after rescue" {
     try std.testing.expectEqualSlices(u8, "cleanup\n", result.stdout);
 }
 
+test "Ensure clause runs when rescue raises again" {
+    const result = try evalCode(
+        \\trace = []
+        \\begin
+        \\  begin
+        \\    raise "original"
+        \\  rescue
+        \\    trace << :rescue
+        \\    raise "replacement"
+        \\  ensure
+        \\    trace << :ensure
+        \\  end
+        \\rescue => error
+        \\  trace << error.message
+        \\end
+        \\trace
+    );
+    const items = result.toArrayObject().elements.items;
+    try std.testing.expectEqual(@as(usize, 3), items.len);
+    try std.testing.expectEqualStrings("rescue", items[0].toSymbolObject().name);
+    try std.testing.expectEqualStrings("ensure", items[1].toSymbolObject().name);
+    try std.testing.expectEqualStrings("replacement", items[2].toStringObject().str);
+}
+
 test "Ensure clause runs during unwinding" {
     var stdout_buf: [8192]u8 = undefined;
     var stderr_buf: [8192]u8 = undefined;
