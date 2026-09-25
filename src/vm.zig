@@ -1887,9 +1887,9 @@ pub const VM = struct {
         const stdin_sym = try self.intern("STDIN");
         const stdout_sym = try self.intern("STDOUT");
         const stderr_sym = try self.intern("STDERR");
-        const stdin_obj = try self.newIo(self.io_class, 0, .{ .owns_fd = false, .readable = true, .writable = false });
-        const stdout_obj = try self.newIo(self.io_class, 1, .{ .owns_fd = false, .readable = false, .writable = true, .sync = true });
-        const stderr_obj = try self.newIo(self.io_class, 2, .{ .owns_fd = false, .readable = false, .writable = true, .sync = true });
+        const stdin_obj = try self.newIo(self.io_class, 0, .{ .owns_fd = false, .readable = true, .writable = false, .path = "<STDIN>" });
+        const stdout_obj = try self.newIo(self.io_class, 1, .{ .owns_fd = false, .readable = false, .writable = true, .sync = true, .path = "<STDOUT>" });
+        const stderr_obj = try self.newIo(self.io_class, 2, .{ .owns_fd = false, .readable = false, .writable = true, .sync = true, .path = "<STDERR>" });
         self.object_class.module.constants.put(stdin_sym, .{ .value = stdin_obj }) catch return error.Fatal;
         self.object_class.module.constants.put(stdout_sym, .{ .value = stdout_obj }) catch return error.Fatal;
         self.object_class.module.constants.put(stderr_sym, .{ .value = stderr_obj }) catch return error.Fatal;

@@ -603,6 +603,16 @@ test "IO.copy_stream uses readpartial and propagates non-EOF errors" {
     try std.testing.expectEqualStrings("bad input", values[1].toStringObject().str);
 }
 
+test "standard streams expose distinct MRI paths" {
+    const result = try evalCode(
+        \\[STDIN.path, STDOUT.path, STDERR.path]
+    );
+    const paths = result.toArrayObject().elements.items;
+    try std.testing.expectEqualStrings("<STDIN>", paths[0].toStringObject().str);
+    try std.testing.expectEqualStrings("<STDOUT>", paths[1].toStringObject().str);
+    try std.testing.expectEqualStrings("<STDERR>", paths[2].toStringObject().str);
+}
+
 test "Dir.children and File::Stat#directory? support vendored fileutils traversal" {
     var root_buf: [128]u8 = undefined;
     const root = try uniquePath(&root_buf);

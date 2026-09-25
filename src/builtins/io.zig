@@ -2301,13 +2301,13 @@ fn ioIsNonblocking(vm: *VM, io: *IoObject) VMError!bool {
 fn ioWriteBytes(vm: *VM, io: *IoObject, bytes: []const u8) VMError!usize {
     try ensureIoWritable(vm, io);
 
-    if (io.fd == 1 and io.path == null) {
+    if (io.fd == 1 and (io.path == null or std.mem.eql(u8, io.path.?, "<STDOUT>"))) {
         vm.setupOutput();
         vm.stdout.?.writeAll(bytes) catch return vm.raiseExceptionFmt(vm.io_error_class, "write failed", .{});
         _ = vm.stdout.?.flush() catch {};
         return bytes.len;
     }
-    if (io.fd == 2 and io.path == null) {
+    if (io.fd == 2 and (io.path == null or std.mem.eql(u8, io.path.?, "<STDERR>"))) {
         vm.setupOutput();
         vm.stderr.?.writeAll(bytes) catch return vm.raiseExceptionFmt(vm.io_error_class, "write failed", .{});
         _ = vm.stderr.?.flush() catch {};
