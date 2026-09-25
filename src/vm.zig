@@ -13008,6 +13008,48 @@ pub const VM = struct {
         return binding_ptr;
     }
 
+    pub fn setBindingLocal(self: *VM, binding: *value.BindingObject, name: []const u8, new_value: Value) VMError!void {
+        var local_index: ?usize = null;
+        for (binding.local_names.items, 0..) |local_name, i| {
+            if (std.mem.eql(u8, local_name, name)) {
+                local_index = i;
+                break;
+            }
+        }
+
+        if (local_index) |index| {
+            if (index < binding.real_local_count) {
+                const ep = binding.ep orelse return error.Fatal;
+                (ep - binding.real_local_count + index)[0] = new_value;
+                return;
+            }
+        }
+
+        const old_count = binding.real_local_count;
+        const new_count = @max(binding.local_names.items.len + @as(usize, if (local_index == null) 1 else 0), old_count + 1);
+        const storage = self.gc_allocator.alloc(Value, new_count + ENV_DATA_SIZE) catch return error.Fatal;
+        @memset(storage[0..new_count], Value.nil());
+        const new_ep: [*]Value = storage[new_count..].ptr;
+        if (binding.ep) |old_ep| {
+            @memcpy(storage[0..old_count], (old_ep - old_count)[0..old_count]);
+            @memcpy(new_ep[0..ENV_DATA_SIZE], old_ep[0..ENV_DATA_SIZE]);
+        } else {
+            new_ep[0] = .{ .raw = 0 };
+            new_ep[1] = try self.frameScopeValue(binding.lexical_scope, null, null);
+            setEpEnvironmentRole(new_ep, .synthetic);
+        }
+        new_ep[2] = Value.integer(@intCast(new_count));
+
+        if (local_index == null) {
+            const copy = self.gc_allocator.dupe(u8, name) catch return error.Fatal;
+            binding.local_names.append(self.gc_allocator, copy) catch return error.Fatal;
+            local_index = binding.local_names.items.len - 1;
+        }
+        storage[local_index.?] = new_value;
+        binding.ep = new_ep;
+        binding.real_local_count = new_count;
+    }
+
     pub fn copyLocalNames(self: *VM, names: []const []const u8) VMError![]const []const u8 {
         const copies = self.gc_allocator.alloc([]const u8, names.len) catch return error.Fatal;
         for (names, copies) |name, *copy| {

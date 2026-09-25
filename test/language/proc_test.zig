@@ -73,6 +73,27 @@ test "Binding local_variable_defined? checks captured and eval locals" {
     try std.testing.expect(values[2].isTrue());
 }
 
+test "Binding local_variable_set updates existing locals and adds locals to copies" {
+    const result = try evalCode(
+        \\def make_binding
+        \\  count = 2
+        \\  binding
+        \\end
+        \\captured = make_binding
+        \\captured.local_variable_set(:count, 7)
+        \\copy = TOPLEVEL_BINDING.dup
+        \\copy.local_variable_set(:added, 12)
+        \\copy.eval("earlier = 4")
+        \\copy.local_variable_set(:later, 21)
+        \\[captured.eval("count"), copy.eval("added"), copy.eval("later"), TOPLEVEL_BINDING.local_variable_defined?(:added)]
+    );
+    const values = result.toArrayObject().elements.items;
+    try std.testing.expectEqual(@as(i64, 7), values[0].toInteger());
+    try std.testing.expectEqual(@as(i64, 12), values[1].toInteger());
+    try std.testing.expectEqual(@as(i64, 21), values[2].toInteger());
+    try std.testing.expect(values[3].isFalse());
+}
+
 test "Proc.call uses defining self" {
     const result = try evalCode(
         \\obj = Object.new
