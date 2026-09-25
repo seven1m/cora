@@ -964,7 +964,7 @@ fn parseFractionalNanoseconds(bytes: []const u8, start: usize, end: usize) ?u32 
     return @intCast(value_i64);
 }
 
-fn parseTimeString(vm: *VM, raw: []const u8) VMError!Value {
+fn parseTimeString(vm: *VM, raw: []const u8, precision: ?usize) VMError!Value {
     const bytes = std.mem.trim(u8, raw, " \t\r\n");
     if (bytes.len < 10) {
         return vm.raiseExceptionFmt(vm.argument_error_class, "invalid time", .{});
@@ -995,7 +995,8 @@ fn parseTimeString(vm: *VM, raw: []const u8) VMError!Value {
         index += 1;
         var fraction_end = index;
         while (fraction_end < bytes.len and std.ascii.isDigit(bytes[fraction_end])) : (fraction_end += 1) {}
-        nanosecond = parseFractionalNanoseconds(bytes, index, fraction_end) orelse return vm.raiseExceptionFmt(vm.argument_error_class, "invalid time", .{});
+        const parsed_end = if (precision) |digits| @min(fraction_end, index +| digits) else fraction_end;
+        nanosecond = parseFractionalNanoseconds(bytes, index, parsed_end) orelse return vm.raiseExceptionFmt(vm.argument_error_class, "subsecond expected after dot", .{});
         index = fraction_end;
     }
 
@@ -1070,7 +1071,16 @@ pub fn builtinTimeNew(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMErro
     }
     if (args.len == 1 and (args[0].isString() or args[0].isSymbol())) {
         const time_string = try args[0].coerceToStringValue(vm, "no implicit conversion into String");
-        return vm.newTime(class_obj, try parseTimeString(vm, time_string.toStringObject().str));
+        const precision_arg = try vm.consumeKeywordArg("precision");
+        try vm.validateKeywordArgsConsumed();
+        var precision: ?usize = null;
+        if (precision_arg) |arg| {
+            if (!arg.isNil()) {
+                const digits = try coerceIntegerComponent(vm, arg);
+                if (digits >= 0) precision = @intCast(digits);
+            }
+        }
+        return vm.newTime(class_obj, try parseTimeString(vm, time_string.toStringObject().str, precision));
     }
     // Time.new(year, month, day, hour, min, sec, utc_offset)
     // Components are wall-clock in the given offset zone.

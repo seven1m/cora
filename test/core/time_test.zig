@@ -241,6 +241,18 @@ test "Time.new parses RubyGems timestamp strings and rejects date-only strings" 
     try std.testing.expectEqualStrings("argument_error", result.toSymbolObject().name);
 }
 
+test "Time.new precision truncates parsed fractional seconds" {
+    const result = try evalCode(
+        \\[Time.new("2000-12-31 23:59:59.56789", precision: 3).nsec,
+        \\ Time.new("2000-12-31 23:59:59.56789", precision: 1).nsec,
+        \\ Time.new("2000-12-31 23:59:59.56789").nsec]
+    );
+    const items = result.toArrayObject().elements.items;
+    try std.testing.expectEqual(@as(i64, 567_000_000), items[0].toInteger());
+    try std.testing.expectEqual(@as(i64, 500_000_000), items[1].toInteger());
+    try std.testing.expectEqual(@as(i64, 567_890_000), items[2].toInteger());
+}
+
 test "Time._load decodes MRI marshal payload" {
     const result = try evalCode(
         \\payload = [0xec, 0x15, 0x1f, 0xc0, 0x00, 0x00, 0x80, 0x8b].pack("C*")
