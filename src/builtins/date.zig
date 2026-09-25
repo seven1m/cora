@@ -80,6 +80,10 @@ pub fn register(vm: *VM) !void {
     try date_class.module.methods.put(try vm.intern("day_fraction"), value.MethodEntry.builtin(&builtinDateDayFraction, .{ .exact = 0 }));
     try date_class.module.methods.put(try vm.intern("strftime"), value.MethodEntry.builtin(&builtinDateStrftime, .{ .exact = 1 }));
     try date_class.module.methods.put(try vm.intern("start"), value.MethodEntry.builtin(&builtinDateStart, .{ .exact = 0 }));
+    try date_class.module.methods.put(try vm.intern("new_start"), value.MethodEntry.builtin(&builtinDateNewStart, .{ .variadic = 0 }));
+    try date_class.module.methods.put(try vm.intern("italy"), value.MethodEntry.builtin(&builtinDateItalyConversion, .{ .exact = 0 }));
+    try date_class.module.methods.put(try vm.intern("england"), value.MethodEntry.builtin(&builtinDateEnglandConversion, .{ .exact = 0 }));
+    try date_class.module.methods.put(try vm.intern("julian"), value.MethodEntry.builtin(&builtinDateJulianConversion, .{ .exact = 0 }));
     try date_class.module.methods.put(try vm.intern("yday"), value.MethodEntry.builtin(&builtinDateYday, .{ .exact = 0 }));
     try date_class.module.methods.put(try vm.intern("wday"), value.MethodEntry.builtin(&builtinDateWday, .{ .exact = 0 }));
     try date_class.module.methods.put(try vm.intern("cwyear"), value.MethodEntry.builtin(&builtinDateCwyear, .{ .exact = 0 }));
@@ -666,6 +670,32 @@ fn builtinDateStart(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!
     return receiver.toDateObject().calendar_start;
 }
 
+fn dateWithStart(vm: *VM, receiver: Value, start: Value) VMError!Value {
+    const date = receiver.toDateObject();
+    return vm.newDate(date.object.class.?, date.chronological_day, date.sub_day_fraction, date.utc_offset, start, date.kind);
+}
+
+fn builtinDateNewStart(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCountRange(args, 0, 1);
+    const start = if (args.len == 1) (try calendarStartArg(vm, args[0])).value else defaultCalendarStart().value;
+    return dateWithStart(vm, receiver, start);
+}
+
+fn builtinDateItalyConversion(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    return dateWithStart(vm, receiver, Value.integer(2_299_161));
+}
+
+fn builtinDateEnglandConversion(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    return dateWithStart(vm, receiver, Value.integer(2_361_222));
+}
+
+fn builtinDateJulianConversion(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    return dateWithStart(vm, receiver, try vm.newFloat(std.math.inf(f64)));
+}
+
 fn builtinDateYday(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
     const date = receiver.toDateObject();
@@ -724,15 +754,7 @@ fn builtinDateGregorian(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMEr
 
 fn builtinDateGregorianConversion(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
-    const date = receiver.toDateObject();
-    return vm.newDate(
-        date.object.class.?,
-        date.chronological_day,
-        date.sub_day_fraction,
-        date.utc_offset,
-        try vm.newFloat(-std.math.inf(f64)),
-        date.kind,
-    );
+    return dateWithStart(vm, receiver, try vm.newFloat(-std.math.inf(f64)));
 }
 
 fn builtinDateSucc(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {

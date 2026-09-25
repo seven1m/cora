@@ -83,6 +83,21 @@ test "Date#gregorian preserves the chronological day and converts civil fields" 
     try std.testing.expectEqualStrings("", result.stderr);
 }
 
+test "Date calendar conversions preserve DateTime time and chronological day" {
+    var stdout_buf: [1024]u8 = undefined;
+    var stderr_buf: [1024]u8 = undefined;
+    const result = evalCodeWithOutput(
+        \\require "date"
+        \\original = DateTime.new(1500, 3, 1, 12, 30, 0, "+09:00", Date::JULIAN)
+        \\converted = [original.italy, original.england, original.julian, original.gregorian, original.new_start, original.new_start(Date::ENGLAND)]
+        \\p converted.map { |date| [date.class, date.jd == original.jd, date.hour == original.hour, date.offset == original.offset, date.start] }
+    , &stdout_buf, &stderr_buf);
+
+    try std.testing.expect(result.err == null);
+    try std.testing.expectEqualStrings("[[DateTime, true, true, true, 2299161], [DateTime, true, true, true, 2361222], [DateTime, true, true, true, Infinity], [DateTime, true, true, true, -Infinity], [DateTime, true, true, true, 2299161], [DateTime, true, true, true, 2361222]]\n", result.stdout);
+    try std.testing.expectEqualStrings("", result.stderr);
+}
+
 test "DateTime#gregorian preserves class, time, offset, and chronological day" {
     var stdout_buf: [2048]u8 = undefined;
     var stderr_buf: [1024]u8 = undefined;
