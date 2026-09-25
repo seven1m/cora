@@ -17,6 +17,16 @@ test "Kernel.require is a public module function and private instance method" {
     try std.testing.expect(result.isTruthy());
 }
 
+test "Kernel.load is private on instances" {
+    const result = try evalCode(
+        \\Kernel.private_instance_methods.include?(:load) &&
+        \\  !Kernel.public_instance_methods.include?(:load) &&
+        \\  !Object.new.respond_to?(:load) &&
+        \\  Object.new.respond_to?(:load, true)
+    );
+    try std.testing.expect(result.isTrue());
+}
+
 test "Kernel raise and fail are private instance methods" {
     const result = try evalCode(
         \\private_methods = Kernel.private_instance_methods(false)

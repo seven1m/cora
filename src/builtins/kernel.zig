@@ -277,7 +277,7 @@ pub fn register(vm: *VM) !void {
     try vm.kernel_module.methods.put(require_relative_sym, value.MethodEntry.builtin(&builtinKernelRequireRelative, .{ .exact = 1 }));
 
     const load_sym = try vm.intern("load");
-    try vm.kernel_module.methods.put(load_sym, value.MethodEntry.builtin(&builtinKernelLoad, .{ .variadic = 0 }));
+    try vm.kernel_module.methods.put(load_sym, value.MethodEntry.builtinWithVisibility(&builtinKernelLoad, .{ .variadic = 0 }, .private));
 
     const instance_variable_get_sym = try vm.intern("instance_variable_get");
     try vm.kernel_module.methods.put(instance_variable_get_sym, MethodEntry.builtin(&builtinKernelInstanceVariableGet, .{ .exact = 1 }));
