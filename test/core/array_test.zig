@@ -453,6 +453,31 @@ test "Array#pack integer directives" {
     try std.testing.expectEqualSlices(u8, "[18, 52]", result.toStringObject().str);
 }
 
+test "Array#pack Unicode directive encodes MRI codepoints" {
+    const result = try evalCode(
+        \\unicode = [0, 65, 233, 0x1f600].pack("U*")
+        \\surrogate = [0xd800].pack("U")
+        \\mixed = [65, 66].pack("UC")
+        \\error = begin
+        \\  [-1].pack("U")
+        \\rescue RangeError => raised
+        \\  raised.message
+        \\end
+        \\[unicode.bytes, unicode.encoding.name, surrogate.bytes, surrogate.valid_encoding?, mixed.encoding.name, error]
+    );
+    const values = result.toArrayObject().elements.items;
+    const unicode_bytes = values[0].toArrayObject().elements.items;
+    const expected_unicode = [_]i64{ 0, 65, 195, 169, 240, 159, 152, 128 };
+    for (unicode_bytes, expected_unicode) |byte, number| try std.testing.expectEqual(number, byte.toInteger());
+    try std.testing.expectEqualStrings("UTF-8", values[1].toStringObject().str);
+    const surrogate_bytes = values[2].toArrayObject().elements.items;
+    const expected_surrogate = [_]i64{ 237, 160, 128 };
+    for (surrogate_bytes, expected_surrogate) |byte, number| try std.testing.expectEqual(number, byte.toInteger());
+    try std.testing.expect(!values[3].toBool());
+    try std.testing.expectEqualStrings("ASCII-8BIT", values[4].toStringObject().str);
+    try std.testing.expectEqualStrings("pack(U): value out of range", values[5].toStringObject().str);
+}
+
 test "Array#pack float directives honor respond_to_missing? for to_f" {
     const result = try evalCode(
         \\obj = Object.new

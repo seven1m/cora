@@ -69,6 +69,7 @@ pub fn arrayPack(vm: *VM, items: []Value, format: []const u8) VMError!Value {
             'g' => try packFloatDirective(vm, items, &arg_index, token, &out, 4, .big),
             'G' => try packFloatDirective(vm, items, &arg_index, token, &out, 8, .big),
             'm' => try packBase64Directive(vm, items, &arg_index, token, &out),
+            'U' => try packUnicodeDirective(vm, items, &arg_index, token, &out),
             'p', 'P' => try packPointerDirective(vm, items, &arg_index, token, &out, &packed_pointer_entries),
             'x' => {
                 if (!token.star) {
@@ -103,16 +104,56 @@ pub fn arrayPack(vm: *VM, items: []Value, format: []const u8) VMError!Value {
         }
     }
 
-    const output_encoding: enc.Encoding = if (std.mem.indexOfAny(u8, format, "mM") != null)
-        .{ .us_ascii = .{} }
-    else
-        .{ .ascii_8bit = .{} };
+    var output_encoding: enc.Encoding = .{ .us_ascii = .{} };
+    for (tokens.items) |token| {
+        switch (token.directive) {
+            'U' => if (output_encoding == .us_ascii) {
+                output_encoding = .{ .utf8 = .{} };
+            },
+            'm', 'M', 'u' => {},
+            else => output_encoding = .{ .ascii_8bit = .{} },
+        }
+    }
     const packed_value = try vm.newStringWithEncoding(out.items, false, output_encoding);
     const packed_obj = packed_value.toStringObject();
     for (packed_pointer_entries.items) |entry| {
         try vm.registerPackedPointerTarget(packed_obj, entry.offset, entry.target);
     }
     return packed_value;
+}
+
+fn packUnicodeDirective(
+    vm: *VM,
+    items: []Value,
+    arg_index: *usize,
+    token: DirectiveToken,
+    out: *std.ArrayList(u8),
+) VMError!void {
+    const count = if (token.star) items.len - arg_index.* else token.count orelse 1;
+    var i: usize = 0;
+    while (i < count) : (i += 1) {
+        if (arg_index.* >= items.len) {
+            return vm.raiseExceptionFmt(vm.argument_error_class, "too few arguments", .{});
+        }
+        const number = try coerceToInt(vm, items[arg_index.*]);
+        arg_index.* += 1;
+        if (number < 0 or number > 0x7fff_ffff) {
+            return vm.raiseExceptionFmt(vm.range_error_class, "pack(U): value out of range", .{});
+        }
+
+        var codepoint: u32 = @intCast(number);
+        const length: usize = if (codepoint <= 0x7f) 1 else if (codepoint <= 0x7ff) 2 else if (codepoint <= 0xffff) 3 else if (codepoint <= 0x1f_ffff) 4 else if (codepoint <= 0x3ff_ffff) 5 else 6;
+        var encoded: [6]u8 = undefined;
+        var position = length;
+        while (position > 1) {
+            position -= 1;
+            encoded[position] = @as(u8, @truncate(codepoint & 0x3f)) | 0x80;
+            codepoint >>= 6;
+        }
+        const prefixes = [_]u8{ 0, 0xc0, 0xe0, 0xf0, 0xf8, 0xfc };
+        encoded[0] = prefixes[length - 1] | @as(u8, @truncate(codepoint));
+        out.appendSlice(vm.allocator, encoded[0..length]) catch return error.Fatal;
+    }
 }
 
 fn packBase64Directive(
