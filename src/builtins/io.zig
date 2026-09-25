@@ -845,18 +845,25 @@ pub fn builtinIoCopyStream(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!
             total += @intCast(n);
         }
     } else {
-        // IO-like source: call read in a loop until nil/empty/EOFError
+        // MRI prefers readpartial for IO-like sources and falls back to read.
+        const use_readpartial = try vm.respondsToMethodByName(src_arg, "readpartial", false);
+        const read_method: []const u8 = if (use_readpartial) "readpartial" else "read";
         while (true) {
             if (max_len) |limit| if (total >= limit) break;
             const chunk_size = if (max_len) |limit|
                 limit - total
             else
                 @as(i64, 8192);
-            var len_arg = Value.integer(chunk_size);
-            const chunk = vm.callMethodByName(src_arg, "read", @as([]Value, (&len_arg)[0..1]), null) catch |err| {
+            var read_args = [2]Value{ Value.integer(chunk_size), Value.nil() };
+            if (use_readpartial) read_args[1] = try vm.newString("", false);
+            const chunk = vm.callMethodByName(src_arg, read_method, read_args[0 .. if (use_readpartial) 2 else 1], null) catch |err| {
                 if (err == error.Unwind) {
-                    vm.setPendingException(null);
-                    break;
+                    if (vm.pendingException()) |exc| {
+                        if (vm.isClassOrSubclassOf(exc.object.class.?, vm.eof_error_class)) {
+                            vm.setPendingException(null);
+                            break;
+                        }
+                    }
                 }
                 return err;
             };

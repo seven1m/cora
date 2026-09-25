@@ -568,6 +568,41 @@ test "IO.copy_stream uses single read for limited io-like source" {
     try std.testing.expectEqual(@as(i64, 1), result.toArrayObject().elements.items[1].toInteger());
 }
 
+test "IO.copy_stream uses readpartial and propagates non-EOF errors" {
+    const result = try evalCode(
+        \\class CopyPartialSource
+        \\  def initialize
+        \\    @calls = 0
+        \\  end
+        \\  def readpartial(length, buffer)
+        \\    @calls += 1
+        \\    raise "bad input" if @calls == 2
+        \\    buffer.replace("hello")
+        \\  end
+        \\end
+        \\class CopyPartialDestination
+        \\  attr_reader :data
+        \\  def initialize
+        \\    @data = ""
+        \\  end
+        \\  def write(chunk)
+        \\    @data << chunk
+        \\    chunk.bytesize
+        \\  end
+        \\end
+        \\destination = CopyPartialDestination.new
+        \\error = begin
+        \\  IO.copy_stream(CopyPartialSource.new, destination)
+        \\rescue RuntimeError => raised
+        \\  raised.message
+        \\end
+        \\[destination.data, error]
+    );
+    const values = result.toArrayObject().elements.items;
+    try std.testing.expectEqualStrings("hello", values[0].toStringObject().str);
+    try std.testing.expectEqualStrings("bad input", values[1].toStringObject().str);
+}
+
 test "Dir.children and File::Stat#directory? support vendored fileutils traversal" {
     var root_buf: [128]u8 = undefined;
     const root = try uniquePath(&root_buf);
