@@ -3357,12 +3357,11 @@ pub fn builtinFileStatGrpownedQ(vm: *VM, receiver: Value, args: []Value, _: ?Blo
 pub fn builtinFileFnmatch(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCountRange(args, 2, 3);
 
-    const pattern_val = args[0];
+    const pattern_val = switch (try vm.probeToStringValue(args[0])) {
+        .string => |coerced| coerced,
+        .missing, .nil_result => return vm.raiseExceptionFmt(vm.type_error_class, "no implicit conversion of {s} into String", .{vm.className(args[0])}),
+    };
     const path_val_raw = args[1];
-
-    if (!pattern_val.isString()) {
-        return vm.raiseExceptionFmt(vm.type_error_class, "no implicit conversion of {s} into String", .{vm.className(pattern_val)});
-    }
 
     // Path accepts String or any object responding to #to_path.
     const path_val = try vm.coerceToPathValue(path_val_raw, "no implicit conversion of {s} into String");

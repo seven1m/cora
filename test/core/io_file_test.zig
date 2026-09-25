@@ -18,6 +18,15 @@ test "File.utime nil timestamps set the current time" {
     try std.testing.expect(result.isTruthy());
 }
 
+test "File.fnmatch coerces patterns through to_str" {
+    const result = try evalCode(
+        \\pattern = Object.new
+        \\def pattern.to_str = "*.txt"
+        \\File.fnmatch(pattern, "file.txt")
+    );
+    try std.testing.expect(result.isTruthy());
+}
+
 fn uniquePath(buf: *[128]u8) ![]const u8 {
     return std.fmt.bufPrint(buf, "/tmp/cora_io_{d}.txt", .{@as(i128, @intCast(std.Io.Clock.boot.now(std.testing.io).nanoseconds))});
 }
