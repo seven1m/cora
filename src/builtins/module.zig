@@ -1627,19 +1627,26 @@ pub fn builtinModuleInclude(vm: *VM, receiver: Value, args: []Value, _: ?Block) 
     return receiver;
 }
 
-pub fn builtinMainInclude(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
-    const object_val = Value.fromObject(&vm.object_class.module.object);
-    return builtinModuleInclude(vm, object_val, args, null);
+fn mainMethodTarget(vm: *VM, receiver: Value) Value {
+    if (!receiver.eql(vm.main_self)) {
+        if (vm.current_lexical_scope) |scope| {
+            const module_obj = scope.getModule();
+            return Value.fromObject(&module_obj.object);
+        }
+    }
+    return Value.fromObject(&vm.object_class.module.object);
 }
 
-pub fn builtinMainPrivate(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
-    const object_val = Value.fromObject(&vm.object_class.module.object);
-    return builtinModulePrivate(vm, object_val, args, null);
+pub fn builtinMainInclude(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    return builtinModuleInclude(vm, mainMethodTarget(vm, receiver), args, null);
 }
 
-pub fn builtinMainPublic(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
-    const object_val = Value.fromObject(&vm.object_class.module.object);
-    return builtinModulePublic(vm, object_val, args, null);
+pub fn builtinMainPrivate(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    return builtinModulePrivate(vm, mainMethodTarget(vm, receiver), args, null);
+}
+
+pub fn builtinMainPublic(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    return builtinModulePublic(vm, mainMethodTarget(vm, receiver), args, null);
 }
 
 pub fn builtinModulePrepend(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {

@@ -26,6 +26,18 @@ test "Kernel load searches LOAD_PATH for a relative file" {
     try std.testing.expectEqualStrings("from required file", result.toStringObject().str);
 }
 
+test "Kernel load with wrap uses an Object receiver and isolated lexical module" {
+    const result = try evalCode(
+        \\main_obj = TOPLEVEL_BINDING.eval("self")
+        \\def main_obj.wrapped_load_special; 42; end
+        \\load File.expand_path("test/support/wrapped_load.rb", Dir.pwd), true
+        \\[$wrapped_receiver.class == Object, !$wrapped_receiver.equal?(main_obj), $wrapped_special == 42,
+        \\ $wrapped_nesting.length == 1, !Object.const_defined?(:WRAPPED_CONSTANT),
+        \\ !Object.ancestors.include?($wrapped_module), $wrapped_receiver.wrapped_method == 17]
+    );
+    for (result.toArrayObject().elements.items) |item| try std.testing.expect(item.isTrue());
+}
+
 test "Kernel.load is private on instances" {
     const result = try evalCode(
         \\Kernel.private_instance_methods.include?(:load) &&

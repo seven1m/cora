@@ -12788,8 +12788,13 @@ pub const VM = struct {
 
         const anonymous_sym = try self.intern("<anonymous>");
         const wrapper_val = try self.newModule(anonymous_sym);
-        const wrapper_scope = try self.createLexicalScope(wrapper_val, self.current_lexical_scope);
-        _ = try self.executeChunkInContext(main_chunk, wrapper_val, null, wrapper_scope, .{});
+        const wrapper_scope = try self.createLexicalScope(wrapper_val, null);
+        const wrapped_self = try self.newObjectForClass(self.object_class);
+        try self.copyObjectInstanceVariables(self.main_self.getObjectPointer().?, wrapped_self.getObjectPointer().?);
+        try self.copySingletonClassMetadata(self.main_self, wrapped_self);
+        const wrapped_singleton = try self.getOrCreateSingletonClass(wrapped_self);
+        try self.includeModule(&wrapped_singleton.module, wrapper_val.toModuleObject());
+        _ = try self.executeChunkInContext(main_chunk, wrapped_self, null, wrapper_scope, .{});
     }
 
     fn loadCExtFile(self: *VM, absolute_path: []const u8) VMError!void {
