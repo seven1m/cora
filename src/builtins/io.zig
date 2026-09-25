@@ -150,7 +150,7 @@ pub fn register(vm: *VM) !void {
     try vm.io_class.module.methods.put(write_sym, value.MethodEntry.builtin(&builtinIoWrite, .{ .variadic = 0 }));
 
     const syswrite_sym = try vm.intern("syswrite");
-    try vm.io_class.module.methods.put(syswrite_sym, value.MethodEntry.builtin(&builtinIoWrite, .{ .exact = 1 }));
+    try vm.io_class.module.methods.put(syswrite_sym, value.MethodEntry.builtin(&builtinIoSyswrite, .{ .exact = 1 }));
 
     const append_sym = try vm.intern("<<");
     try vm.io_class.module.methods.put(append_sym, value.MethodEntry.builtin(&builtinIoAppend, .{ .exact = 1 }));
@@ -2335,6 +2335,26 @@ fn ioWriteBytes(vm: *VM, io: *IoObject, bytes: []const u8) VMError!usize {
     return total;
 }
 
+fn ioStringValue(vm: *VM, arg: Value) VMError!Value {
+    if (arg.isString()) return arg;
+    const string = try vm.callMethodByName(arg, "to_s", &[_]Value{}, null);
+    if (!string.isString()) return vm.raiseExceptionFmt(vm.type_error_class, "to_s did not return String", .{});
+    return string;
+}
+
+fn ioWriteValue(vm: *VM, receiver: Value, io: *IoObject, arg: Value) VMError!usize {
+    var string = try ioStringValue(vm, arg);
+    const external = try vm.getInstanceVariable(receiver, "@external_encoding");
+    if (external.isEncoding()) {
+        const destination = external.toEncodingObject().encoding;
+        if (!destination.eql(.{ .ascii_8bit = .{} }) and !destination.eql(string.toStringObject().encoding)) {
+            var encode_args = [_]Value{external};
+            string = try vm.callMethodByName(string, "encode", &encode_args, null);
+        }
+    }
+    return ioWriteBytes(vm, io, string.toStringObject().str);
+}
+
 fn blockingIoRead(vm: *VM, io: *IoObject, buf: []u8) VMError!usize {
     const fd: std.posix.fd_t = @intCast(io.fd);
     while (true) {
@@ -2529,16 +2549,22 @@ pub fn builtinIoChmod(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMErro
 pub fn builtinIoWrite(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 1);
     const io = try requireIoReceiver(vm, receiver);
-    const str = if (args[0].isString()) args[0].toStringObject().str else try vm.coerceViaToS(args[0]);
-    const written = try ioWriteBytes(vm, io, str);
+    const written = try ioWriteValue(vm, receiver, io, args[0]);
+    return Value.integer(@intCast(written));
+}
+
+pub fn builtinIoSyswrite(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    const io = try requireIoReceiver(vm, receiver);
+    const string = try ioStringValue(vm, args[0]);
+    const written = try ioWriteBytes(vm, io, string.toStringObject().str);
     return Value.integer(@intCast(written));
 }
 
 pub fn builtinIoAppend(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 1);
     const io = try requireIoReceiver(vm, receiver);
-    const str = if (args[0].isString()) args[0].toStringObject().str else try vm.coerceViaToS(args[0]);
-    _ = try ioWriteBytes(vm, io, str);
+    _ = try ioWriteValue(vm, receiver, io, args[0]);
     return receiver;
 }
 
@@ -2585,7 +2611,7 @@ pub fn builtinIoWriteNonblock(vm: *VM, receiver: Value, args: []Value, _: ?Block
 pub fn builtinIoPrint(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     const io = try requireIoReceiver(vm, receiver);
     for (args) |arg| {
-        _ = try ioWriteBytes(vm, io, try vm.coerceViaToS(arg));
+        _ = try ioWriteValue(vm, receiver, io, arg);
     }
     return Value.nil();
 }
@@ -2600,8 +2626,7 @@ pub fn builtinIoPrintf(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMErr
     const format_arg = Value.fromObject(&arr.object);
     var fmt_args = [_]Value{format_arg};
     const result = try vm.callMethodByName(format_str, "%", fmt_args[0..], null);
-    const result_str = try vm.coerceViaToS(result);
-    _ = try ioWriteBytes(vm, io, result_str);
+    _ = try ioWriteValue(vm, receiver, io, result);
     return Value.nil();
 }
 
@@ -2614,22 +2639,23 @@ pub fn builtinIoPuts(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError
     }
 
     for (args) |arg| {
-        try ioPutsValue(vm, io, arg);
+        try ioPutsValue(vm, receiver, io, arg);
     }
     _ = try builtinIoFlush(vm, receiver, &[_]Value{}, null);
     return Value.nil();
 }
 
-fn ioPutsValue(vm: *VM, io: *IoObject, arg: Value) VMError!void {
+fn ioPutsValue(vm: *VM, receiver: Value, io: *IoObject, arg: Value) VMError!void {
     if (arg.isArray()) {
         for (arg.toArrayObject().elements.items) |elem| {
-            try ioPutsValue(vm, io, elem);
+            try ioPutsValue(vm, receiver, io, elem);
         }
         return;
     }
 
-    const str = try vm.coerceViaToS(arg);
-    _ = try ioWriteBytes(vm, io, str);
+    const string = try ioStringValue(vm, arg);
+    const str = string.toStringObject().str;
+    _ = try ioWriteValue(vm, receiver, io, string);
     if (!std.mem.endsWith(u8, str, "\n")) {
         _ = try ioWriteBytes(vm, io, "\n");
     }

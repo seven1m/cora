@@ -717,6 +717,30 @@ test "File.open applies external encoding without transcoding write_nonblock byt
     try std.testing.expectEqualStrings("", result.stderr);
 }
 
+test "IO text writes transcode to external encoding while syswrite stays raw" {
+    var path_buf: [128]u8 = undefined;
+    const path = try uniquePath(&path_buf);
+    const source = try std.fmt.allocPrint(
+        std.testing.allocator,
+        \\path = "{s}"
+        \\count = File.open(path, "w", encoding: "Shift_JIS") do |file|
+        \\  written = file.write("こんにちは！")
+        \\  file << "猫"
+        \\  file.print("壁")
+        \\  file.puts("鍵")
+        \\  written
+        \\end
+        \\bytes = File.binread(path).bytes
+        \\File.open(path, "a", encoding: "Shift_JIS") {{ |file| file.syswrite("猫") }}
+        \\raw = File.binread(path).bytes
+        \\File.delete(path)
+        \\count == 12 && bytes == [130, 177, 130, 241, 130, 201, 130, 191, 130, 205, 129, 73, 148, 76, 149, 199, 140, 174, 10] && raw[-3, 3] == "猫".bytes
+    , .{path});
+    defer std.testing.allocator.free(source);
+    const result = try evalCode(source);
+    try std.testing.expect(result.isTruthy());
+}
+
 test "Dir.pwd returns the current working directory" {
     const cwd = try std.process.currentPathAlloc(std.testing.io, std.testing.allocator);
     defer std.testing.allocator.free(cwd);
