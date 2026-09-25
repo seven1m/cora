@@ -94,6 +94,21 @@ test "Binding local_variable_set updates existing locals and adds locals to copi
     try std.testing.expect(values[3].isFalse());
 }
 
+test "Binding local_variable_get reads locals and names missing locals" {
+    const result = try evalCode(
+        \\b = TOPLEVEL_BINDING.dup
+        \\b.local_variable_set(:value, 8)
+        \\begin
+        \\  b.local_variable_get(:missing)
+        \\rescue NameError => error
+        \\  [b.local_variable_get("value"), error.name]
+        \\end
+    );
+    const values = result.toArrayObject().elements.items;
+    try std.testing.expectEqual(@as(i64, 8), values[0].toInteger());
+    try std.testing.expectEqualStrings("missing", values[1].toSymbolObject().name);
+}
+
 test "Proc.call uses defining self" {
     const result = try evalCode(
         \\obj = Object.new

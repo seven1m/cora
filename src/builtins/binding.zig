@@ -21,6 +21,9 @@ pub fn register(vm: *VM) !void {
     const local_variable_set_sym = try vm.intern("local_variable_set");
     try vm.binding_class.module.methods.put(local_variable_set_sym, MethodEntry.builtin(&builtinBindingLocalVariableSet, .{ .exact = 2 }));
 
+    const local_variable_get_sym = try vm.intern("local_variable_get");
+    try vm.binding_class.module.methods.put(local_variable_get_sym, MethodEntry.builtin(&builtinBindingLocalVariableGet, .{ .exact = 1 }));
+
     const receiver_sym = try vm.intern("receiver");
     try vm.binding_class.module.methods.put(receiver_sym, MethodEntry.builtin(&builtinBindingReceiver, .{ .exact = 0 }));
 
@@ -121,6 +124,22 @@ pub fn builtinBindingLocalVariableSet(vm: *VM, receiver: Value, args: []Value, _
     const name = if (args[0].isSymbol()) args[0].toSymbolObject().name else try args[0].coerceToStr(vm, "no implicit conversion into String");
     try vm.setBindingLocal(receiver.toBindingObject(), name, args[1]);
     return args[1];
+}
+
+/// Binding#local_variable_get(name) -> value
+pub fn builtinBindingLocalVariableGet(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    const name = if (args[0].isSymbol()) args[0].toSymbolObject().name else try args[0].coerceToStr(vm, "no implicit conversion into String");
+    const binding_obj = receiver.toBindingObject();
+    for (binding_obj.local_names.items, 0..) |local_name, i| {
+        if (std.mem.eql(u8, local_name, name)) {
+            if (i >= binding_obj.real_local_count) return Value.nil();
+            const ep = binding_obj.ep orelse return error.Fatal;
+            return (ep - binding_obj.real_local_count + i)[0];
+        }
+    }
+    const name_sym = try vm.intern(name);
+    return vm.raiseNameErrorFmt(name_sym, "local variable '{s}' is not defined for Binding", .{name});
 }
 
 /// Binding#receiver -> Object
