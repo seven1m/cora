@@ -148,6 +148,23 @@ test "C extension associates string encodings by index" {
     for (codepoints, expected) |actual, codepoint| try std.testing.expectEqual(codepoint, actual.toInteger());
 }
 
+test "C extension appends raw bytes without changing string encoding" {
+    const result = try evalCode(
+        \\$LOAD_PATH << "build/cext"
+        \\require "fixture.so"
+        \\string = "a".encode("UTF-16LE")
+        \\result = CoraCExt.append_raw_utf16(string)
+        \\[result.equal?(string), result.encoding.name, result.codepoints]
+    );
+    const values = result.toArrayObject().elements.items;
+    try std.testing.expect(values[0].isTrue());
+    try std.testing.expectEqualStrings("UTF-16LE", values[1].toStringObject().str);
+    const codepoints = values[2].toArrayObject().elements.items;
+    try std.testing.expectEqual(@as(usize, 2), codepoints.len);
+    try std.testing.expectEqual(@as(i64, 'a'), codepoints[0].toInteger());
+    try std.testing.expectEqual(@as(i64, 0), codepoints[1].toInteger());
+}
+
 test "C extension packs signed 64-bit integers" {
     const result = try evalCode(
         \\$LOAD_PATH << "build/cext"

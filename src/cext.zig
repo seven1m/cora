@@ -1768,13 +1768,24 @@ export fn rb_str_dup(str_raw: VALUE) VALUE {
 }
 
 export fn rb_str_cat(str_raw: VALUE, ptr: [*c]const u8, len: c_long) VALUE {
-    if (ptr == null or len <= 0) return str_raw;
     const vm = getVM();
-    const s = ptr[0..@intCast(len)];
-    const str_val = vm.newString(s, false) catch return 0;
-    var args = [_]Value{str_val};
-    const result = vm.callMethodByName(Value{ .raw = str_raw }, "<<", &args, null) catch return str_raw;
-    return result.raw;
+    const pending_unwind_before = vm.pendingUnwind();
+    if (len < 0) {
+        _ = vm.raiseExceptionFmt(vm.argument_error_class, "negative string size (or size too big)", .{}) catch {};
+        checkPendingUnwind(vm, pending_unwind_before);
+        return 0;
+    }
+    if (ptr == null or len == 0) return str_raw;
+    const str_val = Value{ .raw = str_raw };
+    if (!str_val.isString()) return 0;
+    vm.guardNotFrozen(str_val) catch {
+        checkPendingUnwind(vm, pending_unwind_before);
+        return 0;
+    };
+    const str_obj = str_val.toStringObject();
+    str_obj.str = std.mem.concat(vm.gc_allocator, u8, &.{ str_obj.str, ptr[0..@intCast(len)] }) catch return 0;
+    str_obj.validity = .unknown;
+    return str_raw;
 }
 
 export fn rb_hash(obj_raw: VALUE) VALUE {
