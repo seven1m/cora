@@ -27,6 +27,13 @@ test "File.fnmatch coerces patterns through to_str" {
     try std.testing.expect(result.isTruthy());
 }
 
+test "File Separator aliases the frozen path separator" {
+    const result = try evalCode(
+        \\File::Separator.equal?(File::SEPARATOR) && File::Separator.frozen? && File::Separator == "/"
+    );
+    try std.testing.expect(result.isTruthy());
+}
+
 fn uniquePath(buf: *[128]u8) ![]const u8 {
     return std.fmt.bufPrint(buf, "/tmp/cora_io_{d}.txt", .{@as(i128, @intCast(std.Io.Clock.boot.now(std.testing.io).nanoseconds))});
 }

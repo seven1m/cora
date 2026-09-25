@@ -507,7 +507,10 @@ pub fn register(vm: *VM) !void {
     }
 
     const separator_sym = try vm.intern("SEPARATOR");
-    try vm.file_class.module.constants.put(separator_sym, .{ .value = try vm.newString("/", false) });
+    const separator = try vm.newString("/", true);
+    try vm.file_class.module.constants.put(separator_sym, .{ .value = separator });
+    const separator_alias_sym = try vm.intern("Separator");
+    try vm.file_class.module.constants.put(separator_alias_sym, .{ .value = separator });
 
     const null_sym = try vm.intern("NULL");
     try vm.file_class.module.constants.put(null_sym, .{ .value = try vm.newString(null_device_path, false) });
