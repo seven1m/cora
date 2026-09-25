@@ -337,6 +337,40 @@ class Date
 end
 
 class DateTime
+  def self.iso8601(string="-4712-01-01T00:00:00+00:00", start=ITALY, limit: 128)
+    unless string.respond_to?(:to_str)
+      raise TypeError, "no implicit conversion of #{string.class} into String"
+    end
+    string = string.to_str
+    if limit && string.length > limit
+      raise ArgumentError, "string length (#{string.length}) exceeds the limit #{limit}"
+    end
+
+    date_text, time_text = string.split("T", 2)
+    if match = /\A([+-]?\d{4,})-(\d{2})-(\d{2})\z/.match(date_text)
+      year, month, day = match[1].to_i, match[2].to_i, match[3].to_i
+    elsif match = /\A(\d{4})(\d{2})(\d{2})\z/.match(date_text)
+      year, month, day = match[1].to_i, match[2].to_i, match[3].to_i
+    else
+      raise Error, "invalid date"
+    end
+
+    hour = minute = second = 0
+    offset = "+00:00"
+    if time_text
+      match = /\A(\d{2}):?(\d{2})(?::?(\d{2})(?:[.,](\d+))?)?(Z|[+-]\d{2}:?\d{2})?\z/.match(time_text)
+      raise Error, "invalid date" unless match
+      hour, minute = match[1].to_i, match[2].to_i
+      second = match[3].to_i if match[3]
+      second += Rational(match[4].to_i, 10 ** match[4].length) if match[4]
+      offset = match[5] if match[5]
+      offset = "+00:00" if offset == "Z"
+      offset = "#{offset[0, 3]}:#{offset[3, 2]}" if offset.length == 5
+    end
+
+    civil(year, month, day, hour, minute, second, offset, start)
+  end
+
   def iso8601(n=0)
     precision = n.to_int
     fraction = precision > 0 ? ".#{strftime("%#{precision}N")}" : ""
