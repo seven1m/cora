@@ -159,6 +159,76 @@ test "Binding eval retains values of newly declared locals" {
     try std.testing.expect(values[2].isFalse());
 }
 
+test "Binding eval shares new locals with closures and later evals" {
+    const result = try evalCode(
+        \\b = TOPLEVEL_BINDING.dup
+        \\b.eval("counter = 1; reader = proc { counter }; writer = proc { |n| counter = n }")
+        \\b.eval("counter = 2")
+        \\first = b.local_variable_get(:reader).call
+        \\b.local_variable_get(:writer).call(5)
+        \\[first, b.eval("counter"), b.local_variable_get(:reader).call]
+    );
+    const values = result.toArrayObject().elements.items;
+    try std.testing.expectEqual(@as(i64, 2), values[0].toInteger());
+    try std.testing.expectEqual(@as(i64, 5), values[1].toInteger());
+    try std.testing.expectEqual(@as(i64, 5), values[2].toInteger());
+}
+
+test "Binding closures read captured and dynamically added scopes" {
+    const result = try evalCode(
+        \\def binding_reader
+        \\  outer = 1
+        \\  b = binding
+        \\  b.local_variable_set(:added, 2)
+        \\  b.eval("reader = proc { outer + added }")
+        \\  b.local_variable_set(:outer, 3)
+        \\  b.local_variable_set(:added, 4)
+        \\  b.local_variable_get(:reader).call
+        \\end
+        \\binding_reader
+    );
+    try std.testing.expectEqual(@as(i64, 7), result.toInteger());
+}
+
+test "Kernel eval updates Binding locals shared with closures" {
+    const result = try evalCode(
+        \\b = TOPLEVEL_BINDING.dup
+        \\b.eval("value = 1; reader = proc { value }")
+        \\eval("value = 4", b)
+        \\[b.local_variable_get(:reader).call, b.local_variable_get(:value)]
+    );
+    const values = result.toArrayObject().elements.items;
+    try std.testing.expectEqual(@as(i64, 4), values[0].toInteger());
+    try std.testing.expectEqual(@as(i64, 4), values[1].toInteger());
+}
+
+test "Binding copies keep new local scopes separate" {
+    const result = try evalCode(
+        \\original = TOPLEVEL_BINDING.dup
+        \\copy = original.dup
+        \\original.eval("value = 1")
+        \\copy.eval("value = 2")
+        \\[original.local_variable_get(:value), copy.local_variable_get(:value)]
+    );
+    const values = result.toArrayObject().elements.items;
+    try std.testing.expectEqual(@as(i64, 1), values[0].toInteger());
+    try std.testing.expectEqual(@as(i64, 2), values[1].toInteger());
+}
+
+test "Binding keeps eval locals when execution raises" {
+    const result = try evalCode(
+        \\b = TOPLEVEL_BINDING.dup
+        \\begin
+        \\  b.eval("added = 8; raise 'stop'")
+        \\rescue RuntimeError
+        \\end
+        \\[b.local_variable_get(:added), b.eval("added")]
+    );
+    const values = result.toArrayObject().elements.items;
+    try std.testing.expectEqual(@as(i64, 8), values[0].toInteger());
+    try std.testing.expectEqual(@as(i64, 8), values[1].toInteger());
+}
+
 test "Proc.call uses defining self" {
     const result = try evalCode(
         \\obj = Object.new

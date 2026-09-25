@@ -196,6 +196,7 @@ pub fn syntaxErrorMessage(err: anyerror) ?[]const u8 {
 pub const Compiler = struct {
     pub const CompileContext = struct {
         outer_local_names: ?[]const []const u8 = null,
+        outer_local_scopes: ?[]const []const []const u8 = null,
     };
 
     allocator: std.mem.Allocator,
@@ -338,7 +339,9 @@ pub const Compiler = struct {
     ) !CompiledProgram {
         var compiler = Compiler.init(allocator, parser, starting_chunk_id);
         defer compiler.deinit();
-        if (context.outer_local_names) |names| {
+        if (context.outer_local_scopes) |scopes| {
+            for (scopes) |names| try compiler.seedOuterLocals(names);
+        } else if (context.outer_local_names) |names| {
             try compiler.seedOuterLocals(names);
         }
 

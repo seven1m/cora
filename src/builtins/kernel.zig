@@ -841,7 +841,8 @@ pub fn builtinKernelEval(vm: *VM, receiver: Value, args: []Value, _: ?Block) VME
     }
 
     const binding_obj = binding_arg.toBindingObject();
-    const real_names = binding_obj.local_names.items[0..binding_obj.real_local_count];
+    const scopes = try vm.bindingLocalNameScopes(binding_obj);
+    defer vm.allocator.free(scopes);
     return vm.evalSourceWithEncodingAndContext(
         source_obj.str,
         filename,
@@ -850,7 +851,7 @@ pub fn builtinKernelEval(vm: *VM, receiver: Value, args: []Value, _: ?Block) VME
             .self_value = binding_obj.self_value,
             .parent_ep = binding_obj.ep,
             .lexical_scope = binding_obj.lexical_scope,
-            .parent_local_names = if (real_names.len > 0) real_names else null,
+            .parent_local_scopes = if (scopes.len > 0) scopes else null,
             .dir_returns_nil = filename == null,
             .start_line = start_line,
             .binding_to_update = binding_obj,
@@ -864,12 +865,7 @@ pub fn builtinKernelBinding(vm: *VM, receiver: Value, args: []Value, _: ?Block) 
 
     if (vm.currentRubyCallerFrame()) |frame| {
         const binding = try vm.createBinding(frame.self_value, frame.ep, vm.current_lexical_scope);
-        // Capture local variable names from the frame's chunk.
-        for (frame.chunk.local_names.items) |name| {
-            const duped = vm.gc_allocator.dupe(u8, name) catch return error.Fatal;
-            binding.local_names.append(vm.gc_allocator, duped) catch return error.Fatal;
-        }
-        binding.real_local_count = binding.local_names.items.len;
+        try vm.addBindingLocalScope(binding, binding.ep.?, frame.chunk.local_names.items);
         // Capture the method name where `binding` was called.
         binding.method_name = if (std.mem.eql(u8, frame.chunk.name, "block"))
             frame.method_name orelse null

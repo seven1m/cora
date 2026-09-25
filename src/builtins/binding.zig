@@ -74,7 +74,8 @@ pub fn builtinBindingEval(vm: *VM, receiver: Value, args: []Value, _: ?Block) VM
     const has_explicit_filename = args.len >= 2 and !args[1].isNil();
 
     const binding_obj = receiver.toBindingObject();
-    const real_names = binding_obj.local_names.items[0..binding_obj.real_local_count];
+    const scopes = try vm.bindingLocalNameScopes(binding_obj);
+    defer vm.allocator.free(scopes);
 
     return vm.evalSourceWithEncodingAndContext(
         source_obj.str,
@@ -84,7 +85,7 @@ pub fn builtinBindingEval(vm: *VM, receiver: Value, args: []Value, _: ?Block) VM
             .self_value = binding_obj.self_value,
             .parent_ep = binding_obj.ep,
             .lexical_scope = binding_obj.lexical_scope,
-            .parent_local_names = if (real_names.len > 0) real_names else null,
+            .parent_local_scopes = if (scopes.len > 0) scopes else null,
             .dir_returns_nil = !has_explicit_filename,
             .start_line = start_line,
             .binding_to_update = binding_obj,
@@ -131,13 +132,7 @@ pub fn builtinBindingLocalVariableGet(vm: *VM, receiver: Value, args: []Value, _
     try vm.requireArgCount(args, 1);
     const name = if (args[0].isSymbol()) args[0].toSymbolObject().name else try args[0].coerceToStr(vm, "no implicit conversion into String");
     const binding_obj = receiver.toBindingObject();
-    for (binding_obj.local_names.items, 0..) |local_name, i| {
-        if (std.mem.eql(u8, local_name, name)) {
-            if (i >= binding_obj.real_local_count) return Value.nil();
-            const ep = binding_obj.ep orelse return error.Fatal;
-            return (ep - binding_obj.real_local_count + i)[0];
-        }
-    }
+    if (binding_obj.localSlot(name)) |slot| return slot.*;
     const name_sym = try vm.intern(name);
     return vm.raiseNameErrorFmt(name_sym, "local variable '{s}' is not defined for Binding", .{name});
 }

@@ -335,6 +335,21 @@ pub const Parser = struct {
         outer_local_names: ?[]const []const u8,
         start_line: i32,
     ) !Parser {
+        if (outer_local_names) |names| {
+            const scopes = [_][]const []const u8{names};
+            return initWithEncodingScopesAndLine(allocator, source, source_file, source_encoding, &scopes, start_line);
+        }
+        return initWithEncodingScopesAndLine(allocator, source, source_file, source_encoding, null, start_line);
+    }
+
+    pub fn initWithEncodingScopesAndLine(
+        allocator: std.mem.Allocator,
+        source: []const u8,
+        source_file: ?[]const u8,
+        source_encoding: ?enc.Encoding,
+        outer_local_scopes: ?[]const []const []const u8,
+        start_line: i32,
+    ) !Parser {
         var parser: c.pm_parser_t = undefined;
         var options: c.pm_options_t = std.mem.zeroes(c.pm_options_t);
         defer c.pm_options_free(&options);
@@ -345,14 +360,16 @@ pub const Parser = struct {
             c.pm_options_encoding_locked_set(&options, true);
         }
 
-        if (outer_local_names) |names| {
-            if (names.len > 0) {
-                _ = c.pm_options_scopes_init(&options, 1);
-                const scope = @constCast(c.pm_options_scope_get(&options, 0));
-                if (scope != null) {
-                    _ = c.pm_options_scope_init(scope, names.len);
-                    for (names, 0..) |name, i| {
-                        c.pm_string_constant_init(&scope.*.locals[i], name.ptr, name.len);
+        if (outer_local_scopes) |scopes| {
+            if (scopes.len > 0) {
+                _ = c.pm_options_scopes_init(&options, scopes.len);
+                for (scopes, 0..) |names, scope_index| {
+                    const scope = @constCast(c.pm_options_scope_get(&options, scope_index));
+                    if (scope != null) {
+                        _ = c.pm_options_scope_init(scope, names.len);
+                        for (names, 0..) |name, i| {
+                            c.pm_string_constant_init(&scope.*.locals[i], name.ptr, name.len);
+                        }
                     }
                 }
             }

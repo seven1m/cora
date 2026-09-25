@@ -10860,6 +10860,8 @@ pub const VM = struct {
                 const duped = self.gc_allocator.dupe(u8, name) catch return error.Fatal;
                 names_copy.append(self.gc_allocator, duped) catch return error.Fatal;
             }
+            var scopes_copy: std.ArrayListUnmanaged(value.BindingLocalScope) = .empty;
+            scopes_copy.appendSlice(self.gc_allocator, src.scopes.items) catch return error.Fatal;
             dup_ptr.* = value.BindingObject{
                 .object = .{
                     .type_tag = .binding,
@@ -10871,8 +10873,8 @@ pub const VM = struct {
                 .self_value = src.self_value,
                 .ep = src.ep,
                 .lexical_scope = src.lexical_scope,
+                .scopes = scopes_copy,
                 .local_names = names_copy,
-                .real_local_count = src.real_local_count,
                 .method_name = src.method_name,
                 .source_file = src.source_file,
                 .source_line = src.source_line,
@@ -12925,6 +12927,7 @@ pub const VM = struct {
         class_variable_scope: ?*LexicalScope = null,
         method_definition_target: ?Value = null,
         parent_local_names: ?[]const []const u8 = null,
+        parent_local_scopes: ?[]const []const []const u8 = null,
         dir_returns_nil: bool = false,
         start_line: i32 = 1,
         // Optional binding to update with eval-created local variable names.
@@ -12942,7 +12945,11 @@ pub const VM = struct {
     ) VMError!Value {
         const outer_names = if (context) |ctx| ctx.parent_local_names else null;
         const start_line = if (context) |ctx| ctx.start_line else 1;
-        var parser = prism.Parser.initWithEncodingLocalsAndLine(self.allocator, source, source_file, source_encoding, outer_names, start_line) catch {
+        const outer_scopes = if (context) |ctx| ctx.parent_local_scopes else null;
+        var parser = (if (outer_scopes) |scopes|
+            prism.Parser.initWithEncodingScopesAndLine(self.allocator, source, source_file, source_encoding, scopes, start_line)
+        else
+            prism.Parser.initWithEncodingLocalsAndLine(self.allocator, source, source_file, source_encoding, outer_names, start_line)) catch {
             return self.raiseExceptionFmt(self.syntax_error_class, "{s}: syntax error", .{source_file orelse "(eval)"});
         };
         defer parser.deinit();
@@ -12951,7 +12958,10 @@ pub const VM = struct {
             self.allocator,
             &parser,
             self.next_chunk_id,
-            .{ .outer_local_names = if (context) |ctx| ctx.parent_local_names else null },
+            .{
+                .outer_local_names = outer_names,
+                .outer_local_scopes = outer_scopes,
+            },
         ) catch |err| {
             if (compiler.syntaxErrorMessage(err)) |message| {
                 return self.raiseExceptionFmt(self.syntax_error_class, "{s}: {s}", .{ source_file orelse "(eval)", message });
@@ -13061,9 +13071,7 @@ pub const VM = struct {
         const captured_ep = if (opts.binding_to_update != null) try self.promoteFrameToHeap(ep) else null;
         const execution = self.executeUntilReturn(saved);
         if (opts.binding_to_update) |binding| {
-            for (target_chunk.local_names.items, 0..) |name, i| {
-                try self.setBindingLocal(binding, name, (captured_ep.? - lc + i)[0]);
-            }
+            try self.addBindingLocalScope(binding, captured_ep.?, target_chunk.local_names.items);
         }
         try execution;
         return self.finishSubcallFromStack(saved, saved_stack_len, pending_unwind_before);
@@ -13125,46 +13133,44 @@ pub const VM = struct {
         return binding_ptr;
     }
 
+    pub fn bindingLocalNameScopes(self: *VM, binding: *const value.BindingObject) VMError![][]const []const u8 {
+        const scopes = self.allocator.alloc([]const []const u8, binding.scopes.items.len) catch return error.Fatal;
+        for (binding.scopes.items, scopes) |scope, *names| names.* = scope.names;
+        return scopes;
+    }
+
+    pub fn addBindingLocalScope(self: *VM, binding: *value.BindingObject, ep: [*]Value, names: []const []const u8) VMError!void {
+        if (names.len == 0) return;
+        const copied_names = try self.copyLocalNames(names);
+        binding.scopes.append(self.gc_allocator, .{ .ep = ep, .names = copied_names }) catch return error.Fatal;
+        for (copied_names) |name| {
+            var present = false;
+            for (binding.local_names.items) |existing| {
+                if (std.mem.eql(u8, existing, name)) {
+                    present = true;
+                    break;
+                }
+            }
+            if (!present) binding.local_names.append(self.gc_allocator, name) catch return error.Fatal;
+        }
+        binding.ep = ep;
+    }
+
     pub fn setBindingLocal(self: *VM, binding: *value.BindingObject, name: []const u8, new_value: Value) VMError!void {
-        var local_index: ?usize = null;
-        for (binding.local_names.items, 0..) |local_name, i| {
-            if (std.mem.eql(u8, local_name, name)) {
-                local_index = i;
-                break;
-            }
+        if (binding.localSlot(name)) |slot| {
+            slot.* = new_value;
+            return;
         }
 
-        if (local_index) |index| {
-            if (index < binding.real_local_count) {
-                const ep = binding.ep orelse return error.Fatal;
-                (ep - binding.real_local_count + index)[0] = new_value;
-                return;
-            }
-        }
-
-        const old_count = binding.real_local_count;
-        const new_count = @max(binding.local_names.items.len + @as(usize, if (local_index == null) 1 else 0), old_count + 1);
-        const storage = self.gc_allocator.alloc(Value, new_count + ENV_DATA_SIZE) catch return error.Fatal;
-        @memset(storage[0..new_count], Value.nil());
-        const new_ep: [*]Value = storage[new_count..].ptr;
-        if (binding.ep) |old_ep| {
-            @memcpy(storage[0..old_count], (old_ep - old_count)[0..old_count]);
-            @memcpy(new_ep[0..ENV_DATA_SIZE], old_ep[0..ENV_DATA_SIZE]);
-        } else {
-            new_ep[0] = .{ .raw = 0 };
-            new_ep[1] = try self.frameScopeValue(binding.lexical_scope, null, null);
-            setEpEnvironmentRole(new_ep, .synthetic);
-        }
-        new_ep[2] = Value.integer(@intCast(new_count));
-
-        if (local_index == null) {
-            const copy = self.gc_allocator.dupe(u8, name) catch return error.Fatal;
-            binding.local_names.append(self.gc_allocator, copy) catch return error.Fatal;
-            local_index = binding.local_names.items.len - 1;
-        }
-        storage[local_index.?] = new_value;
-        binding.ep = new_ep;
-        binding.real_local_count = new_count;
+        const storage = self.gc_allocator.alloc(Value, 1 + ENV_DATA_SIZE) catch return error.Fatal;
+        storage[0] = new_value;
+        const new_ep: [*]Value = storage[1..].ptr;
+        new_ep[0] = if (binding.ep) |parent| encodeEp(parent) else .{ .raw = 0 };
+        new_ep[1] = try self.frameScopeValue(binding.lexical_scope, null, null);
+        new_ep[2] = Value.integer(1);
+        setEpEnvironmentRole(new_ep, .synthetic);
+        const names = [_][]const u8{name};
+        try self.addBindingLocalScope(binding, new_ep, &names);
     }
 
     pub fn copyLocalNames(self: *VM, names: []const []const u8) VMError![]const []const u8 {

@@ -116,10 +116,7 @@ pub fn builtinProcBinding(vm: *VM, receiver: Value, _: []Value, _: ?Block) VMErr
         else => return vm.raiseExceptionFmt(vm.argument_error_class, "Can't create Binding from C level Proc", .{}),
     };
     const binding = try vm.createBinding(chunk_block.defining_self, chunk_block.defining_ep, chunk_block.chunk.lexical_scope);
-    for (chunk_block.defining_local_names) |name| {
-        binding.local_names.append(vm.gc_allocator, name) catch return error.Fatal;
-    }
-    binding.real_local_count = binding.local_names.items.len;
+    try vm.addBindingLocalScope(binding, binding.ep.?, chunk_block.defining_local_names);
     return Value.fromObject(&binding.object);
 }
 

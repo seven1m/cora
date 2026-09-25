@@ -302,22 +302,39 @@ pub const ArrayObject = struct {
     elements: std.ArrayList(Value) = .empty,
 };
 
+pub const BindingLocalScope = struct {
+    ep: [*]Value,
+    names: []const []const u8,
+};
+
 pub const BindingObject = struct {
     object: Object,
     self_value: Value,
     ep: ?[*]Value, // heap-promoted ep pointer (always promoted on binding creation)
     lexical_scope: ?*LexicalScope,
-    // Local variable names present in the binding's ep (gc-owned copies).
-    // The first `real_local_count` entries correspond to actual slots in `ep`.
-    // Entries beyond `real_local_count` were introduced via eval and have no
-    // backing slot in the ep (tracking only for Binding#local_variables).
+    // Scopes are ordered from the captured frame to the newest eval scope.
+    // Each scope keeps the environment that closures also capture.
+    scopes: std.ArrayListUnmanaged(BindingLocalScope) = .empty,
     local_names: std.ArrayListUnmanaged([]const u8) = .empty,
-    real_local_count: usize = 0,
     // Method name where `binding` was called (borrowed from interned symbol or chunk name).
     method_name: ?[]const u8 = null,
     // Source location where `binding` was called. The file is GC-owned.
     source_file: ?[]const u8 = null,
     source_line: u32 = 1,
+
+    pub fn localSlot(self: *const BindingObject, name: []const u8) ?*Value {
+        var scope_index = self.scopes.items.len;
+        while (scope_index > 0) {
+            scope_index -= 1;
+            const scope = self.scopes.items[scope_index];
+            for (scope.names, 0..) |local_name, index| {
+                if (std.mem.eql(u8, local_name, name)) {
+                    return &((scope.ep - scope.names.len + index)[0]);
+                }
+            }
+        }
+        return null;
+    }
 };
 
 pub const HashEntry = struct {
