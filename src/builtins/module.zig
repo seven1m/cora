@@ -434,9 +434,12 @@ fn getConstantPath(vm: *VM, receiver: Value, name: []const u8, inherit: bool) VM
         _ = moduleFromValue(current) orelse {
             return vm.raiseExceptionFmt(vm.name_error_class, "uninitialized constant {s}", .{name});
         };
-        current = (try lookupOrLoadConstantOnReceiver(vm, current, name_sym, use_inherit, first)) orelse {
-            return vm.raiseExceptionFmt(vm.name_error_class, "uninitialized constant {s}", .{name});
-        };
+        if (try lookupOrLoadConstantOnReceiver(vm, current, name_sym, use_inherit, first)) |val| {
+            current = val;
+        } else {
+            var missing_args = [_]Value{Value.fromObject(&name_sym.object)};
+            current = try vm.callMethodByName(current, "const_missing", &missing_args, null);
+        }
         first = false;
     }
 
@@ -920,6 +923,9 @@ pub fn register(vm: *VM) !void {
     const module_singleton = try vm.getOrCreateSingletonClass(Value.fromObject(&vm.module_class.module.object));
     const nesting_sym = try vm.intern("nesting");
     try module_singleton.module.methods.put(nesting_sym, value.MethodEntry.builtin(&builtinModuleNesting, .{ .exact = 0 }));
+
+    const const_missing_sym = try vm.intern("const_missing");
+    try vm.module_class.module.methods.put(const_missing_sym, value.MethodEntry.builtin(&builtinModuleConstMissing, .{ .exact = 1 }));
 
     const include_sym = try vm.intern("include");
     try vm.module_class.module.methods.put(include_sym, value.MethodEntry.builtin(&builtinModuleInclude, .{ .variadic = 0 }));
@@ -2112,11 +2118,25 @@ pub fn builtinModuleConstGet(vm: *VM, receiver: Value, args: []Value, _: ?Block)
     }
 
     const name_sym = try vm.intern(name);
-    const constant_value = (try lookupOrLoadConstantOnReceiver(vm, receiver, name_sym, inherit, true)) orelse {
-        return vm.raiseExceptionFmt(vm.name_error_class, "uninitialized constant {s}::{s}", .{ storedModuleName(receiver), name });
+    const constant_value = (try lookupOrLoadConstantOnReceiver(vm, receiver, name_sym, inherit, true)) orelse blk: {
+        var missing_args = [_]Value{Value.fromObject(&name_sym.object)};
+        break :blk try vm.callMethodByName(receiver, "const_missing", &missing_args, null);
     };
     try warnDeprecatedConstant(vm, receiver, name_sym, isDeprecatedConstant(receiver, name_sym));
     return constant_value;
+}
+
+pub fn builtinModuleConstMissing(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    const name = if (args[0].isSymbol()) args[0].toSymbolObject().name else try vm.coerceViaToS(args[0]);
+    const message = if (receiver.isClass() and receiver.toClassObject() == vm.object_class)
+        std.fmt.allocPrint(vm.gc_allocator, "uninitialized constant {s}", .{name}) catch return error.Fatal
+    else
+        std.fmt.allocPrint(vm.gc_allocator, "uninitialized constant {s}::{s}", .{ vm.publicModuleName(receiver) orelse storedModuleName(receiver), name }) catch return error.Fatal;
+    const exc = try vm.createException(vm.name_error_class, message);
+    try vm.setInstanceVariable(Value.fromObject(&exc.object), "@name", args[0]);
+    vm.setPendingException(exc);
+    return error.Unwind;
 }
 
 pub fn builtinModuleNesting(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {

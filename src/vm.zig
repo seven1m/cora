@@ -5611,7 +5611,9 @@ pub const VM = struct {
                         try self.push(val);
                         return;
                     }
-                    return self.raiseUninitializedLexicalConstant(lexical_scope, name_sym);
+                    const owner = if (lexical_scope) |scope| scope.getModule() else &self.object_class.module;
+                    var missing_args = [_]Value{Value.fromObject(&name_sym.object)};
+                    try self.push(try self.callMethodByName(Value.fromObject(&owner.object), "const_missing", &missing_args, null));
                 }
             },
 
@@ -5673,7 +5675,8 @@ pub const VM = struct {
                             return;
                         },
                     }
-                    return self.raiseExceptionFmt(self.name_error_class, "uninitialized constant {s}", .{constant.string});
+                    var missing_args = [_]Value{Value.fromObject(&name_sym.object)};
+                    try self.push(try self.callMethodByName(Value.fromObject(&self.object_class.module.object), "const_missing", &missing_args, null));
                 }
             },
 
@@ -5774,7 +5777,8 @@ pub const VM = struct {
                         return;
                     },
                 }
-                return self.raiseExceptionFmt(self.name_error_class, "uninitialized constant {s}::{s}", .{ module.name.name, constant.string });
+                var missing_args = [_]Value{Value.fromObject(&name_sym.object)};
+                try self.push(try self.callMethodByName(parent_val, "const_missing", &missing_args, null));
             },
 
             .PUSH_SELF => {

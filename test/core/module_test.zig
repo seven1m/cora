@@ -394,6 +394,20 @@ test "Module const_get excludes Object fallback after the first path segment" {
     for (result.toArrayObject().elements.items) |item| try std.testing.expect(item.isTrue());
 }
 
+test "Module const_missing handles direct and failed constant lookups" {
+    const result = try evalCode(
+        \\default_name = begin; Object.const_missing(:Absent); rescue NameError => error; error.name; end
+        \\class MissingHooks
+        \\  def self.const_missing(name); name; end
+        \\  def self.lexical; MissingLexical; end
+        \\end
+        \\[default_name, MissingHooks.const_get(:MissingGet), MissingHooks::MissingPath, MissingHooks.lexical]
+    );
+    const values = result.toArrayObject().elements.items;
+    const expected = [_][]const u8{ "Absent", "MissingGet", "MissingPath", "MissingLexical" };
+    for (values, expected) |item, name| try std.testing.expectEqualStrings(name, item.toSymbolObject().name);
+}
+
 test "Module const_get loads registered autoloads and propagates load errors" {
     const result = try evalCode(
         \\Object.autoload(:AutoloadRaises, File.expand_path("test/support/autoload_raises", Dir.pwd))
@@ -465,7 +479,7 @@ test "Module const_get does not search enclosing namespaces for explicit receive
     , &stdout_buf, &stderr_buf);
     try std.testing.expectEqual(error.UnhandledException, bad.err.?);
     try std.testing.expect(std.mem.indexOf(u8, bad.stderr, "NameError") != null);
-    try std.testing.expect(std.mem.indexOf(u8, bad.stderr, "uninitialized constant B::X") != null);
+    try std.testing.expect(std.mem.indexOf(u8, bad.stderr, "uninitialized constant A::B::X") != null);
 }
 
 test "Class const_get searches enclosing namespaces for explicit receiver" {
