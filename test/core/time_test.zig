@@ -54,6 +54,23 @@ test "Time.utc exposes UTC date parts" {
     try std.testing.expectEqual(true, items[3].toBool());
 }
 
+test "Time constructors report MRI month range errors" {
+    const result = try evalCode(
+        \\[-1, 0, 13, 90].map do |month|
+        \\  begin
+        \\    Time.utc(2000, month, 1)
+        \\  rescue ArgumentError => error
+        \\    error.message
+        \\  end
+        \\end
+    );
+    const items = result.toArrayObject().elements.items;
+    try std.testing.expectEqualStrings("argument out of range", items[0].toStringObject().str);
+    try std.testing.expectEqualStrings("mon out of range", items[1].toStringObject().str);
+    try std.testing.expectEqualStrings("mon out of range", items[2].toStringObject().str);
+    try std.testing.expectEqualStrings("argument out of range", items[3].toStringObject().str);
+}
+
 test "Time#to_s formats numeric UTC offsets without a colon" {
     const result = try evalCode(
         \\[Time.new(2017, 4, 13, 12, 0, 0, "+09:00").to_s,

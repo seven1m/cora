@@ -476,8 +476,11 @@ fn epochSecondsForTimezone(vm: *VM, timew: Value) VMError!i64 {
 }
 
 fn validateUtcComponents(vm: *VM, year: Value, month: i64, day: i64, hour: i64, minute: i64, second: i64) VMError!void {
+    if (month < 0 or month > 15) {
+        return vm.raiseExceptionFmt(vm.argument_error_class, "argument out of range", .{});
+    }
     if (month < 1 or month > 12) {
-        return vm.raiseExceptionFmt(vm.argument_error_class, "invalid month", .{});
+        return vm.raiseExceptionFmt(vm.argument_error_class, "mon out of range", .{});
     }
     const max_day = try daysInMonth(vm, year, @intCast(month));
     if (day < 1 or day > max_day) {
