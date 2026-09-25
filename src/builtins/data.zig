@@ -2,7 +2,7 @@ const std = @import("std");
 const vm_mod = @import("../vm.zig");
 const value = @import("../value.zig");
 const class_builtin = @import("class.zig");
-const module_builtin = @import("module.zig");
+const kernel_builtin = @import("kernel.zig");
 
 const VM = vm_mod.VM;
 const VMError = vm_mod.VMError;
@@ -18,6 +18,8 @@ pub fn register(vm: *VM) !void {
 
     const initialize_sym = try vm.intern("initialize");
     try vm.data_class.module.methods.put(initialize_sym, value.MethodEntry.builtinWithVisibility(&builtinDataInitialize, .{ .variadic = 0 }, .private));
+    const initialize_copy_sym = try vm.intern("initialize_copy");
+    try vm.data_class.module.methods.put(initialize_copy_sym, value.MethodEntry.builtinWithVisibility(&builtinDataInitializeCopy, .{ .exact = 1 }, .private));
 
     const members_sym = try vm.intern("members");
     try vm.data_class.module.methods.put(members_sym, value.MethodEntry.builtin(&builtinDataMembers, .{ .exact = 0 }));
@@ -50,31 +52,45 @@ pub fn register(vm: *VM) !void {
     try vm.data_class.module.methods.put(deconstruct_keys_sym, value.MethodEntry.builtin(&builtinDataDeconstructKeys, .{ .exact = 1 }));
 }
 
-fn memberNames(vm: *VM, receiver: Value) VMError![]const []const u8 {
-    var current: ?*value.ClassObject = vm.getClass(receiver);
+fn dataMembersForClass(class: *value.ClassObject) ?*value.ArrayObject {
+    var current: ?*value.ClassObject = class;
     while (current) |data_class| {
-        const stored = try vm.getInstanceVariable(Value.fromObject(&data_class.module.object), "@_data_members");
-        if (stored.isArray()) {
-            const arr = stored.toArrayObject();
-            const names = vm.allocator.alloc([]const u8, arr.elements.items.len) catch return error.Fatal;
-            for (arr.elements.items, 0..) |elem, i| {
-                names[i] = elem.toStringObject().str;
-            }
-            return names;
-        }
+        if (data_class.data_members) |members| return members;
         current = data_class.superclass;
     }
-    return &[_][]const u8{};
+    return null;
+}
+
+fn memberNames(vm: *VM, receiver: Value) VMError![]const []const u8 {
+    const stored = dataMembersForClass(vm.getClass(receiver)) orelse return &[_][]const u8{};
+    const names = vm.allocator.alloc([]const u8, stored.elements.items.len) catch return error.Fatal;
+    for (stored.elements.items, 0..) |elem, i| {
+        names[i] = elem.toStringObject().str;
+    }
+    return names;
 }
 
 fn memberValues(vm: *VM, receiver: Value, members: []const []const u8) VMError![]const Value {
-    var vals = vm.allocator.alloc(Value, members.len) catch return error.Fatal;
-    for (members, 0..) |name, i| {
-        const ivar_name = std.fmt.allocPrint(vm.allocator, "@{s}", .{name}) catch return error.Fatal;
-        defer vm.allocator.free(ivar_name);
-        vals[i] = try vm.getInstanceVariable(receiver, ivar_name);
+    const vals = vm.allocator.alloc(Value, members.len) catch return error.Fatal;
+    const stored = receiver.getObjectPointer().?.data_values;
+    for (vals, 0..) |*val, i| {
+        val.* = if (stored) |array| (if (i < array.elements.items.len) array.elements.items[i] else Value.nil()) else Value.nil();
     }
     return vals;
+}
+
+fn builtinDataReader(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    const called_name = vm.currentFrame().method_name orelse return error.Fatal;
+    const called_symbol = try vm.intern(called_name);
+    const resolved = try vm.findMethod(receiver, called_symbol) orelse return error.Fatal;
+    const name = (resolved.entry.original_name orelse called_symbol).name;
+    const members = try memberNames(vm, receiver);
+    defer vm.allocator.free(members);
+    const index = memberIndex(members, name) orelse return error.Fatal;
+    const stored = receiver.getObjectPointer().?.data_values orelse return Value.nil();
+    if (index >= stored.elements.items.len) return Value.nil();
+    return stored.elements.items[index];
 }
 
 pub fn builtinDataDefine(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
@@ -91,18 +107,14 @@ pub fn builtinDataDefine(vm: *VM, receiver: Value, args: []Value, block: ?Block)
     const subclass = try vm.newClass(try vm.intern("Data"), vm.data_class);
 
     const arr = try vm.createArray();
-    var reader_args: std.ArrayList(Value) = .empty;
-    defer reader_args.deinit(vm.allocator);
+    const subclass_value = Value.fromObject(&subclass.toClassObject().module.object);
     for (members_list.items) |name| {
         arr.elements.append(vm.gc_allocator, try vm.newString(name, false)) catch return error.Fatal;
         const member_sym = try vm.intern(name);
-        reader_args.append(vm.allocator, Value.fromObject(&member_sym.object)) catch return error.Fatal;
+        subclass.toClassObject().module.methods.put(member_sym, value.MethodEntry.builtin(&builtinDataReader, .{ .exact = 0 })) catch return error.Fatal;
+        try vm.triggerMethodAdded(subclass_value, member_sym);
     }
-    const subclass_value = Value.fromObject(&subclass.toClassObject().module.object);
-    try vm.setInstanceVariable(subclass_value, "@_data_members", Value.fromObject(&arr.object));
-    if (reader_args.items.len > 0) {
-        _ = try module_builtin.builtinModuleAttrReader(vm, subclass_value, reader_args.items, null);
-    }
+    subclass.toClassObject().data_members = arr;
 
     const subclass_singleton = try vm.getOrCreateSingletonClass(subclass_value);
     const class_members_sym = try vm.intern("members");
@@ -138,24 +150,22 @@ fn builtinDataNew(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMErro
 }
 
 pub fn builtinDataInitialize(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.guardNotFrozen(receiver);
     const members = try memberNames(vm, receiver);
     defer vm.allocator.free(members);
+    const values = try vm.createArray();
 
     if (args.len > 0) {
         try vm.requireArgCount(args, members.len);
-        for (members, args) |name, val| {
-            const ivar_name = std.fmt.allocPrint(vm.allocator, "@{s}", .{name}) catch return error.Fatal;
-            defer vm.allocator.free(ivar_name);
-            try vm.setInstanceVariable(receiver, ivar_name, val);
+        for (args) |val| {
+            values.elements.append(vm.gc_allocator, val) catch return error.Fatal;
         }
         try vm.validateKeywordArgsConsumed();
     } else {
         for (members) |name| {
             const val = (try vm.consumeKeywordArg(name)) orelse
                 return vm.raiseExceptionFmt(vm.argument_error_class, "missing keyword: :{s}", .{name});
-            const ivar_name = std.fmt.allocPrint(vm.allocator, "@{s}", .{name}) catch return error.Fatal;
-            defer vm.allocator.free(ivar_name);
-            try vm.setInstanceVariable(receiver, ivar_name, val);
+            values.elements.append(vm.gc_allocator, val) catch return error.Fatal;
         }
         try vm.validateKeywordArgsConsumed();
     }
@@ -165,8 +175,19 @@ pub fn builtinDataInitialize(vm: *VM, receiver: Value, args: []Value, _: ?Block)
         try vm.validateKeywordArgsConsumed();
     }
 
+    receiver.getObjectPointer().?.data_values = values;
     var frozen = receiver;
     frozen.freeze();
+    return receiver;
+}
+
+fn builtinDataInitializeCopy(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
+    _ = try kernel_builtin.builtinKernelInitializeCopy(vm, receiver, args, block);
+    if (receiver.raw != args[0].raw) {
+        receiver.getObjectPointer().?.data_values = args[0].getObjectPointer().?.data_values;
+        var frozen = receiver;
+        frozen.freeze();
+    }
     return receiver;
 }
 
@@ -185,21 +206,14 @@ pub fn builtinDataMembers(vm: *VM, receiver: Value, args: []Value, _: ?Block) VM
 
 pub fn builtinDataClassMembers(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
-    var current: ?*value.ClassObject = if (receiver.isClass()) receiver.toClassObject() else vm.getClass(receiver);
-    while (current) |klass| {
-        const stored = try vm.getInstanceVariable(Value.fromObject(&klass.module.object), "@_data_members");
-        if (stored.isArray()) {
-            const arr = stored.toArrayObject();
-            const out = try vm.createArray();
-            for (arr.elements.items) |elem| {
-                const sym = try vm.intern(elem.toStringObject().str);
-                out.elements.append(vm.gc_allocator, Value.fromObject(&sym.object)) catch return error.Fatal;
-            }
-            return Value.fromObject(&out.object);
-        }
-        current = klass.superclass;
-    }
+    const class = if (receiver.isClass()) receiver.toClassObject() else vm.getClass(receiver);
     const out = try vm.createArray();
+    if (dataMembersForClass(class)) |stored| {
+        for (stored.elements.items) |elem| {
+            const sym = try vm.intern(elem.toStringObject().str);
+            out.elements.append(vm.gc_allocator, Value.fromObject(&sym.object)) catch return error.Fatal;
+        }
+    }
     return Value.fromObject(&out.object);
 }
 

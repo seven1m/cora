@@ -83,6 +83,7 @@ pub const Object = struct {
     class: ?*ClassObject,
     singleton_class: ?*ClassObject,
     instance_variables: ?std.array_hash_map.Auto(*SymbolObject, Value),
+    data_values: ?*ArrayObject = null,
 };
 
 pub const HASH_RUBY2_KEYWORDS_FLAG: u32 = 0x2;
@@ -276,6 +277,7 @@ pub const ClassObject = struct {
     object_type: ObjectType = .instance,
     allocation_policy: ClassAllocationPolicy = .normal,
     struct_members: ?*ArrayObject = null,
+    data_members: ?*ArrayObject = null,
     struct_keyword_init: ?bool = null,
     builtin_alloc_func: ?*const fn (*VM, Value, []Value, ?Block) VMError!Value = null,
     cext_alloc_func: ?*anyopaque = null,

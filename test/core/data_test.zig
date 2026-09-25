@@ -35,3 +35,39 @@ test "Data converts positional constructor values to member keywords" {
     const items = result.toArrayObject().elements.items;
     for (items) |item| try std.testing.expectEqualStrings("bar", item.toStringObject().str);
 }
+
+test "Data member storage stays out of Ruby instance variables" {
+    const result = try test_helper.evalCode(
+        \\Base = Data.define(:foo)
+        \\class WithIvar < Base
+        \\  def initialize(**)
+        \\    @bar = "hello"
+        \\    super
+        \\  end
+        \\end
+        \\value = WithIvar["bar"]
+        \\[value.foo == "bar", value.instance_variables == [:@bar], Base.instance_variables.empty?]
+    );
+    const items = result.toArrayObject().elements.items;
+    for (items) |item| try std.testing.expect(item.isTruthy());
+}
+
+test "Data member readers retain their source when aliased" {
+    const result = try test_helper.evalCode(
+        \\klass = Data.define(:foo)
+        \\klass.class_eval { alias bar foo }
+        \\klass.new(7).bar
+    );
+    try std.testing.expectEqual(@as(i64, 7), result.toInteger());
+}
+
+test "Data copies preserve member values and frozen state" {
+    const result = try test_helper.evalCode(
+        \\value = Data.define(:x).new(3)
+        \\copy = value.dup
+        \\clone = value.clone(freeze: false)
+        \\[copy.x == 3, clone.x == 3, copy.frozen?, clone.frozen?]
+    );
+    const items = result.toArrayObject().elements.items;
+    for (items) |item| try std.testing.expect(item.isTruthy());
+}
