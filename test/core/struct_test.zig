@@ -3,6 +3,23 @@ const test_helper = @import("../test_helper.zig");
 
 const evalCode = test_helper.evalCode;
 
+test "Struct subclass constructors forward keyword arguments to initialize" {
+    const result = try evalCode(
+        \\Base = Struct.new(:item)
+        \\class KeywordStruct < Base
+        \\  attr_reader :options
+        \\  def initialize(item, **options)
+        \\    super(item)
+        \\    @options = options
+        \\  end
+        \\end
+        \\[KeywordStruct.new(1, flag: true).options[:flag], KeywordStruct[2, flag: false].options[:flag]]
+    );
+    const values = result.toArrayObject().elements.items;
+    try std.testing.expect(values[0].isTrue());
+    try std.testing.expect(!values[1].isTruthy());
+}
+
 test "Struct.new creates subclass and instances with accessors" {
     const result = try evalCode(
         \\Customer = Struct.new(:name, :zip)

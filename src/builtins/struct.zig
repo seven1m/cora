@@ -84,10 +84,10 @@ fn structMemberWriter(vm: *VM, receiver: Value, member: *SymbolObject, arg: Valu
 fn defineStructSubclassSingletonMethods(vm: *VM, class_value: Value) VMError!void {
     const singleton = try vm.getOrCreateSingletonClass(class_value);
     const new_sym = try vm.intern("new");
-    singleton.module.methods.put(new_sym, .{ .method = .{ .builtin = .{ .function = &class_builtin.builtinClassNew, .arity = .{ .variadic = 0 } } } }) catch return error.Fatal;
+    singleton.module.methods.put(new_sym, value.MethodEntry.keywordBuiltin(&class_builtin.builtinClassNew, .{ .variadic = 0 })) catch return error.Fatal;
 
     const bracket_sym = try vm.intern("[]");
-    singleton.module.methods.put(bracket_sym, .{ .method = .{ .builtin = .{ .function = &builtinStructSubclassSquareBrackets, .arity = .{ .variadic = 0 } } } }) catch return error.Fatal;
+    singleton.module.methods.put(bracket_sym, value.MethodEntry.keywordBuiltin(&builtinStructSubclassSquareBrackets, .{ .variadic = 0 })) catch return error.Fatal;
 
     const members_sym = try vm.intern("members");
     singleton.module.methods.put(members_sym, .{ .method = .{ .builtin = .{ .function = &builtinStructClassMembers, .arity = .{ .exact = 0 } } } }) catch return error.Fatal;
