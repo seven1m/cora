@@ -5,6 +5,17 @@ const test_helper = @import("../test_helper.zig");
 const evalCode = test_helper.evalCode;
 const evalCodeWithOutput = test_helper.evalCodeWithOutput;
 
+test "NoMethodError name identifies the missing method" {
+    const result = try evalCode(
+        \\begin
+        \\  Object.new.missing_method
+        \\rescue NoMethodError => error
+        \\  error.name
+        \\end
+    );
+    try std.testing.expectEqualStrings("missing_method", result.toSymbolObject().name);
+}
+
 test "Exception#message returns message string" {
     const result = try evalCode(
         \\begin

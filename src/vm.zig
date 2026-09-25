@@ -7938,6 +7938,8 @@ pub const VM = struct {
         const receiver_desc = self.noMethodReceiverDescription(receiver) catch return error.Fatal;
         const exc = try self.createException(self.no_method_error_class, std.fmt.allocPrint(self.gc_allocator, "undefined method '{s}' for {s}", .{ method_name, receiver_desc }) catch return error.Fatal);
         exc.receiver = receiver;
+        const name_sym = try self.intern(method_name);
+        try self.setInstanceVariable(Value.fromObject(&exc.object), "@name", Value.fromObject(&name_sym.object));
         self.setPendingException(exc);
         return error.Unwind;
     }
@@ -7948,6 +7950,8 @@ pub const VM = struct {
             method_name,
         }) catch return error.Fatal;
         const exc = self.createException(self.no_method_error_class, message) catch return error.Fatal;
+        const name_sym = self.intern(method_name) catch return error.Fatal;
+        self.setInstanceVariable(Value.fromObject(&exc.object), "@name", Value.fromObject(&name_sym.object)) catch return error.Fatal;
         self.setPendingException(exc);
         return error.Unwind;
     }
