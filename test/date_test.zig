@@ -450,3 +450,19 @@ test "Date parse reads compact month and day fields" {
     try std.testing.expectEqualStrings("{mon: 90, mday: 0}\n{mon: 12, mday: 34}\n[Date::Error, \"invalid date\"]\n", result.stdout);
     try std.testing.expectEqualStrings("", result.stderr);
 }
+
+test "Date parses timestamps with spaced numeric offsets" {
+    var stdout_buf: [1024]u8 = undefined;
+    var stderr_buf: [1024]u8 = undefined;
+    const result = evalCodeWithOutput(
+        \\require "date"
+        \\first = Date._parse("1999-12-31 19:00:00 -1200")
+        \\second = Date._parse("1999-12-31 19:00:00.000000000 -12 -12:00")
+        \\p [first[:zone], first[:offset], first[:hour]]
+        \\p [second[:zone], second[:offset], second[:sec_fraction]]
+    , &stdout_buf, &stderr_buf);
+
+    try std.testing.expect(result.err == null);
+    try std.testing.expectEqualStrings("[\"-1200\", -43200, 19]\n[\"-12\", -43200, (0/1)]\n", result.stdout);
+    try std.testing.expectEqualStrings("", result.stderr);
+}
