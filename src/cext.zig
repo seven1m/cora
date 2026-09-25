@@ -1518,10 +1518,24 @@ export fn rb_require(name: [*c]const u8) void {
 
 export fn rb_path_to_class(path_raw: VALUE) VALUE {
     const vm = getVM();
+    const pending_unwind_before = vm.pendingUnwind();
     const val = Value{ .raw = path_raw };
     if (val.isString()) {
-        const resolved = vm.resolveConstantPath(val.toStringObject().str) catch return 0;
-        return if (resolved) |r| r.raw else 0;
+        const path = val.toStringObject().str;
+        const resolved = vm.resolveConstantPath(path) catch {
+            checkPendingUnwind(vm, pending_unwind_before);
+            return 0;
+        };
+        if (resolved) |klass| {
+            if (!klass.isClass() and !klass.isModule()) {
+                _ = vm.raiseExceptionFmt(vm.type_error_class, "{s} does not refer to class/module", .{path}) catch {};
+                checkPendingUnwind(vm, pending_unwind_before);
+                return 0;
+            }
+            return klass.raw;
+        }
+        _ = vm.raiseExceptionFmt(vm.argument_error_class, "undefined class/module {s}", .{path}) catch {};
+        checkPendingUnwind(vm, pending_unwind_before);
     }
     return 0;
 }

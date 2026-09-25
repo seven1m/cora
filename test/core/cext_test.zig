@@ -116,6 +116,22 @@ test "C extension updates exception messages through the mesg ivar" {
     try std.testing.expectEqualStrings("updated", result.toStringObject().str);
 }
 
+test "C extension path to class raises for missing and nonclass constants" {
+    const result = try evalCode(
+        \\$LOAD_PATH << "build/cext"
+        \\require "fixture.so"
+        \\CoraPathValue = 42
+        \\found = CoraCExt.path_to_class("String") == String
+        \\missing = begin; CoraCExt.path_to_class("CoraMissingPath"); rescue ArgumentError => error; error.message; end
+        \\wrong = begin; CoraCExt.path_to_class("CoraPathValue"); rescue TypeError => error; error.message; end
+        \\[found, missing, wrong]
+    );
+    const values = result.toArrayObject().elements.items;
+    try std.testing.expect(values[0].isTrue());
+    try std.testing.expectEqualStrings("undefined class/module CoraMissingPath", values[1].toStringObject().str);
+    try std.testing.expectEqualStrings("CoraPathValue does not refer to class/module", values[2].toStringObject().str);
+}
+
 test "C extension packs signed 64-bit integers" {
     const result = try evalCode(
         \\$LOAD_PATH << "build/cext"
