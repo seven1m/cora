@@ -11,8 +11,13 @@ class Date
     result = {}
     s = string.to_str
 
+    # MRI accepts compact time text after a civil date without parsing it as a time.
+    if s =~ /\A\s*([+-]?\d{4,})-(\d{1,2})-(\d{1,2})T\d{4}Z\s*\z/
+      return { year: $1.to_i, mon: $2.to_i, mday: $3.to_i }
+    end
+
     # YYYY-MM-DD HH:MM:SS[.fraction] (ISO 8601)
-    if s =~ /\A\s*([+-]?\d{4,})-(\d{1,2})-(\d{1,2})(?:[T ](\d{1,2}):(\d{2})(?::(\d{2})(?:\.(\d+))?)?)?\s*\z/
+    if s =~ /\A\s*([+-]?\d{4,})-(\d{1,2})-(\d{1,2})(?:[T ](\d{1,2}):(\d{2})(?::(\d{2})(?:\.(\d+))?)?([Zz]|[+-]\d{1,2}(?::?\d{2})?)?)?\s*\z/
       result[:year] = $1.to_i
       result[:mon] = $2.to_i
       result[:mday] = $3.to_i
@@ -20,6 +25,7 @@ class Date
       result[:min] = $5.to_i if $5
       result[:sec] = $6.to_i if $6
       result[:sec_fraction] = Rational($7) / (10 ** $7.length) if $7
+      add_zone_parts(result, $8) if $8
       return result
     end
 
@@ -283,7 +289,10 @@ class Date
     else
       sign = zone[0] == "-" ? -1 : 1
       digits = zone.delete(":")
-      result[:offset] = sign * (digits[1, 2].to_i * 3600 + digits[3, 2].to_i * 60)
+      hour_digits = digits[1..]
+      hours = hour_digits.length <= 2 ? hour_digits.to_i : hour_digits[0...-2].to_i
+      minutes = hour_digits.length <= 2 ? 0 : hour_digits[-2..].to_i
+      result[:offset] = sign * (hours * 3600 + minutes * 60)
     end
   end
   private_class_method :add_zone_parts
@@ -343,6 +352,27 @@ class Date
 end
 
 class DateTime
+  def self.parse(string="-4712-01-01", comp=true, start=ITALY)
+    unless string.respond_to?(:to_str)
+      raise TypeError, "no implicit conversion of #{string.class} into String"
+    end
+    parts = _parse(string.to_str, comp)
+    raise Error, "invalid date" if parts.empty?
+
+    if parts[:year] && parts[:yday]
+      ordinal_date = Date.ordinal(parts[:year], parts[:yday], start)
+      parts[:mon] = ordinal_date.month
+      parts[:mday] = ordinal_date.day
+    end
+
+    current = Date.today(start)
+    year = parts.fetch(:year, current.year)
+    month = parts.fetch(:mon, parts[:year] ? 1 : current.month)
+    day = parts.fetch(:mday, (parts[:year] || parts[:mon]) ? 1 : current.day)
+    second = parts.fetch(:sec, 0) + parts.fetch(:sec_fraction, 0)
+    civil(year, month, day, parts.fetch(:hour, 0), parts.fetch(:min, 0), second, parts.fetch(:zone, 0), start)
+  end
+
   def self.iso8601(string="-4712-01-01T00:00:00+00:00", start=ITALY, limit: 128)
     unless string.respond_to?(:to_str)
       raise TypeError, "no implicit conversion of #{string.class} into String"
