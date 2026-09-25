@@ -178,8 +178,7 @@ test "Rescue with TypeError matches" {
 
 test "Rescue with ArgumentError matches" {
     const result = try evalCode(
-        \\def foo
-        \\  yield 1
+        \\def foo(one)
         \\end
         \\begin
         \\  foo

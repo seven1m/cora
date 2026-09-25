@@ -17,7 +17,7 @@ test "Method with block and yield" {
     try std.testing.expectEqual(@as(i64, 12), result.toInteger());
 }
 
-test "ArgumentError raised for no block given" {
+test "LocalJumpError raised for yield without a block" {
     var stdout_buf: [8192]u8 = undefined;
     var stderr_buf: [8192]u8 = undefined;
 
@@ -30,8 +30,8 @@ test "ArgumentError raised for no block given" {
 
     try std.testing.expectEqual(error.UnhandledException, result.err.?);
 
-    try std.testing.expect(std.mem.indexOf(u8, result.stderr, "ArgumentError") != null);
-    try std.testing.expect(std.mem.indexOf(u8, result.stderr, "no block given") != null);
+    try std.testing.expect(std.mem.indexOf(u8, result.stderr, "LocalJumpError") != null);
+    try std.testing.expect(std.mem.indexOf(u8, result.stderr, "no block given (yield)") != null);
 }
 
 test "yield arity: block is lenient, lambda is strict" {

@@ -6872,7 +6872,7 @@ pub const VM = struct {
                 }
 
                 // Check for block
-                const block = try self.requireBlock(frame.block);
+                const block = try self.requireYieldBlock(frame.block);
                 switch (block.kind) {
                     .chunk => |chunk_blk| {
                         // De-recursed: push block frame inline, return to dispatch loop
@@ -6907,7 +6907,7 @@ pub const VM = struct {
             .YIELD_SPLAT => {
                 const args_array_val = try self.expandSplatValue(self.pop());
 
-                const block = try self.requireBlock(frame.block);
+                const block = try self.requireYieldBlock(frame.block);
 
                 const splat_args = args_array_val.toArrayObject().elements.items;
                 switch (block.kind) {
@@ -9104,6 +9104,10 @@ pub const VM = struct {
     /// Ensure a block was given, or raise an error
     pub fn requireBlock(self: *VM, block: ?Block) VMError!Block {
         return block orelse return self.raiseExceptionFmt(self.argument_error_class, "no block given", .{});
+    }
+
+    fn requireYieldBlock(self: *VM, block: ?Block) VMError!Block {
+        return block orelse return self.raiseExceptionFmt(self.local_jump_error_class, "no block given (yield)", .{});
     }
 
     /// Ruby-level equality helper using `==`.
