@@ -10,6 +10,20 @@ const evalCode = test_helper.evalCode;
 const evalCodeWithOutput = test_helper.evalCodeWithOutput;
 const getAllocator = test_helper.getAllocator;
 
+test "Class attached_object returns singleton targets and rejects ordinary classes" {
+    const result = try evalCode(
+        \\object = Object.new
+        \\klass = Class.new
+        \\begin
+        \\  klass.attached_object
+        \\rescue TypeError => error
+        \\  message = error.message
+        \\end
+        \\[object.singleton_class.attached_object.equal?(object), klass.singleton_class.attached_object.equal?(klass), message.include?("is not a singleton class")]
+    );
+    for (result.toArrayObject().elements.items) |item| try std.testing.expect(item.isTruthy());
+}
+
 test "Classes" {
     const result = try evalCode(
         \\class Foo

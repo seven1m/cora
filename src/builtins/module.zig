@@ -920,6 +920,9 @@ pub fn builtinModuleSingletonMethodAdded(_: *VM, _: Value, args: []Value, _: ?Bl
 }
 
 pub fn register(vm: *VM) !void {
+    const attached_object_sym = try vm.intern("attached_object");
+    try vm.class_class.module.methods.put(attached_object_sym, value.MethodEntry.builtin(&builtinClassAttachedObject, .{ .exact = 0 }));
+
     const module_singleton = try vm.getOrCreateSingletonClass(Value.fromObject(&vm.module_class.module.object));
     const nesting_sym = try vm.intern("nesting");
     try module_singleton.module.methods.put(nesting_sym, value.MethodEntry.builtin(&builtinModuleNesting, .{ .exact = 0 }));
@@ -1128,6 +1131,13 @@ pub fn register(vm: *VM) !void {
 
     const initialize_copy_sym = try vm.intern("initialize_copy");
     try vm.module_class.module.methods.put(initialize_copy_sym, value.MethodEntry.builtinWithVisibility(&builtinModuleInitializeCopy, .{ .exact = 1 }, .private));
+}
+
+fn builtinClassAttachedObject(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    if (receiver.toClassObject().attached_object) |object| return object;
+    const class_name = try builtinModuleToS(vm, receiver, &[_]Value{}, null);
+    return vm.raiseExceptionFmt(vm.type_error_class, "'{s}' is not a singleton class", .{class_name.toStringObject().str});
 }
 
 pub fn builtinModuleCaseEqual(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
