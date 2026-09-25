@@ -6,9 +6,13 @@ module Zlib
   NO_FLUSH = 0 unless const_defined?(:NO_FLUSH)
   FINISH = 4 unless const_defined?(:FINISH)
   DEFAULT_COMPRESSION = -1 unless const_defined?(:DEFAULT_COMPRESSION)
+  NO_COMPRESSION = 0 unless const_defined?(:NO_COMPRESSION)
+  BEST_SPEED = 1 unless const_defined?(:BEST_SPEED)
   BEST_COMPRESSION = 9 unless const_defined?(:BEST_COMPRESSION)
   DEF_MEM_LEVEL = 8 unless const_defined?(:DEF_MEM_LEVEL)
   DEFAULT_STRATEGY = 0 unless const_defined?(:DEFAULT_STRATEGY)
+  FILTERED = 1 unless const_defined?(:FILTERED)
+  HUFFMAN_ONLY = 2 unless const_defined?(:HUFFMAN_ONLY)
   MAX_WBITS = 15 unless const_defined?(:MAX_WBITS)
 
   RAW = 0

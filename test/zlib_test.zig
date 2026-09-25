@@ -2,6 +2,18 @@ const std = @import("std");
 
 const evalCodeWithOutput = @import("test_helper.zig").evalCodeWithOutput;
 
+test "zlib exposes MRI compression levels and strategies" {
+    var stdout_buf: [1024]u8 = undefined;
+    var stderr_buf: [1024]u8 = undefined;
+    const result = evalCodeWithOutput(
+        \\require "zlib"
+        \\p [Zlib::NO_COMPRESSION, Zlib::BEST_SPEED, Zlib::FILTERED, Zlib::HUFFMAN_ONLY]
+    , &stdout_buf, &stderr_buf);
+    try std.testing.expect(result.err == null);
+    try std.testing.expectEqualStrings("[0, 1, 1, 2]\n", result.stdout);
+    try std.testing.expectEqualStrings("", result.stderr);
+}
+
 test "require loads zlib deflate inflate helpers" {
     var stdout_buf: [1024]u8 = undefined;
     var stderr_buf: [1024]u8 = undefined;
