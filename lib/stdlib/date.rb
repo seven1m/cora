@@ -254,6 +254,13 @@ class Date
       return result
     end
 
+    # MRI expands two-digit years in compact ordinal dates using the
+    # 69/68 century boundary.
+    if s =~ /\A(\d{2})(\d{3})\z/
+      year = $1.to_i
+      return { yday: $2.to_i, year: year >= 69 ? year + 1900 : year + 2000 }
+    end
+
     if s =~ /\A([+-]?\d{4,})-?W(\d{2})(?:-?(\d))?\z/i
       result[:cwyear] = $1.to_i
       result[:cweek] = $2.to_i

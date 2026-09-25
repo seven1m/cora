@@ -322,3 +322,19 @@ test "Date compatibility parsing construction and conversion APIs" {
     );
     try std.testing.expectEqualStrings("", result.stderr);
 }
+
+test "Date parses compact ordinal dates with two digit years" {
+    var stdout_buf: [1024]u8 = undefined;
+    var stderr_buf: [1024]u8 = undefined;
+    const result = evalCodeWithOutput(
+        \\require "date"
+        \\p Date._iso8601("21087")
+        \\p Date._iso8601("68001")
+        \\p Date._iso8601("69001")
+        \\p Date._iso8601("21087T02:03:04Z")
+    , &stdout_buf, &stderr_buf);
+
+    try std.testing.expect(result.err == null);
+    try std.testing.expectEqualStrings("{yday: 87, year: 2021}\n{yday: 1, year: 2068}\n{yday: 1, year: 1969}\n{}\n", result.stdout);
+    try std.testing.expectEqualStrings("", result.stderr);
+}
