@@ -106,11 +106,11 @@ class Date
       when '%'
         case f[1]
         when 'Y'
-          if s =~ /\A(\d{4})/
+          if s =~ /\A([+-]?\d{4,})/
             result[:year] = $1.to_i
             s = $'
             f = f[2..]
-          elsif s =~ /\A(\d+)/
+          elsif s =~ /\A([+-]?\d+)/
             result[:year] = $1.to_i
             s = $'
             f = f[2..]
@@ -197,11 +197,11 @@ class Date
     result
   end
 
-  def self.strptime(string, format)
+  def self.strptime(string="-4712-01-01", format="%F", start=ITALY)
     d = _strptime(string, format)
     raise ArgumentError, "invalid date" unless d
     if d[:year] && d[:mon] && d[:mday]
-      new(d[:year], d[:mon], d[:mday])
+      new(d[:year], d[:mon], d[:mday], start)
     end
   end
 

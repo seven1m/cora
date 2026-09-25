@@ -98,6 +98,21 @@ test "Date calendar conversions preserve DateTime time and chronological day" {
     try std.testing.expectEqualStrings("", result.stderr);
 }
 
+test "Date.strptime accepts calendar start and default arguments" {
+    var stdout_buf: [1024]u8 = undefined;
+    var stderr_buf: [1024]u8 = undefined;
+    const result = evalCodeWithOutput(
+        \\require "date"
+        \\date = Date.strptime("1582-10-04", "%F", Date::GREGORIAN)
+        \\p [date.year, date.month, date.day, date.start == Date::GREGORIAN]
+        \\p [Date.strptime.class, Date.strptime.start]
+    , &stdout_buf, &stderr_buf);
+
+    try std.testing.expect(result.err == null);
+    try std.testing.expectEqualStrings("[1582, 10, 4, true]\n[Date, 2299161]\n", result.stdout);
+    try std.testing.expectEqualStrings("", result.stderr);
+}
+
 test "DateTime#gregorian preserves class, time, offset, and chronological day" {
     var stdout_buf: [2048]u8 = undefined;
     var stderr_buf: [1024]u8 = undefined;
