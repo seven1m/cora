@@ -157,6 +157,36 @@ test "Module prepend" {
     try std.testing.expectEqualSlices(u8, "before 2", result.toStringObject().str);
 }
 
+test "Module prepend calls feature and completion hooks" {
+    const result = try evalCode(
+        \\$prepend_events = []
+        \\module AddedByHook
+        \\  def added_by_hook; true; end
+        \\end
+        \\module BeforeWithHook
+        \\  def self.prepend_features(base)
+        \\    $prepend_events << :features
+        \\    super
+        \\  end
+        \\  def self.prepended(base)
+        \\    $prepend_events << :prepended
+        \\    base.include AddedByHook
+        \\  end
+        \\end
+        \\class HookTarget
+        \\  prepend BeforeWithHook
+        \\end
+        \\[$prepend_events, HookTarget.new.added_by_hook, HookTarget.ancestors.include?(AddedByHook)]
+    );
+    const items = result.toArrayObject().elements.items;
+    const events = items[0].toArrayObject().elements.items;
+    try std.testing.expectEqual(@as(usize, 2), events.len);
+    try std.testing.expectEqualStrings("features", events[0].toSymbolObject().name);
+    try std.testing.expectEqualStrings("prepended", events[1].toSymbolObject().name);
+    try std.testing.expect(items[1].isTrue());
+    try std.testing.expect(items[2].isTrue());
+}
+
 test "Module define_method on class" {
     const result = try evalCode(
         \\class Foo

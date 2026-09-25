@@ -929,6 +929,12 @@ pub fn register(vm: *VM) !void {
     const prepend_sym = try vm.intern("prepend");
     try vm.module_class.module.methods.put(prepend_sym, value.MethodEntry.builtin(&builtinModulePrepend, .{ .variadic = 0 }));
 
+    const prepend_features_sym = try vm.intern("prepend_features");
+    try vm.module_class.module.methods.put(prepend_features_sym, value.MethodEntry.builtinWithVisibility(&builtinModulePrependFeatures, .{ .exact = 1 }, .private));
+
+    const prepended_sym = try vm.intern("prepended");
+    try vm.module_class.module.methods.put(prepended_sym, value.MethodEntry.builtinWithVisibility(&builtinModulePrepended, .{ .exact = 1 }, .private));
+
     const define_method_sym = try vm.intern("define_method");
     try vm.module_class.module.methods.put(define_method_sym, value.MethodEntry.builtin(&builtinModuleDefineMethod, .{ .variadic = 0 }));
 
@@ -1627,15 +1633,33 @@ pub fn builtinMainPublic(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Va
 }
 
 pub fn builtinModulePrepend(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
-    try vm.requireSingleArg(args, .module, "Module");
-    const target = receiver.getModuleObject() orelse {
-        unreachable; // receiver is not a Module
-    };
-    const module = args[0].toModuleObject();
-
-    vm.prependModule(target, module) catch return error.Fatal;
-
+    try vm.requireMinArgCount(args, 1);
+    var i = args.len;
+    while (i > 0) {
+        i -= 1;
+        if (!args[i].isModule()) {
+            return vm.raiseExceptionFmt(vm.type_error_class, "wrong argument type {s} (expected Module)", .{vm.className(args[i])});
+        }
+        var hook_args = [_]Value{receiver};
+        _ = try vm.callMethodByName(args[i], "prepend_features", &hook_args, null);
+        _ = try vm.callMethodByName(args[i], "prepended", &hook_args, null);
+    }
     return receiver;
+}
+
+pub fn builtinModulePrependFeatures(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    if (!args[0].isClass() and !args[0].isModule()) {
+        return vm.raiseExceptionFmt(vm.type_error_class, "wrong argument type {s} (expected Module)", .{vm.className(args[0])});
+    }
+    const target = args[0].getModuleObject() orelse unreachable;
+    try vm.prependModule(target, receiver.toModuleObject());
+    return receiver;
+}
+
+pub fn builtinModulePrepended(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    return Value.nil();
 }
 
 pub fn builtinModuleDefineMethod(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
