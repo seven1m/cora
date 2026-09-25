@@ -195,6 +195,14 @@ class Date
           else
             return nil
           end
+        when 's', 'Q'
+          if s =~ /\A([+-]?\d+)/
+            result[:seconds] = f[1] == 'Q' ? Rational($1.to_i, 1000) : $1.to_i
+            s = $'
+            f = f[2..]
+          else
+            return nil
+          end
         when 'z'
           if s =~ /\A([+-]\d{4})/
             result[:zone] = $1
