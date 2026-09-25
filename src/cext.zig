@@ -659,8 +659,18 @@ export fn rb_enc_raise(enc_ptr: ?*anyopaque, exc_raw: VALUE, fmt: [*c]const u8, 
 }
 
 export fn rb_str_export_to_enc(str_raw: VALUE, enc_ptr: ?*anyopaque) VALUE {
-    _ = enc_ptr;
-    return str_raw;
+    const ptr = enc_ptr orelse return str_raw;
+    const vm = getVM();
+    const pending_unwind_before = vm.pendingUnwind();
+    const encoding_value: *const enc.Encoding = @ptrCast(@alignCast(ptr));
+    const target = vm.encodingToValue(encoding_value.*);
+    var args = [_]Value{target};
+    const converted = vm.callMethodByName(Value{ .raw = str_raw }, "encode", &args, null) catch {
+        checkPendingUnwind(vm, pending_unwind_before);
+        return 0;
+    };
+    checkPendingUnwind(vm, pending_unwind_before);
+    return converted.raw;
 }
 
 // ─── Array functions ────────────────────────────────────────────────────────

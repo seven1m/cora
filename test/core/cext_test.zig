@@ -165,6 +165,19 @@ test "C extension appends raw bytes without changing string encoding" {
     try std.testing.expectEqual(@as(i64, 0), codepoints[1].toInteger());
 }
 
+test "C extension exports strings to the default internal encoding" {
+    const result = try evalCode(
+        \\$LOAD_PATH << "build/cext"
+        \\require "fixture.so"
+        \\Encoding.default_internal = "EUC-JP"
+        \\encoded = CoraCExt.export_to_internal("plain")
+        \\[encoded.encoding.name, encoded]
+    );
+    const values = result.toArrayObject().elements.items;
+    try std.testing.expectEqualStrings("EUC-JP", values[0].toStringObject().str);
+    try std.testing.expectEqualStrings("plain", values[1].toStringObject().str);
+}
+
 test "C extension packs signed 64-bit integers" {
     const result = try evalCode(
         \\$LOAD_PATH << "build/cext"
