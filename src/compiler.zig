@@ -5066,7 +5066,7 @@ pub const Compiler = struct {
         // A for loop does not introduce a local scope. Reserve a private block
         // parameter and copy each yielded value into the enclosing local(s).
         const index_node = try self.parser.asNode(@ptrCast(for_node.index));
-        _ = try self.resolveOrCreateLocalSlot("");
+        try self.addLocal("");
         switch (index_node) {
             .local_variable_target => |var_target| {
                 const var_name = try self.parser.getLocalVariableName(var_target.name);

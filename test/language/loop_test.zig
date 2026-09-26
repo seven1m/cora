@@ -62,3 +62,20 @@ test "loop - propagates non-break exceptions" {
     try std.testing.expect(std.mem.indexOf(u8, result.stderr, "RuntimeError") != null);
     try std.testing.expect(std.mem.indexOf(u8, result.stderr, "boom") != null);
 }
+
+test "nested for loops keep separate private parameter slots" {
+    const result = try evalCode(
+        \\result = []
+        \\for outer in [[1, 2]]
+        \\  for first, *rest in [outer]
+        \\    result << [first, rest, outer]
+        \\  end
+        \\end
+        \\result
+    );
+    try std.testing.expect(result.isArray());
+    const row = result.toArrayObject().elements.items[0].toArrayObject().elements.items;
+    try std.testing.expectEqual(@as(i64, 1), row[0].toInteger());
+    try std.testing.expectEqual(@as(i64, 2), row[1].toArrayObject().elements.items[0].toInteger());
+    try std.testing.expectEqual(@as(i64, 1), row[2].toArrayObject().elements.items[0].toInteger());
+}
