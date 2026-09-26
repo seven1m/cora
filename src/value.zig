@@ -12,6 +12,7 @@ const FiberValueStack = vm_mod.FiberValueStack;
 const FiberFrameStack = vm_mod.FiberFrameStack;
 const FiberCoro = vm_mod.FiberCoro;
 const PendingUnwind = vm_mod.PendingUnwind;
+const SavedUnwind = vm_mod.SavedUnwind;
 const onigmo = @import("onigmo.zig");
 const inspect_util = @import("inspect.zig");
 
@@ -420,6 +421,9 @@ pub const FiberObject = struct {
     };
 
     object: Object,
+    active_catches: std.ArrayList(Value) = .empty,
+    ensure_saved_unwinds: std.ArrayList(SavedUnwind) = .empty,
+    rescued_exceptions: std.ArrayList(*ExceptionObject) = .empty,
     state: enum { created, running, suspended, terminated },
     block: ?Block,
     stack: FiberValueStack,
