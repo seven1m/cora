@@ -8,22 +8,20 @@ const rubygems_build_root = "build/rubygems";
 const psych_build_root = "build/psych";
 const strscan_build_root = "build/strscan";
 const json_build_root = "build/json";
-const csv_build_root = "build/csv";
 const prism_build_root = "build/prism";
 const tinycc_build_root = "build/tinycc";
 const cext_build_root = "build/cext";
 const psych_gem_version = "5.4.0";
 const strscan_gem_version = "3.1.9";
 const json_gem_version = "2.19.9";
-const csv_gem_version = "3.3.6";
 const yaml_gem_version = "0.4.0";
 const bundled_gems = [_]struct { name: []const u8, version: []const u8 }{
+    .{ .name = "csv", .version = "3.3.6" },
     .{ .name = "power_assert", .version = "3.0.1" },
     .{ .name = "test-unit", .version = "3.7.5" },
 };
 const runtime_ext_dirs = [_][]const u8{
     "cgi",
-    "csv",
     "delegate",
     "erb",
     "forwardable",
@@ -678,7 +676,6 @@ pub fn build(b: *std.Build) void {
     const install_psych_default_gem = addInstallGemDir(b, b.path("ext/psych"), "psych", psych_gem_version, null);
     const install_strscan_default_gem = addInstallGemDir(b, b.path(strscan_build_root), "strscan", strscan_gem_version, strscan_build_step);
     const install_json_default_gem = addInstallGemDir(b, b.path(json_build_root), "json", json_gem_version, json_build_step);
-    const install_csv_default_gem = addInstallGemDir(b, b.path("ext/csv"), "csv", csv_gem_version, null);
     const install_yaml_default_gem = addInstallGemDir(b, b.path("ext/yaml"), "yaml", yaml_gem_version, null);
 
     for (bundled_gems) |gem| {
@@ -777,11 +774,8 @@ pub fn build(b: *std.Build) void {
         install_json_default_gem_parser_so,
         install_json_default_gem_generator_so,
     });
-    _ = addWriteGemSpec(b, "ext/csv", "csv", csv_gem_version, .default, &.{
-        &install_exe.step,
-        &install_stdlib.step,
-        install_csv_default_gem,
-    });
+    const remove_legacy_csv_default_spec = b.addSystemCommand(&.{ "rm", "-f", b.getInstallPath(.prefix, "lib/gems/4.0.0/specifications/default/csv-3.3.6.gemspec") });
+    b.getInstallStep().dependOn(&remove_legacy_csv_default_spec.step);
     _ = addWriteGemSpec(b, "ext/yaml", "yaml", yaml_gem_version, .default, &.{
         &install_exe.step,
         &install_stdlib.step,

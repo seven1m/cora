@@ -18,8 +18,9 @@ test "bundled gems activate through RubyGems and are not default gems" {
 
     const code =
         \\Test::Unit::AutoRunner.need_auto_run = false
+        \\require "csv"
         \\p [Gem.path.include?(Gem.dir), Gem.path.include?(Gem.default_dir)]
-        \\p [Gem.loaded_specs["test-unit"].full_name, Gem.loaded_specs["test-unit"].default_gem?, Gem.loaded_specs["power_assert"].full_name, Gem.loaded_specs["power_assert"].default_gem?, Gem::Specification.find_by_name("json").default_gem?]
+        \\p [Gem.loaded_specs["test-unit"].full_name, Gem.loaded_specs["test-unit"].default_gem?, Gem.loaded_specs["power_assert"].full_name, Gem.loaded_specs["power_assert"].default_gem?, Gem.loaded_specs["csv"].full_name, Gem.loaded_specs["csv"].default_gem?, Gem::Specification.find_by_name("json").default_gem?]
         \\p ObjectSpace.each_object(Class).any? { |klass| klass == Class }
     ;
     const result = try std.process.run(allocator, threaded.io(), .{
@@ -32,7 +33,7 @@ test "bundled gems activate through RubyGems and are not default gems" {
     defer allocator.free(result.stderr);
 
     try std.testing.expect(result.term == .exited and result.term.exited == 0);
-    try std.testing.expectEqualStrings("[true, true]\n[\"test-unit-3.7.5\", false, \"power_assert-3.0.1\", false, true]\ntrue\n", result.stdout);
+    try std.testing.expectEqualStrings("[true, true]\n[\"test-unit-3.7.5\", false, \"power_assert-3.0.1\", false, \"csv-3.3.6\", false, true]\ntrue\n", result.stdout);
     try std.testing.expectEqualStrings("", result.stderr);
 }
 
@@ -88,27 +89,32 @@ test "bundled gems obey explicit GEM_PATH and disable-gems" {
     try env_map.put("GEM_HOME", gem_home);
     try env_map.put("GEM_PATH", gem_home);
 
-    const isolated = try std.process.run(allocator, threaded.io(), .{
-        .argv = &.{ "build/bin/cora", "-r", "test/unit", "-e", "p Test::Unit" },
-        .environ_map = &env_map,
-        .stdout_limit = .limited(1024 * 1024),
-        .stderr_limit = .limited(1024 * 1024),
-    });
-    defer allocator.free(isolated.stdout);
-    defer allocator.free(isolated.stderr);
-    try std.testing.expect(isolated.term == .exited and isolated.term.exited != 0);
-    try std.testing.expect(std.mem.indexOf(u8, isolated.stderr, "cannot load such file -- test/unit") != null);
+    for ([_][]const u8{ "test/unit", "csv" }) |library| {
+        const expected_error = try std.fmt.allocPrint(allocator, "cannot load such file -- {s}", .{library});
+        defer allocator.free(expected_error);
 
-    const no_gems = try std.process.run(allocator, threaded.io(), .{
-        .argv = &.{ "build/bin/cora", "--disable-gems", "-r", "test/unit", "-e", "p Test::Unit" },
-        .environ_map = &env_map,
-        .stdout_limit = .limited(1024 * 1024),
-        .stderr_limit = .limited(1024 * 1024),
-    });
-    defer allocator.free(no_gems.stdout);
-    defer allocator.free(no_gems.stderr);
-    try std.testing.expect(no_gems.term == .exited and no_gems.term.exited != 0);
-    try std.testing.expect(std.mem.indexOf(u8, no_gems.stderr, "cannot load such file -- test/unit") != null);
+        const isolated = try std.process.run(allocator, threaded.io(), .{
+            .argv = &.{ "build/bin/cora", "-r", library, "-e", "nil" },
+            .environ_map = &env_map,
+            .stdout_limit = .limited(1024 * 1024),
+            .stderr_limit = .limited(1024 * 1024),
+        });
+        defer allocator.free(isolated.stdout);
+        defer allocator.free(isolated.stderr);
+        try std.testing.expect(isolated.term == .exited and isolated.term.exited != 0);
+        try std.testing.expect(std.mem.indexOf(u8, isolated.stderr, expected_error) != null);
+
+        const no_gems = try std.process.run(allocator, threaded.io(), .{
+            .argv = &.{ "build/bin/cora", "--disable-gems", "-r", library, "-e", "nil" },
+            .environ_map = &env_map,
+            .stdout_limit = .limited(1024 * 1024),
+            .stderr_limit = .limited(1024 * 1024),
+        });
+        defer allocator.free(no_gems.stdout);
+        defer allocator.free(no_gems.stderr);
+        try std.testing.expect(no_gems.term == .exited and no_gems.term.exited != 0);
+        try std.testing.expect(std.mem.indexOf(u8, no_gems.stderr, expected_error) != null);
+    }
 }
 
 test "Bundler resolves bundled test-unit from a Gemfile" {

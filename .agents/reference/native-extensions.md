@@ -29,8 +29,8 @@ Some pure-Ruby vendored gems are added directly to `repo_load_paths` by their
 `build/lib/gems/4.0.0/gems/<name>-<version>/`; those with native extensions
 ship their compiled `.so` next to the `lib/` tree.
 
-Bundled gems are ordinary installed gems shipped with Cora. The first pair is
-`test-unit` and its `power_assert` dependency. Their sources are pinned as
+Bundled gems are ordinary installed gems shipped with Cora. The set includes
+`csv`, `test-unit`, and its `power_assert` dependency. Their sources are pinned as
 submodules, installed under `build/lib/gems/4.0.0/gems/`, and registered by
 gemspecs in `build/lib/gems/4.0.0/specifications/`. Unlike default gems,
 they are not placed directly on `$LOAD_PATH`; RubyGems activates them when
@@ -83,8 +83,8 @@ Steps per gem:
   then built with its own `extconf.rb` and `make`.
 - `json` - installed as a default gem with native parser and generator `.so`
   files.
-- `csv`, `yaml` - pure Ruby; installed as default gems without an `.so`.
-- `test-unit`, `power_assert` - pure Ruby; installed as ordinary bundled gems
+- `yaml` - pure Ruby; installed as a default gem without an `.so`.
+- `csv`, `test-unit`, `power_assert` - pure Ruby; installed as ordinary bundled gems
   with `test-unit` depending on `power_assert`.
 
 The TinyCC JIT and Onigmo use the same pattern as the gems: copy from
