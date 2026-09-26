@@ -1204,7 +1204,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/kernel/eql_spec.rb
 - [x] core/kernel/equal_value_spec.rb
 - [ ] core/kernel/eval_spec.rb
-- [ ] core/kernel/exec_spec.rb
+- [x] core/kernel/exec_spec.rb
 - [ ] core/kernel/exit_spec.rb
 - [x] core/kernel/extend_spec.rb
 - [x] core/kernel/fail_spec.rb

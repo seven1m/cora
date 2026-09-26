@@ -244,6 +244,9 @@ pub fn register(vm: *VM) !void {
     const system_sym = try vm.intern("system");
     try vm.kernel_module.methods.put(system_sym, value.MethodEntry.keywordBuiltinWithVisibility(&builtinKernelSystem, .{ .variadic = 0 }, .private));
 
+    const exec_sym = try vm.intern("exec");
+    try vm.kernel_module.methods.put(exec_sym, value.MethodEntry.keywordBuiltinWithVisibility(&builtinKernelExec, .{ .variadic = 1 }, .private));
+
     const spawn_sym = try vm.intern("spawn");
     try vm.kernel_module.methods.put(spawn_sym, value.MethodEntry.builtinWithVisibility(&process_builtin.builtinProcessSpawn, .{ .variadic = 1 }, .private));
 
@@ -315,6 +318,7 @@ pub fn register(vm: *VM) !void {
 
     const kernel_module_val = Value.fromObject(&vm.kernel_module.object);
     const kernel_singleton = try vm.getOrCreateSingletonClass(kernel_module_val);
+    try kernel_singleton.module.methods.put(exec_sym, value.MethodEntry.keywordBuiltin(&builtinKernelExec, .{ .variadic = 1 }));
     try kernel_singleton.module.methods.put(kernel_array_convert_sym, value.MethodEntry.builtin(&builtinKernelArrayConvert, .{ .exact = 1 }));
     try kernel_singleton.module.methods.put(kernel_string_convert_sym, value.MethodEntry.builtin(&builtinKernelStringConvert, .{ .exact = 1 }));
     try kernel_singleton.module.methods.put(kernel_integer_convert_sym, value.MethodEntry.keywordBuiltin(&builtinKernelIntegerConvert, .{ .variadic = 1 }));
@@ -1132,6 +1136,92 @@ fn waitForPid(vm: *VM, pid: std.c.pid_t) VMError!c_int {
             else => |errno_code| return vm.raiseErrnoFmt(errno_code, "waitpid failed", .{}),
         }
     }
+}
+
+pub fn builtinKernelExec(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCountAtLeast(args, 1);
+
+    if (builtin.os.tag == .windows) {
+        return vm.raiseExceptionFmt(vm.not_implemented_error_class, "Kernel#exec is not implemented on Windows", .{});
+    }
+
+    var chdir_value: ?Value = null;
+    try vm.consumeKeywordArgs(.{"chdir"}, .{&chdir_value});
+    try vm.validateKeywordArgsConsumed();
+
+    var env_map = try vm.currentEnvMap();
+    defer env_map.deinit();
+
+    var arg_index: usize = 0;
+    if (args[0].isHash()) {
+        for (args[0].toHashObject().entries.items) |entry| {
+            const key = try entry.key.coerceToStr(vm, "no implicit conversion into String");
+            if (entry.value.isNil()) {
+                if (env_map.array_hash_map.fetchSwapRemoveContext(key, .{})) |removed| {
+                    env_map.allocator.free(removed.key);
+                    env_map.allocator.free(removed.value);
+                }
+            } else {
+                const bytes = try entry.value.coerceToStr(vm, "no implicit conversion into String");
+                env_map.put(key, bytes) catch return error.Fatal;
+            }
+        }
+        arg_index = 1;
+    }
+    if (arg_index >= args.len) {
+        return vm.raiseExceptionFmt(vm.argument_error_class, "wrong number of arguments (given 0, expected 1+)", .{});
+    }
+
+    var command_end = args.len;
+    if (command_end > arg_index + 1 and args[command_end - 1].isHash()) {
+        command_end -= 1;
+        for (args[command_end].toHashObject().entries.items) |entry| {
+            if (!entry.key.isSymbol()) return vm.raiseExceptionFmt(vm.argument_error_class, "wrong exec option", .{});
+            const name = entry.key.toSymbolObject().name;
+            if (std.mem.eql(u8, name, "chdir")) {
+                chdir_value = entry.value;
+            } else {
+                return vm.raiseExceptionFmt(vm.argument_error_class, "wrong exec option symbol: {s}", .{name});
+            }
+        }
+    }
+
+    var argv_items: std.ArrayList([]const u8) = .empty;
+    defer argv_items.deinit(vm.allocator);
+    const single_command = command_end == arg_index + 1;
+    if (single_command) {
+        const command = try args[arg_index].coerceToStr(vm, "no implicit conversion into String");
+        argv_items.appendSlice(vm.allocator, &.{ "/bin/sh", "-c", command }) catch return error.Fatal;
+    } else {
+        for (args[arg_index..command_end]) |arg| {
+            argv_items.append(vm.allocator, try arg.coerceToStr(vm, "no implicit conversion into String")) catch return error.Fatal;
+        }
+    }
+
+    const path_z = try vm.resolveExecPathFromEnvMap(&env_map, argv_items.items[0]);
+    defer vm.allocator.free(path_z);
+    var argv_data = try buildKernelExecArgv(vm, argv_items.items);
+    defer {
+        for (argv_data.arg_z_strings.items) |item| vm.allocator.free(item);
+        argv_data.arg_z_strings.deinit(vm.allocator);
+        argv_data.argv_ptrs.deinit(vm.allocator);
+    }
+    var env_block = try buildKernelExecEnvBlock(vm, &env_map);
+    defer env_block.deinit(vm.allocator);
+
+    vm.setupOutput();
+    if (vm.stdout) |out| _ = out.flush() catch {};
+    if (vm.stderr) |err_out| _ = err_out.flush() catch {};
+
+    if (chdir_value) |directory| {
+        const path = try vm.coerceToPath(directory, "no implicit conversion into String");
+        const dir_z = try vm.allocCStringZ(path);
+        defer vm.allocator.free(dir_z);
+        if (std.c.chdir(dir_z.ptr) != 0) return vm.raiseErrnoFmt(std.posix.errno(-1), "chdir failed", .{});
+    }
+
+    _ = execve(path_z.ptr, @ptrCast(argv_data.argv_ptrs.items.ptr), @ptrCast(env_block.view().slice.ptr));
+    return vm.raiseErrnoFmt(std.posix.errno(-1), "exec failed - {s}", .{argv_items.items[0]});
 }
 
 pub fn builtinKernelSystem(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
