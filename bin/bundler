@@ -1,12 +1,17 @@
 #!/bin/sh
 
 bindir=$(cd "${0%/*}" && pwd -P)
-cora="${bindir}/../build/bin/cora"
-bundle="${bindir}/../build/ext/rubygems/bundler/exe/bundle"
+repo=$(cd "${bindir}/.." && pwd -P)
+cora="${repo}/build/bin/cora"
+bundle="${repo}/build/ext/rubygems/bundler/exe/bundle"
 
 if [ ! -x "${cora}" ] || [ ! -f "${bundle}" ]; then
   echo "Cora or Bundler not found; run \`zig build\`" >&2
   exit 1
 fi
+
+GEM_HOME="${repo}/.gem"
+GEM_PATH="${GEM_HOME}:${repo}/build/lib/gems/4.0.0"
+export GEM_HOME GEM_PATH
 
 exec "${cora}" "${bundle}" "$@"
