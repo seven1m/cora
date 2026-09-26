@@ -2962,7 +2962,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] library/digest/sha256/digest_length_spec.rb
 - [ ] library/digest/sha256/digest_spec.rb
 - [ ] library/digest/sha256/equal_spec.rb
-- [ ] library/digest/sha256/file_spec.rb
+- [-] library/digest/sha256/file_spec.rb
 - [x] library/digest/sha256/hexdigest_bang_spec.rb
 - [ ] library/digest/sha256/hexdigest_spec.rb
 - [ ] library/digest/sha256/inspect_spec.rb

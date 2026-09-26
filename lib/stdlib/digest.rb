@@ -9,6 +9,10 @@ end
 module Digest
   class Base < OpenSSL::Digest
     class << self
+      def file(name, *args)
+        new(*args).file(name)
+      end
+
       def digest(data)
         new(data).digest
       end
@@ -20,6 +24,15 @@ module Digest
       def base64digest(data)
         new(data).base64digest
       end
+    end
+
+    def file(name)
+      File.open(name, "rb") do |input|
+        while (chunk = input.read(16_384))
+          update(chunk)
+        end
+      end
+      self
     end
   end
 
