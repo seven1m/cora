@@ -311,30 +311,29 @@ pub fn expandValue(vm: *VM, val: Value, config_val: Value) VMError!Value {
     const str = val.toStringObject().str;
     if (str.len == 0) return val;
 
-    const buf = vm.allocator.alloc(u8, str.len * 4 + 256) catch return error.Fatal;
-    defer vm.allocator.free(buf);
-    var buf_len: usize = 0;
+    var expanded: std.ArrayList(u8) = .empty;
+    defer expanded.deinit(vm.allocator);
 
     var i: usize = 0;
     while (i < str.len) {
         if (str[i] == '$' and i + 1 < str.len) {
             if (str[i + 1] == '$') {
-                if (buf_len < buf.len) { buf[buf_len] = '$'; buf_len += 1; }
+                expanded.append(vm.allocator, '$') catch return error.Fatal;
                 i += 2;
                 continue;
             }
 
             if (str[i + 1] == '(') {
                 const end = std.mem.indexOfScalarPos(u8, str, i + 2, ')') orelse {
-                    try appendToBuf(buf, &buf_len, str[i..]);
+                    expanded.appendSlice(vm.allocator, str[i..]) catch return error.Fatal;
                     break;
                 };
                 const var_name = str[i + 2 .. end];
                 const resolved = resolveConfigVar(vm, var_name, config_val) catch return error.Fatal;
                 if (resolved) |r| {
-                    try appendToBuf(buf, &buf_len, r.toStringObject().str);
+                    expanded.appendSlice(vm.allocator, r.toStringObject().str) catch return error.Fatal;
                 } else {
-                    try appendToBuf(buf, &buf_len, str[i .. end + 1]);
+                    expanded.appendSlice(vm.allocator, str[i .. end + 1]) catch return error.Fatal;
                 }
                 i = end + 1;
                 continue;
@@ -342,25 +341,25 @@ pub fn expandValue(vm: *VM, val: Value, config_val: Value) VMError!Value {
 
             if (str[i + 1] == '{') {
                 const end = std.mem.indexOfScalarPos(u8, str, i + 2, '}') orelse {
-                    try appendToBuf(buf, &buf_len, str[i..]);
+                    expanded.appendSlice(vm.allocator, str[i..]) catch return error.Fatal;
                     break;
                 };
                 const var_name = str[i + 2 .. end];
                 const resolved = resolveConfigVar(vm, var_name, config_val) catch return error.Fatal;
                 if (resolved) |r| {
-                    try appendToBuf(buf, &buf_len, r.toStringObject().str);
+                    expanded.appendSlice(vm.allocator, r.toStringObject().str) catch return error.Fatal;
                 } else {
-                    try appendToBuf(buf, &buf_len, str[i .. end + 1]);
+                    expanded.appendSlice(vm.allocator, str[i .. end + 1]) catch return error.Fatal;
                 }
                 i = end + 1;
                 continue;
             }
         }
-        if (buf_len < buf.len) { buf[buf_len] = str[i]; buf_len += 1; }
+        expanded.append(vm.allocator, str[i]) catch return error.Fatal;
         i += 1;
     }
 
-    const new_str = vm.gc_allocator_atomic.dupe(u8, buf[0..buf_len]) catch return error.Fatal;
+    const new_str = vm.gc_allocator_atomic.dupe(u8, expanded.items) catch return error.Fatal;
     val.toStringObject().str = new_str;
     return val;
 }
@@ -377,10 +376,4 @@ fn resolveConfigVar(vm: *VM, var_name: []const u8, config_val: Value) VMError!?V
     if (!entry_value.isString()) return null;
 
     return expandValue(vm, entry_value, config_val) catch return error.Fatal;
-}
-
-fn appendToBuf(buf: []u8, buf_len: *usize, data: []const u8) VMError!void {
-    if (buf_len.* + data.len > buf.len) return error.Fatal;
-    @memcpy(buf[buf_len.* .. buf_len.* + data.len], data);
-    buf_len.* += data.len;
 }

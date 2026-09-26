@@ -64,6 +64,19 @@ test "RbConfig::MAKEFILE_CONFIG stays raw and separate from CONFIG" {
     try std.testing.expectEqualSlices(u8, "8.0.0", items[5].toStringObject().str);
 }
 
+test "RbConfig.expand handles replacements longer than the template" {
+    const result = try evalCode(
+        \\require 'rbconfig'
+        \\expanded = RbConfig.expand('before$(LONG)after', {'LONG' => 'x' * 5000})
+        \\[expanded.length, expanded.start_with?('before'), expanded.end_with?('after')]
+    );
+    try std.testing.expect(result.isArray());
+    const items = result.toArrayObject().elements.items;
+    try std.testing.expectEqual(@as(i64, 5011), items[0].toInteger());
+    try std.testing.expect(items[1].isTruthy());
+    try std.testing.expect(items[2].isTruthy());
+}
+
 test "RbConfig runtime refresh keeps raw templates and expanded runtime paths" {
     var threaded: std.Io.Threaded = .init(std.testing.allocator, .{});
     defer threaded.deinit();
