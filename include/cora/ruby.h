@@ -39,6 +39,11 @@ typedef struct { int _; } rb_encoding;
 #define _(args) args
 #endif
 
+#ifndef STRINGIZE0
+#define STRINGIZE(expr) STRINGIZE0(expr)
+#define STRINGIZE0(expr) #expr
+#endif
+
 #define Qfalse ((VALUE)0x00)
 #define Qtrue  ((VALUE)0x02)
 #define Qnil   ((VALUE)0x04)
