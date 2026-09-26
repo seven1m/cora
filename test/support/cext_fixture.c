@@ -229,6 +229,13 @@ cext_array_subseq(VALUE self, VALUE array, VALUE begin, VALUE len)
 }
 
 static VALUE
+cext_array_pop(VALUE self, VALUE array)
+{
+    (void)self;
+    return rb_ary_pop(array);
+}
+
+static VALUE
 cext_call_helpers(VALUE self, VALUE object)
 {
     VALUE args = rb_ary_new3(1, INT2NUM(7));
@@ -417,6 +424,7 @@ void Init_fixture(void)
     rb_define_module_function(mCoraCExt, "ivar_access", cext_ivar_access, 1);
     rb_define_module_function(mCoraCExt, "array_mutation", cext_array_mutation, 0);
     rb_define_module_function(mCoraCExt, "array_subseq", cext_array_subseq, 3);
+    rb_define_module_function(mCoraCExt, "array_pop", cext_array_pop, 1);
     rb_define_module_function(mCoraCExt, "call_helpers", cext_call_helpers, 1);
     rb_define_module_function(mCoraCExt, "exception_message", cext_exception_message, 0);
     rb_define_module_function(mCoraCExt, "exception_ivar_message", cext_exception_ivar_message, 0);

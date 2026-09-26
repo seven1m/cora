@@ -758,6 +758,10 @@ export fn rb_ary_subseq(ary_raw: VALUE, begin: c_long, len: c_long) VALUE {
     return Value.fromObject(&result.object).raw;
 }
 
+export fn rb_ary_pop(ary_raw: VALUE) VALUE {
+    return rb_funcallv(ary_raw, rb_intern("pop"), 0, null);
+}
+
 export fn rb_ary_delete(ary_raw: VALUE, item_raw: VALUE) VALUE {
     const argv = [_]VALUE{item_raw};
     return rb_funcallv(ary_raw, rb_intern("delete"), 1, &argv);

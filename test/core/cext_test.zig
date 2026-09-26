@@ -119,6 +119,19 @@ test "C extension extracts array subsequences" {
     }
 }
 
+test "C extension pops array elements" {
+    const result = try evalCode(
+        \\$LOAD_PATH << "build/cext"
+        \\require "fixture.so"
+        \\array = [1, 2, 3]
+        \\[CoraCExt.array_pop(array), array, CoraCExt.array_pop([])]
+    );
+    const values = result.toArrayObject().elements.items;
+    try std.testing.expectEqual(@as(i64, 3), values[0].toInteger());
+    try std.testing.expectEqual(@as(usize, 2), values[1].toArrayObject().elements.items.len);
+    try std.testing.expect(values[2].isNil());
+}
+
 test "C extension call and block helpers invoke Ruby code" {
     const result = try evalCode(
         \\$LOAD_PATH << "build/cext"
