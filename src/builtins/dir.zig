@@ -118,6 +118,9 @@ pub fn register(vm: *VM) !void {
     const children_sym = try vm.intern("children");
     try dir_singleton.module.methods.put(children_sym, value.MethodEntry.keywordBuiltin(&builtinDirChildren, .{ .variadic = 0 }));
 
+    const each_child_sym = try vm.intern("each_child");
+    try dir_singleton.module.methods.put(each_child_sym, value.MethodEntry.keywordBuiltin(&builtinDirEachChild, .{ .variadic = 0 }));
+
     const glob_sym = try vm.intern("glob");
     try dir_singleton.module.methods.put(glob_sym, value.MethodEntry.keywordBuiltin(&builtinDirGlob, .{ .variadic = 1 }));
 
@@ -348,6 +351,24 @@ fn collectDirEntries(vm: *VM, args: []Value) VMError!Value {
 
 pub fn builtinDirEntries(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
     return collectDirEntries(vm, args);
+}
+
+pub fn builtinDirEachChild(vm: *VM, _: Value, args: []Value, block: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    const entries = try collectDirEntries(vm, args);
+    const children = try vm.createArray();
+    for (entries.toArrayObject().elements.items[2..]) |entry| {
+        children.elements.append(vm.gc_allocator, entry) catch return error.Fatal;
+    }
+
+    const blk = block orelse {
+        return vm.createMethodEnumerator(Value.fromObject(&children.object), try vm.intern("each"), &.{});
+    };
+
+    for (children.elements.items) |entry| {
+        _ = try vm.yieldToBlock(blk, &.{entry});
+    }
+    return Value.nil();
 }
 
 pub fn builtinDirForeach(vm: *VM, _: Value, args: []Value, block: ?Block) VMError!Value {
