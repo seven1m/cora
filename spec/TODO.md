@@ -626,7 +626,7 @@ Source baseline: ../ruby_spec compared to local spec/
 
 ### core/exception
 - [ ] core/exception/backtrace_locations_spec.rb
-- [ ] core/exception/backtrace_spec.rb
+- [-] core/exception/backtrace_spec.rb
 - [ ] core/exception/case_compare_spec.rb
 - [ ] core/exception/cause_spec.rb
 - [ ] core/exception/detailed_message_spec.rb

@@ -10655,6 +10655,14 @@ pub const VM = struct {
             }
             return Value.nil();
         }
+        if (std.mem.eql(u8, name, "$@")) {
+            const exc = self.pendingException() orelse blk: {
+                const rescued = self.currentRescuedExceptions();
+                if (rescued.items.len == 0) return Value.nil();
+                break :blk rescued.items[rescued.items.len - 1];
+            };
+            return if (exc.backtrace) |backtrace| Value.fromObject(&backtrace.object) else Value.nil();
+        }
         if (self.currentThreadGlobalSlot(name)) |slot| return slot.*;
         const entry = self.globals.get(name) orelse return Value.nil();
         return switch (entry.storage) {
