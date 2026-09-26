@@ -491,6 +491,7 @@ const FileMode = struct {
     truncate: bool,
     excl: bool = false,
     binary: bool = false,
+    textmode: bool = false,
 };
 
 pub fn register(vm: *VM) !void {
@@ -921,7 +922,14 @@ fn parseMode(vm: *VM, mode_str: []const u8) VMError!FileMode {
                 mode.read = true;
                 mode.write = true;
             },
-            'b' => mode.binary = true,
+            'b' => {
+                if (mode.textmode) return vm.raiseExceptionFmt(vm.argument_error_class, "invalid access mode {s}", .{mode_str});
+                mode.binary = true;
+            },
+            't' => {
+                if (mode.binary) return vm.raiseExceptionFmt(vm.argument_error_class, "invalid access mode {s}", .{mode_str});
+                mode.textmode = true;
+            },
             'x' => {
                 if (mode_part[0] != 'w') {
                     return vm.raiseExceptionFmt(vm.argument_error_class, "invalid access mode {s}", .{mode_str});

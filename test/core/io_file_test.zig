@@ -38,6 +38,19 @@ fn uniquePath(buf: *[128]u8) ![]const u8 {
     return std.fmt.bufPrint(buf, "/tmp/cora_io_{d}.txt", .{@as(i128, @intCast(std.Io.Clock.boot.now(std.testing.io).nanoseconds))});
 }
 
+test "File.open accepts text append mode" {
+    const result = try evalCode(
+        \\path = "/tmp/cora_textmode_#{Process.pid}"
+        \\File.open(path, "wt") { |file| file.write("a") }
+        \\File.open(path, "at") { |file| file.write("b") }
+        \\contents = File.read(path)
+        \\File.delete(path)
+        \\contents
+    );
+    try std.testing.expect(result.isString());
+    try std.testing.expectEqualSlices(u8, "ab", result.toStringObject().str);
+}
+
 test "STDIN/STDOUT/STDERR constants mirror $stdin/$stdout/$stderr" {
     const result = try evalCode(
         \\[
