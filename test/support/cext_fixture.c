@@ -488,6 +488,34 @@ cext_raise_formatted(VALUE self)
     return Qnil;
 }
 
+static int
+cext_st_sum(st_data_t key, st_data_t value, st_data_t arg)
+{
+    (void)key;
+    *(int *)arg += (int)value;
+    return ST_CONTINUE;
+}
+
+static VALUE
+cext_st_table(VALUE self)
+{
+    (void)self;
+    st_table *table = st_init_numtable_with_size(2);
+    st_data_t found = 0;
+    st_data_t key = 1;
+    int sum = 0;
+    st_insert(table, 1, 3);
+    st_insert(table, 2, 4);
+    st_foreach(table, cext_st_sum, (st_data_t)&sum);
+    int looked_up = st_lookup(table, 2, &found);
+    int deleted = st_delete(table, &key, NULL);
+    VALUE result = rb_ary_new3(6, INT2NUM(sum), INT2NUM(looked_up), INT2NUM(found),
+                               INT2NUM(deleted), INT2NUM(table->num_entries),
+                               INT2NUM(st_strncasecmp("SVG", "svg", 3)));
+    st_free_table(table);
+    return result;
+}
+
 void Init_fixture(void)
 {
     VALUE mCoraCExt = rb_define_module("CoraCExt");
@@ -540,6 +568,7 @@ void Init_fixture(void)
     rb_define_module_function(mCoraCExt, "scan_keywords", cext_scan_keywords, -1);
     rb_define_module_function(mCoraCExt, "check_array_type", cext_check_array_type, 1);
     rb_define_module_function(mCoraCExt, "raise_formatted", cext_raise_formatted, 0);
+    rb_define_module_function(mCoraCExt, "st_table", cext_st_table, 0);
 
     rb_define_method(rb_cString, "cora_cext_test", cora_cext_test, 0);
     rb_define_method(rb_cString, "cext_yield", cext_simple_yield, 1);

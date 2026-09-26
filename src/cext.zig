@@ -11,6 +11,121 @@ const bdwgc = @import("bdwgc");
 
 pub const VALUE = u64;
 
+const StEntry = extern struct {
+    key: usize,
+    value: usize,
+};
+
+const StTable = extern struct {
+    num_entries: usize,
+    entries: ?*anyopaque,
+    capacity: usize,
+};
+
+fn stEntries(table: *StTable) []StEntry {
+    const ptr: [*]StEntry = @ptrCast(@alignCast(table.entries.?));
+    return ptr[0..table.capacity];
+}
+
+export fn st_init_numtable() ?*StTable {
+    return st_init_numtable_with_size(8);
+}
+
+export fn st_init_numtable_with_size(size: usize) ?*StTable {
+    const table = std.heap.c_allocator.create(StTable) catch return null;
+    const capacity = @max(size, 8);
+    const entries = std.heap.c_allocator.alloc(StEntry, capacity) catch {
+        std.heap.c_allocator.destroy(table);
+        return null;
+    };
+    table.* = .{ .num_entries = 0, .entries = entries.ptr, .capacity = capacity };
+    return table;
+}
+
+export fn st_free_table(table: ?*StTable) void {
+    const actual = table orelse return;
+    std.heap.c_allocator.free(stEntries(actual));
+    std.heap.c_allocator.destroy(actual);
+}
+
+export fn st_insert(table: *StTable, key: usize, entry_value: usize) c_int {
+    var entries = stEntries(table);
+    for (entries[0..table.num_entries]) |*entry| {
+        if (entry.key == key) {
+            entry.value = entry_value;
+            return 1;
+        }
+    }
+    if (table.num_entries == table.capacity) {
+        const new_capacity = std.math.mul(usize, table.capacity, 2) catch return 0;
+        entries = std.heap.c_allocator.realloc(entries, new_capacity) catch return 0;
+        table.entries = entries.ptr;
+        table.capacity = new_capacity;
+    }
+    entries[table.num_entries] = .{ .key = key, .value = entry_value };
+    table.num_entries += 1;
+    return 0;
+}
+
+export fn st_lookup(table: *StTable, key: usize, result: ?*usize) c_int {
+    for (stEntries(table)[0..table.num_entries]) |entry| {
+        if (entry.key == key) {
+            if (result) |out| out.* = entry.value;
+            return 1;
+        }
+    }
+    return 0;
+}
+
+export fn st_delete(table: *StTable, key: *usize, result: ?*usize) c_int {
+    const entries = stEntries(table);
+    for (entries[0..table.num_entries], 0..) |entry, index| {
+        if (entry.key == key.*) {
+            if (result) |out| out.* = entry.value;
+            if (index + 1 < table.num_entries) {
+                std.mem.copyForwards(StEntry, entries[index .. table.num_entries - 1], entries[index + 1 .. table.num_entries]);
+            }
+            table.num_entries -= 1;
+            return 1;
+        }
+    }
+    return 0;
+}
+
+export fn st_foreach(table: *StTable, callback: *const fn (usize, usize, usize) callconv(.c) c_int, arg: usize) c_int {
+    var index: usize = 0;
+    while (index < table.num_entries) {
+        const entry = stEntries(table)[index];
+        switch (callback(entry.key, entry.value, arg)) {
+            1 => return 1,
+            2 => {
+                var key = entry.key;
+                _ = st_delete(table, &key, null);
+            },
+            else => index += 1,
+        }
+    }
+    return 0;
+}
+
+export fn st_strcasecmp(a: [*:0]const u8, b: [*:0]const u8) c_int {
+    var index: usize = 0;
+    while (true) : (index += 1) {
+        const left = std.ascii.toLower(a[index]);
+        const right = std.ascii.toLower(b[index]);
+        if (left != right or left == 0) return @as(c_int, left) - @as(c_int, right);
+    }
+}
+
+export fn st_strncasecmp(a: [*:0]const u8, b: [*:0]const u8, length: usize) c_int {
+    for (0..length) |index| {
+        const left = std.ascii.toLower(a[index]);
+        const right = std.ascii.toLower(b[index]);
+        if (left != right or left == 0) return @as(c_int, left) - @as(c_int, right);
+    }
+    return 0;
+}
+
 fn getVM() *VM {
     return @ptrCast(@alignCast(cext_globals.getCurrentVM()));
 }

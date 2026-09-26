@@ -12,6 +12,19 @@ test "C extension fixture loads and defines method" {
     try std.testing.expectEqual(true, result.toBool());
 }
 
+test "C extension numeric st tables support insert lookup iteration and deletion" {
+    const result = try evalCode(
+        \\$LOAD_PATH << "build/cext"
+        \\require "fixture.so"
+        \\CoraCExt.st_table
+    );
+    const items = result.toArrayObject().elements.items;
+    const expected = [_]i64{ 7, 1, 4, 1, 1, 0 };
+    for (items, expected) |item, value| {
+        try std.testing.expectEqual(value, item.toInteger());
+    }
+}
+
 test "C extension Check_Type accepts arrays and raises for other types" {
     const result = try evalCode(
         \\$LOAD_PATH << "build/cext"
