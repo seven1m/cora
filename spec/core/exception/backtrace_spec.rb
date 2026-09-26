@@ -27,9 +27,7 @@ describe "Exception#backtrace" do
   end
 
   it "includes the name of the method from where self raised in the first element" do
-    CORAFIXME "class method backtraces use Class# instead of the receiver name", exception: SpecExpectationNotMetError do
-      @backtrace.first.should =~ /in [`'](?:ExceptionSpecs::Backtrace\.)?backtrace'/
-    end
+    @backtrace.first.should =~ /in [`'](?:ExceptionSpecs::Backtrace\.)?backtrace'/
   end
 
   it "includes the filename of the location immediately prior to where self raised in the second element" do

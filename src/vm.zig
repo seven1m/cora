@@ -13643,6 +13643,14 @@ pub const VM = struct {
     }
 
     /// Capture current call stack as a backtrace
+    fn backtraceMethodLabel(self: *VM, frame: *const CallFrame, method_name: []const u8) VMError![]const u8 {
+        if (frame.frame_type == .builtin) return method_name;
+        if (self.publicModuleName(frame.self_value)) |owner_name| {
+            return std.fmt.allocPrint(self.gc_allocator, "{s}.{s}", .{ owner_name, method_name }) catch return error.Fatal;
+        }
+        return std.fmt.allocPrint(self.gc_allocator, "{s}#{s}", .{ self.getClass(frame.self_value).module.name.name, method_name }) catch return error.Fatal;
+    }
+
     fn captureBacktraceFromFrames(self: *VM, frames: []const CallFrame) VMError!?*value.ArrayObject {
         const array_obj = self.gc_allocator.create(value.ArrayObject) catch return error.Fatal;
         array_obj.* = .{
@@ -13665,18 +13673,11 @@ pub const VM = struct {
             const frame_line = self.backtraceLineForFrame(frame);
             const frame_source = frame.chunk.source_file orelse frame.chunk.name;
             const backtrace_str = if (frame.method_name) |method_name|
-                if (frame.frame_type == .builtin)
-                    std.fmt.allocPrint(
-                        self.gc_allocator,
-                        "{s}:{d}:in '{s}'",
-                        .{ frame_source, frame_line, method_name },
-                    ) catch return error.Fatal
-                else
-                    std.fmt.allocPrint(
-                        self.gc_allocator,
-                        "{s}:{d}:in '{s}#{s}'",
-                        .{ frame_source, frame_line, self.getClass(frame.self_value).module.name.name, method_name },
-                    ) catch return error.Fatal
+                std.fmt.allocPrint(
+                    self.gc_allocator,
+                    "{s}:{d}:in '{s}'",
+                    .{ frame_source, frame_line, try self.backtraceMethodLabel(frame, method_name) },
+                ) catch return error.Fatal
             else if (frame.frame_type == .proc or frame.frame_type == .lambda)
                 if (enclosingMethodEnvironment(frame)) |environment|
                     std.fmt.allocPrint(
@@ -13718,10 +13719,7 @@ pub const VM = struct {
             const frame = &self.frames.items[i];
             const source = frame.chunk.source_file orelse frame.chunk.name;
             const label = if (frame.method_name) |method_name|
-                if (frame.frame_type == .builtin)
-                    method_name
-                else
-                    std.fmt.allocPrint(self.gc_allocator, "{s}#{s}", .{ self.getClass(frame.self_value).module.name.name, method_name }) catch return error.Fatal
+                try self.backtraceMethodLabel(frame, method_name)
             else if (frame.frame_type == .proc or frame.frame_type == .lambda)
                 if (enclosingMethodEnvironment(frame)) |environment|
                     std.fmt.allocPrint(self.gc_allocator, "block in {s}#{s}", .{ self.getClass(frame.self_value).module.name.name, environment.context.method_name }) catch return error.Fatal
