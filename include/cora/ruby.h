@@ -428,6 +428,11 @@ int    rb_block_given_p(void);
 VALUE  rb_block_proc(void);
 VALUE  rb_yield(VALUE val);
 VALUE  rb_yield_values(int n, ...);
+#define RB_BLOCK_CALL_FUNC_ARGLIST(yielded_arg, callback_arg) \
+    VALUE yielded_arg, VALUE callback_arg, int argc, const VALUE *argv, VALUE blockarg
+typedef VALUE rb_block_call_func(RB_BLOCK_CALL_FUNC_ARGLIST(yielded_arg, callback_arg));
+VALUE rb_block_call(VALUE obj, ID mid, int argc, const VALUE *argv, rb_block_call_func *proc, VALUE data2);
+void rb_iter_break(void);
 
 VALUE  rb_attr_get(VALUE obj, ID id);
 VALUE  rb_ivar_get(VALUE obj, ID id);

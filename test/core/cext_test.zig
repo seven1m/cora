@@ -143,6 +143,45 @@ test "C extension reads interned ID names" {
     try std.testing.expect(values[1].isNil());
 }
 
+test "C extension calls Ruby iterators with a C block" {
+    const result = try evalCode(
+        \\$LOAD_PATH << "build/cext"
+        \\require "fixture.so"
+        \\CoraCExt.block_call_collect([1, 2, 3])
+    );
+    const values = result.toArrayObject().elements.items;
+    try std.testing.expectEqual(@as(usize, 3), values.len);
+    for (values, 1..) |item, expected| try std.testing.expectEqual(@as(i64, @intCast(expected)), item.toInteger());
+}
+
+test "C extension breaks Ruby iteration from a C block" {
+    const result = try evalCode(
+        \\$LOAD_PATH << "build/cext"
+        \\require "fixture.so"
+        \\CoraCExt.block_call_break([1, 2, 3])
+    );
+    const values = result.toArrayObject().elements.items;
+    try std.testing.expect(values[0].isNil());
+    const collected = values[1].toArrayObject().elements.items;
+    try std.testing.expectEqual(@as(usize, 1), collected.len);
+    try std.testing.expectEqual(@as(i64, 1), collected[0].toInteger());
+}
+
+test "C extension forwards an existing Ruby block" {
+    const result = try evalCode(
+        \\$LOAD_PATH << "build/cext"
+        \\require "fixture.so"
+        \\mapped = CoraCExt.block_call_forward([1, 2, 3]) { |value| value * 2 }
+        \\unmapped = CoraCExt.block_call_forward([1, 2, 3])
+        \\[mapped, unmapped.is_a?(Enumerator)]
+    );
+    const values = result.toArrayObject().elements.items;
+    const mapped = values[0].toArrayObject().elements.items;
+    try std.testing.expectEqual(@as(usize, 3), mapped.len);
+    for (mapped, 1..) |item, expected| try std.testing.expectEqual(@as(i64, @intCast(expected * 2)), item.toInteger());
+    try std.testing.expect(values[1].toBool());
+}
+
 test "C extension call and block helpers invoke Ruby code" {
     const result = try evalCode(
         \\$LOAD_PATH << "build/cext"

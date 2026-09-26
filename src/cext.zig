@@ -867,6 +867,101 @@ export fn rb_funcallv(recv_raw: VALUE, mid: VALUE, argc: c_int, argv: [*c]const 
     return result.raw;
 }
 
+const CExtBlockCallFunc = *const fn (VALUE, VALUE, c_int, [*c]const VALUE, VALUE) callconv(.c) VALUE;
+const CExtBlockCallContext = struct {
+    callback: CExtBlockCallFunc,
+    data: VALUE,
+    break_requested: bool = false,
+    jump_buf: ?*anyopaque = null,
+};
+threadlocal var active_block_call: ?*CExtBlockCallContext = null;
+
+fn cextBlockCallYield(vm: *VM, receiver: Value, args: []Value) vm_mod.VMError!Value {
+    const context: *CExtBlockCallContext = @ptrFromInt(receiver.raw);
+    const previous_context = active_block_call;
+    active_block_call = context;
+    defer active_block_call = previous_context;
+
+    var jmp_buf: [200]u8 align(@alignOf(c_int)) = @splat(0);
+    const previous_jump = vm.cext_jmp_buf;
+    vm.cext_jmp_buf = &jmp_buf;
+    context.jump_buf = &jmp_buf;
+    defer {
+        context.jump_buf = null;
+        vm.cext_jmp_buf = previous_jump;
+    }
+
+    if (__sigsetjmp(&jmp_buf, 0) != 0) {
+        if (context.break_requested) {
+            context.break_requested = false;
+            vm.setPendingThrow(.{ .tag = receiver, .value = Value.nil() });
+        }
+        return error.Unwind;
+    }
+
+    const yielded: Value = switch (args.len) {
+        0 => Value.nil(),
+        1 => args[0],
+        else => blk: {
+            const array = try vm.createArray();
+            array.elements.appendSlice(vm.gc_allocator, args) catch return error.Fatal;
+            break :blk Value.fromObject(&array.object);
+        },
+    };
+    const pending_before = vm.pendingUnwind();
+    const argv: [*c]const VALUE = if (args.len == 0) null else @ptrCast(args.ptr);
+    const result = context.callback(yielded.raw, context.data, @intCast(args.len), argv, Value.nil().raw);
+    if (vm.pendingUnwindChanged(pending_before)) return error.Unwind;
+    return Value{ .raw = result };
+}
+
+export fn rb_block_call(obj_raw: VALUE, mid: VALUE, argc: c_int, argv: [*c]const VALUE, callback: ?CExtBlockCallFunc, data: VALUE) VALUE {
+    const vm = getVM();
+    const pending_before = vm.pendingUnwind();
+    const context = if (callback) |func| blk: {
+        const allocated = vm.gc_allocator.create(CExtBlockCallContext) catch return 0;
+        allocated.* = .{ .callback = func, .data = data };
+        break :blk allocated;
+    } else null;
+    const context_value = if (context) |allocated| Value{ .raw = @intFromPtr(allocated) } else Value.nil();
+    const block: ?vm_mod.Block = if (context != null)
+        .{ .kind = .{ .receiver_builtin = .{
+            .receiver = context_value,
+            .func = &cextBlockCallYield,
+            .arity = -1,
+        } } }
+    else
+        vm.currentFrame().block;
+    const args: []Value = if (argv != null and argc > 0)
+        @as([*]Value, @ptrCast(@constCast(argv)))[0..@intCast(argc)]
+    else
+        &[_]Value{};
+    const result = vm.callMethodByName(Value{ .raw = obj_raw }, symName(mid), args, block) catch |err| {
+        if (err == error.Unwind and context != null) {
+            if (vm.pendingThrow()) |pending| {
+                if (pending.tag.raw == context_value.raw) {
+                    vm.clearPendingThrow();
+                    return pending.value.raw;
+                }
+            }
+            checkPendingUnwind(vm, pending_before);
+        }
+        return 0;
+    };
+    checkPendingUnwind(vm, pending_before);
+    return result.raw;
+}
+
+export fn rb_iter_break() void {
+    const vm = getVM();
+    if (active_block_call) |context| {
+        context.break_requested = true;
+        if (context.jump_buf) |buf| siglongjmp(buf, 1);
+    }
+    _ = vm.raiseExceptionFmt(vm.local_jump_error_class, "break from proc-closure", .{}) catch {};
+    if (vm.cext_jmp_buf) |buf| siglongjmp(buf, 1);
+}
+
 export fn rb_proc_call_with_block(recv_raw: VALUE, argc: c_int, argv: [*c]const VALUE, block_raw: VALUE) VALUE {
     _ = block_raw;
     return rb_funcallv(recv_raw, rb_intern("call"), argc, argv);

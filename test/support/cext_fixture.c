@@ -251,6 +251,52 @@ cext_id2name_zero(VALUE self)
 }
 
 static VALUE
+cext_block_collect(RB_BLOCK_CALL_FUNC_ARGLIST(item, collected))
+{
+    (void)argc;
+    (void)argv;
+    (void)blockarg;
+    rb_ary_push(collected, item);
+    return Qnil;
+}
+
+static VALUE
+cext_block_collect_until_two(RB_BLOCK_CALL_FUNC_ARGLIST(item, collected))
+{
+    (void)argc;
+    (void)argv;
+    (void)blockarg;
+    if (NUM2LONG(item) == 2) rb_iter_break();
+    rb_ary_push(collected, item);
+    return Qnil;
+}
+
+static VALUE
+cext_block_call_collect(VALUE self, VALUE array)
+{
+    (void)self;
+    VALUE collected = rb_ary_new();
+    rb_block_call(array, rb_intern("each"), 0, NULL, cext_block_collect, collected);
+    return collected;
+}
+
+static VALUE
+cext_block_call_break(VALUE self, VALUE array)
+{
+    (void)self;
+    VALUE collected = rb_ary_new();
+    VALUE result = rb_block_call(array, rb_intern("each"), 0, NULL, cext_block_collect_until_two, collected);
+    return rb_ary_new3(2, result, collected);
+}
+
+static VALUE
+cext_block_call_forward(VALUE self, VALUE array)
+{
+    (void)self;
+    return rb_block_call(array, rb_intern("map"), 0, NULL, NULL, Qnil);
+}
+
+static VALUE
 cext_call_helpers(VALUE self, VALUE object)
 {
     VALUE args = rb_ary_new3(1, INT2NUM(7));
@@ -442,6 +488,9 @@ void Init_fixture(void)
     rb_define_module_function(mCoraCExt, "array_pop", cext_array_pop, 1);
     rb_define_module_function(mCoraCExt, "id2name", cext_id2name, 1);
     rb_define_module_function(mCoraCExt, "id2name_zero", cext_id2name_zero, 0);
+    rb_define_module_function(mCoraCExt, "block_call_collect", cext_block_call_collect, 1);
+    rb_define_module_function(mCoraCExt, "block_call_break", cext_block_call_break, 1);
+    rb_define_module_function(mCoraCExt, "block_call_forward", cext_block_call_forward, 1);
     rb_define_module_function(mCoraCExt, "call_helpers", cext_call_helpers, 1);
     rb_define_module_function(mCoraCExt, "exception_message", cext_exception_message, 0);
     rb_define_module_function(mCoraCExt, "exception_ivar_message", cext_exception_ivar_message, 0);
