@@ -27,7 +27,9 @@ describe 'RbConfig::CONFIG' do
     it "['archdir'] returns the directory containing standard libraries C extensions" do
       archdir = RbConfig::CONFIG['archdir']
       File.directory?(archdir).should == true
-      File.should.exist?("#{archdir}/etc.#{RbConfig::CONFIG['DLEXT']}")
+      CORAFIXME "Cora does not ship an etc native extension", exception: SpecExpectationNotMetError do
+        File.should.exist?("#{archdir}/etc.#{RbConfig::CONFIG['DLEXT']}")
+      end
     end
 
     it "['sitelibdir'] is set and is part of $LOAD_PATH" do

@@ -20,6 +20,13 @@ const bundled_gems = [_]struct { name: []const u8, version: []const u8 }{
     .{ .name = "power_assert", .version = "3.0.1" },
     .{ .name = "test-unit", .version = "3.7.5" },
 };
+// Workaround: Psych needs gemspecs for these dependencies, but Cora still
+// implements them in lib/stdlib. Replace these copies and minimal gemspecs
+// when date and stringio are ported as proper default gems.
+const stdlib_default_gems = [_]struct { name: []const u8, version: []const u8 }{
+    .{ .name = "stringio", .version = "3.2.0" },
+    .{ .name = "date", .version = "3.5.1" },
+};
 const runtime_ext_dirs = [_][]const u8{
     "cgi",
     "delegate",
@@ -677,6 +684,22 @@ pub fn build(b: *std.Build) void {
     const install_strscan_default_gem = addInstallGemDir(b, b.path(strscan_build_root), "strscan", strscan_gem_version, strscan_build_step);
     const install_json_default_gem = addInstallGemDir(b, b.path(json_build_root), "json", json_gem_version, json_build_step);
     const install_yaml_default_gem = addInstallGemDir(b, b.path("ext/yaml"), "yaml", yaml_gem_version, null);
+
+    const stdlib_gem_specs = b.addWriteFiles();
+    for (stdlib_default_gems) |gem| {
+        const source_path = b.fmt("lib/stdlib/{s}.rb", .{gem.name});
+        const installed_path = defaultGemLibInstallPath(b, gem.name, gem.version, b.fmt("{s}.rb", .{gem.name}));
+        const install_lib = b.addInstallFile(b.path(source_path), installed_path);
+        b.getInstallStep().dependOn(&install_lib.step);
+
+        const spec_name = b.fmt("{s}-{s}.gemspec", .{ gem.name, gem.version });
+        const spec_file = stdlib_gem_specs.add(spec_name, b.fmt(
+            "Gem::Specification.new do |s|\n  s.name = \"{s}\"\n  s.version = \"{s}\"\n  s.files = [\"lib/{s}.rb\"]\nend\n",
+            .{ gem.name, gem.version, gem.name },
+        ));
+        const install_spec = b.addInstallFile(spec_file, b.fmt("lib/gems/{s}/specifications/default/{s}", .{ ruby_gem_api_version, spec_name }));
+        b.getInstallStep().dependOn(&install_spec.step);
+    }
 
     for (bundled_gems) |gem| {
         const install_gem = addInstallGemDir(b, b.path(b.fmt("ext/{s}", .{gem.name})), gem.name, gem.version, null);

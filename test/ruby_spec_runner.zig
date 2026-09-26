@@ -332,6 +332,13 @@ fn evalCodeWithOutputAndPath(ruby_code: []const u8, stdout_buf: []u8, stderr_buf
     phase_start = perfNowNs();
     var vm = VM.initEmpty(allocator, cora.gc_allocator.scanned, cora.gc_allocator.atomic, threaded.io(), std.testing.environ);
     defer vm.deinit();
+    var exe_path_buffer: [4096]u8 = undefined;
+    const exe_path_len = std.Io.Dir.cwd().realPathFile(threaded.io(), "build/bin/cora", &exe_path_buffer) catch {
+        return .{ .stdout = "", .stderr = "", .err = error.FileNotFound };
+    };
+    vm.setRubyExecutablePath(exe_path_buffer[0..exe_path_len]) catch |err| {
+        return .{ .stdout = "", .stderr = "", .err = err };
+    };
     timings.vm_init_ns = perfNowNs() - phase_start;
 
     phase_start = perfNowNs();
