@@ -787,6 +787,13 @@ export fn rb_intern(name: [*c]const u8) VALUE {
     return Value.fromObject(&sym.object).raw;
 }
 
+export fn rb_id2name(id: VALUE) [*c]const u8 {
+    if (id == 0) return null;
+    const symbol = Value{ .raw = id };
+    if (!symbol.isSymbol()) return null;
+    return @ptrCast(symbol.toSymbolObject().name.ptr);
+}
+
 export fn rb_intern2(name: [*c]const u8, len: c_long) VALUE {
     if (name == null or len < 0) return 0;
     const vm = getVM();

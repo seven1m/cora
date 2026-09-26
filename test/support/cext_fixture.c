@@ -236,6 +236,21 @@ cext_array_pop(VALUE self, VALUE array)
 }
 
 static VALUE
+cext_id2name(VALUE self, VALUE symbol)
+{
+    (void)self;
+    const char *name = rb_id2name(SYM2ID(symbol));
+    return name ? rb_str_new2(name) : Qnil;
+}
+
+static VALUE
+cext_id2name_zero(VALUE self)
+{
+    (void)self;
+    return rb_id2name((ID)0) ? Qfalse : Qnil;
+}
+
+static VALUE
 cext_call_helpers(VALUE self, VALUE object)
 {
     VALUE args = rb_ary_new3(1, INT2NUM(7));
@@ -425,6 +440,8 @@ void Init_fixture(void)
     rb_define_module_function(mCoraCExt, "array_mutation", cext_array_mutation, 0);
     rb_define_module_function(mCoraCExt, "array_subseq", cext_array_subseq, 3);
     rb_define_module_function(mCoraCExt, "array_pop", cext_array_pop, 1);
+    rb_define_module_function(mCoraCExt, "id2name", cext_id2name, 1);
+    rb_define_module_function(mCoraCExt, "id2name_zero", cext_id2name_zero, 0);
     rb_define_module_function(mCoraCExt, "call_helpers", cext_call_helpers, 1);
     rb_define_module_function(mCoraCExt, "exception_message", cext_exception_message, 0);
     rb_define_module_function(mCoraCExt, "exception_ivar_message", cext_exception_ivar_message, 0);

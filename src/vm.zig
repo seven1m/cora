@@ -10149,7 +10149,7 @@ pub const VM = struct {
             return symbol_obj;
         }
 
-        const key_bytes = self.gc_allocator_atomic.dupe(u8, str) catch return error.Fatal;
+        const key_bytes = self.gc_allocator_atomic.dupeZ(u8, str) catch return error.Fatal;
         const map_key = SymbolKey{
             .bytes = key_bytes,
             .encoding_tag = @as(SymbolEncodingTag, canonical_encoding),

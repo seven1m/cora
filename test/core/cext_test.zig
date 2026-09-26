@@ -132,6 +132,17 @@ test "C extension pops array elements" {
     try std.testing.expect(values[2].isNil());
 }
 
+test "C extension reads interned ID names" {
+    const result = try evalCode(
+        \\$LOAD_PATH << "build/cext"
+        \\require "fixture.so"
+        \\[CoraCExt.id2name(:test_symbol), CoraCExt.id2name_zero]
+    );
+    const values = result.toArrayObject().elements.items;
+    try std.testing.expectEqualStrings("test_symbol", values[0].toStringObject().str);
+    try std.testing.expect(values[1].isNil());
+}
+
 test "C extension call and block helpers invoke Ruby code" {
     const result = try evalCode(
         \\$LOAD_PATH << "build/cext"
