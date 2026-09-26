@@ -744,6 +744,20 @@ export fn rb_ary_entry(ary_raw: VALUE, offset: c_long) VALUE {
     return arr.elements.items[idx].raw;
 }
 
+export fn rb_ary_subseq(ary_raw: VALUE, begin: c_long, len: c_long) VALUE {
+    if (len < 0) return Value.nil().raw;
+    const vm = getVM();
+    const source = (Value{ .raw = ary_raw }).toArrayObject();
+    const source_len: i128 = @intCast(source.elements.items.len);
+    const start: i128 = if (begin < 0) source_len + @as(i128, begin) else begin;
+    if (start < 0 or start > source_len) return Value.nil().raw;
+    const first: usize = @intCast(start);
+    const count: usize = @intCast(@min(@as(i128, len), source_len - start));
+    const result = vm.createArray() catch return 0;
+    result.elements.appendSlice(vm.gc_allocator, source.elements.items[first .. first + count]) catch return 0;
+    return Value.fromObject(&result.object).raw;
+}
+
 export fn rb_ary_delete(ary_raw: VALUE, item_raw: VALUE) VALUE {
     const argv = [_]VALUE{item_raw};
     return rb_funcallv(ary_raw, rb_intern("delete"), 1, &argv);

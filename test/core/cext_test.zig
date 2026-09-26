@@ -100,6 +100,25 @@ test "C extension deletes and stores array elements" {
     try std.testing.expectEqual(@as(i64, 4), array[2].toInteger());
 }
 
+test "C extension extracts array subsequences" {
+    const result = try evalCode(
+        \\$LOAD_PATH << "build/cext"
+        \\require "fixture.so"
+        \\array = [1, 2, 3, 4, 5]
+        \\[
+        \\  CoraCExt.array_subseq(array, 1, 3) == [2, 3, 4],
+        \\  CoraCExt.array_subseq(array, 1, 0) == [],
+        \\  CoraCExt.array_subseq(array, 6, 3).nil?,
+        \\  CoraCExt.array_subseq(array, 4, 3) == [5],
+        \\  CoraCExt.array_subseq(array, 1, -1).nil?,
+        \\  CoraCExt.array_subseq(array, -2, 2) == [4, 5]
+        \\]
+    );
+    for (result.toArrayObject().elements.items) |element| {
+        try std.testing.expect(element.toBool());
+    }
+}
+
 test "C extension call and block helpers invoke Ruby code" {
     const result = try evalCode(
         \\$LOAD_PATH << "build/cext"

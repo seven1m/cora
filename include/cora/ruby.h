@@ -226,6 +226,7 @@ double rb_cstr_to_dbl(const char *str, int badcheck);
 
 /* array macros */
 VALUE rb_ary_entry(VALUE ary, long offset);
+VALUE rb_ary_subseq(VALUE ary, long begin, long len);
 VALUE rb_ary_delete(VALUE ary, VALUE item);
 void  rb_ary_store(VALUE ary, long index, VALUE value);
 long  RARRAY_LEN(VALUE ary);
