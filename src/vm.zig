@@ -12335,8 +12335,12 @@ pub const VM = struct {
             };
             const exc = exc_val.toExceptionObject();
             self.assignImplicitExceptionCause(exc);
-            var backtrace_args = [_]Value{args[2]};
-            _ = try self.callMethodByName(Value.fromObject(&exc.object), "set_backtrace", &backtrace_args, null);
+            if (args[2].isNil()) {
+                try self.captureAndSetExceptionBacktrace(exc);
+            } else {
+                var backtrace_args = [_]Value{args[2]};
+                _ = try self.callMethodByName(Value.fromObject(&exc.object), "set_backtrace", &backtrace_args, null);
+            }
             self.setPendingException(exc);
             return error.Unwind;
         }

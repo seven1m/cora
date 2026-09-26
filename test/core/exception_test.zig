@@ -95,6 +95,19 @@ test "raise calls an overridden Exception#set_backtrace" {
     try std.testing.expect(elems[1].toBool());
 }
 
+test "raise captures a backtrace when its third argument is nil" {
+    const result = try evalCode(
+        \\begin
+        \\  raise RuntimeError, "boom", nil
+        \\rescue => error
+        \\  [error.backtrace.is_a?(Array), error.backtrace.first.include?("<main>")]
+        \\end
+    );
+    const values = result.toArrayObject().elements.items;
+    try std.testing.expect(values[0].toBool());
+    try std.testing.expect(values[1].toBool());
+}
+
 test "raise accepts exception object with replacement message" {
     const result = try evalCode(
         \\begin
