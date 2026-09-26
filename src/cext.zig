@@ -962,6 +962,12 @@ export fn rb_iter_break() void {
     if (vm.cext_jmp_buf) |buf| siglongjmp(buf, 1);
 }
 
+export fn rb_catch(tag: [*c]const u8, callback: ?CExtBlockCallFunc, data: VALUE) VALUE {
+    const tag_symbol = rb_intern(tag);
+    const argv = [_]VALUE{tag_symbol};
+    return rb_block_call(rb_mKernel, rb_intern("catch"), 1, &argv, callback, data);
+}
+
 export fn rb_proc_call_with_block(recv_raw: VALUE, argc: c_int, argv: [*c]const VALUE, block_raw: VALUE) VALUE {
     _ = block_raw;
     return rb_funcallv(recv_raw, rb_intern("call"), argc, argv);

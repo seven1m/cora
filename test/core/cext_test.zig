@@ -182,6 +182,17 @@ test "C extension forwards an existing Ruby block" {
     try std.testing.expect(values[1].toBool());
 }
 
+test "C extension catch receives returns and Ruby throws" {
+    const result = try evalCode(
+        \\$LOAD_PATH << "build/cext"
+        \\require "fixture.so"
+        \\CoraCExt.catch_control_flow(42)
+    );
+    const values = result.toArrayObject().elements.items;
+    try std.testing.expectEqual(@as(i64, 42), values[0].toInteger());
+    try std.testing.expectEqual(@as(i64, 42), values[1].toInteger());
+}
+
 test "C extension call and block helpers invoke Ruby code" {
     const result = try evalCode(
         \\$LOAD_PATH << "build/cext"

@@ -433,6 +433,7 @@ VALUE  rb_yield_values(int n, ...);
 typedef VALUE rb_block_call_func(RB_BLOCK_CALL_FUNC_ARGLIST(yielded_arg, callback_arg));
 VALUE rb_block_call(VALUE obj, ID mid, int argc, const VALUE *argv, rb_block_call_func *proc, VALUE data2);
 void rb_iter_break(void);
+VALUE rb_catch(const char *tag, rb_block_call_func *func, VALUE data);
 
 VALUE  rb_attr_get(VALUE obj, ID id);
 VALUE  rb_ivar_get(VALUE obj, ID id);

@@ -297,6 +297,35 @@ cext_block_call_forward(VALUE self, VALUE array)
 }
 
 static VALUE
+cext_catch_return(RB_BLOCK_CALL_FUNC_ARGLIST(tag, data))
+{
+    (void)tag;
+    (void)argc;
+    (void)argv;
+    (void)blockarg;
+    return data;
+}
+
+static VALUE
+cext_catch_throw(RB_BLOCK_CALL_FUNC_ARGLIST(tag, data))
+{
+    (void)argc;
+    (void)argv;
+    (void)blockarg;
+    rb_funcall(rb_mKernel, rb_intern("throw"), 2, tag, data);
+    return Qnil;
+}
+
+static VALUE
+cext_catch_control_flow(VALUE self, VALUE value)
+{
+    (void)self;
+    return rb_ary_new3(2,
+        rb_catch("cora_fixture", cext_catch_return, value),
+        rb_catch("cora_fixture", cext_catch_throw, value));
+}
+
+static VALUE
 cext_call_helpers(VALUE self, VALUE object)
 {
     VALUE args = rb_ary_new3(1, INT2NUM(7));
@@ -491,6 +520,7 @@ void Init_fixture(void)
     rb_define_module_function(mCoraCExt, "block_call_collect", cext_block_call_collect, 1);
     rb_define_module_function(mCoraCExt, "block_call_break", cext_block_call_break, 1);
     rb_define_module_function(mCoraCExt, "block_call_forward", cext_block_call_forward, 1);
+    rb_define_module_function(mCoraCExt, "catch_control_flow", cext_catch_control_flow, 1);
     rb_define_module_function(mCoraCExt, "call_helpers", cext_call_helpers, 1);
     rb_define_module_function(mCoraCExt, "exception_message", cext_exception_message, 0);
     rb_define_module_function(mCoraCExt, "exception_ivar_message", cext_exception_ivar_message, 0);
