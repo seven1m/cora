@@ -84,6 +84,7 @@ typedef struct { int _; } rb_encoding;
 #define FIXNUM_MIN ((VALUE)(LONG_MIN >> 1))
 #define LL2NUM(x) LONG2NUM((long)(x))
 #define ULL2NUM(x) ULONG2NUM((unsigned long)(x))
+#define rb_uint2inum(x) ULONG2NUM((unsigned long)(x))
 
 #define INTEGER_PACK_MSWORD_FIRST      0x01
 #define INTEGER_PACK_LSWORD_FIRST      0x02
@@ -452,6 +453,7 @@ int    rb_ivar_defined(VALUE obj, ID id);
 
 VALUE  rb_class_new_instance(int argc, const VALUE *argv, VALUE klass);
 VALUE  rb_obj_alloc(VALUE klass);
+const char *rb_obj_classname(VALUE obj);
 void   rb_obj_call_init(VALUE obj, int argc, const VALUE *argv);
 VALUE  rb_class_of(VALUE obj);
 VALUE  rb_obj_class(VALUE obj);

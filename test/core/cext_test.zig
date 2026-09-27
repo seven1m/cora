@@ -781,6 +781,16 @@ test "C extension registers protected methods" {
     try std.testing.expect(result.toBool());
 }
 
+test "C extension reports object class and pointer identity" {
+    const result = try evalCode(
+        \\$LOAD_PATH << "build/cext"
+        \\require "fixture.so"
+        \\name, pointer = CoraCExt.object_identity("hello")
+        \\name == "String" && pointer.is_a?(Integer) && pointer > 0
+    );
+    try std.testing.expect(result.toBool());
+}
+
 test "C extension typed data keeps referenced Ruby objects alive" {
     const result = try evalCode(
         \\$LOAD_PATH << "build/cext"

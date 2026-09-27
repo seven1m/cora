@@ -582,6 +582,14 @@ cext_protected_value(VALUE self)
     return INT2NUM(7);
 }
 
+static VALUE
+cext_object_identity(VALUE self, VALUE obj)
+{
+    (void)self;
+    return rb_ary_new3(2, rb_str_new_cstr(rb_obj_classname(obj)),
+                       rb_uint2inum((uintptr_t)obj));
+}
+
 void Init_fixture(void)
 {
     VALUE mCoraCExt = rb_define_module("CoraCExt");
@@ -645,6 +653,7 @@ void Init_fixture(void)
     rb_define_module_function(mCoraCExt, "raise_formatted", cext_raise_formatted, 0);
     rb_define_module_function(mCoraCExt, "st_table", cext_st_table, 0);
     rb_define_module_function(mCoraCExt, "alloc_and_init", cext_alloc_and_init, 2);
+    rb_define_module_function(mCoraCExt, "object_identity", cext_object_identity, 1);
 
     rb_define_method(rb_cString, "cora_cext_test", cora_cext_test, 0);
     rb_define_method(rb_cString, "cext_yield", cext_simple_yield, 1);
