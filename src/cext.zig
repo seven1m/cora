@@ -929,10 +929,10 @@ export fn rb_ary_new_from_values(n: c_long, elts: [*c]const VALUE) VALUE {
 export fn rb_ary_entry(ary_raw: VALUE, offset: c_long) VALUE {
     const val = Value{ .raw = ary_raw };
     const arr = val.toArrayObject();
-    if (arr.elements.items.len == 0) return 0; // Qnil
-    const idx: usize = if (offset >= 0) @intCast(offset) else @intCast(@as(isize, @intCast(arr.elements.items.len)) + offset);
-    if (idx >= arr.elements.items.len) return 0;
-    return arr.elements.items[idx].raw;
+    const len: i128 = @intCast(arr.elements.items.len);
+    const idx: i128 = if (offset < 0) len + @as(i128, offset) else offset;
+    if (idx < 0 or idx >= len) return Value.NIL.raw;
+    return arr.elements.items[@intCast(idx)].raw;
 }
 
 export fn rb_ary_subseq(ary_raw: VALUE, begin: c_long, len: c_long) VALUE {
