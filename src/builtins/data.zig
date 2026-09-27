@@ -95,7 +95,6 @@ fn builtinDataReader(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError
 
 pub fn builtinDataDefine(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
     _ = receiver;
-    _ = block;
 
     var members_list: std.ArrayList([]const u8) = .empty;
     defer members_list.deinit(vm.allocator);
@@ -125,7 +124,32 @@ pub fn builtinDataDefine(vm: *VM, receiver: Value, args: []Value, block: ?Block)
     const bracket_sym = try vm.intern("[]");
     subclass_singleton.module.methods.put(bracket_sym, constructor) catch return error.Fatal;
 
+    if (block) |blk| {
+        try runDataSubclassBody(vm, subclass_value, blk);
+    }
+
     return subclass_value;
+}
+
+fn runDataSubclassBody(vm: *VM, data_val: Value, block: Block) VMError!void {
+    _ = switch (block.kind) {
+        .chunk => |chunk_blk| chunk_blk_result: {
+            chunk_blk.chunk.lexical_scope = try vm.createLexicalScope(data_val, vm.current_lexical_scope);
+
+            const class_body_block = Block{
+                .kind = .{ .chunk = .{
+                    .chunk = chunk_blk.chunk,
+                    .defining_ep = chunk_blk.defining_ep,
+                    .defining_self = data_val,
+                } },
+            };
+            break :chunk_blk_result try vm.yieldToBlock(class_body_block, &[_]Value{});
+        },
+        .symbol => try vm.yieldToBlock(block, &[_]Value{}),
+        .receiver_builtin => try vm.yieldToBlock(block, &[_]Value{}),
+        .builtin => try vm.yieldToBlock(block, &[_]Value{}),
+        .callable => try vm.yieldToBlock(block, &[_]Value{}),
+    };
 }
 
 fn builtinDataNew(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
