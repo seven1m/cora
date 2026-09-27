@@ -1229,6 +1229,20 @@ export fn rb_obj_alloc(klass_raw: VALUE) VALUE {
     return instance.raw;
 }
 
+export fn rb_obj_call_init(obj_raw: VALUE, argc: c_int, argv: [*c]const VALUE) void {
+    const vm = getVM();
+    const pending_unwind_before = vm.pendingUnwind();
+    const args: []Value = if (argv != null and argc > 0)
+        @as([*]Value, @ptrCast(@constCast(argv)))[0..@intCast(argc)]
+    else
+        &[_]Value{};
+    _ = vm.callMethodByNameForwardingKeywords(Value{ .raw = obj_raw }, "initialize", args, vm.currentFrame().block) catch {
+        checkPendingUnwind(vm, pending_unwind_before);
+        return;
+    };
+    checkPendingUnwind(vm, pending_unwind_before);
+}
+
 // ─── Constants ──────────────────────────────────────────────────────────────
 
 export fn rb_const_get(klass_raw: VALUE, id: VALUE) VALUE {

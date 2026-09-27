@@ -566,6 +566,15 @@ cext_super_greeting(VALUE self, VALUE arg)
     return rb_call_super(1, &arg);
 }
 
+static VALUE
+cext_alloc_and_init(VALUE self, VALUE klass, VALUE arg)
+{
+    (void)self;
+    VALUE object = rb_obj_alloc(klass);
+    rb_obj_call_init(object, 1, &arg);
+    return object;
+}
+
 void Init_fixture(void)
 {
     VALUE mCoraCExt = rb_define_module("CoraCExt");
@@ -627,6 +636,7 @@ void Init_fixture(void)
     rb_define_module_function(mCoraCExt, "check_array_type", cext_check_array_type, 1);
     rb_define_module_function(mCoraCExt, "raise_formatted", cext_raise_formatted, 0);
     rb_define_module_function(mCoraCExt, "st_table", cext_st_table, 0);
+    rb_define_module_function(mCoraCExt, "alloc_and_init", cext_alloc_and_init, 2);
 
     rb_define_method(rb_cString, "cora_cext_test", cora_cext_test, 0);
     rb_define_method(rb_cString, "cext_yield", cext_simple_yield, 1);

@@ -452,6 +452,7 @@ int    rb_ivar_defined(VALUE obj, ID id);
 
 VALUE  rb_class_new_instance(int argc, const VALUE *argv, VALUE klass);
 VALUE  rb_obj_alloc(VALUE klass);
+void   rb_obj_call_init(VALUE obj, int argc, const VALUE *argv);
 VALUE  rb_class_of(VALUE obj);
 VALUE  rb_obj_class(VALUE obj);
 

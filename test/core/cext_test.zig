@@ -754,6 +754,19 @@ test "C extension method calls its superclass method" {
     try std.testing.expectEqualStrings("hello Cora", result.toStringObject().str);
 }
 
+test "C extension object initialization forwards arguments and block" {
+    const result = try evalCode(
+        \\$LOAD_PATH << "build/cext"
+        \\require "fixture.so"
+        \\class CoraCExt::InitTarget
+        \\  attr_reader :value
+        \\  def initialize(x); @value = yield(x); end
+        \\end
+        \\CoraCExt.alloc_and_init(CoraCExt::InitTarget, 2) { |x| x + 3 }.value
+    );
+    try std.testing.expectEqual(@as(i64, 5), result.toInteger());
+}
+
 test "C extension typed data keeps referenced Ruby objects alive" {
     const result = try evalCode(
         \\$LOAD_PATH << "build/cext"
