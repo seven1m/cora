@@ -915,7 +915,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] core/gc/start_spec.rb
 - [x] core/gc/stat_spec.rb
 - [ ] core/gc/stress_spec.rb
-- [ ] core/gc/total_time_spec.rb
+- [x] core/gc/total_time_spec.rb
 
 ### core/hash
 - [x] core/hash/allocate_spec.rb

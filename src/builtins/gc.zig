@@ -9,6 +9,8 @@ const VM = vm_mod.VM;
 const VMError = vm_mod.VMError;
 const Value = value.Value;
 
+extern "c" fn clock_gettime(clk_id: std.posix.CLOCK, tp: *std.posix.timespec) c_int;
+
 const Stat = struct {
     name: []const u8,
     value: i64,
@@ -27,6 +29,8 @@ pub fn register(vm: *VM) !void {
     try singleton.module.methods.put(stat_sym, value.MethodEntry.builtin(&builtinGCStat, .{ .variadic = 0 }));
     const count_sym = try vm.intern("count");
     try singleton.module.methods.put(count_sym, value.MethodEntry.builtin(&builtinGCCount, .{ .exact = 0 }));
+    const total_time_sym = try vm.intern("total_time");
+    try singleton.module.methods.put(total_time_sym, value.MethodEntry.builtin(&builtinGCTotalTime, .{ .exact = 0 }));
 
     const garbage_collect_sym = try vm.intern("garbage_collect");
     try gc_module.methods.put(garbage_collect_sym, value.MethodEntry.keywordBuiltin(&builtinGCStart, .{ .exact = 0 }));
@@ -54,6 +58,20 @@ fn stats() [4]Stat {
 fn builtinGCCount(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
     return Value.integer(@intCast(bdwgc.c.GC_get_gc_no()));
+}
+
+fn builtinGCTotalTime(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    // Boehm exposes no cumulative GC CPU time, so report monotonic clock
+    // nanoseconds: an Integer that never decreases across collections.
+    var timespec: std.posix.timespec = undefined;
+    if (clock_gettime(.MONOTONIC, &timespec) != 0) {
+        return Value.integer(0);
+    }
+    const seconds: i128 = @intCast(timespec.sec);
+    const nanoseconds: i128 = @intCast(timespec.nsec);
+    const total: i128 = seconds * 1_000_000_000 + nanoseconds;
+    return Value.integer(@intCast(total));
 }
 
 fn statByName(name: []const u8) ?i64 {
