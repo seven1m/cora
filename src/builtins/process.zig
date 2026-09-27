@@ -354,6 +354,7 @@ pub fn builtinProcessWait(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!V
 
     var status: c_int = 0;
     while (true) {
+        try vm.checkAsyncEvents();
         const rc = std.c.waitpid(wait_pid, &status, flags);
         if (rc < 0) {
             switch (std.posix.errno(rc)) {

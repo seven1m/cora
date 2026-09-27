@@ -666,6 +666,7 @@ pub fn builtinUNIXServerAccept(vm: *VM, receiver: Value, args: []Value, _: ?Bloc
     if (io.closed) return vm.raiseExceptionFmt(vm.io_error_class, "closed stream", .{});
 
     while (true) {
+        try vm.checkAsyncEvents();
         const client_fd = std.c.accept(io.fd, null, null);
         if (client_fd >= 0) return newUnixIo(vm, try unixSocketClass(vm), client_fd, null);
         const errno_code = std.posix.errno(-1);
@@ -686,6 +687,7 @@ pub fn builtinTCPServerAccept(vm: *VM, receiver: Value, args: []Value, _: ?Block
     var client_addr: std.posix.sockaddr.in = undefined;
     var addr_len: std.posix.socklen_t = @sizeOf(std.posix.sockaddr.in);
     while (true) {
+        try vm.checkAsyncEvents();
         const client_fd = std.c.accept(io.fd, @ptrCast(&client_addr), &addr_len);
         if (client_fd >= 0) return wrapAcceptedTCPSocket(vm, @intCast(client_fd));
         const errno_code = std.posix.errno(-1);
@@ -719,6 +721,7 @@ pub fn builtinTCPServerAcceptNonblock(vm: *VM, receiver: Value, args: []Value, _
     var client_addr: std.posix.sockaddr.in = undefined;
     var addr_len: std.posix.socklen_t = @sizeOf(std.posix.sockaddr.in);
     while (true) {
+        try vm.checkAsyncEvents();
         socketTrace("[tcpserver.accept_nonblock] calling accept fd={}\n", .{fd});
         const client_fd = std.c.accept(fd, @ptrCast(&client_addr), &addr_len);
         if (client_fd >= 0) {
@@ -729,7 +732,10 @@ pub fn builtinTCPServerAcceptNonblock(vm: *VM, receiver: Value, args: []Value, _
 
         const errno_code = std.posix.errno(-1);
         socketTrace("[tcpserver.accept_nonblock] accept failed errno={s}\n", .{@tagName(errno_code)});
-        if (errno_code == .INTR) continue;
+        if (errno_code == .INTR) {
+            try vm.checkAsyncEvents();
+            continue;
+        }
         if (errnoWouldBlock(errno_code)) {
             if (!exception_enabled) return Value.fromObject(&(try vm.intern("wait_readable")).object);
             return vm.raiseExceptionFmt(vm.io_eagain_wait_readable_class, "accept would block", .{});
