@@ -1201,7 +1201,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/kernel/display_spec.rb
 - [x] core/kernel/dup_spec.rb
 - [-] core/kernel/enum_for_spec.rb
-- [ ] core/kernel/eql_spec.rb
+- [x] core/kernel/eql_spec.rb
 - [x] core/kernel/equal_value_spec.rb
 - [ ] core/kernel/eval_spec.rb
 - [x] core/kernel/exec_spec.rb
