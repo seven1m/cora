@@ -472,6 +472,7 @@ void   rb_define_alloc_func(VALUE klass, VALUE (*func)(VALUE));
 void   rb_define_singleton_method(VALUE obj, const char *name, void *func, int argc);
 void   rb_define_module_function(VALUE module, const char *name, void *func, int argc);
 void   rb_define_private_method(VALUE klass, const char *name, void *func, int argc);
+void   rb_define_protected_method(VALUE klass, const char *name, void *func, int argc);
 
 VALUE  rb_define_module(const char *name);
 VALUE  rb_define_module_under(VALUE outer, const char *name);

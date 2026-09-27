@@ -1399,6 +1399,20 @@ export fn rb_define_private_method(klass_raw: VALUE, name_ptr: [*c]const u8, fun
     vm.method_state_version += 1;
 }
 
+export fn rb_define_protected_method(klass_raw: VALUE, name_ptr: [*c]const u8, func: ?*anyopaque, argc: c_int) void {
+    const vm = getVM();
+    const name = std.mem.span(name_ptr);
+    if (klass_raw == 0 or name.len == 0 or func == null) return;
+    const sym = vm.intern(name) catch return;
+    const class_ptr: *value.ClassObject = @ptrFromInt(klass_raw);
+    const entry = value.MethodEntry{
+        .method = .{ .cext = .{ .func = func.?, .argc = argc } },
+        .visibility = .protected,
+    };
+    class_ptr.module.methods.put(sym, entry) catch @panic("OOM in rb_define_protected_method");
+    vm.method_state_version += 1;
+}
+
 // ─── Exceptions ─────────────────────────────────────────────────────────────
 
 export fn rb_raise(exc_raw: VALUE, fmt: [*c]const u8, ...) void {

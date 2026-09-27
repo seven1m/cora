@@ -767,6 +767,20 @@ test "C extension object initialization forwards arguments and block" {
     try std.testing.expectEqual(@as(i64, 5), result.toInteger());
 }
 
+test "C extension registers protected methods" {
+    const result = try evalCode(
+        \\$LOAD_PATH << "build/cext"
+        \\require "fixture.so"
+        \\class CoraCExt::SuperChild
+        \\  def read_value(other); other.protected_value; end
+        \\end
+        \\one = CoraCExt::SuperChild.new
+        \\two = CoraCExt::SuperChild.new
+        \\one.read_value(two) == 7 && CoraCExt::SuperChild.protected_instance_methods(false).include?(:protected_value)
+    );
+    try std.testing.expect(result.toBool());
+}
+
 test "C extension typed data keeps referenced Ruby objects alive" {
     const result = try evalCode(
         \\$LOAD_PATH << "build/cext"
