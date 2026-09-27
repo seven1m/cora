@@ -5141,10 +5141,155 @@ pub const Compiler = struct {
         );
     }
 
+    fn emitPatternMethodCall(self: *Compiler, name: []const u8, argc: u8, line: u32) !void {
+        const idx = try self.current_chunk.addConstant(.{ .string = name });
+        try self.current_chunk.emitCall(@intCast(idx), argc, bytecode.encodeCallFlags(.explicit, false), 0, line);
+    }
+
+    fn emitPatternTypeCheck(self: *Compiler, class_name: []const u8, failures: *std.ArrayList(usize), line: u32) !void {
+        try self.current_chunk.emitOp(.DUP, line);
+        const class_idx = try self.current_chunk.addConstant(.{ .string = class_name });
+        try self.current_chunk.emitOpU16(.GET_CONST, @intCast(class_idx), line);
+        try self.emitPatternMethodCall("is_a?", 1, line);
+        try failures.append(self.allocator, try self.current_chunk.emitJump(.JUMP_IF_FALSE, line));
+    }
+
+    fn emitPatternDeconstruct(self: *Compiler, method_name: []const u8, failures: *std.ArrayList(usize), line: u32) !void {
+        try self.current_chunk.emitOp(.DUP, line);
+        const method_idx = try self.current_chunk.addConstant(.{ .string = method_name });
+        try self.current_chunk.emitOpU16(.PUSH_SYMBOL, @intCast(method_idx), line);
+        try self.emitPatternMethodCall("respond_to?", 1, line);
+        try failures.append(self.allocator, try self.current_chunk.emitJump(.JUMP_IF_FALSE, line));
+    }
+
+    fn emitPatternConstantCheck(self: *Compiler, raw_constant: ?*prism.RawNode, failures: *std.ArrayList(usize), line: u32) !void {
+        const constant = raw_constant orelse return;
+        try self.current_chunk.emitOp(.DUP, line);
+        try self.compileNode(try self.parser.asNode(constant), line);
+        try self.current_chunk.emitOp(.SWAP, line);
+        try self.emitPatternMethodCall("===", 1, line);
+        try failures.append(self.allocator, try self.current_chunk.emitJump(.JUMP_IF_FALSE, line));
+    }
+
+    fn finishPatternChecks(self: *Compiler, failures: []const usize, line: u32) !void {
+        try self.current_chunk.emitOp(.POP, line);
+        try self.current_chunk.emitOp(.PUSH_TRUE, line);
+        const done = try self.current_chunk.emitJump(.JUMP, line);
+        for (failures) |jump| try self.current_chunk.patchJump(jump);
+        try self.current_chunk.emitOp(.POP, line);
+        try self.current_chunk.emitOp(.PUSH_FALSE, line);
+        try self.current_chunk.patchJump(done);
+    }
+
+    // Consume a candidate value and leave a Boolean match result. Each composite
+    // pattern keeps its deconstructed value on the stack while checking children.
+    fn compileRequiredPattern(self: *Compiler, pattern: prism.Node, line: u32) anyerror!void {
+        switch (pattern) {
+            .implicit => |implicit| try self.compileRequiredPattern(try self.parser.asNode(implicit.value), line),
+            .local_variable_target => |target| {
+                const name = try self.parser.getLocalVariableName(target.name);
+                if (!std.mem.eql(u8, name, "_")) {
+                    const slot = try self.resolveOrCreateLocalSlot(name);
+                    try self.emitSetLocalSlot(slot, line);
+                }
+                try self.current_chunk.emitOp(.POP, line);
+                try self.current_chunk.emitOp(.PUSH_TRUE, line);
+            },
+            .array_pattern => |array| {
+                if (array.rest != null or array.posts.size != 0) return error.UnsupportedNode;
+                var failures: std.ArrayList(usize) = .empty;
+                defer failures.deinit(self.allocator);
+
+                try self.emitPatternConstantCheck(array.constant, &failures, line);
+                try self.emitPatternDeconstruct("deconstruct", &failures, line);
+                try self.emitPatternMethodCall("deconstruct", 0, line);
+                try self.emitPatternTypeCheck("Array", &failures, line);
+
+                try self.current_chunk.emitOp(.DUP, line);
+                try self.emitPatternMethodCall("length", 0, line);
+                const count_idx = try self.current_chunk.addConstant(.{ .integer = @intCast(array.requireds.size) });
+                try self.current_chunk.emitOpU16(.PUSH_CONST, @intCast(count_idx), line);
+                try self.emitPatternMethodCall("==", 1, line);
+                try failures.append(self.allocator, try self.current_chunk.emitJump(.JUMP_IF_FALSE, line));
+
+                for (0..array.requireds.size) |i| {
+                    try self.extractArrayElement(@intCast(i), line);
+                    try self.compileRequiredPattern(try self.parser.asNode(array.requireds.nodes[i]), line);
+                    try failures.append(self.allocator, try self.current_chunk.emitJump(.JUMP_IF_FALSE, line));
+                }
+                try self.finishPatternChecks(failures.items, line);
+            },
+            .hash_pattern => |hash| {
+                if (hash.rest != null) return error.UnsupportedNode;
+                var failures: std.ArrayList(usize) = .empty;
+                defer failures.deinit(self.allocator);
+
+                try self.emitPatternConstantCheck(hash.constant, &failures, line);
+                try self.emitPatternDeconstruct("deconstruct_keys", &failures, line);
+                for (0..hash.elements.size) |i| {
+                    const assoc_node = try self.parser.asNode(hash.elements.nodes[i]);
+                    if (assoc_node != .assoc) return error.UnsupportedNode;
+                    try self.compileNode(try self.parser.asNode(assoc_node.assoc.key), line);
+                }
+                try self.current_chunk.emitOpU16(.PUSH_ARRAY, @intCast(hash.elements.size), line);
+                try self.emitPatternMethodCall("deconstruct_keys", 1, line);
+                try self.emitPatternTypeCheck("Hash", &failures, line);
+
+                for (0..hash.elements.size) |i| {
+                    const assoc_node = try self.parser.asNode(hash.elements.nodes[i]);
+                    if (assoc_node != .assoc) return error.UnsupportedNode;
+                    const assoc = assoc_node.assoc;
+                    try self.current_chunk.emitOp(.DUP, line);
+                    try self.compileNode(try self.parser.asNode(assoc.key), line);
+                    try self.emitPatternMethodCall("key?", 1, line);
+                    try failures.append(self.allocator, try self.current_chunk.emitJump(.JUMP_IF_FALSE, line));
+                    try self.current_chunk.emitOp(.DUP, line);
+                    try self.compileNode(try self.parser.asNode(assoc.key), line);
+                    try self.emitPatternMethodCall("[]", 1, line);
+                    try self.compileRequiredPattern(try self.parser.asNode(assoc.value), line);
+                    try failures.append(self.allocator, try self.current_chunk.emitJump(.JUMP_IF_FALSE, line));
+                }
+                try self.finishPatternChecks(failures.items, line);
+            },
+            else => {
+                try self.compileNode(pattern, line);
+                try self.current_chunk.emitOp(.SWAP, line);
+                try self.emitPatternMethodCall("===", 1, line);
+            },
+        }
+    }
+
     fn compileMatchRequired(self: *Compiler, match_node: *prism.MatchRequiredNode, line: u32) !void {
         const value_node = try self.parser.asNode(@ptrCast(match_node.value));
         const pattern_node = try self.parser.asNode(@ptrCast(match_node.pattern));
-        if (pattern_node != .array_pattern) return error.UnsupportedNode;
+        var legacy_array = pattern_node == .array_pattern;
+        if (legacy_array) {
+            const array = pattern_node.array_pattern;
+            legacy_array = array.rest == null and array.posts.size == 0 and array.constant == null;
+            for (0..array.requireds.size) |i| {
+                const required = try self.parser.asNode(array.requireds.nodes[i]);
+                if (required == .array_pattern or required == .hash_pattern or required == .find_pattern or required == .local_variable_target or required == .implicit or required == .pinned_variable or required == .pinned_expression) {
+                    legacy_array = false;
+                    break;
+                }
+            }
+        }
+        if (!legacy_array) {
+            try self.compileNode(value_node, line);
+            try self.current_chunk.emitOp(.DUP, line);
+            try self.compileRequiredPattern(pattern_node, line);
+            const matched = try self.current_chunk.emitJump(.JUMP_IF_TRUE, line);
+            try self.current_chunk.emitOp(.POP, line);
+            try self.current_chunk.emitOp(.PUSH_SELF, line);
+            const class_idx = try self.current_chunk.addConstant(.{ .string = "NoMatchingPatternError" });
+            try self.current_chunk.emitOpU16(.GET_CONST, @intCast(class_idx), line);
+            const message_idx = try self.current_chunk.addConstant(.{ .string = "pattern does not match" });
+            try self.current_chunk.emitOpU16(.PUSH_CSTRING, @intCast(message_idx), line);
+            const raise_idx = try self.current_chunk.addConstant(.{ .string = "raise" });
+            try self.current_chunk.emitCall(@intCast(raise_idx), 2, bytecode.encodeCallFlags(.implicit_self, false), 0, line);
+            try self.current_chunk.patchJump(matched);
+            return;
+        }
 
         const pattern = pattern_node.array_pattern;
         if (pattern.constant != null or pattern.rest != null or pattern.posts.size != 0) {

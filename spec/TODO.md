@@ -2438,7 +2438,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] language/optional_assignments_spec.rb
 - [ ] language/or_spec.rb
 - [x] language/order_spec.rb
-- [ ] language/pattern_matching_spec.rb
+- [-] language/pattern_matching_spec.rb
 - [ ] language/precedence_spec.rb
 
 ### language/predefined
