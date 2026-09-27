@@ -648,6 +648,15 @@ cext_unregister_external_root(VALUE self)
     return Qnil;
 }
 
+static VALUE
+cext_string_and_clear(VALUE self, VALUE obj, VALUE ary)
+{
+    (void)self;
+    VALUE text = rb_obj_as_string(obj);
+    rb_ary_clear(ary);
+    return rb_ary_new3(2, text, ary);
+}
+
 void Init_fixture(void)
 {
     VALUE mCoraCExt = rb_define_module("CoraCExt");
@@ -718,6 +727,7 @@ void Init_fixture(void)
     rb_define_module_function(mCoraCExt, "register_external_root", cext_register_external_root, 1);
     rb_define_module_function(mCoraCExt, "read_external_root", cext_read_external_root, 0);
     rb_define_module_function(mCoraCExt, "unregister_external_root", cext_unregister_external_root, 0);
+    rb_define_module_function(mCoraCExt, "string_and_clear", cext_string_and_clear, 2);
 
     rb_define_method(rb_cString, "cora_cext_test", cora_cext_test, 0);
     rb_define_method(rb_cString, "cext_yield", cext_simple_yield, 1);

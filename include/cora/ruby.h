@@ -415,6 +415,7 @@ VALUE  rb_str_new_shared(VALUE str);
 VALUE  rb_str_freeze(VALUE str);
 
 VALUE  rb_ary_new(void);
+VALUE  rb_ary_clear(VALUE ary);
 VALUE  rb_ary_new3(long n, ...);
 VALUE  rb_ary_new4(long n, const VALUE *elts);
 VALUE  rb_ary_push(VALUE ary, VALUE item);
@@ -457,6 +458,7 @@ int    rb_ivar_defined(VALUE obj, ID id);
 
 VALUE  rb_class_new_instance(int argc, const VALUE *argv, VALUE klass);
 VALUE  rb_obj_alloc(VALUE klass);
+VALUE  rb_obj_as_string(VALUE obj);
 VALUE  rb_Integer(VALUE obj);
 const char *rb_obj_classname(VALUE obj);
 void   rb_obj_call_init(VALUE obj, int argc, const VALUE *argv);

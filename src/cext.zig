@@ -881,6 +881,10 @@ export fn rb_ary_new() VALUE {
     return Value.fromObject(&arr.object).raw;
 }
 
+export fn rb_ary_clear(ary_raw: VALUE) VALUE {
+    return rb_funcall(ary_raw, rb_intern("clear"), 0);
+}
+
 export fn rb_ary_new3(n: c_long, ...) VALUE {
     const vm = getVM();
     var ap = @cVaStart();
@@ -1261,6 +1265,11 @@ export fn rb_obj_class(obj_raw: VALUE) VALUE {
 
 export fn rb_obj_classname(obj_raw: VALUE) [*c]const u8 {
     return rb_class2name(rb_obj_class(obj_raw));
+}
+
+export fn rb_obj_as_string(obj_raw: VALUE) VALUE {
+    if ((Value{ .raw = obj_raw }).isString()) return obj_raw;
+    return rb_funcall(obj_raw, rb_intern("to_s"), 0);
 }
 
 export fn rb_class_new_instance(argc: c_int, argv: [*c]const VALUE, klass_raw: VALUE) VALUE {

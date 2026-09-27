@@ -827,6 +827,16 @@ test "C extension keeps values at registered external addresses alive" {
     try std.testing.expect(result.toBool());
 }
 
+test "C extension converts objects to strings and clears arrays" {
+    const result = try evalCode(
+        \\$LOAD_PATH << "build/cext"
+        \\require "fixture.so"
+        \\ary = [1, 2]
+        \\CoraCExt.string_and_clear(:symbol, ary) == ["symbol", []] && ary.empty?
+    );
+    try std.testing.expect(result.toBool());
+}
+
 test "C extension typed data keeps referenced Ruby objects alive" {
     const result = try evalCode(
         \\$LOAD_PATH << "build/cext"
