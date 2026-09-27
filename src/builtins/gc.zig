@@ -20,6 +20,11 @@ const Stat = struct {
 // collection on every allocation, so stress mode is tracked as a flag only.
 var stress_mode: bool = false;
 
+// MRI reports whether automatic collection was already disabled, so track the
+// flag locally and only forward transitions to Boehm (whose disable counter
+// would otherwise require matching enables for nested calls).
+var gc_disabled: bool = false;
+
 pub fn register(vm: *VM) !void {
     const gc_name = try vm.intern("GC");
     const gc_value = try vm.newModule(gc_name);
@@ -39,6 +44,10 @@ pub fn register(vm: *VM) !void {
     try singleton.module.methods.put(stress_sym, value.MethodEntry.builtin(&builtinGCStress, .{ .exact = 0 }));
     const set_stress_sym = try vm.intern("stress=");
     try singleton.module.methods.put(set_stress_sym, value.MethodEntry.builtin(&builtinGCSetStress, .{ .exact = 1 }));
+    const disable_sym = try vm.intern("disable");
+    try singleton.module.methods.put(disable_sym, value.MethodEntry.builtin(&builtinGCDisable, .{ .exact = 0 }));
+    const enable_sym = try vm.intern("enable");
+    try singleton.module.methods.put(enable_sym, value.MethodEntry.builtin(&builtinGCEnable, .{ .exact = 0 }));
 
     const garbage_collect_sym = try vm.intern("garbage_collect");
     try gc_module.methods.put(garbage_collect_sym, value.MethodEntry.keywordBuiltin(&builtinGCStart, .{ .exact = 0 }));
@@ -91,6 +100,26 @@ fn builtinGCSetStress(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value
     try vm.requireArgCount(args, 1);
     stress_mode = args[0].isTruthy();
     return Value.boolean(stress_mode);
+}
+
+fn builtinGCDisable(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    const was_disabled = gc_disabled;
+    if (!was_disabled) {
+        gc_disabled = true;
+        bdwgc.c.GC_disable();
+    }
+    return Value.boolean(was_disabled);
+}
+
+fn builtinGCEnable(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    const was_disabled = gc_disabled;
+    if (was_disabled) {
+        gc_disabled = false;
+        bdwgc.c.GC_enable();
+    }
+    return Value.boolean(was_disabled);
 }
 
 fn statByName(name: []const u8) ?i64 {
