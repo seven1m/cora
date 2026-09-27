@@ -301,7 +301,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] core/complex/plus_spec.rb
 - [ ] core/complex/polar_spec.rb
 - [x] core/complex/positive_spec.rb
-- [ ] core/complex/quo_spec.rb
+- [x] core/complex/quo_spec.rb
 - [x] core/complex/rationalize_spec.rb
 - [x] core/complex/real_spec.rb
 - [x] core/complex/rect_spec.rb
