@@ -25,6 +25,8 @@ pub fn register(vm: *VM) !void {
     try singleton.module.methods.put(start_sym, value.MethodEntry.keywordBuiltin(&builtinGCStart, .{ .exact = 0 }));
     const stat_sym = try vm.intern("stat");
     try singleton.module.methods.put(stat_sym, value.MethodEntry.builtin(&builtinGCStat, .{ .variadic = 0 }));
+    const count_sym = try vm.intern("count");
+    try singleton.module.methods.put(count_sym, value.MethodEntry.builtin(&builtinGCCount, .{ .exact = 0 }));
 
     const garbage_collect_sym = try vm.intern("garbage_collect");
     try gc_module.methods.put(garbage_collect_sym, value.MethodEntry.keywordBuiltin(&builtinGCStart, .{ .exact = 0 }));
@@ -47,6 +49,11 @@ fn stats() [4]Stat {
         // bytes expressed as pointer-sized slots is the closest monotonic value.
         .{ .name = "total_allocated_objects", .value = @intCast(bdwgc.c.GC_get_total_bytes() / word_size) },
     };
+}
+
+fn builtinGCCount(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    return Value.integer(@intCast(bdwgc.c.GC_get_gc_no()));
 }
 
 fn statByName(name: []const u8) ?i64 {

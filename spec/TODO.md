@@ -896,7 +896,7 @@ Source baseline: ../ruby_spec compared to local spec/
 ### core/gc
 - [ ] core/gc/auto_compact_spec.rb
 - [ ] core/gc/config_spec.rb
-- [ ] core/gc/count_spec.rb
+- [x] core/gc/count_spec.rb
 - [ ] core/gc/disable_spec.rb
 - [ ] core/gc/enable_spec.rb
 - [ ] core/gc/garbage_collect_spec.rb
