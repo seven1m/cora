@@ -1144,9 +1144,12 @@ fn fileOpenConfig(vm: *VM, args: []Value) VMError!FileOpenConfig {
     else
         Value.nil();
 
+    var mode_spec: ?[]const u8 = null;
     var mode = if (!mode_arg.isNil()) blk: {
         if (mode_arg.isInteger()) break :blk try parseModeBits(vm, mode_arg.toInteger());
-        break :blk try parseMode(vm, try mode_arg.coerceToStr(vm, "no implicit conversion into String"));
+        const spec = try mode_arg.coerceToStr(vm, "no implicit conversion into String");
+        mode_spec = spec;
+        break :blk try parseMode(vm, spec);
     } else try parseMode(vm, "r");
 
     if (flags_kw) |flags_arg| {
@@ -1165,6 +1168,18 @@ fn fileOpenConfig(vm: *VM, args: []Value) VMError!FileOpenConfig {
         .create_mode = if (args.len == 3 and !args[2].isNil()) try coerceModeBits(vm, args[2]) else 0o666,
         .newline = newline_kw,
     };
+
+    if (mode_spec) |spec| {
+        if (std.mem.indexOfScalar(u8, spec, ':')) |sep| {
+            const encoding_spec = spec[sep + 1 ..];
+            if (encoding_spec.len > 0) {
+                if (encoding_kw != null or external_encoding != null or internal_encoding != null) {
+                    return vm.raiseExceptionFmt(vm.argument_error_class, "encoding specified twice", .{});
+                }
+                try applyCombinedEncodingArg(vm, &config, try vm.newString(encoding_spec, false));
+            }
+        }
+    }
 
     if (perm) |perm_val| {
         config.create_mode = try coerceModeBits(vm, perm_val);

@@ -51,6 +51,22 @@ test "File.open accepts text append mode" {
     try std.testing.expectEqualSlices(u8, "ab", result.toStringObject().str);
 }
 
+test "File.open applies encodings from the mode string" {
+    const result = try evalCode(
+        \\path = "/tmp/cora_mode_encoding_#{Process.pid}"
+        \\File.write(path, "sample")
+        \\values = File.open(path, "r:Shift_JIS:Shift_JIS") do |file|
+        \\  [file.external_encoding.name, file.internal_encoding, file.read.encoding.name]
+        \\end
+        \\File.delete(path)
+        \\values
+    );
+    const values = result.toArrayObject().elements.items;
+    try std.testing.expectEqualStrings("Shift_JIS", values[0].toStringObject().str);
+    try std.testing.expect(values[1].isNil());
+    try std.testing.expectEqualStrings("Shift_JIS", values[2].toStringObject().str);
+}
+
 test "STDIN/STDOUT/STDERR constants mirror $stdin/$stdout/$stderr" {
     const result = try evalCode(
         \\[
