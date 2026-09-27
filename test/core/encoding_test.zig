@@ -542,3 +542,16 @@ test "ASCII-8BIT encoding compatibility raises before length check" {
     try std.testing.expectEqual(error.UnhandledException, result.err.?);
     try std.testing.expect(std.mem.indexOf(u8, result.stderr, "CompatibilityError") != null);
 }
+
+test "IBM866 transcodes Cyrillic and box drawing characters" {
+    const result = try evalCode(
+        \\sample = "\x80\x9F\xB3\xE0\xF1".force_encoding("IBM866")
+        \\decoded = sample.encode("UTF-8")
+        \\[decoded, decoded.encode("IBM866").bytes]
+    );
+    const items = result.toArrayObject().elements.items;
+    try std.testing.expectEqualStrings("АЯ│рё", items[0].toStringObject().str);
+    const bytes = items[1].toArrayObject().elements.items;
+    const expected = [_]i64{ 0x80, 0x9F, 0xB3, 0xE0, 0xF1 };
+    for (expected, bytes) |want, got| try std.testing.expectEqual(want, got.toInteger());
+}
