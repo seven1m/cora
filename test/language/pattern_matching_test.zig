@@ -39,3 +39,30 @@ test "required array pattern checks each element with case equality" {
     try std.testing.expectEqualStrings("NoMatchingPatternError", values[0].toClassObject().module.name.name);
     try std.testing.expectEqualStrings("pattern does not match", values[1].toStringObject().str);
 }
+
+test "rightward array pattern captures rest and post elements" {
+    const result = try evalCode(
+        \\[0, 1, 2, 3] => [first, *middle, last]
+        \\[first, middle, last]
+    );
+    const items = result.toArrayObject().elements.items;
+    try std.testing.expectEqual(@as(i64, 0), items[0].toInteger());
+    const middle = items[1].toArrayObject().elements.items;
+    try std.testing.expectEqual(@as(i64, 1), middle[0].toInteger());
+    try std.testing.expectEqual(@as(i64, 2), middle[1].toInteger());
+    try std.testing.expectEqual(@as(i64, 3), items[2].toInteger());
+}
+
+test "rightward find pattern searches nested hash patterns and captures surrounding elements" {
+    const result = try evalCode(
+        \\[0, {name: "first"}, {name: "target"}, 3] => [*pre, {name: "target"}, *post]
+        \\[pre, post]
+    );
+    const items = result.toArrayObject().elements.items;
+    const pre = items[0].toArrayObject().elements.items;
+    const post = items[1].toArrayObject().elements.items;
+    try std.testing.expectEqual(@as(usize, 2), pre.len);
+    try std.testing.expectEqual(@as(i64, 0), pre[0].toInteger());
+    try std.testing.expectEqual(@as(usize, 1), post.len);
+    try std.testing.expectEqual(@as(i64, 3), post[0].toInteger());
+}

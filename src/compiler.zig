@@ -5181,6 +5181,103 @@ pub const Compiler = struct {
         try self.current_chunk.patchJump(done);
     }
 
+    fn extractPatternArraySlice(self: *Compiler, start: usize, post_count: usize, line: u32) !void {
+        try self.current_chunk.emitOp(.DUP, line);
+        try self.current_chunk.emitOp(.DUP, line);
+        try self.emitPatternMethodCall("length", 0, line);
+        const start_idx = try self.current_chunk.addConstant(.{ .integer = @intCast(start) });
+        try self.current_chunk.emitOpU16(.PUSH_CONST, @intCast(start_idx), line);
+        try self.emitPatternMethodCall("-", 1, line);
+        const post_idx = try self.current_chunk.addConstant(.{ .integer = @intCast(post_count) });
+        try self.current_chunk.emitOpU16(.PUSH_CONST, @intCast(post_idx), line);
+        try self.emitPatternMethodCall("-", 1, line);
+        try self.current_chunk.emitOpU16(.PUSH_CONST, @intCast(start_idx), line);
+        try self.current_chunk.emitOp(.SWAP, line);
+        try self.emitPatternMethodCall("[]", 2, line);
+    }
+
+    fn compileFindPattern(self: *Compiler, find: *prism.FindPatternNode, line: u32) anyerror!void {
+        var outer_failures: std.ArrayList(usize) = .empty;
+        defer outer_failures.deinit(self.allocator);
+        var next_candidate: std.ArrayList(usize) = .empty;
+        defer next_candidate.deinit(self.allocator);
+
+        try self.emitPatternConstantCheck(find.constant, &outer_failures, line);
+        try self.emitPatternDeconstruct("deconstruct", &outer_failures, line);
+        try self.emitPatternMethodCall("deconstruct", 0, line);
+        try self.emitPatternTypeCheck("Array", &outer_failures, line);
+
+        const zero_idx = try self.current_chunk.addConstant(.{ .integer = 0 });
+        const one_idx = try self.current_chunk.addConstant(.{ .integer = 1 });
+        const count_idx = try self.current_chunk.addConstant(.{ .integer = @intCast(find.requireds.size) });
+        try self.current_chunk.emitOpU16(.PUSH_CONST, @intCast(zero_idx), line);
+        const loop_start = self.current_chunk.currentOffset();
+
+        // Stack: [array, index]. Stop once fewer than requireds.size elements remain.
+        try self.current_chunk.emitOpU8(.DUP_N, 2, line);
+        try self.current_chunk.emitOp(.SWAP, line);
+        try self.emitPatternMethodCall("length", 0, line);
+        try self.current_chunk.emitOpU16(.PUSH_CONST, @intCast(count_idx), line);
+        try self.emitPatternMethodCall("-", 1, line);
+        try self.emitPatternMethodCall("<=", 1, line);
+        const exhausted = try self.current_chunk.emitJump(.JUMP_IF_FALSE, line);
+
+        for (0..find.requireds.size) |i| {
+            try self.current_chunk.emitOpU8(.DUP_N, 2, line);
+            const offset_idx = try self.current_chunk.addConstant(.{ .integer = @intCast(i) });
+            try self.current_chunk.emitOpU16(.PUSH_CONST, @intCast(offset_idx), line);
+            try self.emitPatternMethodCall("+", 1, line);
+            try self.emitPatternMethodCall("[]", 1, line);
+            try self.compileRequiredPattern(try self.parser.asNode(find.requireds.nodes[i]), line);
+            try next_candidate.append(self.allocator, try self.current_chunk.emitJump(.JUMP_IF_FALSE, line));
+        }
+
+        const left = try self.parser.asNode(@ptrCast(find.left));
+        if (left != .splat) return error.UnsupportedNode;
+        if (left.splat.expression) |left_target| {
+            try self.current_chunk.emitOpU8(.DUP_N, 2, line);
+            try self.current_chunk.emitOpU16(.PUSH_CONST, @intCast(zero_idx), line);
+            try self.current_chunk.emitOp(.SWAP, line);
+            try self.emitPatternMethodCall("[]", 2, line);
+            try self.compileRequiredPattern(try self.parser.asNode(left_target), line);
+            try next_candidate.append(self.allocator, try self.current_chunk.emitJump(.JUMP_IF_FALSE, line));
+        }
+
+        const right = try self.parser.asNode(find.right);
+        if (right == .splat) {
+            if (right.splat.expression) |right_target| {
+                try self.current_chunk.emitOpU8(.DUP_N, 2, line);
+                try self.current_chunk.emitOpU16(.PUSH_CONST, @intCast(count_idx), line);
+                try self.emitPatternMethodCall("+", 1, line);
+                try self.current_chunk.emitOpU8(.DUP_N, 2, line);
+                try self.current_chunk.emitOp(.SWAP, line);
+                try self.emitPatternMethodCall("length", 0, line);
+                try self.current_chunk.emitOp(.SWAP, line);
+                try self.emitPatternMethodCall("-", 1, line);
+                try self.emitPatternMethodCall("[]", 2, line);
+                try self.compileRequiredPattern(try self.parser.asNode(right_target), line);
+                try next_candidate.append(self.allocator, try self.current_chunk.emitJump(.JUMP_IF_FALSE, line));
+            }
+        } else if (right != .implicit_rest) return error.UnsupportedNode;
+
+        try self.current_chunk.emitOp(.POP, line);
+        try self.current_chunk.emitOp(.POP, line);
+        try self.current_chunk.emitOp(.PUSH_TRUE, line);
+        const done = try self.current_chunk.emitJump(.JUMP, line);
+
+        for (next_candidate.items) |jump| try self.current_chunk.patchJump(jump);
+        try self.current_chunk.emitOpU16(.PUSH_CONST, @intCast(one_idx), line);
+        try self.emitPatternMethodCall("+", 1, line);
+        try self.current_chunk.emitBackwardJump(.JUMP, loop_start, line);
+
+        try self.current_chunk.patchJump(exhausted);
+        try self.current_chunk.emitOp(.POP, line);
+        for (outer_failures.items) |jump| try self.current_chunk.patchJump(jump);
+        try self.current_chunk.emitOp(.POP, line);
+        try self.current_chunk.emitOp(.PUSH_FALSE, line);
+        try self.current_chunk.patchJump(done);
+    }
+
     // Consume a candidate value and leave a Boolean match result. Each composite
     // pattern keeps its deconstructed value on the stack while checking children.
     fn compileRequiredPattern(self: *Compiler, pattern: prism.Node, line: u32) anyerror!void {
@@ -5196,7 +5293,6 @@ pub const Compiler = struct {
                 try self.current_chunk.emitOp(.PUSH_TRUE, line);
             },
             .array_pattern => |array| {
-                if (array.rest != null or array.posts.size != 0) return error.UnsupportedNode;
                 var failures: std.ArrayList(usize) = .empty;
                 defer failures.deinit(self.allocator);
 
@@ -5207,9 +5303,9 @@ pub const Compiler = struct {
 
                 try self.current_chunk.emitOp(.DUP, line);
                 try self.emitPatternMethodCall("length", 0, line);
-                const count_idx = try self.current_chunk.addConstant(.{ .integer = @intCast(array.requireds.size) });
+                const count_idx = try self.current_chunk.addConstant(.{ .integer = @intCast(array.requireds.size + array.posts.size) });
                 try self.current_chunk.emitOpU16(.PUSH_CONST, @intCast(count_idx), line);
-                try self.emitPatternMethodCall("==", 1, line);
+                try self.emitPatternMethodCall(if (array.rest == null) "==" else ">=", 1, line);
                 try failures.append(self.allocator, try self.current_chunk.emitJump(.JUMP_IF_FALSE, line));
 
                 for (0..array.requireds.size) |i| {
@@ -5217,8 +5313,24 @@ pub const Compiler = struct {
                     try self.compileRequiredPattern(try self.parser.asNode(array.requireds.nodes[i]), line);
                     try failures.append(self.allocator, try self.current_chunk.emitJump(.JUMP_IF_FALSE, line));
                 }
+                for (0..array.posts.size) |i| {
+                    try self.extractArrayElement(-@as(i64, @intCast(array.posts.size - i)), line);
+                    try self.compileRequiredPattern(try self.parser.asNode(array.posts.nodes[i]), line);
+                    try failures.append(self.allocator, try self.current_chunk.emitJump(.JUMP_IF_FALSE, line));
+                }
+                if (array.rest) |raw_rest| {
+                    const rest = try self.parser.asNode(raw_rest);
+                    if (rest == .splat) {
+                        if (rest.splat.expression) |expression| {
+                            try self.extractPatternArraySlice(array.requireds.size, array.posts.size, line);
+                            try self.compileRequiredPattern(try self.parser.asNode(expression), line);
+                            try failures.append(self.allocator, try self.current_chunk.emitJump(.JUMP_IF_FALSE, line));
+                        }
+                    } else if (rest != .implicit_rest) return error.UnsupportedNode;
+                }
                 try self.finishPatternChecks(failures.items, line);
             },
+            .find_pattern => |find| try self.compileFindPattern(find, line),
             .hash_pattern => |hash| {
                 if (hash.rest != null) return error.UnsupportedNode;
                 var failures: std.ArrayList(usize) = .empty;

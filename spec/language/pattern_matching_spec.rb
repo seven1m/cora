@@ -28,4 +28,17 @@ describe "Pattern matching" do
       [a, b].should == [0, 1]
     end
   end
+
+  # Adapted from upstream case/in examples for Nokogiri's rightward patterns.
+  describe "find pattern" do
+    it "captures both preceding and following elements to the pattern" do
+      [0, 1, 2, 3, 4] => [*pre, 2, *post]
+      [pre, post].should == [[0, 1], [3, 4]]
+    end
+
+    it "can nest hash and array patterns" do
+      [0, {a: 42, b: [0, 1]}, {a: 42, b: [1, 2]}] => [*, {a: 42, b: [1, c]}, *]
+      c.should == 2
+    end
+  end
 end
