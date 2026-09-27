@@ -2512,6 +2512,18 @@ export fn rb_gc_register_mark_object(obj: VALUE) void {
     _ = obj;
 }
 
+export fn rb_gc_register_address(address: *VALUE) void {
+    const start: *anyopaque = @ptrCast(address);
+    const end: *anyopaque = @ptrFromInt(@intFromPtr(address) + @sizeOf(VALUE));
+    bdwgc.c.GC_add_roots(start, end);
+}
+
+export fn rb_gc_unregister_address(address: *VALUE) void {
+    const start: *anyopaque = @ptrCast(address);
+    const end: *anyopaque = @ptrFromInt(@intFromPtr(address) + @sizeOf(VALUE));
+    bdwgc.c.GC_remove_roots(start, end);
+}
+
 // ─── Marshal ─────────────────────────────────────────────────────────────────
 
 export fn rb_marshal_load(source_raw: VALUE) VALUE {

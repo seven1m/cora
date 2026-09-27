@@ -591,6 +591,8 @@ void  rb_check_arity(int argc, int min, int max);
 void *rb_check_typeddata(VALUE obj, const void *data_type);
 void  rb_gc_mark(VALUE ptr);
 void  rb_gc_register_mark_object(VALUE obj);
+void  rb_gc_register_address(VALUE *address);
+void  rb_gc_unregister_address(VALUE *address);
 VALUE rb_marshal_load(VALUE source);
 
 VALUE rb_enc_copy(VALUE dest, VALUE src);

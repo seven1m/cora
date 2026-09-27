@@ -814,6 +814,19 @@ test "C extension converts encoded strings and integer values" {
     try std.testing.expect(result.toBool());
 }
 
+test "C extension keeps values at registered external addresses alive" {
+    const result = try evalCode(
+        \\$LOAD_PATH << "build/cext"
+        \\require "fixture.so"
+        \\CoraCExt.register_external_root("rooted-" + ("x" * 1024))
+        \\10.times { 1000.times { "garbage" * 128 }; GC.start }
+        \\survived = CoraCExt.read_external_root == "rooted-" + ("x" * 1024)
+        \\CoraCExt.unregister_external_root
+        \\survived
+    );
+    try std.testing.expect(result.toBool());
+}
+
 test "C extension typed data keeps referenced Ruby objects alive" {
     const result = try evalCode(
         \\$LOAD_PATH << "build/cext"

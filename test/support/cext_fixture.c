@@ -616,6 +616,38 @@ cext_integer(VALUE self, VALUE obj)
     return rb_Integer(obj);
 }
 
+static VALUE *cext_external_root;
+
+static VALUE
+cext_register_external_root(VALUE self, VALUE obj)
+{
+    (void)self;
+    cext_external_root = malloc(sizeof(VALUE));
+    if (!cext_external_root) return Qnil;
+    *cext_external_root = obj;
+    rb_gc_register_address(cext_external_root);
+    return Qnil;
+}
+
+static VALUE
+cext_read_external_root(VALUE self)
+{
+    (void)self;
+    return cext_external_root ? *cext_external_root : Qnil;
+}
+
+static VALUE
+cext_unregister_external_root(VALUE self)
+{
+    (void)self;
+    if (cext_external_root) {
+        rb_gc_unregister_address(cext_external_root);
+        free(cext_external_root);
+        cext_external_root = NULL;
+    }
+    return Qnil;
+}
+
 void Init_fixture(void)
 {
     VALUE mCoraCExt = rb_define_module("CoraCExt");
@@ -683,6 +715,9 @@ void Init_fixture(void)
     rb_define_module_function(mCoraCExt, "range_bounds", cext_range_bounds, 2);
     rb_define_module_function(mCoraCExt, "converted_string", cext_converted_string, 0);
     rb_define_module_function(mCoraCExt, "integer", cext_integer, 1);
+    rb_define_module_function(mCoraCExt, "register_external_root", cext_register_external_root, 1);
+    rb_define_module_function(mCoraCExt, "read_external_root", cext_read_external_root, 0);
+    rb_define_module_function(mCoraCExt, "unregister_external_root", cext_unregister_external_root, 0);
 
     rb_define_method(rb_cString, "cora_cext_test", cora_cext_test, 0);
     rb_define_method(rb_cString, "cext_yield", cext_simple_yield, 1);
