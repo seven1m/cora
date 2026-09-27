@@ -330,7 +330,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/data/initialize_spec.rb
 - [x] core/data/inspect_spec.rb
 - [x] core/data/members_spec.rb
-- [ ] core/data/to_h_spec.rb
+- [x] core/data/to_h_spec.rb
 - [ ] core/data/to_s_spec.rb
 - [x] core/data/with_spec.rb
 

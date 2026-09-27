@@ -241,16 +241,45 @@ pub fn builtinDataClassMembers(vm: *VM, receiver: Value, args: []Value, _: ?Bloc
     return Value.fromObject(&out.object);
 }
 
-pub fn builtinDataToH(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+pub fn builtinDataToH(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
     const members = try memberNames(vm, receiver);
+    defer vm.allocator.free(members);
     const vals = try memberValues(vm, receiver, members);
     defer vm.allocator.free(vals);
 
     const hash_val = try vm.createHash();
     for (members, 0..) |name, i| {
         const sym = try vm.intern(name);
-        try vm.hashSetEntry(hash_val, Value.fromObject(&sym.object), vals[i]);
+        const key = Value.fromObject(&sym.object);
+        if (block) |blk| {
+            const yield_args = [_]Value{ key, vals[i] };
+            const yielded = try vm.yieldToBlock(blk, &yield_args);
+
+            const pair_value = switch (try vm.probeToAry(yielded)) {
+                .array => |array_value| array_value,
+                .missing, .nil_result => {
+                    return vm.raiseExceptionFmt(
+                        vm.type_error_class,
+                        "wrong element type {s} (expected array)",
+                        .{vm.className(yielded)},
+                    );
+                },
+            };
+
+            const pair = pair_value.toArrayObject().elements.items;
+            if (pair.len != 2) {
+                return vm.raiseExceptionFmt(
+                    vm.argument_error_class,
+                    "element has wrong array length (expected 2, was {d})",
+                    .{pair.len},
+                );
+            }
+
+            try vm.hashSetEntry(hash_val, pair[0], pair[1]);
+        } else {
+            try vm.hashSetEntry(hash_val, key, vals[i]);
+        }
     }
     return Value.fromObject(&hash_val.object);
 }
