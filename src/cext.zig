@@ -1724,18 +1724,16 @@ const CTypedDataType = extern struct {
 export fn TypedData_Wrap_Struct(klass_raw: VALUE, ty: ?*const anyopaque, data: ?*anyopaque) VALUE {
     const vm = getVM();
     const klass: *value.ClassObject = if (klass_raw == 0) vm.object_class else @ptrFromInt(klass_raw);
-    const data_ptr = data orelse return 0;
     const callbacks: value.TypedDataCallbacks = if (ty) |raw_type| blk: {
         const data_type: *const CTypedDataType = @ptrCast(@alignCast(raw_type));
         break :blk .{ .dfree = data_type.function.dfree, .dmark = data_type.function.dmark };
     } else .{};
-    const obj = vm.newTypedData(klass, data_ptr, ty, callbacks) catch return 0;
+    const obj = vm.newTypedData(klass, data, ty, callbacks) catch return 0;
     return obj.raw;
 }
 
 export fn rb_data_typed_object_alloc(klass_raw: VALUE, ty: ?*const anyopaque) VALUE {
-    _ = ty;
-    return TypedData_Wrap_Struct(klass_raw, null, null);
+    return TypedData_Wrap_Struct(klass_raw, ty, null);
 }
 
 export fn rb_data_typed_object_zalloc(klass_raw: VALUE, size: usize, ty: ?*const anyopaque) VALUE {
@@ -1753,6 +1751,12 @@ export fn Check_TypedStruct(obj_raw: VALUE, ty: ?*const anyopaque) ?*anyopaque {
     const typed = val.toTypedDataObject();
     if (ty != null and typed.data_type != ty) return null;
     return typed.data;
+}
+
+export fn rb_data_ptr_ref(obj_raw: VALUE) ?*?*anyopaque {
+    const val = Value{ .raw = obj_raw };
+    if (!val.isTypedData()) return null;
+    return &val.toTypedDataObject().data;
 }
 
 // ─── Yield ─────────────────────────────────────────────────────────────────

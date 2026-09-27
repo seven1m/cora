@@ -71,7 +71,7 @@ pub const TypedDataCallbacks = struct {
 
 pub const TypedDataObject = struct {
     object: Object,
-    data: *anyopaque,
+    data: ?*anyopaque,
     data_type: ?*const anyopaque,
     callbacks: TypedDataCallbacks,
 };

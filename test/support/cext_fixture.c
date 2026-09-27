@@ -161,6 +161,18 @@ cext_typed_data_round_trip(VALUE self)
 }
 
 static VALUE
+cext_typed_data_assign_after_alloc(VALUE self)
+{
+    (void)self;
+    VALUE object = rb_data_typed_object_alloc(rb_cObject, &cora_cext_data_type);
+    if (DATA_PTR(object) != NULL) return Qfalse;
+    cora_cext_data *data = ruby_xmalloc(sizeof(*data));
+    data->value = 73;
+    DATA_PTR(object) = data;
+    return INT2NUM(((cora_cext_data *)Check_TypedStruct(object, &cora_cext_data_type))->value);
+}
+
+static VALUE
 cext_typed_data_retain(VALUE self, VALUE retained)
 {
     (void)self;
@@ -534,6 +546,7 @@ void Init_fixture(void)
     rb_define_module_function(mCoraCExt, "intern_length", cext_intern_length, 0);
     rb_define_module_function(mCoraCExt, "static_string", cext_static_string, 0);
     rb_define_module_function(mCoraCExt, "typed_data_round_trip", cext_typed_data_round_trip, 0);
+    rb_define_module_function(mCoraCExt, "typed_data_assign_after_alloc", cext_typed_data_assign_after_alloc, 0);
     rb_define_module_function(mCoraCExt, "typed_data_retain", cext_typed_data_retain, 1);
     rb_define_module_function(mCoraCExt, "typed_data_retained", cext_typed_data_retained, 1);
     rb_define_module_function(mCoraCExt, "string_value_cstr_length", cext_string_value_cstr_length, 1);

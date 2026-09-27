@@ -346,7 +346,9 @@ void *xcalloc(size_t n, size_t size);
     ((data) = (type_name *)Check_TypedStruct(obj, type))
 
 #define RTYPEDDATA_DATA(obj) Check_TypedStruct(obj, NULL)
-#define DATA_PTR(obj) Check_TypedStruct(obj, NULL)
+#define DATA_PTR(obj) (*rb_data_ptr_ref(obj))
+
+void **rb_data_ptr_ref(VALUE obj);
 
 void rb_data_set_typeddata(VALUE obj, void *data);
 

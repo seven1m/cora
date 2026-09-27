@@ -10756,7 +10756,7 @@ pub const VM = struct {
     fn typedDataFinalizer(obj: *anyopaque, _: ?*anyopaque) callconv(.c) void {
         const typed: *value.TypedDataObject = @ptrCast(@alignCast(obj));
         if (typed.callbacks.dfree) |dfree| {
-            dfree(typed.data);
+            if (typed.data) |data| dfree(data);
         }
     }
 
@@ -10778,7 +10778,7 @@ pub const VM = struct {
     pub fn newTypedData(
         self: *VM,
         class_obj: *ClassObject,
-        data: *anyopaque,
+        data: ?*anyopaque,
         data_type: ?*const anyopaque,
         callbacks: value.TypedDataCallbacks,
     ) VMError!Value {

@@ -691,6 +691,15 @@ test "C extension typed data preserves type and payload" {
     try std.testing.expectEqual(@as(i64, 42), values[1].toInteger());
 }
 
+test "C extension typed data can assign payload after allocation" {
+    const result = try evalCode(
+        \\$LOAD_PATH << "build/cext"
+        \\require "fixture.so"
+        \\CoraCExt.typed_data_assign_after_alloc
+    );
+    try std.testing.expectEqual(@as(i64, 73), result.toInteger());
+}
+
 test "C extension typed data keeps referenced Ruby objects alive" {
     const result = try evalCode(
         \\$LOAD_PATH << "build/cext"
