@@ -476,6 +476,7 @@ VALUE  rb_define_module_under(VALUE outer, const char *name);
 VALUE  rb_define_class_under(VALUE outer, const char *name, VALUE super);
 
 void   rb_define_method(VALUE klass, const char *name, void *func, int argc);
+VALUE  rb_call_super(int argc, const VALUE *argv);
 
 void   rb_require(const char *name);
 VALUE  rb_path_to_class(VALUE path);

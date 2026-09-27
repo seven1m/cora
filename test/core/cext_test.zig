@@ -710,6 +710,18 @@ test "C extension appends encoded bytes to an external string" {
     try std.testing.expect(result.toBool());
 }
 
+test "C extension method calls its superclass method" {
+    const result = try evalCode(
+        \\$LOAD_PATH << "build/cext"
+        \\require "fixture.so"
+        \\class CoraCExt::SuperBase
+        \\  def greeting(name); "hello " + name; end
+        \\end
+        \\CoraCExt::SuperChild.new.greeting("Cora")
+    );
+    try std.testing.expectEqualStrings("hello Cora", result.toStringObject().str);
+}
+
 test "C extension typed data keeps referenced Ruby objects alive" {
     const result = try evalCode(
         \\$LOAD_PATH << "build/cext"

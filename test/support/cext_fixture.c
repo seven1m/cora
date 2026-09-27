@@ -537,9 +537,19 @@ cext_st_table(VALUE self)
     return result;
 }
 
+static VALUE
+cext_super_greeting(VALUE self, VALUE arg)
+{
+    (void)self;
+    return rb_call_super(1, &arg);
+}
+
 void Init_fixture(void)
 {
     VALUE mCoraCExt = rb_define_module("CoraCExt");
+    VALUE super_base = rb_define_class_under(mCoraCExt, "SuperBase", rb_cObject);
+    VALUE super_child = rb_define_class_under(mCoraCExt, "SuperChild", super_base);
+    rb_define_method(super_child, "greeting", cext_super_greeting, 1);
     rb_define_const(mCoraCExt, "FIXTURE_VALUE", INT2NUM(42));
     rb_define_module_function(mCoraCExt, "simple_yield", cext_simple_yield, 1);
     rb_define_module_function(mCoraCExt, "call_to_s", cext_call_to_s, 1);

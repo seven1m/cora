@@ -996,6 +996,24 @@ export fn rb_funcallv(recv_raw: VALUE, mid: VALUE, argc: c_int, argv: [*c]const 
     return result.raw;
 }
 
+export fn rb_call_super(argc: c_int, argv: [*c]const VALUE) VALUE {
+    const vm = getVM();
+    const pending_unwind_before = vm.pendingUnwind();
+    const args: []const Value = if (argv != null and argc > 0)
+        @as([*]const Value, @ptrCast(argv))[0..@intCast(argc)]
+    else
+        &[_]Value{};
+    const result = vm.callCExtSuper(args) catch |err| switch (err) {
+        error.Unwind => {
+            checkPendingUnwind(vm, pending_unwind_before);
+            return 0;
+        },
+        else => return 0,
+    };
+    checkPendingUnwind(vm, pending_unwind_before);
+    return result.raw;
+}
+
 const CExtBlockCallFunc = *const fn (VALUE, VALUE, c_int, [*c]const VALUE, VALUE) callconv(.c) VALUE;
 const CExtBlockCallContext = struct {
     callback: CExtBlockCallFunc,

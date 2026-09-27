@@ -8274,6 +8274,7 @@ pub const VM = struct {
     fn dispatchCExtMethod(
         self: *VM,
         cext_method: CExtMethod,
+        resolved: ResolvedMethod,
         receiver: Value,
         args: []const Value,
         block: ?Block,
@@ -8300,7 +8301,8 @@ pub const VM = struct {
             .self_value = receiver,
             .block = block,
             .frame_type = .builtin,
-            .method_name = "(c extension)",
+            .method_name = resolved.name.name,
+            .super_defining_node = resolved.defining_node,
             .dir_returns_nil = caller_frame.dir_returns_nil,
         }) catch return error.Fatal;
 
@@ -8641,7 +8643,7 @@ pub const VM = struct {
                 return self.invokeBuiltinMethod(fun_ptr, receiver, resolved.name.name, @constCast(dispatch.args), block, dispatch_keyword_ctx);
             },
             .cext => |cext_method| {
-                const result = try self.dispatchCExtMethod(cext_method, receiver, @constCast(dispatch.args), block, null);
+                const result = try self.dispatchCExtMethod(cext_method, resolved, receiver, @constCast(dispatch.args), block, null);
                 return result;
             },
             .proc => |proc_obj| {
@@ -9289,7 +9291,7 @@ pub const VM = struct {
                     cext_args = combined;
                     keyword_hash = kw_hash;
                 }
-                const result = try self.dispatchCExtMethod(cext_method, receiver, cext_args, block, keyword_hash);
+                const result = try self.dispatchCExtMethod(cext_method, method, receiver, cext_args, block, keyword_hash);
                 try self.push(result);
             },
             .proc => |proc_obj| {
@@ -9880,7 +9882,8 @@ pub const VM = struct {
     /// Call the superclass method with the given arguments
     fn callSuper(self: *VM, args: []const Value, block: ?Block, keyword_ctx: ?*BuiltinKeywordContext) VMError!void {
         const frame = self.currentFrame();
-        const method_environment = enclosingMethodEnvironment(frame);
+        const cext_frame = frame.frame_type == .builtin and frame.super_defining_node != null;
+        const method_environment = if (cext_frame) null else enclosingMethodEnvironment(frame);
         const fallback_frame = self.enclosingMethodFrame(frame);
 
         // The stored context survives when a block escapes the method that
@@ -9943,7 +9946,7 @@ pub const VM = struct {
                 try self.push(result);
             },
             .cext => |cext_method| {
-                const result = try self.dispatchCExtMethod(cext_method, receiver, args, null, null);
+                const result = try self.dispatchCExtMethod(cext_method, resolved, receiver, args, null, null);
                 try self.push(result);
             },
             .proc => |proc_obj| {
@@ -9961,6 +9964,15 @@ pub const VM = struct {
             .missing => unreachable,
             .undefined => unreachable,
         }
+    }
+
+    pub fn callCExtSuper(self: *VM, args: []const Value) VMError!Value {
+        const saved_frame_count = self.frames.items.len;
+        const saved_stack_len = self.stack.items.len;
+        const pending_unwind_before = self.pendingUnwind();
+        try self.callSuper(args, self.currentFrame().block, null);
+        if (self.frames.items.len > saved_frame_count) try self.executeUntilReturn(saved_frame_count);
+        return self.finishSubcallFromStack(saved_frame_count, saved_stack_len, pending_unwind_before);
     }
 
     pub fn getOrCreateSingletonClass(self: *VM, obj_val: value.Value) VMError!*ClassObject {
