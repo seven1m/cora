@@ -41,4 +41,20 @@ describe "Pattern matching" do
       c.should == 2
     end
   end
+
+  describe "variable pattern" do
+    it "supports existing variables in a pattern specified with ^ operator" do
+      a = 0
+      [0] => [^a]
+      a.should == 0
+    end
+  end
+
+  describe "pinned expression" do
+    it "supports pinning expressions in hash patterns" do
+      expected = "value"
+      matched = ({ key: "value" } => { key: ^(expected.upcase.downcase) })
+      matched.should == { key: "value" }
+    end
+  end
 end

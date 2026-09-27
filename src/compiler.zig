@@ -5292,6 +5292,16 @@ pub const Compiler = struct {
                 try self.current_chunk.emitOp(.POP, line);
                 try self.current_chunk.emitOp(.PUSH_TRUE, line);
             },
+            .pinned_variable => |pinned| {
+                try self.compileNode(try self.parser.asNode(pinned.variable), line);
+                try self.current_chunk.emitOp(.SWAP, line);
+                try self.emitPatternMethodCall("===", 1, line);
+            },
+            .pinned_expression => |pinned| {
+                try self.compileNode(try self.parser.asNode(pinned.expression), line);
+                try self.current_chunk.emitOp(.SWAP, line);
+                try self.emitPatternMethodCall("===", 1, line);
+            },
             .array_pattern => |array| {
                 var failures: std.ArrayList(usize) = .empty;
                 defer failures.deinit(self.allocator);
