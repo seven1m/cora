@@ -590,6 +590,15 @@ cext_object_identity(VALUE self, VALUE obj)
                        rb_uint2inum((uintptr_t)obj));
 }
 
+static VALUE
+cext_range_bounds(VALUE self, VALUE range, VALUE size)
+{
+    (void)self;
+    long begin = -1, length = -1;
+    VALUE status = rb_range_beg_len(range, &begin, &length, NUM2LONG(size), 0);
+    return rb_ary_new3(3, status, LONG2NUM(begin), LONG2NUM(length));
+}
+
 void Init_fixture(void)
 {
     VALUE mCoraCExt = rb_define_module("CoraCExt");
@@ -654,6 +663,7 @@ void Init_fixture(void)
     rb_define_module_function(mCoraCExt, "st_table", cext_st_table, 0);
     rb_define_module_function(mCoraCExt, "alloc_and_init", cext_alloc_and_init, 2);
     rb_define_module_function(mCoraCExt, "object_identity", cext_object_identity, 1);
+    rb_define_module_function(mCoraCExt, "range_bounds", cext_range_bounds, 2);
 
     rb_define_method(rb_cString, "cora_cext_test", cora_cext_test, 0);
     rb_define_method(rb_cString, "cext_yield", cext_simple_yield, 1);

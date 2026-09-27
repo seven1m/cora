@@ -621,6 +621,36 @@ export fn rb_str_split(str_raw: VALUE, sep: [*c]const u8) VALUE {
     return rb_funcall(str_raw, rb_intern("split"), 1, rb_str_new2(sep));
 }
 
+export fn rb_range_beg_len(range_raw: VALUE, begp: *c_long, lenp: *c_long, total: c_long, err: c_int) VALUE {
+    const range_val = Value{ .raw = range_raw };
+    if (!range_val.isRange()) return Value.boolean(false).raw;
+    const range_obj = range_val.toRangeObject();
+
+    var begin: i128 = if (range_obj.begin.isNil()) 0 else NUM2LONG(range_obj.begin.raw);
+    var end: i128 = if (range_obj.end.isNil()) -1 else NUM2LONG(range_obj.end.raw);
+    const excluded = range_obj.exclude_end and !range_obj.end.isNil();
+    if (begin < 0) {
+        begin += total;
+        if (begin < 0) {
+            if (err != 0) rb_raise(rb_eRangeError, "range out of range");
+            return Value.nil().raw;
+        }
+    }
+    if (end < 0) end += total;
+    if (!excluded) end += 1;
+    if (err == 0 or err == 2) {
+        if (begin > total) {
+            if (err != 0) rb_raise(rb_eRangeError, "range out of range");
+            return Value.nil().raw;
+        }
+        if (end > total) end = total;
+    }
+    const span = @max(end - begin, 0);
+    begp.* = @intCast(begin);
+    lenp.* = @intCast(span);
+    return Value.boolean(true).raw;
+}
+
 export fn rb_str_encode(str_raw: VALUE, to_raw: VALUE, ecflags: c_int, ecopts_raw: VALUE) VALUE {
     _ = ecflags;
     _ = ecopts_raw;

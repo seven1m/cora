@@ -403,6 +403,7 @@ VALUE  rb_str_tmp_new(long len);
 VALUE  rb_str_catf(VALUE str, const char *fmt, ...);
 VALUE  rb_str_plus(VALUE str1, VALUE str2);
 VALUE  rb_str_split(VALUE str, const char *sep);
+VALUE  rb_range_beg_len(VALUE range, long *begp, long *lenp, long len, int err);
 VALUE  rb_str_encode(VALUE str, VALUE to, int ecflags, VALUE ecopts);
 VALUE  rb_str_intern(VALUE str);
 VALUE  rb_str_concat(VALUE str, VALUE str2);

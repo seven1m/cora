@@ -791,6 +791,19 @@ test "C extension reports object class and pointer identity" {
     try std.testing.expect(result.toBool());
 }
 
+test "C extension normalizes range bounds for slicing" {
+    const result = try evalCode(
+        \\$LOAD_PATH << "build/cext"
+        \\require "fixture.so"
+        \\CoraCExt.range_bounds(1..3, 5) == [true, 1, 3] &&
+        \\CoraCExt.range_bounds(-3...-1, 5) == [true, 2, 2] &&
+        \\CoraCExt.range_bounds(5..9, 5) == [true, 5, 0] &&
+        \\CoraCExt.range_bounds(6..9, 5)[0].nil? &&
+        \\CoraCExt.range_bounds(2, 5)[0] == false
+    );
+    try std.testing.expect(result.toBool());
+}
+
 test "C extension typed data keeps referenced Ruby objects alive" {
     const result = try evalCode(
         \\$LOAD_PATH << "build/cext"
