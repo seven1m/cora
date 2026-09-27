@@ -962,6 +962,19 @@ test "C extension rb_ary_entry returns nil outside array bounds" {
     try std.testing.expectEqual(@as(i64, 9), values[3].toInteger());
 }
 
+test "C extension hash lookup and deletion return nil for missing keys" {
+    const result = try evalCode(
+        \\$LOAD_PATH << "build/cext"
+        \\require "fixture.so"
+        \\CoraCExt.hash_missing_entries
+    );
+    const values = result.toArrayObject().elements.items;
+    try std.testing.expect(values[0].isNil());
+    try std.testing.expect(values[1].isFalse());
+    try std.testing.expect(values[2].isNil());
+    try std.testing.expect(values[3].isFalse());
+}
+
 test "C extension nested calls do not inherit surrounding builtin keywords" {
     const result = try evalCode(
         \\$LOAD_PATH << "build/cext"

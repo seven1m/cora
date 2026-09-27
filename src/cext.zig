@@ -2142,7 +2142,7 @@ export fn rb_hash_aref(hash_raw: VALUE, key_raw: VALUE) VALUE {
     const val = Value{ .raw = hash_raw };
     const hash_obj = val.toHashObject();
     const entry = vm.hashGetEntry(hash_obj, Value{ .raw = key_raw }) catch return 0;
-    return if (entry) |e| e.value.raw else 0;
+    return if (entry) |e| e.value.raw else Value.nil().raw;
 }
 
 export fn rb_hash_aset(hash_raw: VALUE, key_raw: VALUE, val_raw: VALUE) VALUE {
@@ -2158,7 +2158,7 @@ export fn rb_hash_delete(hash_raw: VALUE, key_raw: VALUE) VALUE {
     const val = Value{ .raw = hash_raw };
     const hash_obj = val.toHashObject();
     const deleted = vm.hashDeleteEntry(hash_obj, Value{ .raw = key_raw }) catch return 0;
-    return if (deleted) |v| v.raw else 0;
+    return if (deleted) |v| v.raw else Value.nil().raw;
 }
 
 export fn rb_hash_size(hash_raw: VALUE) c_long {
