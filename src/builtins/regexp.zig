@@ -91,6 +91,8 @@ pub fn register(vm: *VM) !void {
     try regexp_singleton.module.methods.put(try_convert_sym, value.MethodEntry.builtin(&builtinRegexpTryConvert, .{ .exact = 1 }));
     const new_sym = try vm.intern("new");
     try regexp_singleton.module.methods.put(new_sym, value.MethodEntry.builtin(&builtinRegexpNew, .{ .variadic = 0 }));
+    const compile_sym = try vm.intern("compile");
+    try regexp_singleton.module.methods.put(compile_sym, value.MethodEntry.builtin(&builtinRegexpNew, .{ .variadic = 0 }));
     const escape_sym = try vm.intern("escape");
     try regexp_singleton.module.methods.put(escape_sym, value.MethodEntry.builtin(&builtinRegexpEscape, .{ .exact = 1 }));
     const quote_sym = try vm.intern("quote");
