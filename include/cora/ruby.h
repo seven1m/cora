@@ -391,6 +391,7 @@ VALUE  rb_str_new2(const char *ptr);
 VALUE  rb_usascii_str_new_cstr(const char *ptr);
 #define rb_usascii_str_new2 rb_usascii_str_new_cstr
 VALUE  rb_enc_str_new(const char *ptr, long len, rb_encoding *enc);
+VALUE  rb_enc_str_new_cstr(const char *ptr, rb_encoding *enc);
 VALUE  rb_external_str_new_with_enc(const char *ptr, long len, rb_encoding *enc);
 VALUE  rb_enc_str_buf_cat(VALUE str, const char *ptr, long len, rb_encoding *enc);
 VALUE  rb_utf8_str_new(const char *ptr, long len);
@@ -402,6 +403,8 @@ void   rb_str_set_len(VALUE str, long len);
 VALUE  rb_str_tmp_new(long len);
 VALUE  rb_str_catf(VALUE str, const char *fmt, ...);
 VALUE  rb_str_plus(VALUE str1, VALUE str2);
+VALUE  rb_str_cat_cstr(VALUE str, const char *ptr);
+VALUE  rb_str_conv_enc(VALUE str, rb_encoding *from, rb_encoding *to);
 VALUE  rb_str_split(VALUE str, const char *sep);
 VALUE  rb_range_beg_len(VALUE range, long *begp, long *lenp, long len, int err);
 VALUE  rb_str_encode(VALUE str, VALUE to, int ecflags, VALUE ecopts);
@@ -454,6 +457,7 @@ int    rb_ivar_defined(VALUE obj, ID id);
 
 VALUE  rb_class_new_instance(int argc, const VALUE *argv, VALUE klass);
 VALUE  rb_obj_alloc(VALUE klass);
+VALUE  rb_Integer(VALUE obj);
 const char *rb_obj_classname(VALUE obj);
 void   rb_obj_call_init(VALUE obj, int argc, const VALUE *argv);
 VALUE  rb_class_of(VALUE obj);

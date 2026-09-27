@@ -599,6 +599,23 @@ cext_range_bounds(VALUE self, VALUE range, VALUE size)
     return rb_ary_new3(3, status, LONG2NUM(begin), LONG2NUM(length));
 }
 
+static VALUE
+cext_converted_string(VALUE self)
+{
+    (void)self;
+    VALUE str = rb_enc_str_new_cstr("caf", rb_utf8_encoding());
+    rb_str_cat_cstr(str, "\xc3\xa9");
+    rb_encoding *latin1 = rb_enc_from_index(rb_enc_find_index("ISO-8859-1"));
+    return rb_str_conv_enc(str, rb_utf8_encoding(), latin1);
+}
+
+static VALUE
+cext_integer(VALUE self, VALUE obj)
+{
+    (void)self;
+    return rb_Integer(obj);
+}
+
 void Init_fixture(void)
 {
     VALUE mCoraCExt = rb_define_module("CoraCExt");
@@ -664,6 +681,8 @@ void Init_fixture(void)
     rb_define_module_function(mCoraCExt, "alloc_and_init", cext_alloc_and_init, 2);
     rb_define_module_function(mCoraCExt, "object_identity", cext_object_identity, 1);
     rb_define_module_function(mCoraCExt, "range_bounds", cext_range_bounds, 2);
+    rb_define_module_function(mCoraCExt, "converted_string", cext_converted_string, 0);
+    rb_define_module_function(mCoraCExt, "integer", cext_integer, 1);
 
     rb_define_method(rb_cString, "cora_cext_test", cora_cext_test, 0);
     rb_define_method(rb_cString, "cext_yield", cext_simple_yield, 1);

@@ -804,6 +804,16 @@ test "C extension normalizes range bounds for slicing" {
     try std.testing.expect(result.toBool());
 }
 
+test "C extension converts encoded strings and integer values" {
+    const result = try evalCode(
+        \\$LOAD_PATH << "build/cext"
+        \\require "fixture.so"
+        \\str = CoraCExt.converted_string
+        \\str.encoding.name == "ISO-8859-1" && str.bytes == [99, 97, 102, 233] && CoraCExt.integer("12") == 12
+    );
+    try std.testing.expect(result.toBool());
+}
+
 test "C extension typed data keeps referenced Ruby objects alive" {
     const result = try evalCode(
         \\$LOAD_PATH << "build/cext"

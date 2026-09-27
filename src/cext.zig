@@ -440,6 +440,10 @@ export fn rb_enc_str_new(ptr: [*c]const u8, len: c_long, enc_ptr: ?*anyopaque) V
     return result.raw;
 }
 
+export fn rb_enc_str_new_cstr(ptr: [*c]const u8, enc_ptr: ?*anyopaque) VALUE {
+    return rb_enc_str_new(ptr, if (ptr == null) 0 else @intCast(std.mem.span(ptr).len), enc_ptr);
+}
+
 export fn rb_external_str_new_with_enc(ptr: [*c]const u8, len: c_long, enc_ptr: ?*anyopaque) VALUE {
     return rb_enc_str_new(ptr, len, enc_ptr);
 }
@@ -610,6 +614,21 @@ export fn rb_string_value(ptr: *VALUE) VALUE {
 export fn rb_str_cat2(str_raw: VALUE, ptr: [*c]const u8) VALUE {
     if (ptr == null) return str_raw;
     return rb_str_cat(str_raw, ptr, @intCast(std.mem.span(ptr).len));
+}
+
+export fn rb_str_cat_cstr(str_raw: VALUE, ptr: [*c]const u8) VALUE {
+    return rb_str_cat2(str_raw, ptr);
+}
+
+export fn rb_str_conv_enc(str_raw: VALUE, from_ptr: ?*anyopaque, to_ptr: ?*anyopaque) VALUE {
+    var source = rb_str_dup(str_raw);
+    if (source == 0) return 0;
+    if (from_ptr) |ptr| {
+        const from: *const enc.Encoding = @ptrCast(@alignCast(ptr));
+        source = rb_enc_associate_index(source, @intCast(@intFromEnum(from.*)));
+    }
+    if (to_ptr == null) return source;
+    return rb_str_export_to_enc(source, to_ptr);
 }
 
 export fn rb_str_plus(str1_raw: VALUE, str2_raw: VALUE) VALUE {
@@ -1261,6 +1280,10 @@ export fn rb_obj_alloc(klass_raw: VALUE) VALUE {
     const klass: *value.ClassObject = @ptrFromInt(klass_raw);
     const instance = vm.newObjectForClass(klass) catch return 0;
     return instance.raw;
+}
+
+export fn rb_Integer(obj_raw: VALUE) VALUE {
+    return rb_funcall(rb_mKernel, rb_intern("Integer"), 1, obj_raw);
 }
 
 export fn rb_obj_call_init(obj_raw: VALUE, argc: c_int, argv: [*c]const VALUE) void {
