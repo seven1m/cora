@@ -40,6 +40,7 @@ const GlobContext = struct {
     flags: GlobFlags,
     base_abs: []const u8,
     return_relative: bool,
+    relative_prefix: []const u8 = "",
     pattern_encoding: enc.Encoding = .{ .utf8 = .{} },
 };
 
@@ -715,10 +716,10 @@ fn expandBracesAlloc(allocator: std.mem.Allocator, pattern: []const u8, noescape
 }
 
 fn appendMatch(ctx: *GlobContext, rel_path: []const u8, absolute: bool, append_slash: bool) VMError!void {
-    var out = if (absolute or !ctx.return_relative)
+    var out = if (absolute or !ctx.return_relative or ctx.relative_prefix.len == 0)
         ctx.vm.allocator.dupe(u8, rel_path) catch return error.Fatal
     else
-        ctx.vm.allocator.dupe(u8, rel_path) catch return error.Fatal;
+        std.fmt.allocPrint(ctx.vm.allocator, "{s}{s}", .{ ctx.relative_prefix, rel_path }) catch return error.Fatal;
 
     if (append_slash and (out.len == 0 or out[out.len - 1] != '/')) {
         const with_slash = std.fmt.allocPrint(ctx.vm.allocator, "{s}/", .{out}) catch return error.Fatal;
@@ -817,6 +818,11 @@ fn processPattern(ctx: *GlobContext, pattern: []const u8) VMError!void {
     }
 
     const absolute = pattern[0] == '/';
+    const saved_relative_prefix = ctx.relative_prefix;
+    defer ctx.relative_prefix = saved_relative_prefix;
+    var prefix_len: usize = 0;
+    while (std.mem.startsWith(u8, pattern[prefix_len..], "./")) prefix_len += 2;
+    ctx.relative_prefix = pattern[0..prefix_len];
     const directory_only = pattern[pattern.len - 1] == '/';
     const trimmed = if (directory_only) pattern[0 .. pattern.len - 1] else pattern;
     if (trimmed.len == 0 and directory_only) return;

@@ -130,9 +130,7 @@ describe "Dir.glob" do
       ./subdir_two/
     ]
 
-    CORAFIXME "Dir.glob does not yet preserve ./-prefixed recursive directory matches", exception: SpecExpectationNotMetError do
-      Dir.glob('./**/', File::FNM_DOTMATCH).sort.should == expected
-    end
+    Dir.glob('./**/', File::FNM_DOTMATCH).sort.should == expected
   end
 
   it "matches a list of paths by concatenating their individual results" do
