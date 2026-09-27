@@ -1664,6 +1664,15 @@ export fn ruby_xrealloc2(ptr: ?*anyopaque, n: usize, size: usize) ?*anyopaque {
     return xrealloc(ptr, n * size);
 }
 
+export fn ruby_strdup(str: [*:0]const u8) ?[*:0]u8 {
+    const len = std.mem.len(str);
+    const allocation = xmalloc(len + 1) orelse return null;
+    const copy: [*]u8 = @ptrCast(allocation);
+    @memcpy(copy[0..len], str[0..len]);
+    copy[len] = 0;
+    return @ptrCast(copy);
+}
+
 export fn ruby_xfree(ptr: ?*anyopaque) void {
     xfree(ptr);
 }

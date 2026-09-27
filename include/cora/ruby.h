@@ -59,6 +59,7 @@ typedef struct { int _; } rb_encoding;
 #define NIL_P(x)         ((x) == Qnil)
 #define RB_NIL_P(x)      NIL_P(x)
 #define RTEST(x)         ((x) & ~Qnil)
+#define RB_TEST(x)       RTEST(x)
 #define RB_LIKELY(x)     (x)
 #define RB_UNLIKELY(x)   (x)
 #define RB_SPECIAL_CONST_P(obj) IMMEDIATE_P(obj)
@@ -193,6 +194,7 @@ extern VALUE rb_eNoMemoryError; /* same as rb_eNoMemError */
 
 #define RSTRING_PTR(str)  rb_string_ptr(str)
 #define RSTRING_LEN(str)  rb_string_len(str)
+#define RSTRING_LENINT(str) rb_long2int(RSTRING_LEN(str))
 #define RSTRING_END(str)  (RSTRING_PTR(str) + RSTRING_LEN(str))
 #define RSTRING_GETMEM(str, ptrvar, lenvar) \
     ((ptrvar) = RSTRING_PTR(str),           \
@@ -504,6 +506,7 @@ void         *xcalloc(size_t n, size_t size);
 void         *xrealloc(void *ptr, size_t size);
 void          xfree(void *ptr);
 void         *ruby_xrealloc2(void *ptr, size_t n, size_t size);
+char         *ruby_strdup(const char *str);
 
 #include "ruby/util.h"
 #include "ruby/missing.h"
@@ -581,6 +584,7 @@ VALUE rb_str_format(int argc, const VALUE *argv, VALUE fmt);
 void rb_sys_fail(const char *msg);
 void rb_undef_method(VALUE klass, const char *name);
 ID   rb_intern_const(const char *name);
+#define CONST_ID(var, name) ((var) = rb_intern_const(name))
 VALUE rb_int_positive_pow(long x, unsigned long y);
 
 VALUE rb_cstr_to_inum(const char *str, int base, int badcheck);
