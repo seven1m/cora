@@ -899,7 +899,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] core/gc/count_spec.rb
 - [x] core/gc/disable_spec.rb
 - [x] core/gc/enable_spec.rb
-- [ ] core/gc/garbage_collect_spec.rb
+- [x] core/gc/garbage_collect_spec.rb
 - [ ] core/gc/measure_total_time_spec.rb
 
 ### core/gc/profiler
