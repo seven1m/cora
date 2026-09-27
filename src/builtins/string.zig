@@ -6710,6 +6710,31 @@ fn concatBytes(vm: *VM, left: []const u8, right: []const u8) VMError![]const u8 
     return out;
 }
 
+fn appendStringBytes(vm: *VM, string_obj: *value.StringObject, right: []const u8) VMError!void {
+    if (right.len == 0) return;
+    const old = string_obj.str;
+    const new_len = std.math.add(usize, old.len, right.len) catch return error.Fatal;
+    if (string_obj.append_storage) |storage| {
+        if (storage.ptr == old.ptr and old.len <= storage.len and new_len <= storage.len) {
+            std.mem.copyForwards(u8, storage[old.len..new_len], right);
+            string_obj.str = storage[0..new_len];
+            return;
+        }
+    }
+
+    const previous_capacity = if (string_obj.append_storage) |storage|
+        if (storage.ptr == old.ptr) storage.len else old.len
+    else
+        old.len;
+    const doubled = std.math.mul(usize, previous_capacity, 2) catch new_len;
+    const capacity = @max(new_len, @max(@as(usize, 32), doubled));
+    const storage = vm.gc_allocator_atomic.alloc(u8, capacity) catch return error.Fatal;
+    @memcpy(storage[0..old.len], old);
+    @memcpy(storage[old.len..new_len], right);
+    string_obj.append_storage = storage;
+    string_obj.str = storage[0..new_len];
+}
+
 fn warnSymbolToSMutation(vm: *VM, string_obj: *value.StringObject) VMError!void {
     const sym = string_obj.symbol_to_s_source orelse return;
     if (!vm.warning_deprecated_enabled) return;
@@ -6771,7 +6796,7 @@ fn appendSingleConcatArg(
         // MRI treats US-ASCII receiver + byte values 128..255 as binary concatenation.
         if (string_obj.encoding == .us_ascii and cp >= 128 and cp <= 255) {
             const single_byte = [_]u8{@intCast(cp)};
-            string_obj.str = try concatBytes(vm, string_obj.str, &single_byte);
+            try appendStringBytes(vm, string_obj, &single_byte);
             string_obj.encoding = .{ .ascii_8bit = .{} };
             string_obj.validity = .unknown;
             return;
@@ -6779,7 +6804,7 @@ fn appendSingleConcatArg(
 
         var buf: [4]u8 = undefined;
         const encoded = try encodeCodepointForEncoding(vm, cp, string_obj.encoding, &buf);
-        string_obj.str = try concatBytes(vm, string_obj.str, encoded);
+        try appendStringBytes(vm, string_obj, encoded);
         string_obj.validity = .unknown;
         return;
     }
@@ -6800,7 +6825,7 @@ fn appendSingleConcatArg(
         return vm.raiseEncodingCompatibilityError(string_obj.encoding, rhs_encoding);
     };
 
-    string_obj.str = try concatBytes(vm, string_obj.str, rhs_bytes);
+    try appendStringBytes(vm, string_obj, rhs_bytes);
     string_obj.encoding = result_encoding;
     string_obj.validity = .unknown;
 }

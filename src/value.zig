@@ -98,6 +98,7 @@ pub const SymbolObject = struct {
 pub const StringObject = struct {
     object: Object,
     str: []const u8,
+    append_storage: ?[]u8 = null,
     encoding: Encoding = .{ .utf8 = .{} },
     validity: ValidityState = .unknown,
     // TODO: Fold this into a unified string-flags bitfield if/when more string state flags are added.
