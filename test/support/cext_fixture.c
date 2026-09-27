@@ -119,6 +119,15 @@ cext_static_string(VALUE self)
     return rb_str_new_static("abcdef", 3);
 }
 
+static VALUE
+cext_encoded_string_append(VALUE self)
+{
+    (void)self;
+    VALUE result = rb_external_str_new_with_enc("caf", 3, rb_utf8_encoding());
+    rb_enc_str_buf_cat(result, "\xc3\xa9", 2, rb_utf8_encoding());
+    return result;
+}
+
 typedef struct {
     int value;
 } cora_cext_data;
@@ -545,6 +554,7 @@ void Init_fixture(void)
     rb_define_module_function(mCoraCExt, "str_new_length", cext_str_new_length, 1);
     rb_define_module_function(mCoraCExt, "intern_length", cext_intern_length, 0);
     rb_define_module_function(mCoraCExt, "static_string", cext_static_string, 0);
+    rb_define_module_function(mCoraCExt, "encoded_string_append", cext_encoded_string_append, 0);
     rb_define_module_function(mCoraCExt, "typed_data_round_trip", cext_typed_data_round_trip, 0);
     rb_define_module_function(mCoraCExt, "typed_data_assign_after_alloc", cext_typed_data_assign_after_alloc, 0);
     rb_define_module_function(mCoraCExt, "typed_data_retain", cext_typed_data_retain, 1);

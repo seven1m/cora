@@ -390,7 +390,10 @@ VALUE  rb_str_new2(const char *ptr);
 VALUE  rb_usascii_str_new_cstr(const char *ptr);
 #define rb_usascii_str_new2 rb_usascii_str_new_cstr
 VALUE  rb_enc_str_new(const char *ptr, long len, rb_encoding *enc);
+VALUE  rb_external_str_new_with_enc(const char *ptr, long len, rb_encoding *enc);
+VALUE  rb_enc_str_buf_cat(VALUE str, const char *ptr, long len, rb_encoding *enc);
 VALUE  rb_utf8_str_new(const char *ptr, long len);
+VALUE  rb_utf8_str_new_static(const char *ptr, long len);
 VALUE  rb_utf8_str_new_cstr(const char *ptr);
 VALUE  rb_str_export_to_enc(VALUE str, rb_encoding *enc);
 VALUE  rb_str_buf_new(long len);

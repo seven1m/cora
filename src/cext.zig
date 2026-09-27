@@ -440,8 +440,22 @@ export fn rb_enc_str_new(ptr: [*c]const u8, len: c_long, enc_ptr: ?*anyopaque) V
     return result.raw;
 }
 
+export fn rb_external_str_new_with_enc(ptr: [*c]const u8, len: c_long, enc_ptr: ?*anyopaque) VALUE {
+    return rb_enc_str_new(ptr, len, enc_ptr);
+}
+
+export fn rb_enc_str_buf_cat(str_raw: VALUE, ptr: [*c]const u8, len: c_long, enc_ptr: ?*anyopaque) VALUE {
+    const part = rb_enc_str_new(ptr, len, enc_ptr);
+    if (part == 0) return 0;
+    return rb_str_append(str_raw, part);
+}
+
 export fn rb_utf8_str_new(ptr: [*c]const u8, len: c_long) VALUE {
     return rb_enc_str_new(ptr, len, rb_utf8_encoding());
+}
+
+export fn rb_utf8_str_new_static(ptr: [*c]const u8, len: c_long) VALUE {
+    return rb_utf8_str_new(ptr, len);
 }
 
 export fn rb_utf8_str_new_cstr(ptr: [*c]const u8) VALUE {

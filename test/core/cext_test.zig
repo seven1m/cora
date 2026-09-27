@@ -700,6 +700,16 @@ test "C extension typed data can assign payload after allocation" {
     try std.testing.expectEqual(@as(i64, 73), result.toInteger());
 }
 
+test "C extension appends encoded bytes to an external string" {
+    const result = try evalCode(
+        \\$LOAD_PATH << "build/cext"
+        \\require "fixture.so"
+        \\str = CoraCExt.encoded_string_append
+        \\str == "caf\u{e9}" && str.encoding.name == "UTF-8"
+    );
+    try std.testing.expect(result.toBool());
+}
+
 test "C extension typed data keeps referenced Ruby objects alive" {
     const result = try evalCode(
         \\$LOAD_PATH << "build/cext"
