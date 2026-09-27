@@ -961,3 +961,22 @@ test "C extension rb_ary_entry returns nil outside array bounds" {
     try std.testing.expect(values[2].isNil());
     try std.testing.expectEqual(@as(i64, 9), values[3].toInteger());
 }
+
+test "C extension nested calls do not inherit surrounding builtin keywords" {
+    const result = try evalCode(
+        \\$LOAD_PATH << "build/cext"
+        \\require "fixture.so"
+        \\class InitTarget
+        \\  attr_reader :value
+        \\  def initialize(value); @value = value; end
+        \\end
+        \\class InitCaller
+        \\  attr_reader :target
+        \\  def initialize(options = {})
+        \\    @target = CoraCExt.call_init(InitTarget.allocate, "ok")
+        \\  end
+        \\end
+        \\InitCaller.new(foo: 1).target.value
+    );
+    try std.testing.expectEqualStrings("ok", result.toStringObject().str);
+}

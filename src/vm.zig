@@ -8321,6 +8321,12 @@ pub const VM = struct {
         const previous_keyword_hash = self.cext_keyword_hash;
         self.cext_keyword_hash = keyword_hash;
         defer self.cext_keyword_hash = previous_keyword_hash;
+        // C extensions use cext_keyword_hash for their own arguments. Do not
+        // let a surrounding Ruby builtin's keywords leak into nested calls
+        // made by the extension (for example rb_obj_call_init).
+        const previous_builtin_keyword_ctx = self.builtin_keyword_ctx;
+        self.builtin_keyword_ctx = null;
+        defer self.builtin_keyword_ctx = previous_builtin_keyword_ctx;
 
         if (__sigsetjmp(&jmp_buf, 0) == 0) {
             // First pass: call the C function.

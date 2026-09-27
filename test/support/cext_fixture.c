@@ -555,6 +555,16 @@ cext_array_entries(VALUE self)
                        rb_ary_entry(one, -2),
                        rb_ary_entry(one, -1));
 }
+
+static VALUE
+cext_call_init(VALUE self, VALUE obj, VALUE value)
+{
+    (void)self;
+    VALUE args[] = {value};
+    rb_obj_call_init(obj, 1, args);
+    return obj;
+}
+
 static VALUE
 cext_check_array_type(VALUE self, VALUE obj)
 {
@@ -767,6 +777,7 @@ void Init_fixture(void)
     rb_define_module_function(mCoraCExt, "scan_required_rest", cext_scan_required_rest, -1);
     rb_define_module_function(mCoraCExt, "string_buffer", cext_string_buffer, 0);
     rb_define_module_function(mCoraCExt, "array_entries", cext_array_entries, 0);
+    rb_define_module_function(mCoraCExt, "call_init", cext_call_init, 2);
     rb_define_module_function(mCoraCExt, "check_array_type", cext_check_array_type, 1);
     rb_define_module_function(mCoraCExt, "raise_formatted", cext_raise_formatted, 0);
     rb_define_module_function(mCoraCExt, "format_class", cext_format_class, 1);
