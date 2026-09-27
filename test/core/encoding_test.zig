@@ -257,6 +257,13 @@ test "String#encode transcodes UTF-8 to SHIFT_JIS and preserves char count" {
     try std.testing.expectEqual(@as(i64, 4), result.toInteger());
 }
 
+test "String#encode does not pass its options to a fallback Proc" {
+    const result = try evalCode(
+        \\"아".encode("US-ASCII", fallback: ->(char) { "&#x#{char.ord.to_s(16)};" })
+    );
+    try std.testing.expectEqualStrings("&#xc544;", result.toStringObject().str);
+}
+
 test "Japanese encodings use JIS mappings for kanji punctuation and accented letters" {
     const result = try evalCode(
         \\[

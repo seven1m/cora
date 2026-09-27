@@ -2684,6 +2684,11 @@ pub fn builtinStringEncode(vm: *VM, receiver: Value, args: []Value, _: ?Block) V
         .{ &kw_invalid, &kw_undef, &kw_replace, &kw_fallback, &kw_cr_newline, &kw_crlf_newline, &kw_universal_newline, &kw_xml },
     );
     try vm.validateKeywordArgsConsumed();
+    // The options belong to this encode call. A fallback Proc receives only
+    // the character being converted, not encode's keyword arguments.
+    const keyword_ctx = vm.builtin_keyword_ctx;
+    vm.builtin_keyword_ctx = null;
+    defer vm.builtin_keyword_ctx = keyword_ctx;
 
     const has_encode_options = kw_invalid != null or
         kw_undef != null or
