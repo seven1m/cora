@@ -47,6 +47,13 @@ class Pathname
     Pathname.new(File.join(@path, *args))
   end
 
+  def +(other)
+    other_path = Pathname.new(other).to_path
+    return Pathname.new(other_path) if other_path.start_with?(File::SEPARATOR)
+
+    join(other_path)
+  end
+
   def exist?
     File.exist?(@path)
   end

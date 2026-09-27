@@ -3537,7 +3537,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] library/pathname/new_spec.rb
 - [x] library/pathname/parent_spec.rb
 - [ ] library/pathname/pathname_spec.rb
-- [ ] library/pathname/plus_spec.rb
+- [x] library/pathname/plus_spec.rb
 - [ ] library/pathname/realdirpath_spec.rb
 - [ ] library/pathname/realpath_spec.rb
 - [ ] library/pathname/relative_path_from_spec.rb
