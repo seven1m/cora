@@ -583,6 +583,15 @@ cext_get_kwargs(VALUE self, VALUE hash)
     return rb_ary_new3(4, INT2NUM(found), values[0], optional_missing, optional_value);
 }
 
+static VALUE
+cext_warnings(VALUE self)
+{
+    (void)self;
+    rb_warn("plain warning %s", "one");
+    rb_warning("verbose warning %s", "two");
+    return Qnil;
+}
+
 
 static VALUE
 cext_call_init(VALUE self, VALUE obj, VALUE value)
@@ -807,6 +816,7 @@ void Init_fixture(void)
     rb_define_module_function(mCoraCExt, "array_entries", cext_array_entries, 0);
     rb_define_module_function(mCoraCExt, "hash_missing_entries", cext_hash_missing_entries, 0);
     rb_define_module_function(mCoraCExt, "get_kwargs", cext_get_kwargs, 1);
+    rb_define_module_function(mCoraCExt, "warnings", cext_warnings, 0);
     rb_define_module_function(mCoraCExt, "call_init", cext_call_init, 2);
     rb_define_module_function(mCoraCExt, "check_array_type", cext_check_array_type, 1);
     rb_define_module_function(mCoraCExt, "raise_formatted", cext_raise_formatted, 0);

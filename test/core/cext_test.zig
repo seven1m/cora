@@ -1012,6 +1012,32 @@ test "C extension rb_get_kwargs consumes known keys and rejects unknown keys" {
     try std.testing.expectEqualStrings("missing keyword: :required", values[5].toStringObject().str);
 }
 
+test "C extension warnings format arguments and respect verbosity" {
+    const result = try evalCode(
+        \\$LOAD_PATH << "build/cext"
+        \\require "fixture.so"
+        \\require "stringio"
+        \\original_stderr = $stderr
+        \\original_verbose = $VERBOSE
+        \\begin
+        \\  $stderr = StringIO.new
+        \\  $VERBOSE = true
+        \\  CoraCExt.warnings
+        \\  verbose_output = $stderr.string
+        \\  $stderr = StringIO.new
+        \\  $VERBOSE = false
+        \\  CoraCExt.warnings
+        \\  [verbose_output, $stderr.string]
+        \\ensure
+        \\  $stderr = original_stderr
+        \\  $VERBOSE = original_verbose
+        \\end
+    );
+    const values = result.toArrayObject().elements.items;
+    try std.testing.expectEqualStrings("plain warning one\nverbose warning two\n", values[0].toStringObject().str);
+    try std.testing.expectEqualStrings("plain warning one\n", values[1].toStringObject().str);
+}
+
 
 test "C extension nested calls do not inherit surrounding builtin keywords" {
     const result = try evalCode(

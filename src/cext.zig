@@ -2329,15 +2329,28 @@ export fn rb_reg_onig_match(
 
 export fn rb_warn(fmt: [*c]const u8, ...) void {
     if (fmt == null) return;
-    const msg = std.mem.span(fmt);
     const vm = getVM();
-    var args = [_]Value{vm.newString(msg, false) catch return};
+    var ap = @cVaStart();
+    defer @cVaEnd(&ap);
+    _ = emitCWarning(vm, fmt, &ap);
+}
+
+fn emitCWarning(vm: *VM, fmt: [*c]const u8, ap: *std.builtin.VaList) c_int {
+    var rendered: std.ArrayList(u8) = .empty;
+    defer rendered.deinit(vm.allocator);
+    if (!formatCVarargs(vm, fmt, ap, &rendered)) return 0;
+    var args = [_]Value{vm.newString(rendered.items, false) catch return 0};
     _ = vm.callMethodByName(vm.main_self, "warn", &args, null) catch {};
+    return 1;
 }
 
 export fn rb_warning(fmt: [*c]const u8, ...) c_int {
-    _ = fmt;
-    return 1;
+    if (fmt == null) return 0;
+    const vm = getVM();
+    if (!vm.getGlobalValue("$VERBOSE").isTruthy()) return 0;
+    var ap = @cVaStart();
+    defer @cVaEnd(&ap);
+    return emitCWarning(vm, fmt, &ap);
 }
 
 export fn rb_usascii_str_new(ptr: [*c]const u8, len: c_long) VALUE {
