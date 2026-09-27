@@ -572,6 +572,19 @@ cext_hash_missing_entries(VALUE self)
 }
 
 static VALUE
+cext_get_kwargs(VALUE self, VALUE hash)
+{
+    (void)self;
+    ID keywords[] = {rb_intern("required"), rb_intern("optional")};
+    VALUE values[2];
+    int found = rb_get_kwargs(hash, keywords, 1, 1, values);
+    VALUE optional_missing = values[1] == Qundef ? Qtrue : Qfalse;
+    VALUE optional_value = values[1] == Qundef ? Qnil : values[1];
+    return rb_ary_new3(4, INT2NUM(found), values[0], optional_missing, optional_value);
+}
+
+
+static VALUE
 cext_call_init(VALUE self, VALUE obj, VALUE value)
 {
     (void)self;
@@ -793,6 +806,7 @@ void Init_fixture(void)
     rb_define_module_function(mCoraCExt, "string_buffer", cext_string_buffer, 0);
     rb_define_module_function(mCoraCExt, "array_entries", cext_array_entries, 0);
     rb_define_module_function(mCoraCExt, "hash_missing_entries", cext_hash_missing_entries, 0);
+    rb_define_module_function(mCoraCExt, "get_kwargs", cext_get_kwargs, 1);
     rb_define_module_function(mCoraCExt, "call_init", cext_call_init, 2);
     rb_define_module_function(mCoraCExt, "check_array_type", cext_check_array_type, 1);
     rb_define_module_function(mCoraCExt, "raise_formatted", cext_raise_formatted, 0);

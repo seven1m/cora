@@ -772,24 +772,35 @@ export fn rb_get_kwargs(keyword_hash_raw: VALUE, table: [*c]const c_ulong, requi
     const keyword_hash = Value{ .raw = keyword_hash_raw };
     if (!keyword_hash.isHash() or values == null) return 0;
 
-    const total: usize = @intCast(@max(required + optional, 0));
+    const hash_obj = keyword_hash.toHashObject();
+    const optional_count = if (optional < 0) -optional - 1 else optional;
+    const total: usize = @intCast(@max(required + optional_count, 0));
     var found: c_int = 0;
     var i: usize = 0;
     while (i < total) : (i += 1) {
-        values[i] = Value.NIL.raw;
+        values[i] = Value.UNDEF.raw;
         const key_raw = table[i];
         const key = Value{ .raw = key_raw };
-        const value_raw = rb_hash_aref(keyword_hash_raw, key.raw);
-        if (value_raw != Value.NIL.raw) {
-            values[i] = value_raw;
+        const entry = vm.hashGetEntry(hash_obj, key) catch return -1;
+        if (entry) |existing| {
+            values[i] = existing.value.raw;
+            _ = vm.hashDeleteEntry(hash_obj, key) catch return -1;
             found += 1;
             continue;
         }
         if (required > 0 and i < @as(usize, @intCast(required))) {
             const name = if (key.isSymbol()) key.toSymbolObject().name else "keyword";
-            _ = vm.raiseExceptionFmt(vm.argument_error_class, "missing keyword: {s}", .{name}) catch {};
+            _ = vm.raiseExceptionFmt(vm.argument_error_class, "missing keyword: :{s}", .{name}) catch {};
+            if (vm.cext_jmp_buf) |buf| siglongjmp(buf, 1);
             return -1;
         }
+    }
+    if (optional >= 0 and hash_obj.entries.items.len > 0) {
+        const unknown = hash_obj.entries.items[0].key;
+        const name = if (unknown.isSymbol()) unknown.toSymbolObject().name else "keyword";
+        _ = vm.raiseExceptionFmt(vm.argument_error_class, "unknown keyword: :{s}", .{name}) catch {};
+        if (vm.cext_jmp_buf) |buf| siglongjmp(buf, 1);
+        return -1;
     }
     return found;
 }

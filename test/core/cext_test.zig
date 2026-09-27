@@ -975,6 +975,44 @@ test "C extension hash lookup and deletion return nil for missing keys" {
     try std.testing.expect(values[3].isFalse());
 }
 
+test "C extension rb_get_kwargs consumes known keys and rejects unknown keys" {
+    const result = try evalCode(
+        \\$LOAD_PATH << "build/cext"
+        \\require "fixture.so"
+        \\full = { required: nil, optional: false }
+        \\short = { required: 7 }
+        \\full_values = CoraCExt.get_kwargs(full)
+        \\short_values = CoraCExt.get_kwargs(short)
+        \\begin
+        \\  CoraCExt.get_kwargs(required: 1, extra: 2)
+        \\rescue ArgumentError => error
+        \\  unknown = error.message
+        \\end
+        \\begin
+        \\  CoraCExt.get_kwargs(optional: 2)
+        \\rescue ArgumentError => error
+        \\  missing = error.message
+        \\end
+        \\[full_values, full.empty?, short_values, short.empty?, unknown, missing]
+    );
+    const values = result.toArrayObject().elements.items;
+    const full = values[0].toArrayObject().elements.items;
+    try std.testing.expectEqual(@as(i64, 2), full[0].toInteger());
+    try std.testing.expect(full[1].isNil());
+    try std.testing.expect(full[2].isFalse());
+    try std.testing.expect(full[3].isFalse());
+    try std.testing.expect(values[1].isTrue());
+    const short = values[2].toArrayObject().elements.items;
+    try std.testing.expectEqual(@as(i64, 1), short[0].toInteger());
+    try std.testing.expectEqual(@as(i64, 7), short[1].toInteger());
+    try std.testing.expect(short[2].isTrue());
+    try std.testing.expect(short[3].isNil());
+    try std.testing.expect(values[3].isTrue());
+    try std.testing.expectEqualStrings("unknown keyword: :extra", values[4].toStringObject().str);
+    try std.testing.expectEqualStrings("missing keyword: :required", values[5].toStringObject().str);
+}
+
+
 test "C extension nested calls do not inherit surrounding builtin keywords" {
     const result = try evalCode(
         \\$LOAD_PATH << "build/cext"
