@@ -40,9 +40,7 @@ describe :kernel_integer, shared: true do
 
   it "calls to_i on Rationals" do
     Integer(Rational(8,3)).should == 2
-    CORAFIXME "Integer#quo is not implemented yet", exception: NoMethodError, message: /undefined method 'quo'/ do
-      Integer(3.quo(2)).should == 1
-    end
+    Integer(3.quo(2)).should == 1
   end
 
   it "returns the value of to_int if the result is a Fixnum" do

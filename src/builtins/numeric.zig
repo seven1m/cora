@@ -132,6 +132,9 @@ pub fn register(vm: *VM) !void {
     const fdiv_sym = try vm.intern("fdiv");
     try vm.numeric_class.module.methods.put(fdiv_sym, value.MethodEntry.builtin(&builtinNumericFdiv, .{ .exact = 1 }));
 
+    const quo_sym = try vm.intern("quo");
+    try vm.numeric_class.module.methods.put(quo_sym, value.MethodEntry.builtin(&builtinNumericQuo, .{ .exact = 1 }));
+
     const polar_sym = try vm.intern("polar");
     try vm.numeric_class.module.methods.put(polar_sym, value.MethodEntry.builtin(&builtinNumericPolar, .{ .exact = 0 }));
 
@@ -416,6 +419,20 @@ pub fn builtinNumericFdiv(vm: *VM, receiver: Value, args: []Value, _: ?Block) VM
     const rhs = try vm.callMethodByName(args[0], "to_f", &.{}, null);
     var div_args = [_]Value{rhs};
     return vm.callMethodByName(lhs, "/", div_args[0..], null);
+}
+
+pub fn builtinNumericQuo(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    const rational = try vm.callMethodByName(receiver, "to_r", &.{}, null);
+    if (!rational.isRational()) {
+        return vm.raiseExceptionFmt(
+            vm.type_error_class,
+            "can't convert {s} to Rational ({s}#to_r gives {s})",
+            .{ vm.className(receiver), vm.className(receiver), vm.className(rational) },
+        );
+    }
+    var div_args = [_]Value{args[0]};
+    return vm.callMethodByName(rational, "/", div_args[0..], null);
 }
 
 pub fn builtinNumericPolar(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
