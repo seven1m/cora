@@ -128,6 +128,28 @@ cext_encoded_string_append(VALUE self)
     return result;
 }
 
+static VALUE
+cext_to_encoding(VALUE self, VALUE encoding)
+{
+    (void)self;
+    return rb_enc_from_encoding(rb_to_encoding(encoding));
+}
+
+static VALUE
+cext_split_string(VALUE self, VALUE str)
+{
+    (void)self;
+    return rb_str_split(str, " ");
+}
+
+static VALUE
+cext_needs_block(VALUE self)
+{
+    (void)self;
+    rb_need_block();
+    return Qtrue;
+}
+
 typedef struct {
     int value;
 } cora_cext_data;
@@ -565,6 +587,9 @@ void Init_fixture(void)
     rb_define_module_function(mCoraCExt, "intern_length", cext_intern_length, 0);
     rb_define_module_function(mCoraCExt, "static_string", cext_static_string, 0);
     rb_define_module_function(mCoraCExt, "encoded_string_append", cext_encoded_string_append, 0);
+    rb_define_module_function(mCoraCExt, "to_encoding", cext_to_encoding, 1);
+    rb_define_module_function(mCoraCExt, "split_string", cext_split_string, 1);
+    rb_define_module_function(mCoraCExt, "needs_block", cext_needs_block, 0);
     rb_define_module_function(mCoraCExt, "typed_data_round_trip", cext_typed_data_round_trip, 0);
     rb_define_module_function(mCoraCExt, "typed_data_assign_after_alloc", cext_typed_data_assign_after_alloc, 0);
     rb_define_module_function(mCoraCExt, "typed_data_retain", cext_typed_data_retain, 1);

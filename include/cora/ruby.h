@@ -401,6 +401,7 @@ void   rb_str_set_len(VALUE str, long len);
 VALUE  rb_str_tmp_new(long len);
 VALUE  rb_str_catf(VALUE str, const char *fmt, ...);
 VALUE  rb_str_plus(VALUE str1, VALUE str2);
+VALUE  rb_str_split(VALUE str, const char *sep);
 VALUE  rb_str_encode(VALUE str, VALUE to, int ecflags, VALUE ecopts);
 VALUE  rb_str_intern(VALUE str);
 VALUE  rb_str_concat(VALUE str, VALUE str2);
@@ -477,6 +478,7 @@ VALUE  rb_define_class_under(VALUE outer, const char *name, VALUE super);
 
 void   rb_define_method(VALUE klass, const char *name, void *func, int argc);
 VALUE  rb_call_super(int argc, const VALUE *argv);
+void   rb_need_block(void);
 
 void   rb_require(const char *name);
 VALUE  rb_path_to_class(VALUE path);
@@ -492,6 +494,7 @@ int          rb_usascii_encindex(void);
 int          rb_ascii8bit_encindex(void);
 int          rb_enc_get_index(VALUE obj);
 int          rb_to_encoding_index(VALUE enc);
+rb_encoding *rb_to_encoding(VALUE enc);
 int          rb_enc_find_index(const char *name);
 VALUE        rb_enc_associate_index(VALUE obj, int idx);
 VALUE        rb_enc_str_new(const char *ptr, long len, rb_encoding *enc);

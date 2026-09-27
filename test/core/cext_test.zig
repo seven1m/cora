@@ -710,6 +710,38 @@ test "C extension appends encoded bytes to an external string" {
     try std.testing.expect(result.toBool());
 }
 
+test "C extension converts an Encoding object to an encoding pointer" {
+    const result = try evalCode(
+        \\$LOAD_PATH << "build/cext"
+        \\require "fixture.so"
+        \\CoraCExt.to_encoding(Encoding::UTF_8) == Encoding::UTF_8
+    );
+    try std.testing.expect(result.toBool());
+}
+
+test "C extension string splitting uses Ruby semantics" {
+    const result = try evalCode(
+        \\$LOAD_PATH << "build/cext"
+        \\require "fixture.so"
+        \\CoraCExt.split_string(" a  b ") == ["a", "b"]
+    );
+    try std.testing.expect(result.toBool());
+}
+
+test "C extension block requirement raises when no block is given" {
+    const result = try evalCode(
+        \\$LOAD_PATH << "build/cext"
+        \\require "fixture.so"
+        \\CoraCExt.needs_block { } && begin
+        \\  CoraCExt.needs_block
+        \\  false
+        \\rescue LocalJumpError => e
+        \\  e.message == "no block given"
+        \\end
+    );
+    try std.testing.expect(result.toBool());
+}
+
 test "C extension method calls its superclass method" {
     const result = try evalCode(
         \\$LOAD_PATH << "build/cext"

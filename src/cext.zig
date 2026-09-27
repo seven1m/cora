@@ -617,6 +617,10 @@ export fn rb_str_plus(str1_raw: VALUE, str2_raw: VALUE) VALUE {
     return rb_funcallv(str1_raw, rb_intern("+"), 1, &argv);
 }
 
+export fn rb_str_split(str_raw: VALUE, sep: [*c]const u8) VALUE {
+    return rb_funcall(str_raw, rb_intern("split"), 1, rb_str_new2(sep));
+}
+
 export fn rb_str_encode(str_raw: VALUE, to_raw: VALUE, ecflags: c_int, ecopts_raw: VALUE) VALUE {
     _ = ecflags;
     _ = ecopts_raw;
@@ -1581,6 +1585,15 @@ export fn rb_to_encoding_index(enc_val: VALUE) c_int {
     return @intFromEnum(enc.Encoding.us_ascii);
 }
 
+export fn rb_to_encoding(enc_val: VALUE) ?*anyopaque {
+    const val = Value{ .raw = enc_val };
+    if (!val.isEncoding()) {
+        rb_raise(rb_eTypeError, "wrong argument type (expected Encoding)");
+        return null;
+    }
+    return rb_enc_from_index(@intCast(@intFromEnum(val.toEncodingObject().encoding)));
+}
+
 export fn rb_enc_find_index(name: [*c]const u8) c_int {
     const s = if (name != null) std.mem.span(name) else "";
     var upper_buf: [64]u8 = undefined;
@@ -1804,6 +1817,10 @@ export fn rb_data_ptr_ref(obj_raw: VALUE) ?*?*anyopaque {
 
 export fn rb_block_given_p() c_int {
     return @intFromBool(getVM().currentFrame().block != null);
+}
+
+export fn rb_need_block() void {
+    if (rb_block_given_p() == 0) rb_raise(rb_eLocalJumpError, "no block given");
 }
 
 export fn rb_block_proc() VALUE {
