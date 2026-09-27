@@ -53,6 +53,15 @@ test "C extension rb_raise formats varargs messages" {
     try std.testing.expectEqualStrings("alias value bad 3 4 text %", result.toStringObject().str);
 }
 
+test "C extension percent V formats an object's string value" {
+    const result = try evalCode(
+        \\$LOAD_PATH << "build/cext"
+        \\require "fixture.so"
+        \\CoraCExt.format_class([])
+    );
+    try std.testing.expectEqualStrings("class Array", result.toStringObject().str);
+}
+
 test "C extension defines constants on modules" {
     const result = try evalCode(
         \\$LOAD_PATH << "build/cext"

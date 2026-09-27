@@ -571,6 +571,13 @@ cext_raise_formatted(VALUE self)
     return Qnil;
 }
 
+static VALUE
+cext_format_class(VALUE self, VALUE obj)
+{
+    (void)self;
+    return rb_sprintf("class %V", rb_obj_class(obj));
+}
+
 static int
 cext_st_sum(st_data_t key, st_data_t value, st_data_t arg)
 {
@@ -762,6 +769,7 @@ void Init_fixture(void)
     rb_define_module_function(mCoraCExt, "array_entries", cext_array_entries, 0);
     rb_define_module_function(mCoraCExt, "check_array_type", cext_check_array_type, 1);
     rb_define_module_function(mCoraCExt, "raise_formatted", cext_raise_formatted, 0);
+    rb_define_module_function(mCoraCExt, "format_class", cext_format_class, 1);
     rb_define_module_function(mCoraCExt, "st_table", cext_st_table, 0);
     rb_define_module_function(mCoraCExt, "alloc_and_init", cext_alloc_and_init, 2);
     rb_define_module_function(mCoraCExt, "object_identity", cext_object_identity, 1);

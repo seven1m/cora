@@ -727,11 +727,10 @@ fn formatCVarargs(vm: *VM, fmt: [*c]const u8, ap: *std.builtin.VaList, out: *std
         }
         if (s[i] == 'V') {
             const arg = Value{ .raw = @cVaArg(ap, VALUE) };
-            if (arg.isString()) {
-                out.appendSlice(vm.allocator, arg.toStringObject().str) catch return false;
-                continue;
-            }
-            out.appendSlice(vm.allocator, "%V") catch return false;
+            const string_raw = rb_obj_as_string(arg.raw);
+            const string_value = Value{ .raw = string_raw };
+            if (!string_value.isString()) return false;
+            out.appendSlice(vm.allocator, string_value.toStringObject().str) catch return false;
             continue;
         }
         out.append(vm.allocator, '%') catch return false;
