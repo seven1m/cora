@@ -191,6 +191,12 @@ pub fn register(vm: *VM) !void {
     const multiply_sym = try vm.intern("*");
     try vm.complex_class.module.methods.put(multiply_sym, value.MethodEntry.builtin(&builtinComplexMultiply, .{ .exact = 1 }));
 
+    const divide_entry = value.MethodEntry.builtin(&builtinComplexDivide, .{ .exact = 1 });
+    const divide_sym = try vm.intern("/");
+    try vm.complex_class.module.methods.put(divide_sym, divide_entry);
+    const quo_sym = try vm.intern("quo");
+    try vm.complex_class.module.methods.put(quo_sym, divide_entry);
+
     const uminus_sym = try vm.intern("-@");
     try vm.complex_class.module.methods.put(uminus_sym, value.MethodEntry.builtin(&builtinComplexUminus, .{ .exact = 0 }));
 
@@ -669,6 +675,96 @@ fn builtinComplexMultiply(vm: *VM, receiver: Value, args: []Value, _: ?Block) VM
     }
     var op_args = [_]Value{coerced_items[1]};
     return vm.callMethodByName(coerced_items[0], "*", op_args[0..], null);
+}
+
+fn builtinComplexDivide(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    const lhs = receiver.toComplexObject();
+    const other = args[0];
+    if (other.isComplex()) {
+        // Smith's algorithm, mirroring CRuby's f_divide: numerically stable
+        // for Float parts while staying exact (quo-based) otherwise.
+        const rhs = other.toComplexObject();
+        const a = lhs.real;
+        const b = lhs.imaginary;
+        const c = rhs.real;
+        const d = rhs.imaginary;
+        const abs_c = try vm.callMethodByName(c, "abs", &.{}, null);
+        const abs_d = try vm.callMethodByName(d, "abs", &.{}, null);
+        var gt_arg = [_]Value{abs_d};
+        const c_dominates = try vm.callMethodByName(abs_c, ">", gt_arg[0..], null);
+        const one = Value.integer(1);
+        var r: Value = undefined;
+        var n: Value = undefined;
+        var num_x: Value = undefined;
+        var num_y: Value = undefined;
+        if (c_dominates.isTruthy()) {
+            var r_arg = [_]Value{c};
+            r = try vm.callMethodByName(d, "quo", r_arg[0..], null);
+            var rr_arg = [_]Value{r};
+            const rr = try vm.callMethodByName(r, "*", rr_arg[0..], null);
+            var t_arg = [_]Value{rr};
+            const t = try vm.callMethodByName(one, "+", t_arg[0..], null);
+            var n_arg = [_]Value{t};
+            n = try vm.callMethodByName(c, "*", n_arg[0..], null);
+            var br_arg = [_]Value{r};
+            const br = try vm.callMethodByName(b, "*", br_arg[0..], null);
+            var x_arg = [_]Value{br};
+            num_x = try vm.callMethodByName(a, "+", x_arg[0..], null);
+            var ar_arg = [_]Value{r};
+            const ar = try vm.callMethodByName(a, "*", ar_arg[0..], null);
+            var y_arg = [_]Value{ar};
+            num_y = try vm.callMethodByName(b, "-", y_arg[0..], null);
+        } else {
+            var r_arg = [_]Value{d};
+            r = try vm.callMethodByName(c, "quo", r_arg[0..], null);
+            var rr_arg = [_]Value{r};
+            const rr = try vm.callMethodByName(r, "*", rr_arg[0..], null);
+            var t_arg = [_]Value{rr};
+            const t = try vm.callMethodByName(one, "+", t_arg[0..], null);
+            var n_arg = [_]Value{t};
+            n = try vm.callMethodByName(d, "*", n_arg[0..], null);
+            var ar_arg = [_]Value{r};
+            const ar = try vm.callMethodByName(a, "*", ar_arg[0..], null);
+            var x_arg = [_]Value{b};
+            num_x = try vm.callMethodByName(ar, "+", x_arg[0..], null);
+            var br_arg = [_]Value{r};
+            const br = try vm.callMethodByName(b, "*", br_arg[0..], null);
+            var y_arg = [_]Value{a};
+            num_y = try vm.callMethodByName(br, "-", y_arg[0..], null);
+        }
+        var x_arg = [_]Value{n};
+        const real_part = try vm.callMethodByName(num_x, "quo", x_arg[0..], null);
+        var y_arg = [_]Value{n};
+        const imag_part = try vm.callMethodByName(num_y, "quo", y_arg[0..], null);
+        return vm.newComplex(real_part, imag_part);
+    }
+
+    if (vm.isClassOrSubclassOf(vm.getClass(other), vm.numeric_class)) {
+        const real = try vm.callMethodByName(other, "real?", &.{}, null);
+        if (real.isTruthy()) {
+            var real_arg = [_]Value{other};
+            const real_part = try vm.callMethodByName(lhs.real, "quo", real_arg[0..], null);
+            var imag_arg = [_]Value{other};
+            const imag_part = try vm.callMethodByName(lhs.imaginary, "quo", imag_arg[0..], null);
+            return vm.newComplex(real_part, imag_part);
+        }
+    }
+
+    var coerce_args = [_]Value{receiver};
+    const maybe_coerced = try vm.checkCallMethodByName(other, "coerce", true, coerce_args[0..], null);
+    const coerced = maybe_coerced orelse {
+        return vm.raiseExceptionFmt(vm.type_error_class, "{s} can't be coerced into Complex", .{vm.className(other)});
+    };
+    if (!coerced.isArray()) {
+        return vm.raiseExceptionFmt(vm.type_error_class, "coerce must return [x, y]", .{});
+    }
+    const coerced_items = coerced.toArrayObject().elements.items;
+    if (coerced_items.len != 2) {
+        return vm.raiseExceptionFmt(vm.type_error_class, "coerce must return [x, y]", .{});
+    }
+    var op_args = [_]Value{coerced_items[1]};
+    return vm.callMethodByName(coerced_items[0], "quo", op_args[0..], null);
 }
 
 fn builtinComplexAbs(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
