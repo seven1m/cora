@@ -532,6 +532,16 @@ cext_scan_required_rest(int argc, VALUE *argv, VALUE self)
     int positional = rb_scan_args(argc, argv, "2*", &first, &second, &rest);
     return rb_ary_new3(4, INT2NUM(positional), first, second, rest);
 }
+
+static VALUE
+cext_string_buffer(VALUE self)
+{
+    (void)self;
+    VALUE buffer = rb_str_buf_new(64);
+    VALUE empty = rb_str_new(RSTRING_PTR(buffer), RSTRING_LEN(buffer));
+    rb_str_cat2(buffer, "content");
+    return rb_ary_new3(2, empty, buffer);
+}
 static VALUE
 cext_check_array_type(VALUE self, VALUE obj)
 {
@@ -735,6 +745,7 @@ void Init_fixture(void)
     rb_define_module_function(mCoraCExt, "scan_keywords", cext_scan_keywords, -1);
     rb_define_module_function(mCoraCExt, "scan_rest", cext_scan_rest, -1);
     rb_define_module_function(mCoraCExt, "scan_required_rest", cext_scan_required_rest, -1);
+    rb_define_module_function(mCoraCExt, "string_buffer", cext_string_buffer, 0);
     rb_define_module_function(mCoraCExt, "check_array_type", cext_check_array_type, 1);
     rb_define_module_function(mCoraCExt, "raise_formatted", cext_raise_formatted, 0);
     rb_define_module_function(mCoraCExt, "st_table", cext_st_table, 0);

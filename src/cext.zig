@@ -469,7 +469,12 @@ export fn rb_utf8_str_new_cstr(ptr: [*c]const u8) VALUE {
 
 export fn rb_str_buf_new(len: c_long) VALUE {
     const vm = getVM();
-    return allocMutableString(vm, @intCast(@max(len, 0)));
+    const raw = allocMutableString(vm, @intCast(@max(len, 0)));
+    if (raw != 0) {
+        const str = (Value{ .raw = raw }).toStringObject();
+        str.str = str.str[0..0];
+    }
+    return raw;
 }
 
 export fn rb_str_set_len(str_raw: VALUE, len: c_long) void {

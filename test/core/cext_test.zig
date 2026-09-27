@@ -909,3 +909,14 @@ test "C extension rb_scan_args collects remaining positional arguments" {
     try std.testing.expectEqual(@as(usize, 1), required_rest.len);
     try std.testing.expectEqualStrings("third", required_rest[0].toStringObject().str);
 }
+
+test "C extension rb_str_buf_new starts empty and can be appended" {
+    const result = try evalCode(
+        \\$LOAD_PATH << "build/cext"
+        \\require "fixture.so"
+        \\CoraCExt.string_buffer
+    );
+    const values = result.toArrayObject().elements.items;
+    try std.testing.expectEqualStrings("", values[0].toStringObject().str);
+    try std.testing.expectEqualStrings("content", values[1].toStringObject().str);
+}
