@@ -16,6 +16,10 @@ const Stat = struct {
     value: i64,
 };
 
+// Boehm GC performs collection automatically; there is no hook for forcing a
+// collection on every allocation, so stress mode is tracked as a flag only.
+var stress_mode: bool = false;
+
 pub fn register(vm: *VM) !void {
     const gc_name = try vm.intern("GC");
     const gc_value = try vm.newModule(gc_name);
@@ -31,6 +35,10 @@ pub fn register(vm: *VM) !void {
     try singleton.module.methods.put(count_sym, value.MethodEntry.builtin(&builtinGCCount, .{ .exact = 0 }));
     const total_time_sym = try vm.intern("total_time");
     try singleton.module.methods.put(total_time_sym, value.MethodEntry.builtin(&builtinGCTotalTime, .{ .exact = 0 }));
+    const stress_sym = try vm.intern("stress");
+    try singleton.module.methods.put(stress_sym, value.MethodEntry.builtin(&builtinGCStress, .{ .exact = 0 }));
+    const set_stress_sym = try vm.intern("stress=");
+    try singleton.module.methods.put(set_stress_sym, value.MethodEntry.builtin(&builtinGCSetStress, .{ .exact = 1 }));
 
     const garbage_collect_sym = try vm.intern("garbage_collect");
     try gc_module.methods.put(garbage_collect_sym, value.MethodEntry.keywordBuiltin(&builtinGCStart, .{ .exact = 0 }));
@@ -72,6 +80,17 @@ fn builtinGCTotalTime(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value
     const nanoseconds: i128 = @intCast(timespec.nsec);
     const total: i128 = seconds * 1_000_000_000 + nanoseconds;
     return Value.integer(@intCast(total));
+}
+
+fn builtinGCStress(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    return Value.boolean(stress_mode);
+}
+
+fn builtinGCSetStress(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    stress_mode = args[0].isTruthy();
+    return Value.boolean(stress_mode);
 }
 
 fn statByName(name: []const u8) ?i64 {
