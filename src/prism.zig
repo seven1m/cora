@@ -140,6 +140,10 @@ pub const IndexOperatorWriteNode = c.pm_index_operator_write_node_t;
 pub const CallTargetNode = c.pm_call_target_node_t;
 pub const MatchRequiredNode = c.pm_match_required_node_t;
 pub const ArrayPatternNode = c.pm_array_pattern_node_t;
+pub const HashPatternNode = c.pm_hash_pattern_node_t;
+pub const FindPatternNode = c.pm_find_pattern_node_t;
+pub const PinnedVariableNode = c.pm_pinned_variable_node_t;
+pub const PinnedExpressionNode = c.pm_pinned_expression_node_t;
 
 pub const REGEXP_FLAGS_IGNORE_CASE = c.PM_REGULAR_EXPRESSION_FLAGS_IGNORE_CASE;
 pub const REGEXP_FLAGS_EXTENDED = c.PM_REGULAR_EXPRESSION_FLAGS_EXTENDED;
@@ -284,6 +288,10 @@ pub const Node = union(enum) {
     match_write: *c.pm_match_write_node_t,
     match_required: *MatchRequiredNode,
     array_pattern: *ArrayPatternNode,
+    hash_pattern: *HashPatternNode,
+    find_pattern: *FindPatternNode,
+    pinned_variable: *PinnedVariableNode,
+    pinned_expression: *PinnedExpressionNode,
 };
 
 /// Parser wraps Prism's parser and AST lifecycle
@@ -984,6 +992,22 @@ pub const Parser = struct {
 
         if (node_type == c.PM_ARRAY_PATTERN_NODE) {
             return Node{ .array_pattern = @ptrCast(raw) };
+        }
+
+        if (node_type == c.PM_HASH_PATTERN_NODE) {
+            return Node{ .hash_pattern = @ptrCast(raw) };
+        }
+
+        if (node_type == c.PM_FIND_PATTERN_NODE) {
+            return Node{ .find_pattern = @ptrCast(raw) };
+        }
+
+        if (node_type == c.PM_PINNED_VARIABLE_NODE) {
+            return Node{ .pinned_variable = @ptrCast(raw) };
+        }
+
+        if (node_type == c.PM_PINNED_EXPRESSION_NODE) {
+            return Node{ .pinned_expression = @ptrCast(raw) };
         }
 
         var stdout_buffer: [8192]u8 = undefined;

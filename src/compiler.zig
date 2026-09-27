@@ -1156,7 +1156,7 @@ pub const Compiler = struct {
                 try self.compileMatchRequired(match_required_node, line);
             },
 
-            .array_pattern => return error.UnsupportedNode,
+            .array_pattern, .hash_pattern, .find_pattern, .pinned_variable, .pinned_expression => return error.UnsupportedNode,
 
             .rescue => {
                 std.debug.print("Error: rescue node should be handled by begin node\n", .{});
