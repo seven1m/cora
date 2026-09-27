@@ -367,6 +367,8 @@ pub fn register(vm: *VM) !void {
     try vm.string_class.module.methods.put(string_next_sym, value.MethodEntry.builtin(&builtinStringNext, .{ .exact = 0 }));
     const string_next_bang_sym = try vm.intern("next!");
     try vm.string_class.module.methods.put(string_next_bang_sym, value.MethodEntry.builtin(&builtinStringNextBang, .{ .exact = 0 }));
+    const string_upto_sym = try vm.intern("upto");
+    try vm.string_class.module.methods.put(string_upto_sym, value.MethodEntry.builtin(&builtinStringUpto, .{ .variadic = 1 }));
 
     const string_to_i_sym = try vm.intern("to_i");
     try vm.string_class.module.methods.put(string_to_i_sym, value.MethodEntry.builtin(&builtinStringToI, .{ .variadic = 0 }));
@@ -5416,6 +5418,161 @@ pub fn builtinStringNextBang(vm: *VM, receiver: Value, args: []Value, _: ?Block)
     string_obj.str = next_bytes;
     string_obj.validity = .unknown;
     return receiver;
+}
+
+pub fn builtinStringUpto(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
+    try vm.requireArgCountRange(args, 1, 2);
+    const beg_obj = receiver.toStringObject();
+    const end_value = try args[0].coerceToStringValue(vm, "no implicit conversion into String");
+    const end_obj = end_value.toStringObject();
+
+    // MRI uses rb_enc_compatible here, which treats dummy encodings
+    // (e.g. ISO-2022-JP) as ASCII-incompatible even for ASCII-only content.
+    // This mirrors Encoding#ascii_compatible? semantics (!dummy && table value).
+    const result_encoding = stringUptoCompatibleEncoding(beg_obj.encoding, beg_obj.str, end_obj.encoding, end_obj.str) orelse {
+        return vm.raiseEncodingCompatibilityError(beg_obj.encoding, end_obj.encoding);
+    };
+
+    const exclusive = args.len == 2 and args[1].isTruthy();
+
+    const blk = block orelse {
+        return vm.createMethodEnumerator(receiver, try vm.intern("upto"), args);
+    };
+
+    if (isAsciiDigitString(beg_obj.str) and isAsciiDigitString(end_obj.str)) {
+        try stringUptoNumeric(vm, beg_obj.str, end_obj.str, result_encoding, exclusive, blk);
+        return receiver;
+    }
+
+    if (beg_obj.encoding.charCount(beg_obj.str) == 1 and end_obj.encoding.charCount(end_obj.str) == 1) {
+        try stringUptoSingleChar(vm, beg_obj, end_obj, result_encoding, exclusive, blk);
+        return receiver;
+    }
+
+    try stringUptoGeneric(vm, receiver, beg_obj, end_obj, exclusive, blk);
+    return receiver;
+}
+
+fn stringUptoCompatibleEncoding(
+    beg_encoding: enc.Encoding,
+    beg_bytes: []const u8,
+    end_encoding: enc.Encoding,
+    end_bytes: []const u8,
+) ?enc.Encoding {
+    if (beg_encoding.eql(end_encoding)) return beg_encoding;
+
+    const beg_compat = !beg_encoding.isDummy() and beg_encoding.isAsciiCompatible();
+    const end_compat = !end_encoding.isDummy() and end_encoding.isAsciiCompatible();
+    if (!beg_compat or !end_compat) {
+        if (end_bytes.len == 0) return beg_encoding;
+        if (beg_bytes.len == 0) return end_encoding;
+        return null;
+    }
+
+    const beg_ascii_only = enc.isAsciiOnly(beg_bytes);
+    const end_ascii_only = enc.isAsciiOnly(end_bytes);
+
+    if (beg_ascii_only and !end_ascii_only) return end_encoding;
+    if (!beg_ascii_only and end_ascii_only) return beg_encoding;
+    if (beg_ascii_only and end_ascii_only) return beg_encoding;
+
+    return null;
+}
+
+fn isAsciiDigitString(bytes: []const u8) bool {    if (bytes.len == 0) return false;
+    for (bytes) |b| {
+        if (!isAsciiDigitByte(b)) return false;
+    }
+    return true;
+}
+
+fn stripLeadingZeros(bytes: []const u8) []const u8 {
+    var i: usize = 0;
+    while (i + 1 < bytes.len and bytes[i] == '0') : (i += 1) {}
+    return bytes[i..];
+}
+
+fn compareDigitStrings(a: []const u8, b: []const u8) i64 {
+    if (a.len < b.len) return -1;
+    if (a.len > b.len) return 1;
+    return switch (std.mem.order(u8, a, b)) {
+        .lt => -1,
+        .eq => 0,
+        .gt => 1,
+    };
+}
+
+fn incrementDigitString(vm: *VM, bytes: []const u8) VMError![]u8 {
+    var out = vm.allocator.dupe(u8, bytes) catch return error.Fatal;
+    var i = out.len;
+    while (i > 0) {
+        i -= 1;
+        if (out[i] < '9') {
+            out[i] += 1;
+            return out;
+        }
+        out[i] = '0';
+    }
+    const grown = vm.allocator.alloc(u8, out.len + 1) catch return error.Fatal;
+    grown[0] = '1';
+    @memset(grown[1..], '0');
+    vm.allocator.free(out);
+    return grown;
+}
+
+fn stringUptoNumeric(vm: *VM, beg_bytes: []const u8, end_bytes: []const u8, result_encoding: enc.Encoding, exclusive: bool, blk: Block) VMError!void {
+    const end_norm = stripLeadingZeros(end_bytes);
+    var current: []u8 = vm.allocator.dupe(u8, stripLeadingZeros(beg_bytes)) catch return error.Fatal;
+    defer vm.allocator.free(current);
+    while (true) {
+        const cmp = compareDigitStrings(current, end_norm);
+        if (cmp > 0) break;
+        if (exclusive and cmp == 0) break;
+        const yielded = try vm.newStringWithEncoding(current, false, result_encoding);
+        const yield_args = [_]Value{yielded};
+        _ = try vm.yieldToBlock(blk, &yield_args);
+        if (cmp == 0) break;
+        const next = try incrementDigitString(vm, current);
+        vm.allocator.free(current);
+        current = next;
+    }
+}
+
+fn stringUptoSingleChar(vm: *VM, beg_obj: *const value.StringObject, end_obj: *const value.StringObject, result_encoding: enc.Encoding, exclusive: bool, blk: Block) VMError!void {
+    var beg_idx: usize = 0;
+    const beg_parsed = beg_obj.encoding.nextCodepoint(beg_obj.str, &beg_idx);
+    var end_idx: usize = 0;
+    const end_parsed = end_obj.encoding.nextCodepoint(end_obj.str, &end_idx);
+    var codepoint: u32 = beg_parsed.codepoint;
+    const end_codepoint: u32 = end_parsed.codepoint;
+    var encoded: [4]u8 = undefined;
+    while (true) {
+        if (codepoint > end_codepoint) break;
+        if (exclusive and codepoint == end_codepoint) break;
+        const bytes = try encodeCodepointForEncoding(vm, @intCast(codepoint), result_encoding, &encoded);
+        const yielded = try vm.newStringWithEncoding(bytes, false, result_encoding);
+        const yield_args = [_]Value{yielded};
+        _ = try vm.yieldToBlock(blk, &yield_args);
+        if (codepoint == end_codepoint) break;
+        codepoint += 1;
+    }
+}
+
+fn stringUptoGeneric(vm: *VM, receiver: Value, beg_obj: *const value.StringObject, end_obj: *const value.StringObject, exclusive: bool, blk: Block) VMError!void {
+    var current_value = receiver;
+    while (true) {
+        const cmp = compareStringObjects(current_value.toStringObject(), end_obj).toInteger();
+        if (cmp > 0) break;
+        if (exclusive and cmp == 0) break;
+        const yield_args = [_]Value{current_value};
+        _ = try vm.yieldToBlock(blk, &yield_args);
+        if (cmp == 0) break;
+        const current_bytes = current_value.toStringObject().str;
+        const next_bytes = try stringNextBytes(vm, current_bytes);
+        if (next_bytes.len == 0 or next_bytes.len > end_obj.str.len) break;
+        if (std.mem.eql(u8, next_bytes, current_bytes)) break;
+        current_value = try vm.newStringWithEncoding(next_bytes, false, beg_obj.encoding);
+    }
 }
 
 pub fn parseStringToInteger(vm: *VM, s: []const u8, requested_base: i64, default_base_when_zero: u8) VMError!struct { value: Value, end_pos: usize } {

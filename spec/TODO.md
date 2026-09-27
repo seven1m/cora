@@ -2121,7 +2121,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] core/string/unpack_spec.rb
 - [x] core/string/upcase_spec.rb
 - [x] core/string/uplus_spec.rb
-- [ ] core/string/upto_spec.rb
+- [x] core/string/upto_spec.rb
 
 ### core/string/valid_encoding
 - [x] core/string/valid_encoding/utf_8_spec.rb
