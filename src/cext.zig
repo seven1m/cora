@@ -577,15 +577,8 @@ export fn rb_string_value_cstr(ptr: *VALUE) ?[*]u8 {
 }
 
 export fn rb_string_value_ptr(ptr: *VALUE) ?[*]u8 {
-    var val = Value{ .raw = ptr.* };
-    if (!val.isString()) {
-        const vm = getVM();
-        var empty_args = [_]Value{};
-        const str_val = vm.callMethodByName(val, "to_s", &empty_args, null) catch return null;
-        if (!str_val.isString()) return null;
-        ptr.* = str_val.raw;
-        val = str_val;
-    }
+    if (rb_string_value(ptr) == 0) return null;
+    const val = Value{ .raw = ptr.* };
     const vm = getVM();
     const string = val.toStringObject();
     const terminated = vm.gc_allocator_atomic.alloc(u8, string.str.len + 1) catch return null;

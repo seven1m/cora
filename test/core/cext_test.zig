@@ -862,6 +862,25 @@ test "C extension StringValueCStr provides a trailing null byte" {
     try std.testing.expectEqual(@as(i64, 5), result.toInteger());
 }
 
+test "C extension StringValueCStr uses to_str and rejects unrelated objects" {
+    const result = try evalCode(
+        \\$LOAD_PATH << "build/cext"
+        \\require "fixture.so"
+        \\string_like = Object.new
+        \\def string_like.to_str; "hello"; end
+        \\length = CoraCExt.string_value_cstr_length(string_like)
+        \\raised_type_error = begin
+        \\  CoraCExt.string_value_cstr_length(Object.new)
+        \\rescue => error
+        \\  error.is_a?(TypeError)
+        \\end
+        \\[length, raised_type_error]
+    );
+    const values = result.toArrayObject().elements.items;
+    try std.testing.expectEqual(@as(i64, 5), values[0].toInteger());
+    try std.testing.expect(values[1].toBool());
+}
+
 test "C extension variadic methods receive keyword arguments through rb_scan_args" {
     const result = try evalCode(
         \\$LOAD_PATH << "build/cext"
