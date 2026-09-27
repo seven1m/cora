@@ -879,3 +879,33 @@ test "C extension variadic methods receive keyword arguments through rb_scan_arg
     try std.testing.expectEqual(@as(i64, 2), values[5].toInteger());
     try std.testing.expect(values[6].toBool());
 }
+
+test "C extension rb_scan_args collects remaining positional arguments" {
+    const result = try evalCode(
+        \\$LOAD_PATH << "build/cext"
+        \\require "fixture.so"
+        \\a = CoraCExt.scan_rest
+        \\b = CoraCExt.scan_rest(1, 2, 3)
+        \\c = CoraCExt.scan_required_rest("first", "second", "third")
+        \\[a, b, c]
+    );
+    const groups = result.toArrayObject().elements.items;
+    const empty = groups[0].toArrayObject().elements.items;
+    try std.testing.expectEqual(@as(i64, 0), empty[0].toInteger());
+    try std.testing.expectEqual(@as(usize, 0), empty[1].toArrayObject().elements.items.len);
+
+    const all = groups[1].toArrayObject().elements.items;
+    try std.testing.expectEqual(@as(i64, 3), all[0].toInteger());
+    const all_rest = all[1].toArrayObject().elements.items;
+    try std.testing.expectEqual(@as(usize, 3), all_rest.len);
+    try std.testing.expectEqual(@as(i64, 1), all_rest[0].toInteger());
+    try std.testing.expectEqual(@as(i64, 3), all_rest[2].toInteger());
+
+    const required = groups[2].toArrayObject().elements.items;
+    try std.testing.expectEqual(@as(i64, 3), required[0].toInteger());
+    try std.testing.expectEqualStrings("first", required[1].toStringObject().str);
+    try std.testing.expectEqualStrings("second", required[2].toStringObject().str);
+    const required_rest = required[3].toArrayObject().elements.items;
+    try std.testing.expectEqual(@as(usize, 1), required_rest.len);
+    try std.testing.expectEqualStrings("third", required_rest[0].toStringObject().str);
+}
