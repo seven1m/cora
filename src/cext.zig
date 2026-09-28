@@ -1862,7 +1862,8 @@ export fn Check_Type(obj_raw: VALUE, t: c_int) void {
         else => "unknown",
     };
     const vm = getVM();
-    const actual = vm.getClass(Value{ .raw = obj_raw }).module.name.name;
+    const obj = Value{ .raw = obj_raw };
+    const actual = if (obj.isNil()) "nil" else vm.getClass(obj).module.name.name;
     _ = vm.raiseExceptionFmt(vm.type_error_class, "wrong argument type {s} (expected {s})", .{ actual, expected }) catch {};
     if (vm.cext_jmp_buf) |buf| siglongjmp(buf, 1);
 }
