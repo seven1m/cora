@@ -847,6 +847,12 @@ export fn rb_memerror() void {
     _ = vm.raiseExceptionFmt(vm.standard_error_class, "failed to allocate memory", .{}) catch {};
 }
 
+export fn ruby_malloc_size_overflow(count: usize, elsize: usize) void {
+    const vm = getVM();
+    _ = vm.raiseExceptionFmt(vm.argument_error_class, "malloc: possible integer overflow ({d}*{d})", .{ count, elsize }) catch {};
+    if (vm.cext_jmp_buf) |buf| siglongjmp(buf, 1);
+}
+
 export fn rb_enc_strlen(head: [*c]const u8, tail: [*c]const u8, enc_ptr: ?*anyopaque) c_long {
     if (head == null or tail == null) return 0;
     const opaque_ptr: *anyopaque = enc_ptr orelse @ptrCast(@constCast(&encoding_instances[0]));

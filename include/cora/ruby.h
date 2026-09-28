@@ -390,6 +390,7 @@ VALUE  rb_sym2str(VALUE symbol);
 VALUE  rb_check_hash_type(VALUE obj);
 int    rb_get_kwargs(VALUE keyword_hash, const ID *table, int required, int optional, VALUE *values);
 void   rb_memerror(void);
+void   ruby_malloc_size_overflow(size_t count, size_t elsize);
 long   rb_enc_strlen(const char *head, const char *tail, rb_encoding *enc);
 int    rb_enc_mbclen(const char *p, const char *e, rb_encoding *enc);
 rb_encoding *rb_enc_check(VALUE str1, VALUE str2);
