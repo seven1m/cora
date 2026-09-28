@@ -100,12 +100,41 @@ pub const SymbolObject = struct {
 pub const StringObject = struct {
     object: Object,
     str: []const u8,
-    append_storage: ?[]u8 = null,
+    // Usable bytes in the NUL-terminated buffer at str.ptr. Zero means the
+    // current bytes are borrowed or their allocation has no known terminator.
+    capacity: usize = 0,
     encoding: Encoding = .{ .utf8 = .{} },
     validity: ValidityState = .unknown,
     // TODO: Fold this into a unified string-flags bitfield if/when more string state flags are added.
     chilled_literal: bool = false,
     symbol_to_s_source: ?*SymbolObject = null,
+
+    pub fn replaceBytes(self: *StringObject, bytes: []const u8) void {
+        if (bytes.ptr != self.str.ptr or bytes.len > self.capacity) self.capacity = 0;
+        self.str = bytes;
+    }
+
+    pub fn appendBytes(self: *StringObject, vm_instance: *VM, right: []const u8) VMError!void {
+        if (right.len == 0) return;
+        const old = self.str;
+        const new_len = std.math.add(usize, old.len, right.len) catch return error.Fatal;
+        if (self.capacity != 0 and new_len <= self.capacity) {
+            const ptr: [*]u8 = @constCast(old.ptr);
+            std.mem.copyForwards(u8, ptr[old.len..new_len], right);
+            ptr[new_len] = 0;
+            self.str = ptr[0..new_len];
+            return;
+        }
+
+        const doubled = std.math.mul(usize, @max(self.capacity, old.len), 2) catch new_len;
+        const capacity = @max(new_len, @max(@as(usize, 32), doubled));
+        const storage = vm_instance.gc_allocator_atomic.alloc(u8, std.math.add(usize, capacity, 1) catch return error.Fatal) catch return error.Fatal;
+        @memcpy(storage[0..old.len], old);
+        @memcpy(storage[old.len..new_len], right);
+        storage[new_len] = 0;
+        self.str = storage[0..new_len];
+        self.capacity = capacity;
+    }
 };
 
 pub const BigIntegerObject = struct {

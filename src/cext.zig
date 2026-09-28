@@ -322,19 +322,19 @@ export fn rb_define_method(klass: VALUE, name_ptr: [*:0]const u8, func: ?*anyopa
 }
 
 fn ensureNulTerminatedStringPtr(vm: *VM, string: *StringObject) ?[*]u8 {
-    if (string.append_storage) |storage| {
-        if (string.str.ptr == storage.ptr and string.str.len < storage.len) {
-            storage[string.str.len] = 0;
-            return storage.ptr;
-        }
+    if (string.capacity >= string.str.len and string.capacity != 0) {
+        const ptr: [*]u8 = @constCast(string.str.ptr);
+        ptr[string.str.len] = 0;
+        return ptr;
     }
 
     const length = string.str.len;
-    const terminated = vm.gc_allocator_atomic.alloc(u8, length + 1) catch return null;
+    const capacity = @max(length, 1);
+    const terminated = vm.gc_allocator_atomic.alloc(u8, capacity + 1) catch return null;
     @memcpy(terminated[0..length], string.str);
     terminated[length] = 0;
-    string.append_storage = terminated;
     string.str = terminated[0..length];
+    string.capacity = capacity;
     return terminated.ptr;
 }
 
@@ -405,14 +405,14 @@ export fn rb_isspace(c: c_uint) c_int {
 // ─── String functions ───────────────────────────────────────────────────────
 
 fn allocMutableString(vm: *VM, len: usize) VALUE {
-    const capacity = std.math.add(usize, len, 1) catch return 0;
-    const buf = vm.gc_allocator_atomic.alloc(u8, capacity) catch return 0;
+    const capacity = @max(len, 1);
+    const buf = vm.gc_allocator_atomic.alloc(u8, std.math.add(usize, capacity, 1) catch return 0) catch return 0;
     @memset(buf, 0);
     const string_obj = vm.gc_allocator.create(StringObject) catch return 0;
     string_obj.* = .{
         .object = .{ .type_tag = .string, .flags = 0, .class = vm.string_class, .singleton_class = null, .instance_variables = null },
         .str = buf[0..len],
-        .append_storage = buf,
+        .capacity = capacity,
         .encoding = .{ .ascii_8bit = .{} },
     };
     return Value.fromObject(&string_obj.object).raw;
@@ -497,7 +497,7 @@ export fn rb_str_buf_new(len: c_long) VALUE {
     const raw = allocMutableString(vm, @intCast(@max(len, 0)));
     if (raw != 0) {
         const str = (Value{ .raw = raw }).toStringObject();
-        str.str = str.str[0..0];
+        str.replaceBytes(str.str[0..0]);
     }
     return raw;
 }
@@ -508,15 +508,14 @@ export fn rb_str_set_len(str_raw: VALUE, len: c_long) void {
     if (!str.isString()) return;
     const obj = str.toStringObject();
     const new_len: usize = @intCast(len);
-    if (obj.append_storage) |storage| {
-        if (storage.ptr == obj.str.ptr and new_len < storage.len) {
-            storage[new_len] = 0;
-            obj.str = storage[0..new_len];
-            return;
-        }
+    if (obj.capacity >= new_len and obj.capacity != 0) {
+        const ptr: [*]u8 = @constCast(obj.str.ptr);
+        ptr[new_len] = 0;
+        obj.str = ptr[0..new_len];
+        return;
     }
     if (new_len <= obj.str.len) {
-        obj.str = obj.str[0..new_len];
+        obj.replaceBytes(obj.str[0..new_len]);
     }
 }
 
@@ -2240,7 +2239,7 @@ export fn rb_str_cat(str_raw: VALUE, ptr: [*c]const u8, len: c_long) VALUE {
         return 0;
     };
     const str_obj = str_val.toStringObject();
-    str_obj.str = std.mem.concat(vm.gc_allocator, u8, &.{ str_obj.str, ptr[0..@intCast(len)] }) catch return 0;
+    str_obj.appendBytes(vm, ptr[0..@intCast(len)]) catch return 0;
     str_obj.validity = .unknown;
     return str_raw;
 }
@@ -2819,7 +2818,7 @@ export fn rb_str_resize(str_raw: VALUE, len: c_long) VALUE {
     const copied = @min(obj.str.len, new_len);
     @memcpy(bytes[0..copied], obj.str[0..copied]);
     @memset(bytes[copied..], 0);
-    obj.str = bytes;
+    obj.replaceBytes(bytes);
     return str_raw;
 }
 

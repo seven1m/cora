@@ -11372,13 +11372,17 @@ pub const VM = struct {
     }
 
     pub fn newStringForClassWithEncoding(self: *VM, class_obj: *ClassObject, str: []const u8, frozen: bool, encoding: enc.Encoding) VMError!Value {
-        const copy = self.gc_allocator_atomic.dupe(u8, str) catch return error.Fatal;
+        const capacity = @max(str.len, 1);
+        const copy = self.gc_allocator_atomic.alloc(u8, std.math.add(usize, capacity, 1) catch return error.Fatal) catch return error.Fatal;
+        @memcpy(copy[0..str.len], str);
+        copy[str.len] = 0;
         const flags: u32 = if (frozen) Object.FROZEN_FLAG else 0;
 
         const string_obj = self.gc_allocator.create(StringObject) catch return error.Fatal;
         string_obj.* = .{
             .object = .{ .type_tag = .string, .flags = flags, .class = class_obj, .singleton_class = null, .instance_variables = null },
-            .str = copy,
+            .str = copy[0..str.len],
+            .capacity = capacity,
             .encoding = encoding,
         };
         return Value.fromObject(&string_obj.object);

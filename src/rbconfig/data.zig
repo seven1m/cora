@@ -93,7 +93,7 @@ pub const makefile_config_entries = [_]ConfigEntry{
     .{ .key = "NM", .value = cfg.nm },
     .{ .key = "OBJDUMP", .value = cfg.objdump },
     .{ .key = "OBJCOPY", .value = cfg.objcopy },
-    .{ .key = "AS", .value = cfg.@"as" },
+    .{ .key = "AS", .value = cfg.as },
     .{ .key = "INSTALL", .value = cfg.install },
     .{ .key = "INSTALL_PROGRAM", .value = cfg.install_program },
     .{ .key = "INSTALL_SCRIPT", .value = cfg.install_script },
@@ -360,7 +360,7 @@ pub fn expandValue(vm: *VM, val: Value, config_val: Value) VMError!Value {
     }
 
     const new_str = vm.gc_allocator_atomic.dupe(u8, expanded.items) catch return error.Fatal;
-    val.toStringObject().str = new_str;
+    val.toStringObject().replaceBytes(new_str);
     return val;
 }
 

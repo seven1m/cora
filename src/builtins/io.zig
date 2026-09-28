@@ -856,7 +856,7 @@ pub fn builtinIoCopyStream(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!
                 @as(i64, 8192);
             var read_args = [2]Value{ Value.integer(chunk_size), Value.nil() };
             if (use_readpartial) read_args[1] = try vm.newString("", false);
-            const chunk = vm.callMethodByName(src_arg, read_method, read_args[0 .. if (use_readpartial) 2 else 1], null) catch |err| {
+            const chunk = vm.callMethodByName(src_arg, read_method, read_args[0..if (use_readpartial) 2 else 1], null) catch |err| {
                 if (err == error.Unwind) {
                     if (vm.pendingException()) |exc| {
                         if (vm.isClassOrSubclassOf(exc.object.class.?, vm.eof_error_class)) {
@@ -2214,7 +2214,7 @@ fn ioOutBufferValue(vm: *VM, maybe_outbuf: ?Value, bytes: []const u8) VMError!Va
     if (maybe_outbuf) |outbuf| {
         const string_obj = outbuf.toStringObject();
         const copy = vm.gc_allocator_atomic.dupe(u8, bytes) catch return error.Fatal;
-        string_obj.str = copy;
+        string_obj.replaceBytes(copy);
         string_obj.validity = .unknown;
         return outbuf;
     }
@@ -2239,7 +2239,7 @@ fn ioReadBufferValue(vm: *VM, receiver: Value, maybe_outbuf: ?Value, bytes: []co
     if (maybe_outbuf) |outbuf| {
         const result_obj = result.toStringObject();
         const outbuf_obj = outbuf.toStringObject();
-        outbuf_obj.str = vm.gc_allocator_atomic.dupe(u8, result_obj.str) catch return error.Fatal;
+        outbuf_obj.replaceBytes(vm.gc_allocator_atomic.dupe(u8, result_obj.str) catch return error.Fatal);
         outbuf_obj.encoding = result_obj.encoding;
         outbuf_obj.validity = .unknown;
         return outbuf;
@@ -2446,7 +2446,7 @@ pub fn builtinIoRead(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError
     if (data.isNil()) {
         if (outbuf) |buf| {
             const string_obj = buf.toStringObject();
-            string_obj.str = "";
+            string_obj.replaceBytes("");
             string_obj.validity = .unknown;
         }
         return Value.nil();

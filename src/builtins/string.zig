@@ -1120,7 +1120,7 @@ pub fn builtinStringInitialize(vm: *VM, receiver: Value, args: []Value, _: ?Bloc
     const replacement = replacement_val.toStringObject();
     const final_encoding = requested_encoding orelse replacement.encoding;
 
-    string_obj.str = vm.gc_allocator_atomic.dupe(u8, replacement.str) catch return error.Fatal;
+    string_obj.replaceBytes(vm.gc_allocator_atomic.dupe(u8, replacement.str) catch return error.Fatal);
     string_obj.encoding = final_encoding;
     string_obj.validity = .unknown;
     return receiver;
@@ -1135,7 +1135,7 @@ pub fn builtinStringInitializeCopy(vm: *VM, receiver: Value, args: []Value, _: ?
     const replacement = replacement_val.toStringObject();
     const string_obj = receiver.toStringObject();
 
-    string_obj.str = vm.gc_allocator_atomic.dupe(u8, replacement.str) catch return error.Fatal;
+    string_obj.replaceBytes(vm.gc_allocator_atomic.dupe(u8, replacement.str) catch return error.Fatal);
     string_obj.encoding = replacement.encoding;
     string_obj.validity = .unknown;
     try vm.copyPackedPointerTargets(replacement, string_obj);
@@ -1489,7 +1489,7 @@ fn stringSub(vm: *VM, receiver: Value, args: []Value, block: ?Block, bang: bool)
 
     const receiver_obj = receiver.toStringObject();
     try warnSymbolToSMutation(vm, receiver_obj);
-    receiver_obj.str = result_obj.str;
+    receiver_obj.replaceBytes(result_obj.str);
     receiver_obj.encoding = result_obj.encoding;
     receiver_obj.validity = .unknown;
     receiver_obj.symbol_to_s_source = null;
@@ -1572,7 +1572,7 @@ fn stringGsub(vm: *VM, receiver: Value, args: []Value, block: ?Block, bang: bool
 
     const receiver_obj = receiver.toStringObject();
     try warnSymbolToSMutation(vm, receiver_obj);
-    receiver_obj.str = result_obj.str;
+    receiver_obj.replaceBytes(result_obj.str);
     receiver_obj.encoding = result_obj.encoding;
     receiver_obj.validity = .unknown;
     receiver_obj.symbol_to_s_source = null;
@@ -2024,7 +2024,7 @@ pub fn builtinStringAppendAsBytes(vm: *VM, receiver: Value, args: []Value, _: ?B
         write_index += 1;
     }
 
-    string_obj.str = out;
+    string_obj.replaceBytes(out);
     string_obj.validity = .unknown;
     return receiver;
 }
@@ -2039,7 +2039,7 @@ pub fn builtinStringReplace(vm: *VM, receiver: Value, args: []Value, _: ?Block) 
     const replacement = replacement_val.toStringObject().str;
     string_obj.encoding = replacement_val.toStringObject().encoding;
 
-    string_obj.str = vm.gc_allocator_atomic.dupe(u8, replacement) catch return error.Fatal;
+    string_obj.replaceBytes(vm.gc_allocator_atomic.dupe(u8, replacement) catch return error.Fatal);
     string_obj.validity = .unknown;
     return receiver;
 }
@@ -2333,7 +2333,7 @@ fn stringScrub(vm: *VM, receiver: Value, args: []Value, block: ?Block, bang: boo
 
     const scrubbed = out.toOwnedSlice(vm.gc_allocator_atomic) catch return error.Fatal;
     if (bang) {
-        string_obj.str = scrubbed;
+        string_obj.replaceBytes(scrubbed);
         string_obj.validity = .valid;
         return receiver;
     }
@@ -2804,7 +2804,7 @@ pub fn builtinStringEncodeBang(vm: *VM, receiver: Value, args: []Value, _: ?Bloc
     const encoded = try builtinStringEncode(vm, receiver, args, null);
     const receiver_obj = receiver.toStringObject();
     const encoded_obj = encoded.toStringObject();
-    receiver_obj.str = encoded_obj.str;
+    receiver_obj.replaceBytes(encoded_obj.str);
     receiver_obj.encoding = encoded_obj.encoding;
     receiver_obj.validity = .unknown;
     return receiver;
@@ -2900,7 +2900,7 @@ pub fn builtinStringDedup(vm: *VM, receiver: Value, args: []Value, _: ?Block) VM
     const canonical = try vm.getOrCreateCanonicalFString(string_obj.str, string_obj.encoding);
     const result_obj = result.toStringObject();
     const canonical_obj = canonical.toStringObject();
-    result_obj.str = canonical_obj.str;
+    result_obj.replaceBytes(canonical_obj.str);
     result_obj.encoding = canonical_obj.encoding;
     result_obj.validity = canonical_obj.validity;
     result.freeze();
@@ -2997,7 +2997,7 @@ pub fn builtinStringClear(vm: *VM, receiver: Value, args: []Value, _: ?Block) VM
     try vm.requireArgCount(args, 0);
     try vm.guardNotFrozen(receiver);
     const string_obj = receiver.toStringObject();
-    string_obj.str = "";
+    string_obj.replaceBytes("");
     string_obj.validity = .unknown;
     return receiver;
 }
@@ -3607,7 +3607,7 @@ pub fn builtinStringSetbyte(vm: *VM, receiver: Value, args: []Value, _: ?Block) 
 
     const new_bytes = vm.gc_allocator_atomic.dupe(u8, string_obj.str) catch return error.Fatal;
     new_bytes[@intCast(index)] = @intCast(byte_value);
-    string_obj.str = new_bytes;
+    string_obj.replaceBytes(new_bytes);
     string_obj.validity = .unknown;
     return Value.integer(byte_value);
 }
@@ -3823,7 +3823,7 @@ pub fn builtinStringDeletePrefixBang(vm: *VM, receiver: Value, args: []Value, _:
         return Value.nil();
     }
 
-    string_obj.str = vm.gc_allocator_atomic.dupe(u8, string_obj.str[match.end..]) catch return error.Fatal;
+    string_obj.replaceBytes(vm.gc_allocator_atomic.dupe(u8, string_obj.str[match.end..]) catch return error.Fatal);
     string_obj.validity = .unknown;
     return receiver;
 }
@@ -3851,7 +3851,7 @@ pub fn builtinStringDeleteSuffixBang(vm: *VM, receiver: Value, args: []Value, _:
         return Value.nil();
     }
 
-    string_obj.str = vm.gc_allocator_atomic.dupe(u8, string_obj.str[0..match.start]) catch return error.Fatal;
+    string_obj.replaceBytes(vm.gc_allocator_atomic.dupe(u8, string_obj.str[0..match.start]) catch return error.Fatal);
     string_obj.validity = .unknown;
     return receiver;
 }
@@ -4044,7 +4044,7 @@ pub fn builtinStringDeleteBang(vm: *VM, receiver: Value, args: []Value, _: ?Bloc
     if (!result.modified) return Value.nil();
 
     try warnSymbolToSMutation(vm, string_obj);
-    string_obj.str = result.bytes;
+    string_obj.replaceBytes(result.bytes);
     string_obj.validity = .unknown;
     string_obj.symbol_to_s_source = null;
     return receiver;
@@ -4115,7 +4115,7 @@ pub fn builtinStringSqueezeBang(vm: *VM, receiver: Value, args: []Value, _: ?Blo
     if (!result.modified) return Value.nil();
 
     try warnSymbolToSMutation(vm, string_obj);
-    string_obj.str = result.bytes;
+    string_obj.replaceBytes(result.bytes);
     string_obj.validity = .unknown;
     string_obj.symbol_to_s_source = null;
     return receiver;
@@ -4530,7 +4530,7 @@ pub fn builtinStringTrBang(vm: *VM, receiver: Value, args: []Value, _: ?Block) V
     if (!result.modified) return Value.nil();
 
     try warnSymbolToSMutation(vm, string_obj);
-    string_obj.str = result.bytes;
+    string_obj.replaceBytes(result.bytes);
     string_obj.validity = .unknown;
     string_obj.symbol_to_s_source = null;
     return receiver;
@@ -4552,7 +4552,7 @@ pub fn builtinStringTrSBang(vm: *VM, receiver: Value, args: []Value, _: ?Block) 
     if (!result.modified) return Value.nil();
 
     try warnSymbolToSMutation(vm, string_obj);
-    string_obj.str = result.bytes;
+    string_obj.replaceBytes(result.bytes);
     string_obj.validity = .unknown;
     string_obj.symbol_to_s_source = null;
     return receiver;
@@ -4605,7 +4605,7 @@ pub fn builtinStringPrepend(vm: *VM, receiver: Value, args: []Value, _: ?Block) 
         result = try concatBytes(vm, part.toStringObject().str, result);
     }
 
-    string_obj.str = result;
+    string_obj.replaceBytes(result);
     return receiver;
 }
 
@@ -5027,7 +5027,7 @@ pub fn builtinStringStripBang(vm: *VM, receiver: Value, args: []Value, _: ?Block
     const bounds = stringStripBounds(string_obj.str);
     if (bounds.start == 0 and bounds.end == string_obj.str.len) return Value.nil();
 
-    string_obj.str = vm.gc_allocator_atomic.dupe(u8, string_obj.str[bounds.start..bounds.end]) catch return error.Fatal;
+    string_obj.replaceBytes(vm.gc_allocator_atomic.dupe(u8, string_obj.str[bounds.start..bounds.end]) catch return error.Fatal);
     string_obj.validity = .unknown;
     return receiver;
 }
@@ -5053,7 +5053,7 @@ pub fn builtinStringLstripBang(vm: *VM, receiver: Value, args: []Value, _: ?Bloc
 
     if (bounds.start == 0) return Value.nil();
 
-    string_obj.str = vm.gc_allocator_atomic.dupe(u8, string_obj.str[bounds.start..]) catch return error.Fatal;
+    string_obj.replaceBytes(vm.gc_allocator_atomic.dupe(u8, string_obj.str[bounds.start..]) catch return error.Fatal);
     string_obj.validity = .unknown;
     return receiver;
 }
@@ -5081,7 +5081,7 @@ pub fn builtinStringRstripBang(vm: *VM, receiver: Value, args: []Value, _: ?Bloc
 
     if (bounds.end == string_obj.str.len and bounds.start == 0) return Value.nil();
 
-    string_obj.str = vm.gc_allocator_atomic.dupe(u8, string_obj.str[0..bounds.end]) catch return error.Fatal;
+    string_obj.replaceBytes(vm.gc_allocator_atomic.dupe(u8, string_obj.str[0..bounds.end]) catch return error.Fatal);
     string_obj.validity = .unknown;
     return receiver;
 }
@@ -5101,7 +5101,7 @@ pub fn builtinStringChopBang(vm: *VM, receiver: Value, args: []Value, _: ?Block)
     if (string_obj.str.len == 0) return Value.nil();
 
     const chop_end = stringChopEnd(string_obj.str, string_obj.encoding);
-    string_obj.str = string_obj.str[0..chop_end];
+    string_obj.replaceBytes(string_obj.str[0..chop_end]);
     string_obj.validity = .unknown;
     return receiver;
 }
@@ -5119,7 +5119,7 @@ pub fn builtinStringChompBang(vm: *VM, receiver: Value, args: []Value, _: ?Block
     const chomp_end = try stringChompEnd(vm, string_obj.str, string_obj.encoding, args);
     if (chomp_end == string_obj.str.len) return Value.nil();
 
-    string_obj.str = string_obj.str[0..chomp_end];
+    string_obj.replaceBytes(string_obj.str[0..chomp_end]);
     string_obj.validity = .unknown;
     return receiver;
 }
@@ -5162,7 +5162,7 @@ pub fn builtinStringReverseBang(vm: *VM, receiver: Value, args: []Value, _: ?Blo
 
     const string_obj = receiver.toStringObject();
     const reversed = try reverseStringChars(vm, string_obj.str, string_obj.encoding);
-    string_obj.str = reversed;
+    string_obj.replaceBytes(reversed);
     string_obj.validity = .unknown;
     return receiver;
 }
@@ -5299,7 +5299,7 @@ fn applyMappedStringCaseBang(
         string_obj.symbol_to_s_source = null;
     }
 
-    string_obj.str = mapped.bytes;
+    string_obj.replaceBytes(mapped.bytes);
     string_obj.encoding = mapped.encoding;
     string_obj.validity = .unknown;
     return receiver;
@@ -5420,7 +5420,7 @@ pub fn builtinStringNextBang(vm: *VM, receiver: Value, args: []Value, _: ?Block)
 
     const string_obj = receiver.toStringObject();
     const next_bytes = try stringNextBytes(vm, string_obj.str);
-    string_obj.str = next_bytes;
+    string_obj.replaceBytes(next_bytes);
     string_obj.validity = .unknown;
     return receiver;
 }
@@ -5484,7 +5484,8 @@ fn stringUptoCompatibleEncoding(
     return null;
 }
 
-fn isAsciiDigitString(bytes: []const u8) bool {    if (bytes.len == 0) return false;
+fn isAsciiDigitString(bytes: []const u8) bool {
+    if (bytes.len == 0) return false;
     for (bytes) |b| {
         if (!isAsciiDigitByte(b)) return false;
     }
@@ -6859,7 +6860,7 @@ fn spliceStringBytes(
     };
 
     const result_bytes = try concatBytes(vm, prefix_with_replacement, suffix);
-    string_obj.str = result_bytes;
+    string_obj.replaceBytes(result_bytes);
     string_obj.encoding = result_encoding;
     string_obj.validity = .unknown;
 }
@@ -6870,31 +6871,6 @@ fn concatBytes(vm: *VM, left: []const u8, right: []const u8) VMError![]const u8 
     @memcpy(out[0..left.len], left);
     @memcpy(out[left.len..], right);
     return out;
-}
-
-fn appendStringBytes(vm: *VM, string_obj: *value.StringObject, right: []const u8) VMError!void {
-    if (right.len == 0) return;
-    const old = string_obj.str;
-    const new_len = std.math.add(usize, old.len, right.len) catch return error.Fatal;
-    if (string_obj.append_storage) |storage| {
-        if (storage.ptr == old.ptr and old.len <= storage.len and new_len <= storage.len) {
-            std.mem.copyForwards(u8, storage[old.len..new_len], right);
-            string_obj.str = storage[0..new_len];
-            return;
-        }
-    }
-
-    const previous_capacity = if (string_obj.append_storage) |storage|
-        if (storage.ptr == old.ptr) storage.len else old.len
-    else
-        old.len;
-    const doubled = std.math.mul(usize, previous_capacity, 2) catch new_len;
-    const capacity = @max(new_len, @max(@as(usize, 32), doubled));
-    const storage = vm.gc_allocator_atomic.alloc(u8, capacity) catch return error.Fatal;
-    @memcpy(storage[0..old.len], old);
-    @memcpy(storage[old.len..new_len], right);
-    string_obj.append_storage = storage;
-    string_obj.str = storage[0..new_len];
 }
 
 fn warnSymbolToSMutation(vm: *VM, string_obj: *value.StringObject) VMError!void {
@@ -6958,7 +6934,7 @@ fn appendSingleConcatArg(
         // MRI treats US-ASCII receiver + byte values 128..255 as binary concatenation.
         if (string_obj.encoding == .us_ascii and cp >= 128 and cp <= 255) {
             const single_byte = [_]u8{@intCast(cp)};
-            try appendStringBytes(vm, string_obj, &single_byte);
+            try string_obj.appendBytes(vm, &single_byte);
             string_obj.encoding = .{ .ascii_8bit = .{} };
             string_obj.validity = .unknown;
             return;
@@ -6966,7 +6942,7 @@ fn appendSingleConcatArg(
 
         var buf: [4]u8 = undefined;
         const encoded = try encodeCodepointForEncoding(vm, cp, string_obj.encoding, &buf);
-        try appendStringBytes(vm, string_obj, encoded);
+        try string_obj.appendBytes(vm, encoded);
         string_obj.validity = .unknown;
         return;
     }
@@ -6987,7 +6963,7 @@ fn appendSingleConcatArg(
         return vm.raiseEncodingCompatibilityError(string_obj.encoding, rhs_encoding);
     };
 
-    try appendStringBytes(vm, string_obj, rhs_bytes);
+    try string_obj.appendBytes(vm, rhs_bytes);
     string_obj.encoding = result_encoding;
     string_obj.validity = .unknown;
 }
