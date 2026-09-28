@@ -25,6 +25,7 @@ Some gems that are known to work, though I haven't tested each thoroughly:
 - erb
 - erubi
 - minitest
+- nokogiri
 - psych/yaml
 - rack
 - rake
