@@ -1790,6 +1790,12 @@ export fn rb_enc_associate_index(obj_raw: VALUE, idx: c_int) VALUE {
     return obj_raw;
 }
 
+export fn rb_enc_associate(obj_raw: VALUE, enc_opaque: ?*anyopaque) VALUE {
+    const ptr = enc_opaque orelse return obj_raw;
+    const encoding_value: *const enc.Encoding = @ptrCast(@alignCast(ptr));
+    return rb_enc_associate_index(obj_raw, @intCast(encoding_value.encodingIndex()));
+}
+
 export fn rb_enc_get(obj_raw: VALUE) ?*anyopaque {
     return rb_enc_from_index(rb_enc_get_index(obj_raw));
 }

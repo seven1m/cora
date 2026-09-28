@@ -526,6 +526,7 @@ int          rb_to_encoding_index(VALUE enc);
 rb_encoding *rb_to_encoding(VALUE enc);
 int          rb_enc_find_index(const char *name);
 VALUE        rb_enc_associate_index(VALUE obj, int idx);
+VALUE        rb_enc_associate(VALUE obj, rb_encoding *enc);
 VALUE        rb_enc_str_new(const char *ptr, long len, rb_encoding *enc);
 int          rb_enc_str_coderange(VALUE obj);
 
