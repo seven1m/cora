@@ -1,14 +1,14 @@
 const encoding = @import("../encoding.zig");
+const iconv = @import("iconv.zig");
 
 /// GB18030 (GB18030-2005) is a real variable-length encoding, not an alias:
 /// 1-byte ASCII, 2-byte sequences compatible with GBK, and 4-byte sequences
 /// covering the rest of Unicode.
 ///
-/// The 2-byte table (~24k entries) is not implemented here: 2-byte sequences
-/// are validated structurally and report `valid`, but `toUnicodeCodepoint`
-/// returns null for them so transcoding raises `UndefinedConversion` (or
-/// substitutes when `undef: :replace` is given), instead of silently
-/// producing wrong characters.
+/// The standard-library iconv backend supplies the 2-byte table and the
+/// exceptional 4-byte mappings that are not covered by the algorithmic ranges
+/// below. The explicit four-byte ranges remain here so their validity rules
+/// are independent of the host conversion library.
 ///
 /// The 4-byte mapping is algorithmic and implemented exactly. Verified
 /// exhaustively against CPython's GB18030-2005 tables:
@@ -123,7 +123,7 @@ pub const Gb18030Encoding = struct {
         else if (codepoint >= 0x10000 and codepoint <= 0x10FFFF)
             codepoint + 0x1E248
         else
-            return null;
+            return iconv.encodeCodepoint("GB18030", codepoint, out);
 
         out[3] = 0x30 + @as(u8, @intCast(ptr % 10));
         out[2] = 0x81 + @as(u8, @intCast((ptr / 10) % 126));
@@ -136,6 +136,11 @@ pub const Gb18030Encoding = struct {
         if (bytes.len == 1) {
             if (bytes[0] <= 0x7F) return bytes[0];
             return null;
+        }
+        if (bytes.len == 2) {
+            const decoded = iconv.decodeFirst("GB18030", bytes) orelse return null;
+            if (decoded.consumed != bytes.len) return null;
+            return decoded.codepoint;
         }
         if (bytes.len != 4) return null;
         if (bytes[1] < 0x30 or bytes[1] > 0x39) return null;

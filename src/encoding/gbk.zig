@@ -1,4 +1,5 @@
 const encoding = @import("../encoding.zig");
+const iconv = @import("iconv.zig");
 
 pub const GbkEncoding = struct {
     pub fn name(_: GbkEncoding) []const u8 { return "GBK"; }
@@ -30,11 +31,11 @@ pub const GbkEncoding = struct {
     pub fn isUnicode(_: GbkEncoding) bool { return false; }
     pub fn isSingleByte(_: GbkEncoding) bool { return false; }
     pub fn fromUnicodeCodepoint(_: GbkEncoding, codepoint: u32, out: *[4]u8) ?usize {
-        if (codepoint > 0x7f) return null;
-        out[0] = @intCast(codepoint);
-        return 1;
+        return iconv.encodeCodepoint("GBK", codepoint, out);
     }
     pub fn toUnicodeCodepoint(_: GbkEncoding, bytes: []const u8) ?u32 {
-        return if (bytes.len == 1 and bytes[0] <= 0x7f) bytes[0] else null;
+        const decoded = iconv.decodeFirst("GBK", bytes) orelse return null;
+        if (decoded.consumed != bytes.len) return null;
+        return decoded.codepoint;
     }
 };

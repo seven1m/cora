@@ -24,6 +24,10 @@ const Utf16LeEncoding = @import("encoding/utf16le.zig").Utf16LeEncoding;
 const Utf16BeEncoding = @import("encoding/utf16be.zig").Utf16BeEncoding;
 const Utf32LeEncoding = @import("encoding/utf32le.zig").Utf32LeEncoding;
 const Utf32BeEncoding = @import("encoding/utf32be.zig").Utf32BeEncoding;
+const LegacyEncoding = @import("encoding/legacy.zig").LegacyEncoding;
+pub const LegacyEncodingId = @import("encoding/legacy.zig").Id;
+pub const legacy_encoding_count = @import("encoding/legacy.zig").count;
+const iconv = @import("encoding/iconv.zig");
 
 pub const CharResult = struct {
     valid: bool,
@@ -67,6 +71,7 @@ pub const Encoding = union(enum) {
     utf16be: Utf16BeEncoding,
     utf32le: Utf32LeEncoding,
     utf32be: Utf32BeEncoding,
+    legacy: LegacyEncoding,
 
     // Delegate to active variant using inline else
     pub fn name(self: Encoding) []const u8 {
@@ -192,9 +197,73 @@ pub const Encoding = union(enum) {
     pub fn eql(self: Encoding, other: Encoding) bool {
         const self_tag = @as(std.meta.Tag(Encoding), self);
         const other_tag = @as(std.meta.Tag(Encoding), other);
-        return self_tag == other_tag;
+        if (self_tag != other_tag) return false;
+        return switch (self) {
+            .legacy => |legacy| legacy.id == other.legacy.id,
+            else => true,
+        };
+    }
+
+    /// Stable runtime encoding index used by the C extension ABI and caches.
+    /// Legacy codecs share a union variant, so their id must be part of the
+    /// index rather than only the active union tag.
+    pub fn encodingIndex(self: Encoding) usize {
+        return switch (self) {
+            .legacy => |legacy| encoding_legacy_index_base + @intFromEnum(legacy.id),
+            else => @intFromEnum(@as(std.meta.Tag(Encoding), self)),
+        };
+    }
+
+    pub fn iconvName(self: Encoding) [:0]const u8 {
+        return switch (self) {
+            .utf8 => "UTF-8",
+            .cesu8 => "CESU-8",
+            .ascii_8bit => "ISO-8859-1",
+            .us_ascii => "US-ASCII",
+            .shift_jis => "SHIFT_JIS",
+            .windows_31j => "CP932",
+            .windows_1252 => "WINDOWS-1252",
+            .euc_jp => "EUC-JP",
+            .gb18030 => "GB18030",
+            .gbk => "GBK",
+            .big5 => "BIG5",
+            .cp437 => "CP437",
+            .cp866 => "CP866",
+            .iso_2022_jp => "ISO-2022-JP",
+            .iso_8859_1 => "ISO-8859-1",
+            .iso_8859_9 => "ISO-8859-9",
+            .iso_8859_15 => "ISO-8859-15",
+            .utf7 => "UTF-7",
+            .utf16 => "UTF-16BE",
+            .utf32 => "UTF-32BE",
+            .utf16le => "UTF-16LE",
+            .utf16be => "UTF-16BE",
+            .utf32le => "UTF-32LE",
+            .utf32be => "UTF-32BE",
+            .legacy => |legacy| legacy.iconvName(),
+        };
+    }
+
+    pub fn usesIconvTranscode(self: Encoding) bool {
+        return switch (self) {
+            .legacy, .gb18030, .gbk, .big5, .iso_2022_jp => true,
+            else => false,
+        };
+    }
+
+    pub fn transcodeViaIconv(
+        allocator: std.mem.Allocator,
+        bytes: []const u8,
+        source: Encoding,
+        target: Encoding,
+    ) std.mem.Allocator.Error!?[]u8 {
+        if (!source.usesIconvTranscode() and !target.usesIconvTranscode()) return null;
+        return iconv.transcode(allocator, bytes, source.iconvName(), effectiveTranscodeTargetEncoding(target).iconvName());
     }
 };
+
+pub const encoding_legacy_index_base = @typeInfo(Encoding).@"union".fields.len - 1;
+pub const encoding_index_count = encoding_legacy_index_base + legacy_encoding_count;
 
 pub const TranscodeError = error{
     OutOfMemory,

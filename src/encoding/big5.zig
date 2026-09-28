@@ -1,4 +1,5 @@
 const encoding = @import("../encoding.zig");
+const iconv = @import("iconv.zig");
 
 pub const Big5Encoding = struct {
     pub fn name(_: Big5Encoding) []const u8 { return "Big5"; }
@@ -30,11 +31,11 @@ pub const Big5Encoding = struct {
     pub fn isUnicode(_: Big5Encoding) bool { return false; }
     pub fn isSingleByte(_: Big5Encoding) bool { return false; }
     pub fn fromUnicodeCodepoint(_: Big5Encoding, codepoint: u32, out: *[4]u8) ?usize {
-        if (codepoint > 0x7f) return null;
-        out[0] = @intCast(codepoint);
-        return 1;
+        return iconv.encodeCodepoint("BIG5", codepoint, out);
     }
     pub fn toUnicodeCodepoint(_: Big5Encoding, bytes: []const u8) ?u32 {
-        return if (bytes.len == 1 and bytes[0] <= 0x7f) bytes[0] else null;
+        const decoded = iconv.decodeFirst("BIG5", bytes) orelse return null;
+        if (decoded.consumed != bytes.len) return null;
+        return decoded.codepoint;
     }
 };

@@ -28,14 +28,12 @@ describe :kernel_sprintf_encoding, shared: true do
   end
 
   it "raises Encoding::CompatibilityError if both encodings are ASCII compatible and there are not ASCII characters" do
-    CORAFIXME "Encoding::CompatibilityError not raised for incompatible sprintf encodings" do
-      string = "Ä %s".encode('windows-1252')
-      argument = "Ђ".encode('windows-1251')
+    string = "Ä %s".encode('windows-1252')
+    argument = "Ђ".encode('windows-1251')
 
-      -> {
-        @method.call(string, argument)
-      }.should raise_error(Encoding::CompatibilityError)
-    end
+    -> {
+      @method.call(string, argument)
+    }.should raise_error(Encoding::CompatibilityError)
   end
 
   describe "%c" do

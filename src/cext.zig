@@ -5,6 +5,7 @@ const StringObject = value.StringObject;
 const vm_mod = @import("vm.zig");
 const VM = vm_mod.VM;
 const enc = @import("encoding.zig");
+const encoding_builtin = @import("builtins/encoding.zig");
 const cext_globals = @import("cext_globals.zig");
 const onigmo = @import("onigmo.zig");
 const bdwgc = @import("bdwgc");
@@ -290,10 +291,14 @@ pub fn setupGlobals(vm: *VM) void {
 }
 
 const encoding_instances = blk: {
-    const tags = std.meta.tags(enc.Encoding);
-    var instances: [tags.len]enc.Encoding = undefined;
-    for (tags, 0..) |tag, i| {
-        instances[i] = @unionInit(enc.Encoding, @tagName(tag), .{});
+    const fields = std.meta.fields(enc.Encoding);
+    var instances: [enc.encoding_index_count]enc.Encoding = undefined;
+    for (fields, 0..) |field, i| {
+        if (std.mem.eql(u8, field.name, "legacy")) continue;
+        instances[i] = @unionInit(enc.Encoding, field.name, .{});
+    }
+    for (0..enc.legacy_encoding_count) |id| {
+        instances[enc.encoding_legacy_index_base + id] = .{ .legacy = .{ .id = @enumFromInt(id) } };
     }
     break :blk instances;
 };
@@ -335,7 +340,7 @@ export fn rb_string_len(str_raw: VALUE) c_long {
 export fn rb_encoding_get(str_raw: VALUE) c_int {
     const val = Value{ .raw = str_raw };
     if (val.isString()) {
-        return @intCast(@intFromEnum(val.toStringObject().encoding));
+        return @intCast(val.toStringObject().encoding.encodingIndex());
     }
     return 0;
 }
@@ -1663,7 +1668,7 @@ export fn rb_ascii8bit_encoding() ?*anyopaque {
 export fn rb_default_internal_encoding() ?*anyopaque {
     const vm = getVM();
     if (vm.default_internal_encoding) |enc_obj| {
-        return @constCast(&encoding_instances[@intFromEnum(enc_obj.encoding)]);
+        return @constCast(&encoding_instances[enc_obj.encoding.encodingIndex()]);
     }
     return null;
 }
@@ -1671,7 +1676,7 @@ export fn rb_default_internal_encoding() ?*anyopaque {
 export fn rb_default_external_encoding() ?*anyopaque {
     const vm = getVM();
     const e = vm.default_external_encoding.encoding;
-    return @constCast(&encoding_instances[@intFromEnum(e)]);
+    return @constCast(&encoding_instances[e.encodingIndex()]);
 }
 
 export fn rb_utf8_encindex() c_int {
@@ -1689,7 +1694,7 @@ export fn rb_ascii8bit_encindex() c_int {
 export fn rb_enc_get_index(obj_raw: VALUE) c_int {
     const val = Value{ .raw = obj_raw };
     if (val.isString()) {
-        return @intCast(@intFromEnum(val.toStringObject().encoding));
+        return @intCast(val.toStringObject().encoding.encodingIndex());
     }
     return @intFromEnum(enc.Encoding.us_ascii);
 }
@@ -1697,7 +1702,7 @@ export fn rb_enc_get_index(obj_raw: VALUE) c_int {
 export fn rb_to_encoding_index(enc_val: VALUE) c_int {
     const val = Value{ .raw = enc_val };
     if (val.isEncoding()) {
-        return @intCast(@intFromEnum(val.toEncodingObject().encoding));
+        return @intCast(val.toEncodingObject().encoding.encodingIndex());
     }
     return @intFromEnum(enc.Encoding.us_ascii);
 }
@@ -1708,22 +1713,13 @@ export fn rb_to_encoding(enc_val: VALUE) ?*anyopaque {
         rb_raise(rb_eTypeError, "wrong argument type (expected Encoding)");
         return null;
     }
-    return rb_enc_from_index(@intCast(@intFromEnum(val.toEncodingObject().encoding)));
+    return rb_enc_from_index(@intCast(val.toEncodingObject().encoding.encodingIndex()));
 }
 
 export fn rb_enc_find_index(name: [*c]const u8) c_int {
     const s = if (name != null) std.mem.span(name) else "";
-    var upper_buf: [64]u8 = undefined;
-    const upper = std.ascii.upperString(&upper_buf, s);
-    if (std.mem.eql(u8, upper, "UTF-8") or std.mem.eql(u8, upper, "UTF8")) return @intFromEnum(enc.Encoding.utf8);
-    if (std.mem.eql(u8, upper, "US-ASCII") or std.mem.eql(u8, upper, "ASCII")) return @intFromEnum(enc.Encoding.us_ascii);
-    if (std.mem.eql(u8, upper, "ASCII-8BIT") or std.mem.eql(u8, upper, "BINARY")) return @intFromEnum(enc.Encoding.ascii_8bit);
-    if (std.mem.eql(u8, upper, "UTF-16LE")) return @intFromEnum(enc.Encoding.utf16le);
-    if (std.mem.eql(u8, upper, "UTF-16BE")) return @intFromEnum(enc.Encoding.utf16be);
-    if (std.mem.eql(u8, upper, "UTF-32LE")) return @intFromEnum(enc.Encoding.utf32le);
-    if (std.mem.eql(u8, upper, "UTF-32BE")) return @intFromEnum(enc.Encoding.utf32be);
-    if (std.mem.eql(u8, upper, "ISO-8859-1")) return @intFromEnum(enc.Encoding.iso_8859_1);
-    return -1;
+    const encoding = encoding_builtin.lookupEncoding(s) orelse return -1;
+    return @intCast(encoding.encodingIndex());
 }
 
 export fn rb_enc_associate_index(obj_raw: VALUE, idx: c_int) VALUE {

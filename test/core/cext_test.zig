@@ -723,9 +723,12 @@ test "C extension converts an Encoding object to an encoding pointer" {
     const result = try evalCode(
         \\$LOAD_PATH << "build/cext"
         \\require "fixture.so"
-        \\CoraCExt.to_encoding(Encoding::UTF_8) == Encoding::UTF_8
+        \\[CoraCExt.to_encoding(Encoding::UTF_8) == Encoding::UTF_8,
+        \\ CoraCExt.to_encoding(Encoding::ISO_8859_2) == Encoding::ISO_8859_2,
+        \\ CoraCExt.to_encoding(Encoding::MacRoman) == Encoding::MacRoman]
     );
-    try std.testing.expect(result.toBool());
+    const results = result.toArrayObject().elements.items;
+    for (results) |item| try std.testing.expect(item.isTrue());
 }
 
 test "C extension string splitting uses Ruby semantics" {

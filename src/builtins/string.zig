@@ -2169,8 +2169,8 @@ pub fn compareStringObjects(lhs: *const value.StringObject, rhs: *const value.St
         return Value.integer(0);
     }
 
-    const lhs_tag = @intFromEnum(@as(std.meta.Tag(enc.Encoding), lhs.encoding));
-    const rhs_tag = @intFromEnum(@as(std.meta.Tag(enc.Encoding), rhs.encoding));
+    const lhs_tag = lhs.encoding.encodingIndex();
+    const rhs_tag = rhs.encoding.encodingIndex();
     if (lhs_tag < rhs_tag) return Value.integer(-1);
     if (lhs_tag > rhs_tag) return Value.integer(1);
     return Value.integer(0);
@@ -2504,6 +2504,22 @@ fn transcodeWithEncodeOptions(
     opts: TranscodeOptions,
 ) VMError![]u8 {
     const effective_target_encoding = enc.effectiveTranscodeTargetEncoding(target_encoding);
+
+    if (opts.kw_invalid == null and
+        opts.kw_undef == null and
+        opts.kw_replace == null and
+        opts.kw_fallback == null and
+        opts.xml_mode == .none)
+    {
+        if (enc.Encoding.transcodeViaIconv(
+            vm.gc_allocator_atomic,
+            source_bytes,
+            from_encoding,
+            effective_target_encoding,
+        ) catch return error.Fatal) |transcoded| {
+            return transcoded;
+        }
+    }
 
     if (isTag(effective_target_encoding, .iso_2022_jp) and
         opts.kw_invalid == null and

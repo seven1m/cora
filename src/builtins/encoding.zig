@@ -36,6 +36,74 @@ const EncodingLookup = enum {
     utf32be,
 };
 
+const LegacyEncodingId = enc.LegacyEncodingId;
+
+const legacy_encoding_name_map = std.StaticStringMap(LegacyEncodingId).initComptime(.{
+    .{ "ISO_8859_2", .iso_8859_2 },
+    .{ "ISO8859_2", .iso_8859_2 },
+    .{ "ISO_8859_3", .iso_8859_3 },
+    .{ "ISO8859_3", .iso_8859_3 },
+    .{ "ISO_8859_4", .iso_8859_4 },
+    .{ "ISO8859_4", .iso_8859_4 },
+    .{ "ISO_8859_5", .iso_8859_5 },
+    .{ "ISO8859_5", .iso_8859_5 },
+    .{ "ISO_8859_6", .iso_8859_6 },
+    .{ "ISO8859_6", .iso_8859_6 },
+    .{ "ISO_8859_7", .iso_8859_7 },
+    .{ "ISO8859_7", .iso_8859_7 },
+    .{ "ISO_8859_8", .iso_8859_8 },
+    .{ "ISO8859_8", .iso_8859_8 },
+    .{ "ISO_8859_8_I", .iso_8859_8 },
+    .{ "ISO_8859_10", .iso_8859_10 },
+    .{ "ISO8859_10", .iso_8859_10 },
+    .{ "ISO_8859_11", .iso_8859_11 },
+    .{ "ISO8859_11", .iso_8859_11 },
+    .{ "ISO_8859_13", .iso_8859_13 },
+    .{ "ISO8859_13", .iso_8859_13 },
+    .{ "ISO_8859_14", .iso_8859_14 },
+    .{ "ISO8859_14", .iso_8859_14 },
+    .{ "ISO_8859_16", .iso_8859_16 },
+    .{ "ISO8859_16", .iso_8859_16 },
+    .{ "KOI8_R", .koi8_r },
+    .{ "KOI8_U", .koi8_u },
+    .{ "IBM737", .ibm737 },
+    .{ "IBM775", .ibm775 },
+    .{ "CP850", .cp850 },
+    .{ "IBM852", .ibm852 },
+    .{ "CP852", .ibm852 },
+    .{ "IBM855", .ibm855 },
+    .{ "CP855", .ibm855 },
+    .{ "IBM857", .ibm857 },
+    .{ "IBM860", .ibm860 },
+    .{ "IBM861", .ibm861 },
+    .{ "IBM862", .ibm862 },
+    .{ "IBM863", .ibm863 },
+    .{ "IBM864", .ibm864 },
+    .{ "IBM865", .ibm865 },
+    .{ "IBM869", .ibm869 },
+    .{ "WINDOWS_874", .windows_874 },
+    .{ "TIS_620", .windows_874 },
+    .{ "WINDOWS_1250", .windows_1250 },
+    .{ "WINDOWS_1251", .windows_1251 },
+    .{ "WINDOWS_1253", .windows_1253 },
+    .{ "WINDOWS_1254", .windows_1254 },
+    .{ "WINDOWS_1255", .windows_1255 },
+    .{ "WINDOWS_1256", .windows_1256 },
+    .{ "WINDOWS_1257", .windows_1257 },
+    .{ "WINDOWS_1258", .windows_1258 },
+    .{ "MACCENTEURO", .mac_centro_euro },
+    .{ "MACCROATIAN", .mac_croatian },
+    .{ "MACCYRILLIC", .mac_cyrillic },
+    .{ "MACGREEK", .mac_greek },
+    .{ "MACICELAND", .mac_iceland },
+    .{ "MACROMAN", .mac_roman },
+    .{ "MACROMANIA", .mac_romania },
+    .{ "MACTHAI", .mac_thai },
+    .{ "MACTURKISH", .mac_turkish },
+    .{ "MACUKRAINE", .mac_ukraine },
+    .{ "EUC_KR", .euc_kr },
+});
+
 const encoding_name_map = std.StaticStringMap(EncodingLookup).initComptime(.{
     .{ "UTF_8", .utf8 },
     .{ "UTF8", .utf8 },
@@ -147,6 +215,57 @@ const encoding_name_map = std.StaticStringMap(EncodingLookup).initComptime(.{
     .{ "UTF_32BE", .utf32be },
     .{ "UTF32BE", .utf32be },
 });
+
+/// Return the encoding for a normalized Ruby encoding name, or null if the
+/// name is not in Cora's encoding registry.
+pub fn lookupEncoding(name: []const u8) ?enc.Encoding {
+    var normalized: [32]u8 = undefined;
+    var len: usize = 0;
+    for (name) |c| {
+        if (len >= normalized.len) return null;
+        if (c == '-') {
+            normalized[len] = '_';
+        } else if (c >= 'a' and c <= 'z') {
+            normalized[len] = c - 32;
+        } else {
+            normalized[len] = c;
+        }
+        len += 1;
+    }
+    const lookup = normalized[0..len];
+
+    if (legacy_encoding_name_map.get(lookup)) |legacy_id| {
+        return .{ .legacy = .{ .id = legacy_id } };
+    }
+
+    const encoding_name = encoding_name_map.get(lookup) orelse return null;
+    return switch (encoding_name) {
+        .utf8 => .{ .utf8 = .{} },
+        .cesu8 => .{ .cesu8 = .{} },
+        .ascii_8bit => .{ .ascii_8bit = .{} },
+        .us_ascii => .{ .us_ascii = .{} },
+        .shift_jis => .{ .shift_jis = .{} },
+        .windows_31j => .{ .windows_31j = .{} },
+        .windows_1252 => .{ .windows_1252 = .{} },
+        .euc_jp => .{ .euc_jp = .{} },
+        .gb18030 => .{ .gb18030 = .{} },
+        .gbk => .{ .gbk = .{} },
+        .big5 => .{ .big5 = .{} },
+        .cp437 => .{ .cp437 = .{} },
+        .cp866 => .{ .cp866 = .{} },
+        .iso_2022_jp => .{ .iso_2022_jp = .{} },
+        .iso_8859_1 => .{ .iso_8859_1 = .{} },
+        .iso_8859_9 => .{ .iso_8859_9 = .{} },
+        .iso_8859_15 => .{ .iso_8859_15 = .{} },
+        .utf7 => .{ .utf7 = .{} },
+        .utf16 => .{ .utf16 = .{} },
+        .utf32 => .{ .utf32 = .{} },
+        .utf16le => .{ .utf16le = .{} },
+        .utf16be => .{ .utf16be = .{} },
+        .utf32le => .{ .utf32le = .{} },
+        .utf32be => .{ .utf32be = .{} },
+    };
+}
 
 pub fn register(vm: *VM) !void {
     const name_sym = try vm.intern("name");
@@ -314,34 +433,7 @@ pub fn builtinEncodingFind(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!
         return Value.fromObject(&vm.default_external_encoding.object);
     }
 
-    if (encoding_name_map.get(lookup)) |enc_name| {
-        return switch (enc_name) {
-            .utf8 => Value.fromObject(&vm.encoding_utf8.object),
-            .cesu8 => Value.fromObject(&vm.encoding_cesu8.object),
-            .ascii_8bit => Value.fromObject(&vm.encoding_ascii_8bit.object),
-            .us_ascii => Value.fromObject(&vm.encoding_us_ascii.object),
-            .shift_jis => Value.fromObject(&vm.encoding_shift_jis.object),
-            .windows_31j => Value.fromObject(&vm.encoding_windows_31j.object),
-            .windows_1252 => Value.fromObject(&vm.encoding_windows_1252.object),
-            .euc_jp => Value.fromObject(&vm.encoding_euc_jp.object),
-            .gb18030 => Value.fromObject(&vm.encoding_gb18030.object),
-            .gbk => Value.fromObject(&vm.encoding_gbk.object),
-            .big5 => Value.fromObject(&vm.encoding_big5.object),
-            .cp437 => Value.fromObject(&vm.encoding_cp437.object),
-            .cp866 => Value.fromObject(&vm.encoding_cp866.object),
-            .iso_8859_1 => Value.fromObject(&vm.encoding_iso_8859_1.object),
-            .iso_8859_9 => Value.fromObject(&vm.encoding_iso_8859_9.object),
-            .iso_8859_15 => Value.fromObject(&vm.encoding_iso_8859_15.object),
-            .utf7 => Value.fromObject(&vm.encoding_utf7.object),
-            .utf16 => Value.fromObject(&vm.encoding_utf16.object),
-            .utf32 => Value.fromObject(&vm.encoding_utf32.object),
-            .utf16le => Value.fromObject(&vm.encoding_utf16le.object),
-            .utf16be => Value.fromObject(&vm.encoding_utf16be.object),
-            .utf32le => Value.fromObject(&vm.encoding_utf32le.object),
-            .utf32be => Value.fromObject(&vm.encoding_utf32be.object),
-            .iso_2022_jp => Value.fromObject(&vm.encoding_iso_2022_jp.object),
-        };
-    }
+    if (lookupEncoding(lookup)) |found| return vm.encodingToValue(found);
 
     return vm.raiseExceptionFmt(vm.argument_error_class, "unknown encoding name - {s}", .{name_str});
 }
@@ -350,6 +442,12 @@ pub fn builtinEncodingAliases(vm: *VM, _: Value, args: []Value, _: ?Block) VMErr
     try vm.requireArgCount(args, 0);
     const aliases = try vm.createHash();
     for (encoding_name_map.keys()) |name| {
+        var find_args = [_]Value{try vm.newString(name, false)};
+        const encoding_value = try builtinEncodingFind(vm, Value.nil(), &find_args, null);
+        const canonical_name = encoding_value.toEncodingObject().encoding.name();
+        try vm.hashSetEntry(aliases, try vm.newString(name, false), try vm.newString(canonical_name, false));
+    }
+    for (legacy_encoding_name_map.keys()) |name| {
         var find_args = [_]Value{try vm.newString(name, false)};
         const encoding_value = try builtinEncodingFind(vm, Value.nil(), &find_args, null);
         const canonical_name = encoding_value.toEncodingObject().encoding.name();
@@ -389,6 +487,9 @@ pub fn builtinEncodingList(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!
         Value.fromObject(&vm.encoding_cp866.object),
     };
     array.elements.appendSlice(vm.gc_allocator, &encodings) catch return error.Fatal;
+    for (vm.encoding_legacy) |legacy_encoding| {
+        array.elements.append(vm.gc_allocator, Value.fromObject(&legacy_encoding.object)) catch return error.Fatal;
+    }
     return Value.fromObject(&array.object);
 }
 

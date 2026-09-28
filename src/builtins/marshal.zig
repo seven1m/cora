@@ -972,6 +972,7 @@ fn marshalEncodingName(encoding: enc.Encoding) []const u8 {
         .cp437 => "CP437",
         .cp866 => "IBM866",
         .iso_2022_jp => "ISO-2022-JP",
+        .legacy => |legacy| legacy.name(),
     };
 }
 

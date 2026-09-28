@@ -511,22 +511,18 @@ test "GB18030 rejects unassigned 4-byte sequences" {
     }
 }
 
-test "GB18030 2-byte sequences are structurally valid but need the table to transcode" {
+test "GB18030 2-byte sequences transcode through the mapping table" {
     const result = try evalCode(
         \\[
         \\  "\xD6\xD0".dup.force_encoding(Encoding::GB18030).valid_encoding?,
-        \\  begin
-        \\    "\xD6\xD0".dup.force_encoding(Encoding::GB18030).encode(Encoding::UTF_8)
-        \\  rescue Encoding::UndefinedConversionError
-        \\    :undefined
-        \\  end
+        \\  "\xD6\xD0".dup.force_encoding(Encoding::GB18030).encode(Encoding::UTF_8)
         \\]
     );
     try std.testing.expect(result.isArray());
     const items = result.toArrayObject().elements.items;
     try std.testing.expectEqual(true, items[0].toBool());
-    try std.testing.expect(items[1].isSymbol());
-    try std.testing.expectEqualSlices(u8, "undefined", items[1].toSymbolObject().name);
+    try std.testing.expect(items[1].isString());
+    try std.testing.expectEqualStrings("中", items[1].toStringObject().str);
 }
 
 test "ASCII-8BIT encoding compatibility raises before length check" {

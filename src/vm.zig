@@ -496,19 +496,16 @@ const KeywordDispatch = struct {
     kw_values: ?[]const Value = null,
 };
 
-const SymbolEncodingTag = std.meta.Tag(enc.Encoding);
-
 const SymbolKey = struct {
     bytes: []const u8,
-    encoding_tag: SymbolEncodingTag,
+    encoding_tag: usize,
 };
 
 const SymbolKeyContext = struct {
     pub fn hash(_: SymbolKeyContext, key: SymbolKey) u64 {
         var hasher = std.hash.Wyhash.init(0);
         hasher.update(key.bytes);
-        const tag_u8: u8 = @intFromEnum(key.encoding_tag);
-        hasher.update(std.mem.asBytes(&tag_u8));
+        hasher.update(std.mem.asBytes(&key.encoding_tag));
         return hasher.final();
     }
 
@@ -519,8 +516,8 @@ const SymbolKeyContext = struct {
 
 const PackedPointerTargets = std.AutoHashMap(usize, *StringObject);
 
-fn encodingKey(encoding_value: enc.Encoding) SymbolEncodingTag {
-    return std.meta.activeTag(encoding_value);
+fn encodingKey(encoding_value: enc.Encoding) usize {
+    return encoding_value.encodingIndex();
 }
 
 pub const RubyRandom = struct {
@@ -776,6 +773,7 @@ pub const VM = struct {
     encoding_utf16be: *value.EncodingObject,
     encoding_utf32le: *value.EncodingObject,
     encoding_utf32be: *value.EncodingObject,
+    encoding_legacy: [enc.legacy_encoding_count]*value.EncodingObject,
     default_external_encoding: *value.EncodingObject,
     default_internal_encoding: ?*value.EncodingObject = null,
 
@@ -1012,6 +1010,7 @@ pub const VM = struct {
             .encoding_utf16be = undefined,
             .encoding_utf32le = undefined,
             .encoding_utf32be = undefined,
+            .encoding_legacy = undefined,
             .default_external_encoding = undefined,
             .default_internal_encoding = null,
             .main_self = undefined,
@@ -1626,6 +1625,9 @@ pub const VM = struct {
         self.encoding_utf16be = try self.createEncodingObject(.{ .utf16be = .{} });
         self.encoding_utf32le = try self.createEncodingObject(.{ .utf32le = .{} });
         self.encoding_utf32be = try self.createEncodingObject(.{ .utf32be = .{} });
+        for (&self.encoding_legacy, 0..) |*legacy_obj, index| {
+            legacy_obj.* = try self.createEncodingObject(.{ .legacy = .{ .id = @enumFromInt(index) } });
+        }
         self.default_external_encoding = self.encoding_utf8;
 
         // --- Stage 3: Set Class's superclass to Module ---
@@ -2003,6 +2005,11 @@ pub const VM = struct {
         self.encoding_class.module.constants.put(emacs_mule_const_sym, .{ .value = windows_31j_val }) catch return error.Fatal;
         self.encoding_class.module.constants.put(windows_1251_const_sym, .{ .value = iso_8859_15_val }) catch return error.Fatal;
         self.encoding_class.module.constants.put(koi8_u_const_sym, .{ .value = iso_8859_15_val }) catch return error.Fatal;
+        for (self.encoding_legacy) |legacy_obj| {
+            const legacy = legacy_obj.encoding.legacy;
+            const constant_sym = try self.intern(legacy.constantName());
+            self.encoding_class.module.constants.put(constant_sym, .{ .value = Value.fromObject(&legacy_obj.object) }) catch return error.Fatal;
+        }
         const ibm437_const_sym = try self.intern("IBM437");
         self.encoding_class.module.constants.put(ibm437_const_sym, .{ .value = cp437_val }) catch return error.Fatal;
         const ibm866_const_sym = try self.intern("IBM866");
@@ -5355,7 +5362,7 @@ pub const VM = struct {
                 switch (constant) {
                     .string => |s| {
                         const literal_encoding = literalStringEncodingForChunk(frame.chunk.source_encoding, s);
-                        const encoding_tag: u8 = @intFromEnum(std.meta.activeTag(literal_encoding));
+                        const encoding_tag = literal_encoding.encodingIndex();
                         const source_marker = frame.chunk.source_file orelse frame.chunk.name;
                         var source_hasher = std.hash.Wyhash.init(0);
                         source_hasher.update(source_marker);
@@ -5385,7 +5392,7 @@ pub const VM = struct {
                         }
                     },
                     .encoded_string => |s| {
-                        const encoding_tag: u8 = @intFromEnum(std.meta.activeTag(s.encoding));
+                        const encoding_tag = s.encoding.encodingIndex();
                         const source_marker = frame.chunk.source_file orelse frame.chunk.name;
                         var source_hasher = std.hash.Wyhash.init(0);
                         source_hasher.update(source_marker);
@@ -10162,7 +10169,7 @@ pub const VM = struct {
             symbol_encoding;
         const probe_key = SymbolKey{
             .bytes = str,
-            .encoding_tag = @as(SymbolEncodingTag, canonical_encoding),
+            .encoding_tag = canonical_encoding.encodingIndex(),
         };
         if (self.symbols.get(probe_key)) |symbol_obj| {
             return symbol_obj;
@@ -10171,7 +10178,7 @@ pub const VM = struct {
         const key_bytes = self.gc_allocator_atomic.dupeZ(u8, str) catch return error.Fatal;
         const map_key = SymbolKey{
             .bytes = key_bytes,
-            .encoding_tag = @as(SymbolEncodingTag, canonical_encoding),
+            .encoding_tag = canonical_encoding.encodingIndex(),
         };
 
         const symbol_obj = self.gc_allocator.create(SymbolObject) catch return error.Fatal;
@@ -11409,6 +11416,7 @@ pub const VM = struct {
             .utf16be => Value.fromObject(&self.encoding_utf16be.object),
             .utf32le => Value.fromObject(&self.encoding_utf32le.object),
             .utf32be => Value.fromObject(&self.encoding_utf32be.object),
+            .legacy => |legacy| Value.fromObject(&self.encoding_legacy[@intFromEnum(legacy.id)].object),
         };
     }
 
