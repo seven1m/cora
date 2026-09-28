@@ -15,6 +15,7 @@ const psych_gem_version = "5.4.0";
 const strscan_gem_version = "3.1.9";
 const json_gem_version = "2.19.9";
 const yaml_gem_version = "0.4.0";
+const did_you_mean_gem_version = "2.0.0";
 const bundled_gems = [_]struct { name: []const u8, version: []const u8 }{
     .{ .name = "csv", .version = "3.3.6" },
     .{ .name = "power_assert", .version = "3.0.1" },
@@ -30,6 +31,7 @@ const stdlib_default_gems = [_]struct { name: []const u8, version: []const u8 }{
 const runtime_ext_dirs = [_][]const u8{
     "cgi",
     "delegate",
+    "did_you_mean",
     "erb",
     "forwardable",
     "ipaddr",
@@ -684,6 +686,7 @@ pub fn build(b: *std.Build) void {
     const install_strscan_default_gem = addInstallGemDir(b, b.path(strscan_build_root), "strscan", strscan_gem_version, strscan_build_step);
     const install_json_default_gem = addInstallGemDir(b, b.path(json_build_root), "json", json_gem_version, json_build_step);
     const install_yaml_default_gem = addInstallGemDir(b, b.path("ext/yaml"), "yaml", yaml_gem_version, null);
+    const install_did_you_mean_default_gem = addInstallGemDir(b, b.path("ext/did_you_mean"), "did_you_mean", did_you_mean_gem_version, null);
 
     const stdlib_gem_specs = b.addWriteFiles();
     for (stdlib_default_gems) |gem| {
@@ -803,6 +806,11 @@ pub fn build(b: *std.Build) void {
         &install_exe.step,
         &install_stdlib.step,
         install_yaml_default_gem,
+    });
+    _ = addWriteGemSpec(b, "ext/did_you_mean", "did_you_mean", did_you_mean_gem_version, .default, &.{
+        &install_exe.step,
+        &install_stdlib.step,
+        install_did_you_mean_default_gem,
     });
 
     const install_cext_fixture = b.addInstallFile(b.path(cext_build_root ++ "/fixture.so"), "cext/fixture.so");

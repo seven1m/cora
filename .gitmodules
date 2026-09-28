@@ -82,3 +82,6 @@
 [submodule "ext/power_assert"]
 	path = ext/power_assert
 	url = https://github.com/ruby/power_assert.git
+[submodule "ext/did_you_mean"]
+	path = ext/did_you_mean
+	url = https://github.com/ruby/did_you_mean.git

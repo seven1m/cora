@@ -11,6 +11,7 @@ pub const repo_load_paths = [_][]const u8{
     "ext/ipaddr/lib",
     "ext/logger/lib",
     "ext/delegate/lib",
+    "ext/did_you_mean/lib",
     "ext/forwardable/lib",
     "ext/time/lib",
     "ext/timeout/lib",

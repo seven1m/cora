@@ -8,7 +8,7 @@ are built and tested.
 
 - `ext/<gem>/` - vendored gem sources. Submodules for gems with their own
   upstream repo (`ext/prism`, `ext/onigmo`, `ext/tinycc`, `ext/rubygems`, `ext/ipaddr`,
-  `ext/logger`, `ext/time`, `ext/optparse`, `ext/uri`, `ext/delegate`,
+  `ext/logger`, `ext/time`, `ext/optparse`, `ext/uri`, `ext/delegate`, `ext/did_you_mean`,
   `ext/tmpdir`, `ext/tempfile`, `ext/cgi`, `ext/erb`, `ext/forwardable`,
   `ext/timeout`, `ext/singleton`, `ext/open3`, `ext/shellwords`, `ext/yaml`,
   `ext/weakref`, `ext/psych`, `ext/strscan`, `ext/csv`, `ext/json`,
