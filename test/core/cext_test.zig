@@ -990,6 +990,18 @@ test "C extension rb_str_buf_new starts empty and can be appended" {
     try std.testing.expectEqualStrings("content", values[1].toStringObject().str);
 }
 
+test "C extension RSTRING_PTR preserves writable string buffer capacity" {
+    const result = try evalCode(
+        \\$LOAD_PATH << "build/cext"
+        \\require "fixture.so"
+        \\CoraCExt.rstring_ptr_writable_buffer
+    );
+    try std.testing.expectEqualStrings(
+        "abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijkl",
+        result.toStringObject().str,
+    );
+}
+
 test "C extension rb_ary_entry returns nil outside array bounds" {
     const result = try evalCode(
         \\$LOAD_PATH << "build/cext"

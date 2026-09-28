@@ -322,11 +322,9 @@ export fn rb_define_method(klass: VALUE, name_ptr: [*:0]const u8, func: ?*anyopa
 }
 
 fn ensureNulTerminatedStringPtr(vm: *VM, string: *StringObject) ?[*]u8 {
-    if (string.cstr_storage) |storage| {
-        if (string.str.ptr == storage.ptr and
-            string.str.len < storage.len and
-            storage[string.str.len] == 0)
-        {
+    if (string.append_storage) |storage| {
+        if (string.str.ptr == storage.ptr and string.str.len < storage.len) {
+            storage[string.str.len] = 0;
             return storage.ptr;
         }
     }
@@ -335,7 +333,7 @@ fn ensureNulTerminatedStringPtr(vm: *VM, string: *StringObject) ?[*]u8 {
     const terminated = vm.gc_allocator_atomic.alloc(u8, length + 1) catch return null;
     @memcpy(terminated[0..length], string.str);
     terminated[length] = 0;
-    string.cstr_storage = terminated;
+    string.append_storage = terminated;
     string.str = terminated[0..length];
     return terminated.ptr;
 }
@@ -407,12 +405,14 @@ export fn rb_isspace(c: c_uint) c_int {
 // ─── String functions ───────────────────────────────────────────────────────
 
 fn allocMutableString(vm: *VM, len: usize) VALUE {
-    const buf = vm.gc_allocator_atomic.alloc(u8, len) catch return 0;
+    const capacity = std.math.add(usize, len, 1) catch return 0;
+    const buf = vm.gc_allocator_atomic.alloc(u8, capacity) catch return 0;
     @memset(buf, 0);
     const string_obj = vm.gc_allocator.create(StringObject) catch return 0;
     string_obj.* = .{
         .object = .{ .type_tag = .string, .flags = 0, .class = vm.string_class, .singleton_class = null, .instance_variables = null },
-        .str = buf,
+        .str = buf[0..len],
+        .append_storage = buf,
         .encoding = .{ .ascii_8bit = .{} },
     };
     return Value.fromObject(&string_obj.object).raw;
@@ -508,6 +508,13 @@ export fn rb_str_set_len(str_raw: VALUE, len: c_long) void {
     if (!str.isString()) return;
     const obj = str.toStringObject();
     const new_len: usize = @intCast(len);
+    if (obj.append_storage) |storage| {
+        if (storage.ptr == obj.str.ptr and new_len < storage.len) {
+            storage[new_len] = 0;
+            obj.str = storage[0..new_len];
+            return;
+        }
+    }
     if (new_len <= obj.str.len) {
         obj.str = obj.str[0..new_len];
     }

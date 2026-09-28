@@ -129,6 +129,22 @@ cext_rstring_ptr_terminated(VALUE self, VALUE string)
 }
 
 static VALUE
+cext_rstring_ptr_writable_buffer(VALUE self)
+{
+    (void)self;
+    VALUE buffer = rb_str_buf_new(64);
+    char *ptr = RSTRING_PTR(buffer);
+    for (int i = 0; i < 64; i++) {
+        ptr[i] = (char)('a' + i % 26);
+    }
+    rb_str_set_len(buffer, 64);
+    if (RSTRING_PTR(buffer)[64] != '\0') {
+        return Qnil;
+    }
+    return buffer;
+}
+
+static VALUE
 cext_encoded_string_append(VALUE self)
 {
     (void)self;
@@ -830,6 +846,7 @@ void Init_fixture(void)
     rb_define_module_function(mCoraCExt, "intern_length", cext_intern_length, 0);
     rb_define_module_function(mCoraCExt, "static_string", cext_static_string, 0);
     rb_define_module_function(mCoraCExt, "rstring_ptr_terminated", cext_rstring_ptr_terminated, 1);
+    rb_define_module_function(mCoraCExt, "rstring_ptr_writable_buffer", cext_rstring_ptr_writable_buffer, 0);
     rb_define_module_function(mCoraCExt, "encoded_string_append", cext_encoded_string_append, 0);
     rb_define_module_function(mCoraCExt, "to_encoding", cext_to_encoding, 1);
     rb_define_module_function(mCoraCExt, "split_string", cext_split_string, 1);
