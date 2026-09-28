@@ -674,7 +674,7 @@ test "C extension rb_str_new_static honors the explicit length" {
     try std.testing.expectEqualStrings("abc", result.toStringObject().str);
 }
 
-test "C extension RSTRING_PTR returns a NUL-terminated string buffer" {
+test "C extension RSTRING_PTR returns a stable NUL-terminated buffer" {
     const result = try evalCode(
         \\$LOAD_PATH << "build/cext"
         \\require "fixture.so"

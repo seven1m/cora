@@ -322,10 +322,20 @@ export fn rb_define_method(klass: VALUE, name_ptr: [*:0]const u8, func: ?*anyopa
 }
 
 fn ensureNulTerminatedStringPtr(vm: *VM, string: *StringObject) ?[*]u8 {
+    if (string.cstr_storage) |storage| {
+        if (string.str.ptr == storage.ptr and
+            string.str.len < storage.len and
+            storage[string.str.len] == 0)
+        {
+            return storage.ptr;
+        }
+    }
+
     const length = string.str.len;
     const terminated = vm.gc_allocator_atomic.alloc(u8, length + 1) catch return null;
     @memcpy(terminated[0..length], string.str);
     terminated[length] = 0;
+    string.cstr_storage = terminated;
     string.str = terminated[0..length];
     return terminated.ptr;
 }

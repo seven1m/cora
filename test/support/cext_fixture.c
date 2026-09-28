@@ -124,7 +124,8 @@ cext_rstring_ptr_terminated(VALUE self, VALUE string)
 {
     (void)self;
     const char *ptr = RSTRING_PTR(string);
-    return ptr[RSTRING_LEN(string)] == '\0' ? Qtrue : Qfalse;
+    const char *second_ptr = RSTRING_PTR(string);
+    return ptr == second_ptr && ptr[RSTRING_LEN(string)] == '\0' ? Qtrue : Qfalse;
 }
 
 static VALUE
