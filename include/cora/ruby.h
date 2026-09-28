@@ -564,6 +564,7 @@ VALUE rb_hash_new_capa(long capa);
 VALUE rb_hash_aref(VALUE hash, VALUE key);
 VALUE rb_hash_aset(VALUE hash, VALUE key, VALUE val);
 VALUE rb_hash_delete(VALUE hash, VALUE key);
+VALUE rb_hash_clear(VALUE hash);
 long  rb_hash_size(VALUE hash);
 int   rb_hash_foreach(VALUE hash, int (*func)(VALUE, VALUE, VALUE), VALUE arg);
 

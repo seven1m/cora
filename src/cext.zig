@@ -2200,6 +2200,10 @@ export fn rb_hash_delete(hash_raw: VALUE, key_raw: VALUE) VALUE {
     return if (deleted) |v| v.raw else Value.nil().raw;
 }
 
+export fn rb_hash_clear(hash_raw: VALUE) VALUE {
+    return rb_funcall(hash_raw, rb_intern("clear"), 0);
+}
+
 export fn rb_hash_size(hash_raw: VALUE) c_long {
     const hash = Value{ .raw = hash_raw };
     if (!hash.isHash()) return 0;
