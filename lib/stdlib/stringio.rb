@@ -249,7 +249,7 @@ class StringIO
     end
 
     if length.nil?
-      result = @string[@pos, @string.bytesize - @pos]
+      result = @string.byteslice(@pos, @string.bytesize - @pos)
       @pos = @string.bytesize
       if outbuf
         begin
@@ -285,7 +285,7 @@ class StringIO
       avail = @string.bytesize - @pos
       actual_len = length < avail ? length : avail
 
-      result = @string[@pos, actual_len]
+      result = @string.byteslice(@pos, actual_len)
       @pos += actual_len
 
       # read(length) always returns a binary (ASCII-8BIT) string
