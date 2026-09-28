@@ -239,6 +239,46 @@ test "Process.detach returns a Thread" {
     try std.testing.expectEqual(true, result.toBool());
 }
 
+test "Process.fork re-raises default signals after child at_exit handlers" {
+    if (builtin.os.tag == .windows) return;
+
+    var gpa: std.heap.DebugAllocator(.{}) = .init;
+    defer _ = gpa.deinit();
+    const allocator = gpa.allocator();
+    var threaded: std.Io.Threaded = .init(allocator, .{});
+    defer threaded.deinit();
+
+    const result = try std.process.run(allocator, threaded.io(), .{
+        .argv = &.{
+            "build/bin/cora",
+            "-e",
+            \\parent_pid = Process.pid
+            \\reader, writer = IO.pipe
+            \\at_exit { writer.write("child at_exit") if Process.pid != parent_pid }
+            \\server = TCPServer.new("127.0.0.1", 0)
+            \\child_pid = Process.fork { server.accept }
+            \\server.close
+            \\writer.close
+            \\Process.kill(:TERM, child_pid)
+            \\Process.wait(child_pid)
+            \\status = $?
+            \\marker = reader.read
+            \\reader.close
+            \\puts status.signaled?
+            \\puts !status.termsig.nil?
+            \\puts marker == "child at_exit"
+        },
+        .stdout_limit = .limited(1024 * 1024),
+        .stderr_limit = .limited(1024 * 1024),
+    });
+    defer allocator.free(result.stdout);
+    defer allocator.free(result.stderr);
+
+    try std.testing.expect(result.term == .exited and result.term.exited == 0);
+    try std.testing.expectEqualStrings("true\ntrue\ntrue\n", result.stdout);
+    try std.testing.expectEqualStrings("", result.stderr);
+}
+
 test "Process and Kernel fork invoke overridable Process._fork" {
     if (builtin.os.tag == .windows) return;
     const result = try evalCode(

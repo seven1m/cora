@@ -7,6 +7,7 @@ const method_reflection = @import("method_reflection.zig");
 const module_builtin = @import("module.zig");
 const method_builtin = @import("method.zig");
 const signal_builtin = @import("signal.zig");
+const signal_support = @import("../signal_support.zig");
 const object_builtin = @import("object.zig");
 const method_common = @import("method_common.zig");
 const openssl_builtin = @import("openssl.zig");
@@ -3136,17 +3137,25 @@ fn exitForkChild(vm: *VM, status: u8) noreturn {
     std.c._exit(status);
 }
 
+fn exitForkChildBySignal(vm: *VM, signal: std.posix.SIG) noreturn {
+    flushForkChildOutputs(vm);
+    signal_support.reraiseDefault(signal);
+}
+
+fn exitForkChildForUnhandledException(vm: *VM) noreturn {
+    if (vm.unhandledExceptionExitStatus()) |status| exitForkChild(vm, status);
+    if (vm.unhandledExceptionSignal()) |signal| exitForkChildBySignal(vm, signal);
+    vm.printUnhandledException();
+    exitForkChild(vm, 1);
+}
+
 fn finishForkChild(vm: *VM, block_err: ?anyerror) noreturn {
     const at_exit_result = vm.runAtExitHandlers();
     if (at_exit_result) |_| {
         // at_exit handlers completed
     } else |err| switch (err) {
         error.UnhandledException => {
-            if (vm.unhandledExceptionExitStatus()) |status| {
-                exitForkChild(vm, status);
-            }
-            vm.printUnhandledException();
-            exitForkChild(vm, 1);
+            exitForkChildForUnhandledException(vm);
         },
         else => exitForkChild(vm, 1),
     }
@@ -3155,10 +3164,7 @@ fn finishForkChild(vm: *VM, block_err: ?anyerror) noreturn {
         switch (err) {
             error.Unwind, error.UnhandledException => {
                 if (vm.pendingException() != null) {
-                    if (vm.unhandledExceptionExitStatus()) |status| {
-                        exitForkChild(vm, status);
-                    }
-                    vm.printUnhandledException();
+                    exitForkChildForUnhandledException(vm);
                 }
             },
             else => {},

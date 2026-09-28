@@ -1,5 +1,18 @@
 const std = @import("std");
 
+pub fn reraiseDefault(signal: std.posix.SIG) noreturn {
+    if (std.posix.Sigaction != void) {
+        const action: std.posix.Sigaction = .{
+            .handler = .{ .handler = std.posix.SIG.DFL },
+            .mask = std.posix.sigemptyset(),
+            .flags = 0,
+        };
+        std.posix.sigaction(signal, &action, null);
+        std.posix.raise(signal) catch {};
+    }
+    std.c._exit(128 + @as(c_int, @intCast(@intFromEnum(signal))));
+}
+
 pub const SignalInfo = struct {
     short_name: []const u8,
     full_name: []const u8,

@@ -6,6 +6,7 @@ const version = @import("version.zig");
 const compiler = @import("compiler.zig");
 const load_path = @import("load_path.zig");
 const vm = @import("vm.zig");
+const signal_support = @import("signal_support.zig");
 const bdwgc = @import("bdwgc");
 const gc_allocator = @import("gc_allocator.zig");
 const cext = @import("cext.zig");
@@ -14,15 +15,7 @@ const pack = @import("app_pack.zig");
 fn exitForUnhandledException(virtual_machine: *vm.VM) noreturn {
     if (virtual_machine.unhandledExceptionExitStatus()) |status| std.process.exit(status);
     if (virtual_machine.unhandledExceptionSignal()) |signal| {
-        if (std.posix.Sigaction != void) {
-            const action: std.posix.Sigaction = .{
-                .handler = .{ .handler = std.posix.SIG.DFL },
-                .mask = std.posix.sigemptyset(),
-                .flags = 0,
-            };
-            std.posix.sigaction(signal, &action, null);
-            std.posix.raise(signal) catch {};
-        }
+        signal_support.reraiseDefault(signal);
     }
     virtual_machine.printUnhandledException();
     std.process.exit(1);
