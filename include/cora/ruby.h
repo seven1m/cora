@@ -533,6 +533,7 @@ int           rb_encoding_get(VALUE str);
 rb_encoding  *rb_enc_from_index(int idx);
 VALUE         rb_enc_from_encoding(rb_encoding *encoding);
 rb_encoding  *rb_enc_get(VALUE obj);
+const char   *rb_enc_name(rb_encoding *enc);
 unsigned int  rb_enc_codepoint_len(const char *p, const char *e, int *len_p, rb_encoding *enc);
 int           rb_isspace(unsigned int c);
 char         *rb_enc_left_char_head(const char *str, const char *start, const char *end, rb_encoding *enc);

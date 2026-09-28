@@ -382,6 +382,12 @@ export fn rb_enc_from_encoding(enc_opaque: ?*anyopaque) VALUE {
     return getVM().encodingToValue(encoding_value.*).raw;
 }
 
+export fn rb_enc_name(enc_opaque: ?*anyopaque) [*c]const u8 {
+    const ptr = enc_opaque orelse return null;
+    const encoding_value: *const enc.Encoding = @ptrCast(@alignCast(ptr));
+    return @ptrCast(encoding_value.name().ptr);
+}
+
 export fn rb_enc_codepoint_len(p: [*]const u8, e: [*]const u8, len_p: *c_int, enc_opaque: ?*anyopaque) c_uint {
     if (@intFromPtr(p) >= @intFromPtr(e)) {
         len_p.* = 0;
