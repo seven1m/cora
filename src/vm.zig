@@ -10569,6 +10569,7 @@ pub const VM = struct {
             return error.Fatal;
         }
 
+        const source_snapshot = try self.newStringWithEncoding(source.str, false, source.encoding);
         const md = self.gc_allocator.create(MatchDataObject) catch return error.Fatal;
         md.* = .{
             .object = .{
@@ -10579,7 +10580,7 @@ pub const VM = struct {
                 .instance_variables = null,
             },
             .regexp = regexp_obj,
-            .source = source,
+            .source = source_snapshot.toStringObject(),
             .captures = .empty,
             .begin_byte_offsets = .empty,
             .end_byte_offsets = .empty,

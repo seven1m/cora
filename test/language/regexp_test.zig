@@ -16,6 +16,20 @@ test "$+ returns the last non-nil regexp capture during scan" {
     try std.testing.expectEqualStrings("a", captures[1].toStringObject().str);
 }
 
+test "MatchData keeps its source string after the original is mutated" {
+    const result = try evalCode(
+        \\source = "abc"
+        \\match = /b/.match(source)
+        \\source.replace("x")
+        \\[match.string, match[0], match.pre_match, match.post_match, $~.string]
+    );
+    const values = result.toArrayObject().elements.items;
+    const expected = [_][]const u8{ "abc", "b", "a", "c", "abc" };
+    for (values, expected) |value_, string| {
+        try std.testing.expectEqualStrings(string, value_.toStringObject().str);
+    }
+}
+
 test "Regexp inspect" {
     const result = try evalCode("/hello/.inspect");
     try std.testing.expect(result.isString());
