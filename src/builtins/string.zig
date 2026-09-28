@@ -2505,10 +2505,11 @@ fn transcodeWithEncodeOptions(
 ) VMError![]u8 {
     const effective_target_encoding = enc.effectiveTranscodeTargetEncoding(target_encoding);
 
+    // A full-string iconv conversion that succeeds needs no fallback, and keeps
+    // stateful encodings such as ISO-2022-JP in a single shift sequence.
     if (opts.kw_invalid == null and
         opts.kw_undef == null and
         opts.kw_replace == null and
-        opts.kw_fallback == null and
         opts.xml_mode == .none)
     {
         if (enc.Encoding.transcodeViaIconv(
