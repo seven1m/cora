@@ -250,7 +250,20 @@ const VALUE *rb_ary_const_ptr(VALUE ary);
 #define StringValueCStr(v)   (rb_string_value_cstr(&(v)) ? rb_string_value_cstr(&(v)) : "")
 #define SafeStringValue(v)   StringValue(v)
 
-#define RB_GC_GUARD(v) ((void)(v))
+#ifdef __GNUC__
+#define RB_GC_GUARD(v) \
+    (*__extension__ ({ \
+        volatile VALUE *rb_gc_guarded_ptr = &(v); \
+        __asm__("" : : "m"(rb_gc_guarded_ptr)); \
+        rb_gc_guarded_ptr; \
+    }))
+#elif defined _MSC_VER
+VALUE *rb_gc_guarded_ptr(VALUE *var);
+#define RB_GC_GUARD(v) (*rb_gc_guarded_ptr(&(v)))
+#else
+VALUE rb_gc_guarded_ptr_val(VALUE *var, VALUE val);
+#define RB_GC_GUARD(v) (rb_gc_guarded_ptr_val(&(v), (v)))
+#endif
 
 #define RUBY_EXTERN extern
 #define ISDIGIT(c) isdigit(c)

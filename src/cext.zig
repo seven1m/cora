@@ -2544,6 +2544,15 @@ export fn rb_check_typeddata(obj_raw: VALUE, data_type: ?*const anyopaque) ?*any
 
 // ─── GC ──────────────────────────────────────────────────────────────────────
 
+export fn rb_gc_guarded_ptr(address: *VALUE) *VALUE {
+    return address;
+}
+
+export fn rb_gc_guarded_ptr_val(address: *VALUE, val: VALUE) VALUE {
+    _ = address;
+    return val;
+}
+
 export fn rb_gc_mark(ptr: VALUE) void {
     cext_gc.markReference(ptr);
 }
