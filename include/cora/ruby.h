@@ -436,7 +436,10 @@ VALUE  rb_ary_new_from_values(long n, const VALUE *elts);
 
 ID     rb_intern(const char *name);
 ID     rb_intern2(const char *name, long len);
+ID     rb_intern3(const char *name, long len, rb_encoding *enc);
 const char *rb_id2name(ID id);
+VALUE  rb_id2sym(ID id);
+ID     rb_sym2id(VALUE sym);
 VALUE  rb_const_get(VALUE klass, ID id);
 VALUE  rb_const_get_at(VALUE klass, ID id);
 void   rb_define_const(VALUE klass, const char *name, VALUE val);

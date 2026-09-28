@@ -1020,6 +1020,22 @@ export fn rb_intern2(name: [*c]const u8, len: c_long) VALUE {
     return Value.fromObject(&sym.object).raw;
 }
 
+export fn rb_intern3(name: [*c]const u8, len: c_long, enc_ptr: ?*anyopaque) VALUE {
+    if (name == null or len < 0) return 0;
+    const vm = getVM();
+    const encoding_ptr: *const enc.Encoding = if (enc_ptr) |ptr| @ptrCast(@alignCast(ptr)) else @ptrCast(@alignCast(rb_utf8_encoding().?));
+    const sym = vm.internWithEncoding(name[0..@intCast(len)], encoding_ptr.*) catch return 0;
+    return Value.fromObject(&sym.object).raw;
+}
+
+export fn rb_id2sym(id: VALUE) VALUE {
+    return id;
+}
+
+export fn rb_sym2id(sym: VALUE) VALUE {
+    return sym;
+}
+
 fn symName(id: VALUE) []const u8 {
     const val = Value{ .raw = id };
     if (val.isSymbol()) return val.toSymbolObject().name;
