@@ -839,6 +839,7 @@ pub const VM = struct {
     bootstrapped: bool = false,
 
     cext_handles: std.ArrayList(std.DynLib) = .empty,
+    cext_at_exit_handlers: std.ArrayList(*const fn (?*anyopaque) callconv(.c) void) = .empty,
     cext_jmp_buf: ?*[200]u8 = null,
     cext_keyword_hash: ?Value = null,
 
@@ -2894,6 +2895,11 @@ pub const VM = struct {
     }
 
     pub fn deinit(self: *VM) void {
+        while (self.cext_at_exit_handlers.items.len > 0) {
+            const handler = self.cext_at_exit_handlers.pop().?;
+            handler(@ptrCast(self));
+        }
+        self.cext_at_exit_handlers.deinit(self.allocator);
         self.random_states.deinit();
         self.unregisterPushOtherRootsForGc();
         if (self.gc_vm_root_registered) {

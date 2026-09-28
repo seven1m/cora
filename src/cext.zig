@@ -13,6 +13,12 @@ const cext_gc = @import("cext_gc.zig");
 
 pub const VALUE = u64;
 
+export fn ruby_vm_at_exit(callback: ?*const fn (?*anyopaque) callconv(.c) void) void {
+    const handler = callback orelse return;
+    const vm = getVM();
+    vm.cext_at_exit_handlers.append(vm.allocator, handler) catch @panic("out of memory registering C extension exit handler");
+}
+
 const StEntry = extern struct {
     key: usize,
     value: usize,
