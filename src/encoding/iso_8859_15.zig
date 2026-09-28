@@ -72,6 +72,7 @@ pub const Iso885915Encoding = struct {
             0x0152 => 0xBC,
             0x0153 => 0xBD,
             0x0178 => 0xBE,
+            0x00A4, 0x00A6, 0x00A8, 0x00B4, 0x00B8, 0x00BC, 0x00BD, 0x00BE => null,
             else => if (codepoint <= 0xFF) @intCast(codepoint) else null,
         };
     }
