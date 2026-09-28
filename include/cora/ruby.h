@@ -326,6 +326,7 @@ VALUE UINT2NUM(unsigned int v);
 VALUE ULONG2NUM(unsigned long v);
 
 /* struct wrapping */
+typedef void (*RUBY_DATA_FUNC)(void *);
 typedef struct rb_data_type_struct {
     const char *wrap_struct_name;
     struct {
