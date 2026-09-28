@@ -321,10 +321,19 @@ export fn rb_define_method(klass: VALUE, name_ptr: [*:0]const u8, func: ?*anyopa
     vm.method_state_version += 1;
 }
 
+fn ensureNulTerminatedStringPtr(vm: *VM, string: *StringObject) ?[*]u8 {
+    const length = string.str.len;
+    const terminated = vm.gc_allocator_atomic.alloc(u8, length + 1) catch return null;
+    @memcpy(terminated[0..length], string.str);
+    terminated[length] = 0;
+    string.str = terminated[0..length];
+    return terminated.ptr;
+}
+
 export fn rb_string_ptr(str_raw: VALUE) ?[*]u8 {
     const val = Value{ .raw = str_raw };
     if (val.isString()) {
-        return @constCast(val.toStringObject().str.ptr);
+        return ensureNulTerminatedStringPtr(getVM(), val.toStringObject());
     }
     return null;
 }
@@ -585,13 +594,7 @@ export fn rb_string_value_cstr(ptr: *VALUE) ?[*]u8 {
 export fn rb_string_value_ptr(ptr: *VALUE) ?[*]u8 {
     if (rb_string_value(ptr) == 0) return null;
     const val = Value{ .raw = ptr.* };
-    const vm = getVM();
-    const string = val.toStringObject();
-    const terminated = vm.gc_allocator_atomic.alloc(u8, string.str.len + 1) catch return null;
-    @memcpy(terminated[0..string.str.len], string.str);
-    terminated[string.str.len] = 0;
-    string.str = terminated[0..string.str.len];
-    return terminated.ptr;
+    return ensureNulTerminatedStringPtr(getVM(), val.toStringObject());
 }
 
 export fn rb_string_value(ptr: *VALUE) VALUE {

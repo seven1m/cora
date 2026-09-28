@@ -120,6 +120,14 @@ cext_static_string(VALUE self)
 }
 
 static VALUE
+cext_rstring_ptr_terminated(VALUE self, VALUE string)
+{
+    (void)self;
+    const char *ptr = RSTRING_PTR(string);
+    return ptr[RSTRING_LEN(string)] == '\0' ? Qtrue : Qfalse;
+}
+
+static VALUE
 cext_encoded_string_append(VALUE self)
 {
     (void)self;
@@ -820,6 +828,7 @@ void Init_fixture(void)
     rb_define_module_function(mCoraCExt, "str_new_length", cext_str_new_length, 1);
     rb_define_module_function(mCoraCExt, "intern_length", cext_intern_length, 0);
     rb_define_module_function(mCoraCExt, "static_string", cext_static_string, 0);
+    rb_define_module_function(mCoraCExt, "rstring_ptr_terminated", cext_rstring_ptr_terminated, 1);
     rb_define_module_function(mCoraCExt, "encoded_string_append", cext_encoded_string_append, 0);
     rb_define_module_function(mCoraCExt, "to_encoding", cext_to_encoding, 1);
     rb_define_module_function(mCoraCExt, "split_string", cext_split_string, 1);
