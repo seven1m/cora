@@ -2061,6 +2061,10 @@ export fn RARRAY_LEN(ary_raw: VALUE) c_long {
     return @intCast(arr.elements.items.len);
 }
 
+export fn rb_array_len(ary_raw: VALUE) c_long {
+    return RARRAY_LEN(ary_raw);
+}
+
 export fn INT2NUM(v: c_long) VALUE {
     if (std.math.cast(i63, v) != null) return Value.integer(v).raw;
     const vm = getVM();
