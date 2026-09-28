@@ -158,6 +158,28 @@ typedef struct {
     VALUE retained;
 } cora_cext_retainer;
 
+static size_t cora_cext_retainer_marks;
+
+typedef struct {
+    VALUE wrapper;
+} cora_cext_cycle;
+
+static size_t cora_cext_cycle_frees;
+
+static void
+cora_cext_cycle_free(void *ptr)
+{
+    cora_cext_cycle_frees++;
+    ruby_xfree(ptr);
+}
+
+static const rb_data_type_t cora_cext_cycle_type = {
+    .wrap_struct_name = "CoraCExtCycle",
+    .function = {
+        .dfree = cora_cext_cycle_free,
+    },
+};
+
 static const rb_data_type_t cora_cext_data_type = {
     .wrap_struct_name = "CoraCExtData",
     .function = {
@@ -169,6 +191,7 @@ static void
 cora_cext_retainer_mark(void *ptr)
 {
     cora_cext_retainer *data = ptr;
+    cora_cext_retainer_marks++;
     rb_gc_mark(data->retained);
 }
 
@@ -220,6 +243,31 @@ cext_typed_data_retained(VALUE self, VALUE object)
     cora_cext_retainer *data;
     TypedData_Get_Struct(object, cora_cext_retainer, &cora_cext_retainer_type, data);
     return data->retained;
+}
+
+static VALUE
+cext_typed_data_mark_count(VALUE self)
+{
+    (void)self;
+    return SIZET2NUM(cora_cext_retainer_marks);
+}
+
+static VALUE
+cext_typed_data_make_cycle(VALUE self)
+{
+    (void)self;
+    VALUE object = rb_data_typed_object_alloc(rb_cObject, &cora_cext_cycle_type);
+    cora_cext_cycle *data = ruby_xmalloc(sizeof(*data));
+    data->wrapper = object;
+    DATA_PTR(object) = data;
+    return object;
+}
+
+static VALUE
+cext_typed_data_cycle_frees(VALUE self)
+{
+    (void)self;
+    return SIZET2NUM(cora_cext_cycle_frees);
 }
 
 static VALUE
@@ -780,6 +828,9 @@ void Init_fixture(void)
     rb_define_module_function(mCoraCExt, "typed_data_assign_after_alloc", cext_typed_data_assign_after_alloc, 0);
     rb_define_module_function(mCoraCExt, "typed_data_retain", cext_typed_data_retain, 1);
     rb_define_module_function(mCoraCExt, "typed_data_retained", cext_typed_data_retained, 1);
+    rb_define_module_function(mCoraCExt, "typed_data_mark_count", cext_typed_data_mark_count, 0);
+    rb_define_module_function(mCoraCExt, "typed_data_make_cycle", cext_typed_data_make_cycle, 0);
+    rb_define_module_function(mCoraCExt, "typed_data_cycle_frees", cext_typed_data_cycle_frees, 0);
     rb_define_module_function(mCoraCExt, "string_value_cstr_length", cext_string_value_cstr_length, 1);
     rb_define_module_function(mCoraCExt, "class_of", cext_class_of, 1);
     rb_define_module_function(mCoraCExt, "obj_class", cext_obj_class, 1);

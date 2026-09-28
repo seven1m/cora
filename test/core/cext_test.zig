@@ -852,12 +852,28 @@ test "C extension typed data keeps referenced Ruby objects alive" {
         \\require "fixture.so"
         \\value = "retained-value-" + ("x" * 1024)
         \\holder = CoraCExt.typed_data_retain(value)
+        \\before_marks = CoraCExt.typed_data_mark_count
         \\value = nil
         \\10.times do
         \\  1000.times { "garbage" * 128 }
         \\  GC.start
         \\end
-        \\CoraCExt.typed_data_retained(holder) == "retained-value-" + ("x" * 1024)
+        \\CoraCExt.typed_data_mark_count > before_marks &&
+        \\  CoraCExt.typed_data_retained(holder) == "retained-value-" + ("x" * 1024)
+    );
+    try std.testing.expect(result.toBool());
+}
+
+test "C extension frees native typed-data storage once after a native reference cycle" {
+    const result = try evalCode(
+        \\$LOAD_PATH << "build/cext"
+        \\require "fixture.so"
+        \\before = CoraCExt.typed_data_cycle_frees
+        \\50.times { CoraCExt.typed_data_make_cycle; GC.start }
+        \\10.times { 1000.times { "garbage" * 128 }; GC.start }
+        \\after = CoraCExt.typed_data_cycle_frees
+        \\10.times { GC.start }
+        \\after == before + 50 && CoraCExt.typed_data_cycle_frees == after
     );
     try std.testing.expect(result.toBool());
 }
@@ -1037,7 +1053,6 @@ test "C extension warnings format arguments and respect verbosity" {
     try std.testing.expectEqualStrings("plain warning one\nverbose warning two\n", values[0].toStringObject().str);
     try std.testing.expectEqualStrings("plain warning one\n", values[1].toStringObject().str);
 }
-
 
 test "C extension nested calls do not inherit surrounding builtin keywords" {
     const result = try evalCode(

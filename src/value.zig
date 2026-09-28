@@ -71,6 +71,8 @@ pub const TypedDataCallbacks = struct {
 
 pub const TypedDataObject = struct {
     object: Object,
+    // Custom mark procedures can be called on cleared Boehm free-list cells.
+    mark_live: bool,
     data: ?*anyopaque,
     data_type: ?*const anyopaque,
     callbacks: TypedDataCallbacks,

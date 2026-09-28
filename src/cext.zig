@@ -8,6 +8,7 @@ const enc = @import("encoding.zig");
 const cext_globals = @import("cext_globals.zig");
 const onigmo = @import("onigmo.zig");
 const bdwgc = @import("bdwgc");
+const cext_gc = @import("cext_gc.zig");
 
 pub const VALUE = u64;
 
@@ -1786,27 +1787,22 @@ export fn rb_enc_left_char_head(str: [*c]const u8, start: [*c]const u8, end: [*c
 // ─── Memory ─────────────────────────────────────────────────────────────────
 
 export fn xmalloc(size: usize) ?*anyopaque {
-    return bdwgc.c.GC_malloc(size) orelse @panic("xmalloc: out of memory");
+    return std.c.malloc(@max(size, 1)) orelse @panic("xmalloc: out of memory");
 }
 
 export fn xcalloc(n: usize, size: usize) ?*anyopaque {
     const total = std.math.mul(usize, n, size) catch @panic("xcalloc: allocation size overflow");
-    const ptr = bdwgc.c.GC_malloc(total) orelse @panic("xcalloc: out of memory");
-    @memset(@as([*]u8, @ptrCast(ptr))[0..total], 0);
-    return ptr;
+    return std.c.calloc(1, @max(total, 1)) orelse @panic("xcalloc: out of memory");
 }
 
 export fn xrealloc(ptr: ?*anyopaque, size: usize) ?*anyopaque {
-    const new_ptr = bdwgc.c.GC_realloc(ptr, size);
+    const new_ptr = std.c.realloc(ptr, @max(size, 1));
     if (new_ptr == null) @panic("xrealloc: out of memory");
     return new_ptr;
 }
 
 export fn xfree(ptr: ?*anyopaque) void {
-    // xmalloc allocations are collectible.  In particular, a typed-data
-    // wrapper and its data can become unreachable in the same collection, so
-    // its dfree callback must not explicitly free data the collector owns.
-    _ = ptr;
+    std.c.free(ptr);
 }
 
 export fn ruby_xmalloc(size: usize) ?*anyopaque {
@@ -2484,7 +2480,7 @@ export fn rb_global_variable(obj: *VALUE) void {
 }
 
 export fn rb_gc_mark_movable(ptr: VALUE) void {
-    _ = ptr;
+    cext_gc.markReference(ptr);
 }
 
 export fn rb_gc_location(ptr: VALUE) VALUE {
@@ -2549,7 +2545,7 @@ export fn rb_check_typeddata(obj_raw: VALUE, data_type: ?*const anyopaque) ?*any
 // ─── GC ──────────────────────────────────────────────────────────────────────
 
 export fn rb_gc_mark(ptr: VALUE) void {
-    _ = ptr;
+    cext_gc.markReference(ptr);
 }
 
 export fn rb_gc_register_mark_object(obj: VALUE) void {

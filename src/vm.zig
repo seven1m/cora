@@ -18,6 +18,7 @@ const comparable_builtin = @import("builtins/comparable.zig");
 const warning_builtin = @import("builtins/warning.zig");
 const zio = @import("zio");
 const bdwgc = @import("bdwgc");
+const cext_gc = @import("cext_gc.zig");
 const version = @import("version.zig");
 const rbconfig_data = @import("rbconfig/data.zig");
 
@@ -10773,8 +10774,14 @@ pub const VM = struct {
 
     fn typedDataFinalizer(obj: *anyopaque, _: ?*anyopaque) callconv(.c) void {
         const typed: *value.TypedDataObject = @ptrCast(@alignCast(obj));
-        if (typed.callbacks.dfree) |dfree| {
-            if (typed.data) |data| dfree(data);
+        if (!typed.mark_live) return;
+        typed.mark_live = false;
+        const callbacks = typed.callbacks;
+        const data = typed.data;
+        typed.callbacks = .{};
+        typed.data = null;
+        if (callbacks.dfree) |dfree| {
+            if (data) |ptr| dfree(ptr);
         }
     }
 
@@ -10800,7 +10807,8 @@ pub const VM = struct {
         data_type: ?*const anyopaque,
         callbacks: value.TypedDataCallbacks,
     ) VMError!Value {
-        const obj = self.gc_allocator.create(value.TypedDataObject) catch return error.Fatal;
+        _ = self;
+        const obj = cext_gc.allocateTypedData() orelse return error.Fatal;
         obj.* = .{
             .object = .{
                 .type_tag = .typed_data,
@@ -10809,13 +10817,13 @@ pub const VM = struct {
                 .singleton_class = null,
                 .instance_variables = null,
             },
+            .mark_live = true,
             .data = data,
             .data_type = data_type,
             .callbacks = callbacks,
         };
-        if (callbacks.dfree != null) {
-            try registerUnorderedFinalizer(&obj.object, typedDataFinalizer, null);
-        }
+        // Invalidate every wrapper before its custom mark kind can see a free-list cell.
+        try registerUnorderedFinalizer(&obj.object, typedDataFinalizer, null);
         return Value.fromObject(&obj.object);
     }
 
