@@ -112,10 +112,8 @@ describe "Module#name" do
 
   # http://bugs.ruby-lang.org/issues/6067
   it "is set with a conditional assignment to a nested constant" do
-    CORAFIXME "constant-path ||= lowering is not implemented", exception: SyntaxError, message: /syntax error/ do
-      eval("ModuleSpecs::Anonymous::F ||= Module.new")
-      ModuleSpecs::Anonymous::F.name.should == "ModuleSpecs::Anonymous::F"
-    end
+    eval("ModuleSpecs::Anonymous::F ||= Module.new")
+    ModuleSpecs::Anonymous::F.name.should == "ModuleSpecs::Anonymous::F"
   end
 
   it "is set with a conditional assignment to a constant" do

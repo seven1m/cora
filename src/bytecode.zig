@@ -94,6 +94,7 @@ pub const OpCode = enum(u8) {
 
     // Constant path resolution
     GET_CONST_PATH, // Operand: u16 (constant name index)
+    GET_CONST_PATH_OR_NIL, // Operand: u16 (constant name index), returns nil on miss
 
     // Exception handling
     RAISE, // Operand: u8 (argc)
@@ -261,6 +262,7 @@ pub fn opcodeOperandSize(op: OpCode) usize {
         .RETRY,
         .PUSH_LAMBDA,
         .GET_CONST_PATH,
+        .GET_CONST_PATH_OR_NIL,
         .PUSH_ARRAY,
         .PUSH_HASH,
         .HASH_SET_CONST_KEY,
@@ -470,6 +472,7 @@ pub fn opcodeName(op: OpCode) []const u8 {
         .YIELD_SPLAT => "YIELD_SPLAT",
         .PUSH_LAMBDA => "PUSH_LAMBDA",
         .GET_CONST_PATH => "GET_CONST_PATH",
+        .GET_CONST_PATH_OR_NIL => "GET_CONST_PATH_OR_NIL",
         .RAISE => "RAISE",
         .TRY_BEGIN => "TRY_BEGIN",
         .TRY_END => "TRY_END",

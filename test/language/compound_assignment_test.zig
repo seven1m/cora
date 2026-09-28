@@ -311,6 +311,90 @@ test "constant ||= assigns when existing constant is falsey" {
     try std.testing.expectEqual(@as(i64, 2), result.toInteger());
 }
 
+test "constant path ||= initializes missing constant and skips RHS when truthy" {
+    const result = try evalCode(
+        \\class Foo; end
+        \\calls = 0
+        \\first = (Foo::Bar ||= (calls += 1))
+        \\second = (Foo::Bar ||= (calls += 1))
+        \\[first, second, Foo::Bar, calls]
+    );
+    const elements = result.toArrayObject().elements.items;
+    try std.testing.expectEqual(@as(usize, 4), elements.len);
+    for (elements) |element| try std.testing.expectEqual(@as(i64, 1), element.toInteger());
+}
+
+test "constant path ||= evaluates parent once and replaces falsey value" {
+    const result = try evalCode(
+        \\class Foo; Bar = false; end
+        \\calls = 0
+        \\def parent
+        \\  $parent_calls += 1
+        \\  Foo
+        \\end
+        \\$parent_calls = 0
+        \\value = (parent::Bar ||= 3)
+        \\[value, Foo::Bar, $parent_calls]
+    );
+    const elements = result.toArrayObject().elements.items;
+    try std.testing.expectEqual(@as(usize, 3), elements.len);
+    try std.testing.expectEqual(@as(i64, 3), elements[0].toInteger());
+    try std.testing.expectEqual(@as(i64, 3), elements[1].toInteger());
+    try std.testing.expectEqual(@as(i64, 1), elements[2].toInteger());
+}
+
+test "constant path ||= loads autoload before evaluating RHS" {
+    const result = try evalCode(
+        \\class AutoloadPath; end
+        \\AutoloadPath.autoload(:Value, File.expand_path("test/support/autoload_constant_path", Dir.pwd))
+        \\$assigned = false
+        \\value = (AutoloadPath::Value ||= ($assigned = true))
+        \\[value, AutoloadPath::Value, $assigned]
+    );
+    const elements = result.toArrayObject().elements.items;
+    try std.testing.expectEqual(@as(usize, 3), elements.len);
+    try std.testing.expectEqual(@as(i64, 7), elements[0].toInteger());
+    try std.testing.expectEqual(@as(i64, 7), elements[1].toInteger());
+    try std.testing.expect(elements[2].isFalse());
+}
+
+test "constant path ||= loads an inherited autoload" {
+    const result = try evalCode(
+        \\module AncestorAutoload; end
+        \\AncestorAutoload.autoload(:Loaded, File.expand_path("test/support/autoload_ancestor_constant", Dir.pwd))
+        \\class AutoloadChild
+        \\  include AncestorAutoload
+        \\end
+        \\$assigned = false
+        \\value = (AutoloadChild::Loaded ||= ($assigned = true))
+        \\[value::Value, $assigned]
+    );
+    const elements = result.toArrayObject().elements.items;
+    try std.testing.expectEqual(@as(usize, 2), elements.len);
+    try std.testing.expectEqual(@as(i64, 23), elements[0].toInteger());
+    try std.testing.expect(elements[1].isFalse());
+}
+
+test "constant path ||= raises when autoload does not define the constant" {
+    const result = try evalCode(
+        \\class AutoloadMissing; end
+        \\AutoloadMissing.autoload(:Value, File.expand_path("test/support/autoload_ancestor_constant", Dir.pwd))
+        \\$assigned = false
+        \\$raised = false
+        \\begin
+        \\  AutoloadMissing::Value ||= ($assigned = true)
+        \\rescue NameError
+        \\  $raised = true
+        \\end
+        \\[$raised, $assigned, AutoloadMissing.const_defined?(:Value, false)]
+    );
+    const elements = result.toArrayObject().elements.items;
+    try std.testing.expectEqual(@as(usize, 3), elements.len);
+    try std.testing.expect(elements[0].isTrue());
+    try std.testing.expect(elements[1].isFalse());
+    try std.testing.expect(elements[2].isFalse());
+}
+
 test "constant &&= raises NameError when constant is missing" {
     var stdout_buf: [8192]u8 = undefined;
     var stderr_buf: [8192]u8 = undefined;

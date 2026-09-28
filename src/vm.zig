@@ -5732,7 +5732,7 @@ pub const VM = struct {
                 try self.push(val);
             },
 
-            .GET_CONST_PATH => {
+            .GET_CONST_PATH, .GET_CONST_PATH_OR_NIL => {
                 const idx = readU16From(frame, operands, &operand_cursor);
                 const constant = constants[idx];
                 const parent_val = self.pop();
@@ -5744,6 +5744,7 @@ pub const VM = struct {
                     parent_val.toModuleObject()
                 else
                     unreachable;
+                var autoload_attempted = false;
                 if (module.constants.get(name_sym)) |entry| {
                     if (entry.flags.visibility == .private) {
                         try self.raisePrivateConstantReference(module, name_sym);
@@ -5751,6 +5752,15 @@ pub const VM = struct {
                     try self.warnDeprecatedConstant(module, name_sym);
                     try self.push(entry.value);
                     return;
+                }
+
+                switch (try self.triggerAutoload(module, name_sym)) {
+                    .missing => {},
+                    .attempted => autoload_attempted = true,
+                    .loaded => |const_val| {
+                        try self.push(const_val);
+                        return;
+                    },
                 }
 
                 var current = module.super;
@@ -5765,17 +5775,21 @@ pub const VM = struct {
                         try self.push(entry.value);
                         return;
                     }
+                    switch (try self.triggerAutoload(owner, name_sym)) {
+                        .missing => {},
+                        .attempted => autoload_attempted = true,
+                        .loaded => |const_val| {
+                            try self.push(const_val);
+                            return;
+                        },
+                    }
                 }
-
-                switch (try self.triggerAutoload(module, name_sym)) {
-                    .missing, .attempted => {},
-                    .loaded => |const_val| {
-                        try self.push(const_val);
-                        return;
-                    },
+                if (op == .GET_CONST_PATH_OR_NIL and !autoload_attempted) {
+                    try self.push(Value.nil());
+                } else {
+                    var missing_args = [_]Value{Value.fromObject(&name_sym.object)};
+                    try self.push(try self.callMethodByName(parent_val, "const_missing", &missing_args, null));
                 }
-                var missing_args = [_]Value{Value.fromObject(&name_sym.object)};
-                try self.push(try self.callMethodByName(parent_val, "const_missing", &missing_args, null));
             },
 
             .PUSH_SELF => {
