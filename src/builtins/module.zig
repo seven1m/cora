@@ -128,6 +128,56 @@ fn lookupConstantOnModule(module_obj: *value.ModuleObject, name_sym: *SymbolObje
     return null;
 }
 
+const ConstantSourceEntry = struct {
+    location: ?value.ConstSourceLocation,
+};
+
+fn ownConstantSourceEntry(module_obj: *value.ModuleObject, name_sym: *SymbolObject) ?ConstantSourceEntry {
+    if (module_obj.constants.get(name_sym)) |entry| return .{ .location = entry.source_location };
+    if (module_obj.autoloads.get(name_sym)) |entry| return .{ .location = entry.source_location };
+    return null;
+}
+
+fn lookupConstantSourceOnModule(module_obj: *value.ModuleObject, name_sym: *SymbolObject) ?ConstantSourceEntry {
+    if (module_obj.origin != module_obj) {
+        var prepends = module_obj.super;
+        while (prepends) |node| : (prepends = node.super) {
+            if (node.is_origin_iclass) break;
+            if (!ancestry.isVisibleAncestor(node)) continue;
+            if (ownConstantSourceEntry(ancestry.visibleModule(node), name_sym)) |entry| return entry;
+        }
+    }
+
+    if (ownConstantSourceEntry(module_obj, name_sym)) |entry| return entry;
+
+    var current = if (module_obj.origin == module_obj) module_obj.super else module_obj.origin.super;
+    while (current) |node| : (current = node.super) {
+        if (node.object.type_tag == .class) break;
+        if (!ancestry.isVisibleAncestor(node)) continue;
+        if (ownConstantSourceEntry(ancestry.visibleModule(node), name_sym)) |entry| return entry;
+    }
+    return null;
+}
+
+fn lookupConstantSourceOnReceiver(vm: *VM, receiver: Value, name_sym: *SymbolObject, inherit: bool, allow_object_fallback: bool) ?ConstantSourceEntry {
+    if (receiver.isClass()) {
+        var current: ?*ClassObject = receiver.toClassObject();
+        while (current) |klass| {
+            if (!allow_object_fallback and klass == vm.object_class and receiver.toClassObject() != vm.object_class) break;
+            if (lookupConstantSourceOnModule(&klass.module, name_sym)) |entry| return entry;
+            if (!inherit) break;
+            current = klass.superclass;
+        }
+        return null;
+    }
+
+    if (receiver.isModule()) {
+        if (lookupConstantSourceOnModule(receiver.toModuleObject(), name_sym)) |entry| return entry;
+        if (inherit and allow_object_fallback) return lookupConstantSourceOnModule(&vm.object_class.module, name_sym);
+    }
+    return null;
+}
+
 fn lookupAutoloadOnModule(module_obj: *value.ModuleObject, name_sym: *SymbolObject) ?[]const u8 {
     if (module_obj.origin != module_obj) {
         var prepends = module_obj.super;
@@ -1065,6 +1115,9 @@ pub fn register(vm: *VM) !void {
     const const_defined_sym = try vm.intern("const_defined?");
     try vm.module_class.module.methods.put(const_defined_sym, value.MethodEntry.builtin(&builtinModuleConstDefined, .{ .variadic = 0 }));
 
+    const const_source_location_sym = try vm.intern("const_source_location");
+    try vm.module_class.module.methods.put(const_source_location_sym, value.MethodEntry.builtin(&builtinModuleConstSourceLocation, .{ .variadic = 0 }));
+
     const const_set_sym = try vm.intern("const_set");
     try vm.module_class.module.methods.put(const_set_sym, value.MethodEntry.builtin(&builtinModuleConstSet, .{ .exact = 2 }));
 
@@ -1352,6 +1405,42 @@ pub fn builtinModuleConstDefined(vm: *VM, receiver: Value, args: []Value, _: ?Bl
     );
 }
 
+pub fn builtinModuleConstSourceLocation(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCountRange(args, 1, 2);
+    const inherit = if (args.len == 2) args[1].isTruthy() else true;
+    const name = try constantNameString(vm, args[0]);
+    const rooted = std.mem.startsWith(u8, name, "::");
+    if (args[0].isSymbol() and std.mem.indexOf(u8, name, "::") != null) {
+        return vm.raiseExceptionFmt(vm.name_error_class, "wrong constant name {s}", .{name});
+    }
+
+    var parts = splitConstantName(vm.gc_allocator, name, rooted) catch |err| switch (err) {
+        error.InvalidConstName => return vm.raiseExceptionFmt(vm.name_error_class, "wrong constant name {s}", .{name}),
+        else => return error.Fatal,
+    };
+    defer parts.deinit(vm.gc_allocator);
+
+    var current: Value = if (rooted) Value.fromObject(&vm.object_class.module.object) else receiver;
+    var first = true;
+    for (parts.items, 0..) |part, index| {
+        _ = moduleFromValue(current) orelse return Value.nil();
+        const name_sym = try vm.intern(part);
+        if (index + 1 == parts.items.len) {
+            const entry = lookupConstantSourceOnReceiver(vm, current, name_sym, inherit, first) orelse return Value.nil();
+            const result = try vm.createArray();
+            if (entry.location) |location| {
+                const file = try vm.newString(location.file, false);
+                result.elements.append(vm.gc_allocator, file) catch return error.Fatal;
+                result.elements.append(vm.gc_allocator, Value.integer(location.line)) catch return error.Fatal;
+            }
+            return Value.fromObject(&result.object);
+        }
+        current = (try lookupOrLoadConstantOnReceiver(vm, current, name_sym, inherit, first)) orelse return Value.nil();
+        first = false;
+    }
+    return Value.nil();
+}
+
 pub fn builtinModuleConstSet(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 2);
     _ = constantsTable(receiver) orelse {
@@ -1364,7 +1453,7 @@ pub fn builtinModuleConstSet(vm: *VM, receiver: Value, args: []Value, _: ?Block)
     }
 
     const name_sym = try vm.intern(name);
-    try vm.setConstant(moduleFromValue(receiver).?, name_sym, args[1]);
+    try vm.setConstantAtCallerLocation(moduleFromValue(receiver).?, name_sym, args[1]);
     return args[1];
 }
 
@@ -1397,7 +1486,7 @@ pub fn builtinModuleAutoload(vm: *VM, receiver: Value, args: []Value, _: ?Block)
 
     const name_sym = try vm.intern(name);
     if (constants.contains(name_sym)) return Value.nil();
-    try vm.registerAutoload(moduleFromValue(receiver).?, name_sym, path);
+    try vm.registerAutoloadAtCurrentLocation(moduleFromValue(receiver).?, name_sym, path);
     return Value.nil();
 }
 

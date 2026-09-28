@@ -221,11 +221,19 @@ pub const ConstFlags = packed struct(u16) {
 pub const ConstEntry = struct {
     value: Value,
     flags: ConstFlags = .{},
+    source_location: ?ConstSourceLocation = null,
+};
+
+pub const ConstSourceLocation = struct {
+    file: []const u8,
+    line: u32,
 };
 
 pub const AutoloadEntry = struct {
     path: []const u8,
     flags: ConstFlags = .{},
+    source_location: ?ConstSourceLocation = null,
+    loading: bool = false,
 };
 
 pub const BuiltinArity = union(enum) {

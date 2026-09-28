@@ -1422,7 +1422,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/module/const_get_spec.rb
 - [ ] core/module/const_missing_spec.rb
 - [ ] core/module/const_set_spec.rb
-- [ ] core/module/const_source_location_spec.rb
+- [x] core/module/const_source_location_spec.rb
 - [ ] core/module/constants_spec.rb
 - [ ] core/module/define_method_spec.rb
 - [x] core/module/define_singleton_method_spec.rb

@@ -2383,8 +2383,16 @@ pub const VM = struct {
     }
 
     pub fn registerAutoload(self: *VM, module_obj: *value.ModuleObject, name_sym: *value.SymbolObject, path: []const u8) VMError!void {
+        return self.registerAutoloadWithLocation(module_obj, name_sym, path, null);
+    }
+
+    pub fn registerAutoloadAtCurrentLocation(self: *VM, module_obj: *value.ModuleObject, name_sym: *value.SymbolObject, path: []const u8) VMError!void {
+        return self.registerAutoloadWithLocation(module_obj, name_sym, path, try self.constantSourceLocationForFrame(self.currentRubyCallerFrame()));
+    }
+
+    fn registerAutoloadWithLocation(self: *VM, module_obj: *value.ModuleObject, name_sym: *value.SymbolObject, path: []const u8, source_location: ?value.ConstSourceLocation) VMError!void {
         const stored_path = self.gc_allocator_atomic.dupe(u8, path) catch return error.Fatal;
-        autoloadTableForModule(module_obj).put(name_sym, .{ .path = stored_path }) catch return error.Fatal;
+        autoloadTableForModule(module_obj).put(name_sym, .{ .path = stored_path, .source_location = source_location }) catch return error.Fatal;
     }
 
     pub fn clearAutoload(self: *VM, module_obj: *value.ModuleObject, name_sym: *value.SymbolObject) void {
@@ -2472,10 +2480,40 @@ pub const VM = struct {
     }
 
     pub fn setConstant(self: *VM, owner_module: *value.ModuleObject, name_sym: *value.SymbolObject, val: Value) VMError!void {
+        return self.setConstantWithLocation(owner_module, name_sym, val, null);
+    }
+
+    pub fn setConstantAtCurrentLocation(self: *VM, owner_module: *value.ModuleObject, name_sym: *value.SymbolObject, val: Value) VMError!void {
+        return self.setConstantWithLocation(owner_module, name_sym, val, try self.constantSourceLocationForFrame(self.currentRubyFrame()));
+    }
+
+    pub fn setConstantAtCallerLocation(self: *VM, owner_module: *value.ModuleObject, name_sym: *value.SymbolObject, val: Value) VMError!void {
+        return self.setConstantWithLocation(owner_module, name_sym, val, try self.constantSourceLocationForFrame(self.currentRubyCallerFrame()));
+    }
+
+    fn constantSourceLocationForFrame(self: *VM, source_frame: ?*CallFrame) VMError!?value.ConstSourceLocation {
+        const frame = source_frame orelse return null;
+        const file = frame.chunk.source_file orelse return null;
+        return .{
+            .file = self.gc_allocator_atomic.dupe(u8, file) catch return error.Fatal,
+            .line = self.backtraceLineForFrame(frame),
+        };
+    }
+
+    fn setConstantWithLocation(self: *VM, owner_module: *value.ModuleObject, name_sym: *value.SymbolObject, val: Value, source_location: ?value.ConstSourceLocation) VMError!void {
+        if (owner_module.constants.contains(name_sym)) {
+            if (source_location) |location| {
+                const owner_name = if (owner_module.classpath) |classpath| classpath.str else owner_module.name.name;
+                const warning = std.fmt.allocPrint(self.allocator, "{s}:{d}: warning: already initialized constant {s}::{s}\n", .{ location.file, location.line, owner_name, name_sym.name }) catch return error.Fatal;
+                defer self.allocator.free(warning);
+                try warning_builtin.writeWarning(self, warning);
+            }
+        }
         if (owner_module.constants.getPtr(name_sym)) |entry| {
             entry.value = val;
+            entry.source_location = source_location;
         } else {
-            owner_module.constants.put(name_sym, .{ .value = val }) catch return error.Fatal;
+            owner_module.constants.put(name_sym, .{ .value = val, .source_location = source_location }) catch return error.Fatal;
         }
         _ = owner_module.autoloads.remove(name_sym);
         try self.updateNamespacePathOnConstantSet(owner_module, name_sym, val);
@@ -2517,9 +2555,13 @@ pub const VM = struct {
 
     fn triggerAutoload(self: *VM, module_obj: *value.ModuleObject, name_sym: *value.SymbolObject) VMError!TriggerAutoloadResult {
         const autoloads = autoloadTableForModule(module_obj);
-        const autoload = autoloads.get(name_sym) orelse return .missing;
-        _ = autoloads.remove(name_sym);
-        errdefer autoloads.put(name_sym, autoload) catch {};
+        const autoload_ptr = autoloads.getPtr(name_sym) orelse return .missing;
+        if (autoload_ptr.loading) return .attempted;
+        autoload_ptr.loading = true;
+        const autoload = autoload_ptr.*;
+        errdefer if (autoloads.getPtr(name_sym)) |entry| {
+            entry.loading = false;
+        };
 
         const require_arg = try self.newString(autoload.path, false);
         var require_args = [_]Value{require_arg};
@@ -2528,6 +2570,7 @@ pub const VM = struct {
             loaded.flags = autoload.flags;
             return .{ .loaded = loaded.value };
         }
+        _ = autoloads.remove(name_sym);
         return .attempted;
     }
 
@@ -5712,9 +5755,9 @@ pub const VM = struct {
                 // Set in current lexical scope's module (or Object if no scope)
                 if (constantLexicalScope(epLexScope(frame.ep))) |scope| {
                     const module = scope.getModule();
-                    try self.setConstant(module, name_sym, val);
+                    try self.setConstantAtCurrentLocation(module, name_sym, val);
                 } else {
-                    try self.setConstant(&self.object_class.module, name_sym, val);
+                    try self.setConstantAtCurrentLocation(&self.object_class.module, name_sym, val);
                 }
                 try self.push(val);
             },
@@ -5734,7 +5777,7 @@ pub const VM = struct {
                     unreachable; // receiver is not a Module
                 };
 
-                try self.setConstant(module, name_sym, val);
+                try self.setConstantAtCurrentLocation(module, name_sym, val);
                 try self.push(val);
             },
 
@@ -6499,7 +6542,7 @@ pub const VM = struct {
                         }
 
                         const fresh_module = try self.newModule(target.name_sym);
-                        try self.setConstant(target.owner_module, target.name_sym, fresh_module);
+                        try self.setConstantAtCurrentLocation(target.owner_module, target.name_sym, fresh_module);
                         break :blk fresh_module;
                     };
 
@@ -6554,7 +6597,7 @@ pub const VM = struct {
                     } else {
                         // Create new class
                         class_val = try self.newClass(target.name_sym, superclass);
-                        try self.setConstant(target.owner_module, target.name_sym, class_val);
+                        try self.setConstantAtCurrentLocation(target.owner_module, target.name_sym, class_val);
 
                         // Call superclass.inherited(new_class) if superclass defines it
                         if (!superclass_val.isNil() and superclass_val.isClass()) {
