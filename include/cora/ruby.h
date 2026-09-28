@@ -579,6 +579,7 @@ VALUE rb_str_to_inum(VALUE str, int base, int badcheck);
 VALUE rb_str_subseq(VALUE str, long beg, long len);
 VALUE rb_str_new_frozen(VALUE str);
 long  rb_strlen_lit(const char *ptr);
+#define rb_strlen_lit(str) ((long)(sizeof(str) - 1))
 
 VALUE rb_reg_new(const char *source, long len, int options);
 VALUE rb_reg_nth_match(long nth, VALUE match);
