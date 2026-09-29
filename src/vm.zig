@@ -2450,6 +2450,36 @@ pub const VM = struct {
         }
     }
 
+    fn setTemporaryNamespacePathRecursive(
+        self: *VM,
+        namespace: Value,
+        path: ?*StringObject,
+        seen: *std.AutoHashMap(*value.ModuleObject, void),
+    ) VMError!void {
+        const module_obj = namespaceModule(namespace) orelse return;
+        if (module_obj.classpath_permanent or seen.contains(module_obj)) return;
+        seen.put(module_obj, {}) catch return error.Fatal;
+        module_obj.classpath = path;
+
+        var it = module_obj.constants.iterator();
+        while (it.next()) |entry| {
+            const child = entry.value_ptr.*.value;
+            const child_module = namespaceModule(child) orelse continue;
+            if (child_module.classpath_permanent) continue;
+            const child_path = if (path) |parent_path|
+                try self.buildConstPathString(parent_path, entry.key_ptr.*)
+            else
+                null;
+            try self.setTemporaryNamespacePathRecursive(child, child_path, seen);
+        }
+    }
+
+    pub fn setTemporaryNamespacePath(self: *VM, namespace: Value, path: ?*StringObject) VMError!void {
+        var seen = std.AutoHashMap(*value.ModuleObject, void).init(self.allocator);
+        defer seen.deinit();
+        try self.setTemporaryNamespacePathRecursive(namespace, path, &seen);
+    }
+
     fn updateNamespacePathOnConstantSet(
         self: *VM,
         owner_module: *value.ModuleObject,

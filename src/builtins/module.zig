@@ -393,6 +393,15 @@ fn isValidConstantNameSegment(segment: []const u8) bool {
     return true;
 }
 
+fn isConstantPath(name: []const u8) bool {
+    const path = if (std.mem.startsWith(u8, name, "::")) name[2..] else name;
+    var segments = std.mem.splitSequence(u8, path, "::");
+    while (segments.next()) |segment| {
+        if (!isValidConstantNameSegment(segment)) return false;
+    }
+    return path.len != 0;
+}
+
 fn constantNameString(vm: *VM, arg: Value) VMError![]const u8 {
     if (arg.isSymbol()) return arg.toSymbolObject().name;
     switch (try vm.probeToStringValue(arg)) {
@@ -1205,6 +1214,9 @@ pub fn register(vm: *VM) !void {
     const name_sym = try vm.intern("name");
     try vm.module_class.module.methods.put(name_sym, value.MethodEntry.builtin(&builtinModuleName, .{ .exact = 0 }));
 
+    const set_temporary_name_sym = try vm.intern("set_temporary_name");
+    try vm.module_class.module.methods.put(set_temporary_name_sym, value.MethodEntry.builtin(&builtinModuleSetTemporaryName, .{ .exact = 1 }));
+
     const to_s_sym = try vm.intern("to_s");
     try vm.module_class.module.methods.put(to_s_sym, value.MethodEntry.builtin(&builtinModuleToS, .{ .exact = 0 }));
 
@@ -1659,6 +1671,30 @@ pub fn builtinModuleName(vm: *VM, receiver: Value, args: []Value, _: ?Block) VME
     if (receiver.isClass() and receiver.toClassObject().attached_object != null) return Value.nil();
     const module_obj = if (receiver.isClass()) &receiver.toClassObject().module else receiver.toModuleObject();
     return if (module_obj.classpath) |classpath| Value.fromObject(&classpath.object) else Value.nil();
+}
+
+fn builtinModuleSetTemporaryName(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    const module_obj = moduleFromValue(receiver) orelse return error.Fatal;
+    if (module_obj.classpath_permanent) {
+        return vm.raiseExceptionFmt(vm.runtime_error_class, "can't change permanent name", .{});
+    }
+
+    if (args[0].isNil()) {
+        try vm.setTemporaryNamespacePath(receiver, null);
+        return receiver;
+    }
+
+    const name = try args[0].coerceToStringValue(vm, "no implicit conversion into String");
+    const bytes = name.toStringObject().str;
+    if (bytes.len == 0) return vm.raiseExceptionFmt(vm.argument_error_class, "empty class/module name", .{});
+    if (isConstantPath(bytes)) {
+        return vm.raiseExceptionFmt(vm.argument_error_class, "the temporary name must not be a constant path to avoid confusion", .{});
+    }
+
+    const path = (try vm.getOrCreateCanonicalFString(bytes, name.toStringObject().encoding)).toStringObject();
+    try vm.setTemporaryNamespacePath(receiver, path);
+    return receiver;
 }
 
 pub fn builtinModuleToS(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
