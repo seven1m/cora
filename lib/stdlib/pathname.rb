@@ -1,4 +1,12 @@
 class Pathname
+  def self.getwd
+    new(Dir.getwd)
+  end
+
+  class << self
+    alias pwd getwd
+  end
+
   def initialize(path)
     @path = File.path(path).dup
   end
