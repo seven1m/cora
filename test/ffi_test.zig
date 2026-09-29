@@ -39,3 +39,34 @@ test "FFI Library attaches a C function" {
     );
     try std.testing.expectEqual(@as(i64, 5), result.toInteger());
 }
+
+test "FFI MemoryPointer preserves binary data across pointer calls" {
+    const result = try evalCode(
+        \\require "ffi"
+        \\module LibC
+        \\  extend FFI::Library
+        \\  ffi_lib nil
+        \\  attach_function :memcmp, [:pointer, :pointer, :size_t], :int
+        \\end
+        \\FFI::MemoryPointer.new(:char, 4) do |pointer|
+        \\  pointer.write_string("a\0b")
+        \\  pointer.put_char(3, 99)
+        \\  pointer.read_string(4) == "a\0bc" && LibC.memcmp(pointer, "a\0bc", 4) == 0
+        \\end
+    );
+    try std.testing.expect(result.isTruthy());
+}
+
+test "FFI Library converts named enum arguments and results" {
+    const result = try evalCode(
+        \\require "ffi"
+        \\module LibC
+        \\  extend FFI::Library
+        \\  ffi_lib nil
+        \\  enum :number, [:negative, -7, :positive, 7]
+        \\  attach_function :abs, [:number], :number
+        \\end
+        \\LibC.abs(:negative)
+    );
+    try std.testing.expectEqualStrings("positive", result.toSymbolObject().name);
+}

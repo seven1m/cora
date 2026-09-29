@@ -85,8 +85,10 @@ Steps per gem:
   files.
 - `ffi` - `ext/cora_ffi.c` builds a small libffi-backed extension installed as
   `lib/stdlib/cora_ffi.so`; `lib/stdlib/ffi.rb` exposes `FFI::Library#ffi_lib`
-  and `#attach_function` for basic C calls. This is an initial subset of the
-  ruby-ffi API; callbacks, pointers, and structs are not implemented yet.
+  and `#attach_function` for basic C calls, plus named enums, boolean values,
+  pointers, and byte buffers used by Prism's FFI backend. Callback signatures
+  can be declared, but invoking callbacks is not implemented. Structs and
+  general ruby-ffi compatibility are not implemented.
 - `yaml` - pure Ruby; installed as a default gem without an `.so`.
 - `csv`, `test-unit`, `power_assert` - pure Ruby; installed as ordinary bundled gems
   with `test-unit` depending on `power_assert`.
