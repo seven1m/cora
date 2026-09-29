@@ -4138,8 +4138,13 @@ pub const Compiler = struct {
             try self.compileNode(expr, line);
             return;
         }
-        const block_idx = self.current_chunk.block_param_index orelse return error.UnsupportedNode;
-        try self.current_chunk.emitOpU16(.GET_LOCAL, block_idx, line);
+        if (self.current_chunk.block_param_index) |block_idx| {
+            try self.current_chunk.emitOpU16(.GET_LOCAL, block_idx, line);
+        } else if (self.findLocalWithDepth("&")) |outer| {
+            try self.emitGetLocalSlot(.{ .idx = @intCast(outer.idx), .depth = @intCast(outer.depth) }, line);
+        } else {
+            return error.UnsupportedNode;
+        }
     }
 
     fn compileMethod(self: *Compiler, def_node: *prism.DefNode, line: u32) anyerror!void {

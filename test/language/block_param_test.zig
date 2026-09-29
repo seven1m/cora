@@ -478,6 +478,28 @@ test "anonymous block parameter forwards nil when no block given" {
     try std.testing.expect(result.toBool());
 }
 
+test "anonymous block parameter forwards through a lambda" {
+    const result = try evalCode(
+        \\def capture(&)
+        \\  -> { [1].map(&) }
+        \\end
+        \\[capture { |n| n + 1 }.call, capture.call.class]
+    );
+    const items = result.toArrayObject().elements.items;
+    try std.testing.expectEqual(@as(i64, 2), items[0].toArrayObject().elements.items[0].toInteger());
+    try std.testing.expectEqualStrings("Enumerator", items[1].toClassObject().module.name.name);
+}
+
+test "anonymous block parameter forwards through nested lambdas" {
+    const result = try evalCode(
+        \\def capture(&)
+        \\  -> { -> { [1].map(&) } }
+        \\end
+        \\capture { |n| n + 1 }.call.call.first
+    );
+    try std.testing.expectEqual(@as(i64, 2), result.toInteger());
+}
+
 test "anonymous block parameter defined via module_eval forwards" {
     const result = try evalCode(
         \\class W
