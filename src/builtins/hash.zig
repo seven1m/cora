@@ -759,8 +759,7 @@ fn hashFilterBangShared(
     try ensureMutableHash(vm, receiver);
 
     const hash_obj = receiver.toHashObject();
-    const snapshot = vm.allocator.alloc(value.HashEntry, hash_obj.entries.items.len) catch return error.Fatal;
-    defer vm.allocator.free(snapshot);
+    const snapshot = vm.gc_allocator.alloc(value.HashEntry, hash_obj.entries.items.len) catch return error.Fatal;
     @memcpy(snapshot, hash_obj.entries.items);
 
     var changed = false;
@@ -874,8 +873,7 @@ pub fn builtinHashTransformKeysBang(vm: *VM, receiver: Value, args: []Value, blo
     try ensureMutableHash(vm, receiver);
 
     const hash_obj = receiver.toHashObject();
-    const snapshot = vm.allocator.alloc(value.HashEntry, hash_obj.entries.items.len) catch return error.Fatal;
-    defer vm.allocator.free(snapshot);
+    const snapshot = vm.gc_allocator.alloc(value.HashEntry, hash_obj.entries.items.len) catch return error.Fatal;
     @memcpy(snapshot, hash_obj.entries.items);
 
     const transformed = try vm.createHash();
@@ -1217,8 +1215,7 @@ pub fn builtinHashEachPair(vm: *VM, receiver: Value, args: []Value, block: ?Bloc
         );
     };
     const hash_obj = receiver.toHashObject();
-    const snapshot = vm.allocator.alloc(value.HashEntry, hash_obj.entries.items.len) catch return error.Fatal;
-    defer vm.allocator.free(snapshot);
+    const snapshot = vm.gc_allocator.alloc(value.HashEntry, hash_obj.entries.items.len) catch return error.Fatal;
     @memcpy(snapshot, hash_obj.entries.items);
 
     for (snapshot) |entry| {
@@ -1239,8 +1236,7 @@ pub fn builtinHashEachKey(vm: *VM, receiver: Value, args: []Value, block: ?Block
         );
     };
     const hash_obj = receiver.toHashObject();
-    const snapshot = vm.allocator.alloc(value.HashEntry, hash_obj.entries.items.len) catch return error.Fatal;
-    defer vm.allocator.free(snapshot);
+    const snapshot = vm.gc_allocator.alloc(value.HashEntry, hash_obj.entries.items.len) catch return error.Fatal;
     @memcpy(snapshot, hash_obj.entries.items);
 
     for (snapshot) |entry| {
@@ -1262,8 +1258,7 @@ pub fn builtinHashEachValue(vm: *VM, receiver: Value, args: []Value, block: ?Blo
         );
     };
     const hash_obj = receiver.toHashObject();
-    const snapshot = vm.allocator.alloc(value.HashEntry, hash_obj.entries.items.len) catch return error.Fatal;
-    defer vm.allocator.free(snapshot);
+    const snapshot = vm.gc_allocator.alloc(value.HashEntry, hash_obj.entries.items.len) catch return error.Fatal;
     @memcpy(snapshot, hash_obj.entries.items);
 
     for (snapshot) |entry| {
@@ -1523,8 +1518,7 @@ pub fn builtinHashReject(vm: *VM, receiver: Value, args: []Value, block: ?Block)
         );
     };
     const hash_obj = receiver.toHashObject();
-    const keep_entries = vm.allocator.alloc(value.HashEntry, hash_obj.entries.items.len) catch return error.Fatal;
-    defer vm.allocator.free(keep_entries);
+    const keep_entries = vm.gc_allocator.alloc(value.HashEntry, hash_obj.entries.items.len) catch return error.Fatal;
     var keep_count: usize = 0;
 
     for (hash_obj.entries.items) |entry| {
@@ -1734,8 +1728,7 @@ pub fn builtinHashRehash(vm: *VM, receiver: Value, args: []Value, _: ?Block) VME
     try ensureMutableHash(vm, receiver);
 
     const hash_obj = receiver.toHashObject();
-    const snapshot = vm.allocator.alloc(value.HashEntry, hash_obj.entries.items.len) catch return error.Fatal;
-    defer vm.allocator.free(snapshot);
+    const snapshot = vm.gc_allocator.alloc(value.HashEntry, hash_obj.entries.items.len) catch return error.Fatal;
     @memcpy(snapshot, hash_obj.entries.items);
 
     hash_obj.entries.clearRetainingCapacity();
