@@ -53,6 +53,14 @@ fn instanceEvalLexicalScope(vm: *VM, receiver: Value) VMError!*value.LexicalScop
     );
 }
 
+fn instanceEvalMethodTarget(vm: *VM, receiver: Value) VMError!Value {
+    if (receiver.isClass() or receiver.isModule()) {
+        const singleton = try vm.getOrCreateSingletonClass(receiver);
+        return Value.fromObject(&singleton.module.object);
+    }
+    return receiver;
+}
+
 pub fn register(vm: *VM) !void {
     const initialize_sym = try vm.intern("initialize");
     try vm.basic_object_class.module.methods.put(initialize_sym, MethodEntry.builtinWithVisibility(&builtinBasicObjectInitialize, .{ .exact = 0 }, .private));
@@ -102,7 +110,7 @@ pub fn builtinBasicObjectInstanceEval(vm: *VM, receiver: Value, args: []Value, b
         try vm.requireArgCount(args, 0);
         const proc_obj = (try vm.newProc(blk)).toProcObject();
         var block_args = [_]Value{receiver};
-        return vm.callProcObject(proc_obj, block_args[0..], null, receiver, receiver, null);
+        return vm.callProcObject(proc_obj, block_args[0..], null, receiver, try instanceEvalMethodTarget(vm, receiver), null);
     }
 
     try vm.requireArgCountRange(args, 1, 3);
@@ -118,7 +126,7 @@ pub fn builtinBasicObjectInstanceEval(vm: *VM, receiver: Value, args: []Value, b
             .parent_ep = if (caller_frame) |frame| frame.ep else null,
             .lexical_scope = lexical_scope,
             .class_variable_scope = vm.currentRubyCallerLexicalScope(),
-            .method_definition_target = receiver,
+            .method_definition_target = try instanceEvalMethodTarget(vm, receiver),
             .parent_local_names = vm.currentEvalParentLocalNames(),
             .start_line = try evalStartLine(vm, if (args.len >= 3) args[2] else null),
         },
@@ -131,7 +139,7 @@ pub fn builtinBasicObjectInstanceExec(vm: *VM, receiver: Value, args: []Value, b
     };
 
     const proc_obj = (try vm.newProc(blk)).toProcObject();
-    return vm.callProcObject(proc_obj, args, null, receiver, receiver, null);
+    return vm.callProcObject(proc_obj, args, null, receiver, try instanceEvalMethodTarget(vm, receiver), null);
 }
 
 pub fn builtinBasicObjectId(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {

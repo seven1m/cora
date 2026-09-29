@@ -10,6 +10,24 @@ const evalCode = test_helper.evalCode;
 const evalCodeWithOutput = test_helper.evalCodeWithOutput;
 const getAllocator = test_helper.getAllocator;
 
+test "instance_eval and instance_exec define singleton methods on classes and modules" {
+    const result = try evalCode(
+        \\klass = Class.new
+        \\klass.instance_eval { def from_block; 1; end }
+        \\klass.instance_exec { def from_exec; 2; end }
+        \\klass.instance_eval('def from_string; 3; end')
+        \\mod = Module.new
+        \\mod.instance_eval { def on_module; 4; end }
+        \\[klass.from_block, klass.from_exec, klass.from_string, mod.on_module, klass.instance_methods(false).include?(:from_block)]
+    );
+    const items = result.toArrayObject().elements.items;
+    try std.testing.expectEqual(@as(i64, 1), items[0].toInteger());
+    try std.testing.expectEqual(@as(i64, 2), items[1].toInteger());
+    try std.testing.expectEqual(@as(i64, 3), items[2].toInteger());
+    try std.testing.expectEqual(@as(i64, 4), items[3].toInteger());
+    try std.testing.expect(items[4].isFalse());
+}
+
 test "Class attached_object returns singleton targets and rejects ordinary classes" {
     const result = try evalCode(
         \\object = Object.new
