@@ -278,14 +278,17 @@ cext_typed_data_mark_count(VALUE self)
 }
 
 static VALUE
-cext_typed_data_make_cycle(VALUE self)
+cext_typed_data_make_cycles(VALUE self, VALUE count)
 {
     (void)self;
-    VALUE object = rb_data_typed_object_alloc(rb_cObject, &cora_cext_cycle_type);
-    cora_cext_cycle *data = ruby_xmalloc(sizeof(*data));
-    data->wrapper = object;
-    DATA_PTR(object) = data;
-    return object;
+    long length = NUM2LONG(count);
+    for (long i = 0; i < length; i++) {
+        VALUE object = rb_data_typed_object_alloc(rb_cObject, &cora_cext_cycle_type);
+        cora_cext_cycle *data = ruby_xmalloc(sizeof(*data));
+        data->wrapper = object;
+        DATA_PTR(object) = data;
+    }
+    return Qnil;
 }
 
 static VALUE
@@ -856,7 +859,7 @@ void Init_fixture(void)
     rb_define_module_function(mCoraCExt, "typed_data_retain", cext_typed_data_retain, 1);
     rb_define_module_function(mCoraCExt, "typed_data_retained", cext_typed_data_retained, 1);
     rb_define_module_function(mCoraCExt, "typed_data_mark_count", cext_typed_data_mark_count, 0);
-    rb_define_module_function(mCoraCExt, "typed_data_make_cycle", cext_typed_data_make_cycle, 0);
+    rb_define_module_function(mCoraCExt, "typed_data_make_cycles", cext_typed_data_make_cycles, 1);
     rb_define_module_function(mCoraCExt, "typed_data_cycle_frees", cext_typed_data_cycle_frees, 0);
     rb_define_module_function(mCoraCExt, "string_value_cstr_length", cext_string_value_cstr_length, 1);
     rb_define_module_function(mCoraCExt, "class_of", cext_class_of, 1);
