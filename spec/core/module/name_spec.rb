@@ -154,47 +154,43 @@ describe "Module#name" do
   end
 
   it "is set in #const_added callback when a module defined in the top-level scope" do
-    CORAFIXME "Module#const_added callback is not implemented", exception: SpecExpectationNotMetError do
-      ruby_exe(<<~RUBY, args: "2>&1").chomp.should == "TEST1\nTEST2"
-        class Module
-          def const_added(name)
-            puts const_get(name).name
-          end
+    ruby_exe(<<~RUBY, args: "2>&1").chomp.should == "TEST1\nTEST2"
+      class Module
+        def const_added(name)
+          puts const_get(name).name
         end
+      end
 
-        # module with name
-        module TEST1
-        end
+      # module with name
+      module TEST1
+      end
 
-        # anonymous module
-        TEST2 = Module.new
-      RUBY
-    end
+      # anonymous module
+      TEST2 = Module.new
+    RUBY
   end
 
   it "is set in #const_added callback for a nested module when an outer module defined in the top-level scope" do
-    CORAFIXME "Module#const_added callback is not implemented", exception: SpecExpectationNotMetError do
-      ScratchPad.record []
+    ScratchPad.record []
 
-      ModuleSpecs::NameSpecs::NamedModule = Module.new do
+    ModuleSpecs::NameSpecs::NamedModule = Module.new do
+      def self.const_added(name)
+        ScratchPad << const_get(name).name
+      end
+
+      module self::A
         def self.const_added(name)
           ScratchPad << const_get(name).name
         end
 
-        module self::A
-          def self.const_added(name)
-            ScratchPad << const_get(name).name
-          end
-
-          module self::B
-          end
+        module self::B
         end
       end
-
-      ScratchPad.recorded.should.one?(/#<Module.+>::A$/)
-      ScratchPad.recorded.should.one?(/#<Module.+>::A::B$/)
-      ModuleSpecs::NameSpecs.send :remove_const, :NamedModule
     end
+
+    ScratchPad.recorded.should.one?(/#<Module.+>::A$/)
+    ScratchPad.recorded.should.one?(/#<Module.+>::A::B$/)
+    ModuleSpecs::NameSpecs.send :remove_const, :NamedModule
   end
 
   it "returns a frozen String" do

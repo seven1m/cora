@@ -1121,6 +1121,9 @@ pub fn register(vm: *VM) !void {
     const const_set_sym = try vm.intern("const_set");
     try vm.module_class.module.methods.put(const_set_sym, value.MethodEntry.builtin(&builtinModuleConstSet, .{ .exact = 2 }));
 
+    const const_added_sym = try vm.intern("const_added");
+    try vm.module_class.module.methods.put(const_added_sym, value.MethodEntry.builtinWithVisibility(&builtinModuleConstAdded, .{ .exact = 1 }, .private));
+
     const inherited_sym = try vm.intern("inherited");
     try vm.module_class.module.methods.put(inherited_sym, value.MethodEntry.builtin(&builtinModuleInherited, .{ .exact = 1 }));
 
@@ -1723,6 +1726,11 @@ pub fn builtinModuleAppendFeatures(vm: *VM, receiver: Value, args: []Value, _: ?
 }
 
 pub fn builtinModuleInherited(_: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+    _ = args;
+    return Value.nil();
+}
+
+pub fn builtinModuleConstAdded(_: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
     _ = args;
     return Value.nil();
 }

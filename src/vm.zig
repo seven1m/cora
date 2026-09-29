@@ -808,6 +808,7 @@ pub const VM = struct {
     expanded_load_path: std.ArrayList([]const u8) = .empty,
     load_path_snapshot_cwd: ?[]const u8 = null,
     current_loading_file: ?[]const u8 = null,
+    runtime_ready: bool = false,
     env_object: ?Value = null,
     next_chunk_id: u16 = 1,
     method_state_version: u64 = 1,
@@ -2101,6 +2102,7 @@ pub const VM = struct {
 
         try self.buildProgramCallsiteDescriptors();
         try self.internProgramLiteralSymbols();
+        self.runtime_ready = true;
     }
 
     pub fn createLexicalScope(self: *VM, scope_module_val: Value, parent: ?*LexicalScope) VMError!*LexicalScope {
@@ -2393,6 +2395,7 @@ pub const VM = struct {
     fn registerAutoloadWithLocation(self: *VM, module_obj: *value.ModuleObject, name_sym: *value.SymbolObject, path: []const u8, source_location: ?value.ConstSourceLocation) VMError!void {
         const stored_path = self.gc_allocator_atomic.dupe(u8, path) catch return error.Fatal;
         autoloadTableForModule(module_obj).put(name_sym, .{ .path = stored_path, .source_location = source_location }) catch return error.Fatal;
+        try self.triggerConstAdded(module_obj, name_sym);
     }
 
     pub fn clearAutoload(self: *VM, module_obj: *value.ModuleObject, name_sym: *value.SymbolObject) void {
@@ -2517,6 +2520,14 @@ pub const VM = struct {
         }
         _ = owner_module.autoloads.remove(name_sym);
         try self.updateNamespacePathOnConstantSet(owner_module, name_sym, val);
+        try self.triggerConstAdded(owner_module, name_sym);
+    }
+
+    fn triggerConstAdded(self: *VM, owner_module: *value.ModuleObject, name_sym: *value.SymbolObject) VMError!void {
+        // Core constants and autoloads are installed before Ruby dispatch is ready.
+        if (!self.runtime_ready) return;
+        var args = [_]Value{Value.fromObject(&name_sym.object)};
+        _ = try self.checkCallMethodByName(Value.fromObject(&owner_module.object), "const_added", true, &args, null);
     }
 
     pub fn publicModuleName(self: *VM, receiver: Value) ?[]const u8 {
