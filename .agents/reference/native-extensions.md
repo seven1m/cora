@@ -83,6 +83,10 @@ Steps per gem:
   then built with its own `extconf.rb` and `make`.
 - `json` - installed as a default gem with native parser and generator `.so`
   files.
+- `ffi` - `ext/cora_ffi.c` builds a small libffi-backed extension installed as
+  `lib/stdlib/cora_ffi.so`; `lib/stdlib/ffi.rb` exposes `FFI::Library#ffi_lib`
+  and `#attach_function` for basic C calls. This is an initial subset of the
+  ruby-ffi API; callbacks, pointers, and structs are not implemented yet.
 - `yaml` - pure Ruby; installed as a default gem without an `.so`.
 - `csv`, `test-unit`, `power_assert` - pure Ruby; installed as ordinary bundled gems
   with `test-unit` depending on `power_assert`.
@@ -104,6 +108,7 @@ zig build psych              # just build the psych native extension
 zig build strscan            # just build the strscan native extension
 zig build tinycc             # just build TinyCC
 zig build cext-fixture       # build the test fixture .so used by cext_test
+zig build ffi                # build the initial libffi-backed extension
 ```
 
 ## Common Build Options

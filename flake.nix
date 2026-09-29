@@ -27,6 +27,7 @@
               git
               gnumake
               libtool
+              libffi
               libyaml
               m4
               openssl

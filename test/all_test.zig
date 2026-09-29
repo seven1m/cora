@@ -7,6 +7,7 @@ const cgi_test = @import("cgi_test.zig");
 const exit_test = @import("exit_test.zig");
 const delegate_test = @import("delegate_test.zig");
 const erb_test = @import("erb_test.zig");
+const ffi_test = @import("ffi_test.zig");
 const fileutils_test = @import("fileutils_test.zig");
 const gc_allocator_test = @import("gc_allocator_test.zig");
 const forwardable_test = @import("forwardable_test.zig");
@@ -118,6 +119,7 @@ comptime {
     _ = exit_test;
     _ = delegate_test;
     _ = erb_test;
+    _ = ffi_test;
     _ = fileutils_test;
     _ = gc_allocator_test;
     _ = forwardable_test;

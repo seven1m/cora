@@ -11,6 +11,7 @@ const json_build_root = "build/json";
 const prism_build_root = "build/prism";
 const tinycc_build_root = "build/tinycc";
 const cext_build_root = "build/cext";
+const ffi_build_root = "build/ffi";
 const psych_gem_version = "5.4.0";
 const strscan_gem_version = "3.1.9";
 const json_gem_version = "2.19.9";
@@ -428,6 +429,19 @@ fn buildCExtFixture(b: *std.Build) *std.Build.Step {
     return fixture_build_step;
 }
 
+fn buildFFI(b: *std.Build) *std.Build.Step {
+    const ffi_build_step = b.step("ffi", "Build Cora FFI extension");
+
+    const mkdir_step = b.addSystemCommand(&.{ "mkdir", "-p", ffi_build_root });
+    ffi_build_step.dependOn(&mkdir_step.step);
+
+    const compile_step = b.addSystemCommand(&.{ "sh", "-c", "gcc -shared -fPIC -I include/cora $(pkg-config --cflags libffi) ext/cora_ffi.c -o build/ffi/cora_ffi.so $(pkg-config --libs libffi) -ldl" });
+    compile_step.step.dependOn(&mkdir_step.step);
+    ffi_build_step.dependOn(&compile_step.step);
+
+    return ffi_build_step;
+}
+
 fn linkSystemLibraries(module: *std.Build.Module) void {
     module.linkSystemLibrary("ssl", .{});
     module.linkSystemLibrary("crypto", .{});
@@ -592,6 +606,7 @@ pub fn build(b: *std.Build) void {
     const onigmo_build_step = buildOnigmo(b);
     const tinycc_build_step = buildTinyCC(b);
     const cext_fixture_step = buildCExtFixture(b);
+    const ffi_build_step = buildFFI(b);
 
     if (submodule_update_step) |s| {
         prism_build_step.dependOn(s);
@@ -675,6 +690,9 @@ pub fn build(b: *std.Build) void {
         .install_subdir = "lib/stdlib",
     });
     b.getInstallStep().dependOn(&install_stdlib.step);
+    const install_ffi = b.addInstallFile(b.path(ffi_build_root ++ "/cora_ffi.so"), "lib/stdlib/cora_ffi.so");
+    install_ffi.step.dependOn(ffi_build_step);
+    b.getInstallStep().dependOn(&install_ffi.step);
     const remove_legacy_json_stdlib = b.addSystemCommand(&.{ "rm", "-f", b.getInstallPath(.prefix, "lib/stdlib/json.rb") });
     remove_legacy_json_stdlib.step.dependOn(&install_stdlib.step);
     b.getInstallStep().dependOn(&remove_legacy_json_stdlib.step);
