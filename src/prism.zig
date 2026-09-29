@@ -24,6 +24,8 @@ pub const CallAndWriteNode = c.pm_call_and_write_node_t;
 pub const CallOperatorWriteNode = c.pm_call_operator_write_node_t;
 pub const CallOrWriteNode = c.pm_call_or_write_node_t;
 pub const CaseNode = c.pm_case_node_t;
+pub const CaseMatchNode = c.pm_case_match_node_t;
+pub const InNode = c.pm_in_node_t;
 pub const ClassNode = c.pm_class_node_t;
 pub const SingletonClassNode = c.pm_singleton_class_node_t;
 pub const ShareableConstantNode = c.pm_shareable_constant_node_t;
@@ -173,6 +175,8 @@ pub const Node = union(enum) {
     call_operator_write: *CallOperatorWriteNode,
     call_or_write: *CallOrWriteNode,
     case_node: *CaseNode,
+    case_match: *CaseMatchNode,
+    in_node: *InNode,
     class: *ClassNode,
     singleton_class: *SingletonClassNode,
     shareable_constant: *ShareableConstantNode,
@@ -576,6 +580,14 @@ pub const Parser = struct {
 
         if (node_type == c.PM_CASE_NODE) {
             return Node{ .case_node = @ptrCast(raw) };
+        }
+
+        if (node_type == c.PM_CASE_MATCH_NODE) {
+            return Node{ .case_match = @ptrCast(raw) };
+        }
+
+        if (node_type == c.PM_IN_NODE) {
+            return Node{ .in_node = @ptrCast(raw) };
         }
 
         if (node_type == c.PM_MODULE_NODE) {

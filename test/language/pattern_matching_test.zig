@@ -66,3 +66,54 @@ test "rightward find pattern searches nested hash patterns and captures surround
     try std.testing.expectEqual(@as(usize, 1), post.len);
     try std.testing.expectEqual(@as(i64, 3), post[0].toInteger());
 }
+
+test "case in selects fixed-length array patterns and binds their elements" {
+    const result = try evalCode(
+        \\def unpack(node)
+        \\  case node
+        \\  in [type, options, meta]
+        \\    [type, options, meta]
+        \\  in [type, meta]
+        \\    [type, {}, meta]
+        \\  end
+        \\end
+        \\[unpack([:string, {limit: 5}, {required: true}]), unpack([:integer, {required: false}])]
+    );
+    const items = result.toArrayObject().elements.items;
+    const first = items[0].toArrayObject().elements.items;
+    const second = items[1].toArrayObject().elements.items;
+    try std.testing.expectEqualStrings("string", first[0].toSymbolObject().name);
+    try std.testing.expectEqual(@as(i64, 5), first[1].toHashObject().entries.items[0].value.toInteger());
+    try std.testing.expectEqualStrings("integer", second[0].toSymbolObject().name);
+    try std.testing.expectEqual(@as(usize, 0), second[1].toHashObject().entries.items.len);
+}
+
+test "case in evaluates its predicate once and uses else after failed patterns" {
+    const result = try evalCode(
+        \\calls = 0
+        \\answer = case (calls += 1; [1])
+        \\         in [first, second]
+        \\           first + second
+        \\         else
+        \\           :missing
+        \\         end
+        \\[answer, calls]
+    );
+    const items = result.toArrayObject().elements.items;
+    try std.testing.expectEqualStrings("missing", items[0].toSymbolObject().name);
+    try std.testing.expectEqual(@as(i64, 1), items[1].toInteger());
+}
+
+test "case in raises NoMatchingPatternError without else" {
+    const result = try evalCode(
+        \\begin
+        \\  case [1]
+        \\  in [first, second]
+        \\    first + second
+        \\  end
+        \\rescue NoMatchingPatternError => error
+        \\  error.class
+        \\end
+    );
+    try std.testing.expectEqualStrings("NoMatchingPatternError", result.toClassObject().module.name.name);
+}

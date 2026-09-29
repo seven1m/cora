@@ -884,6 +884,10 @@ pub const Compiler = struct {
                 try self.compileCaseNode(case_node, line);
             },
 
+            .case_match => |case_match| {
+                try self.compileCaseMatch(case_match, line);
+            },
+
             .if_node => |if_node| {
                 try self.compileIfStatement(if_node, line);
             },
@@ -1160,7 +1164,7 @@ pub const Compiler = struct {
                 try self.compileMatchRequired(match_required_node, line);
             },
 
-            .array_pattern, .hash_pattern, .find_pattern, .pinned_variable, .pinned_expression => return error.UnsupportedNode,
+            .array_pattern, .hash_pattern, .find_pattern, .pinned_variable, .pinned_expression, .in_node => return error.UnsupportedNode,
 
             .rescue => {
                 std.debug.print("Error: rescue node should be handled by begin node\n", .{});
@@ -2410,6 +2414,44 @@ pub const Compiler = struct {
         for (end_jumps.items) |jump_to_end| {
             try self.current_chunk.patchJump(jump_to_end);
         }
+    }
+
+    fn compileCaseMatch(self: *Compiler, case_match: *prism.CaseMatchNode, line: u32) !void {
+        const predicate = case_match.predicate orelse return error.UnsupportedNode;
+        try self.compileNode(try self.parser.asNode(predicate), line);
+
+        var end_jumps: std.ArrayList(usize) = .empty;
+        defer end_jumps.deinit(self.allocator);
+
+        for (0..case_match.conditions.size) |i| {
+            const condition = try self.parser.asNode(case_match.conditions.nodes[i]);
+            if (condition != .in_node) return error.UnsupportedNode;
+            const in_node = condition.in_node;
+            const pattern = try self.parser.asNode(in_node.pattern);
+            if (pattern == .if_node or pattern == .unless_node) return error.UnsupportedNode;
+
+            try self.current_chunk.emitOp(.DUP, line);
+            try self.compileRequiredPattern(pattern, line);
+            const next_condition = try self.current_chunk.emitJump(.JUMP_IF_FALSE, line);
+
+            try self.current_chunk.emitOp(.POP, line);
+            if (in_node.statements) |statements| {
+                try self.compileNode(try self.parser.asNode(@ptrCast(statements)), line);
+            } else {
+                try self.current_chunk.emitOp(.PUSH_NIL, line);
+            }
+            try end_jumps.append(self.allocator, try self.current_chunk.emitJump(.JUMP, line));
+            try self.current_chunk.patchJump(next_condition);
+        }
+
+        try self.current_chunk.emitOp(.POP, line);
+        if (case_match.else_clause) |else_clause| {
+            try self.compileNode(try self.parser.asNode(@ptrCast(else_clause)), line);
+        } else {
+            try self.emitPatternRaise("pattern does not match", line);
+        }
+
+        for (end_jumps.items) |jump| try self.current_chunk.patchJump(jump);
     }
 
     fn compileAndNode(self: *Compiler, and_node: *prism.AndNode, line: u32) anyerror!void {
@@ -5151,6 +5193,10 @@ pub const Compiler = struct {
     fn emitNoMatchingPatternRaise(self: *Compiler, message: []const u8, line: u32) !void {
         try self.current_chunk.emitOp(.POP, line);
         try self.current_chunk.emitOp(.POP, line);
+        try self.emitPatternRaise(message, line);
+    }
+
+    fn emitPatternRaise(self: *Compiler, message: []const u8, line: u32) !void {
         try self.current_chunk.emitOp(.PUSH_SELF, line);
 
         const class_idx = try self.current_chunk.addConstant(.{ .string = "NoMatchingPatternError" });
