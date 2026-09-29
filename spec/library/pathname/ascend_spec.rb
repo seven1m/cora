@@ -19,10 +19,10 @@ describe "Pathname#ascend" do
   end
 
   it "returns nil when given a block" do
-    Pathname.new('a/b').ascend { |_| }.should be_nil
+    Pathname.new('a/b').ascend { |_| }.should == nil
   end
 
   it "returns an Enumerator without a block" do
-    Pathname.new('a').ascend.should be_kind_of(Enumerator)
+    Pathname.new('a').ascend.should.is_a?(Enumerator)
   end
 end
