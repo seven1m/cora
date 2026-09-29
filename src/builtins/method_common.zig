@@ -160,12 +160,6 @@ pub fn resolveExactMethodForReceiver(vm: *VM, receiver: Value, owner: Value, met
     return scanClassForExactMethod(vm.getClass(receiver), owner, method_name_sym);
 }
 
-pub fn methodEntryForOwner(owner: Value, method_name_sym: *SymbolObject) ?MethodEntry {
-    if (owner.isClass()) return owner.toClassObject().module.methods.get(method_name_sym);
-    if (owner.isModule()) return owner.toModuleObject().methods.get(method_name_sym);
-    return null;
-}
-
 pub fn ownerDisplayName(owner: Value) []const u8 {
     if (owner.isClass()) return owner.toClassObject().module.name.name;
     if (owner.isModule()) return owner.toModuleObject().name.name;

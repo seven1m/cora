@@ -177,11 +177,10 @@ fn builtinUnboundMethodParameters(vm: *VM, receiver: Value, args: []Value, _: ?B
     try vm.requireArgCount(args, 0);
 
     const method_obj = unboundMethodObject(receiver);
-    const resolved = common.methodEntryForOwner(method_obj.owner, method_obj.name) orelse return Value.nil();
     return common.parametersForResolvedMethod(vm, .{
         .name = method_obj.name,
         .owner_class = if (method_obj.owner.isClass()) method_obj.owner.toClassObject() else vm.getClass(method_obj.owner),
-        .entry = resolved,
+        .entry = method_obj.entry,
     });
 }
 
