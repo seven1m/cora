@@ -33,6 +33,20 @@ test "lexical module methods find constants in modules included by Object" {
     try std.testing.expect(result.isTrue());
 }
 
+test "included module constants precede implicit Object constants" {
+    const result = try evalCode(
+        \\module TypeNames
+        \\  Integer = 42
+        \\end
+        \\module TypesHost
+        \\  include TypeNames
+        \\  RESULT = Integer
+        \\end
+        \\TypesHost::RESULT
+    );
+    try std.testing.expectEqual(@as(i64, 42), result.toInteger());
+}
+
 test "shareable constant wrapper compiles constant assignment" {
     const result = try evalCode(
         \\# shareable_constant_value: literal

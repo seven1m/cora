@@ -2626,6 +2626,9 @@ pub const VM = struct {
         var result = LexicalConstantLookupResult{};
         var current_scope: ?*LexicalScope = scope;
         while (current_scope) |s| {
+            // The implicit top-level Object scope is searched after the
+            // innermost scope's ancestors, including its included modules.
+            if (s == self.toplevel_lexical_scope and s != scope) break;
             const module_obj = s.getModule();
             if (module_obj.constants.get(name)) |entry| {
                 try self.warnDeprecatedConstant(module_obj, name);
