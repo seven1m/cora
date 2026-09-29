@@ -244,18 +244,17 @@ fn buildPrism(b: *std.Build) *std.Build.Step {
 
     const libprism_exists = pathExists(b, libprism_path);
 
+    var source_step: ?*std.Build.Step = null;
     if (!libprism_exists) {
         const copy_step = b.addSystemCommand(&.{ "sh", "-c", "mkdir -p build/prism && cp -r ext/prism/* build/prism/" });
-        prism_build_step.dependOn(&copy_step.step);
-
         const overlay_step = b.addSystemCommand(&.{ "sh", "-c", "cp -r ext/prism-templates/* build/prism/" });
         overlay_step.step.dependOn(&copy_step.step);
-        prism_build_step.dependOn(&overlay_step.step);
-
-        const make_step = b.addSystemCommand(&.{ "make", "-C", "build/prism", "static" });
-        make_step.step.dependOn(&overlay_step.step);
-        prism_build_step.dependOn(&make_step.step);
+        source_step = &overlay_step.step;
     }
+
+    const make_step = b.addSystemCommand(&.{ "make", "-C", "build/prism", "static", "shared" });
+    if (source_step) |step| make_step.step.dependOn(step);
+    prism_build_step.dependOn(&make_step.step);
 
     return prism_build_step;
 }
@@ -690,6 +689,16 @@ pub fn build(b: *std.Build) void {
         .install_subdir = "lib/stdlib",
     });
     b.getInstallStep().dependOn(&install_stdlib.step);
+    const install_prism_shared = b.addInstallFile(b.path(prism_build_root ++ "/build/libprism.so"), "lib/prism/libprism.so");
+    install_prism_shared.step.dependOn(prism_build_step);
+    b.getInstallStep().dependOn(&install_prism_shared.step);
+    const install_prism_headers = b.addInstallDirectory(.{
+        .source_dir = b.path(prism_build_root ++ "/include"),
+        .install_dir = .prefix,
+        .install_subdir = "lib/prism/include",
+    });
+    install_prism_headers.step.dependOn(prism_build_step);
+    b.getInstallStep().dependOn(&install_prism_headers.step);
     const install_ffi = b.addInstallFile(b.path(ffi_build_root ++ "/cora_ffi.so"), "lib/stdlib/cora_ffi.so");
     install_ffi.step.dependOn(ffi_build_step);
     b.getInstallStep().dependOn(&install_ffi.step);
