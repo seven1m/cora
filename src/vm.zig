@@ -11670,6 +11670,13 @@ pub const VM = struct {
         origin_iclass.module.class_variables = try self.newModuleTable(value.ClassVariableTable);
         origin_iclass.module.includer = module_obj;
         origin_iclass.module.is_origin_iclass = true;
+        // Existing inclusions share the original method table. Once the module
+        // gets a separate origin node, those sites must refer to that node too.
+        for (module_obj.subclasses.items) |site| {
+            if (site.object.type_tag == .iclass and site.origin == module_obj) {
+                site.origin = &origin_iclass.module;
+            }
+        }
         module_obj.super = &origin_iclass.module;
         module_obj.origin = &origin_iclass.module;
         module_obj.methods = try self.newModuleTable(value.MethodTable);
@@ -11704,19 +11711,18 @@ pub const VM = struct {
         }
     }
 
-    fn doIncludeModulesAt(self: *VM, target: *ModuleObject, module_obj: *ModuleObject, search_super: bool) VMError!bool {
+    fn doIncludeModulesAt(self: *VM, target: *ModuleObject, module_obj: *ModuleObject, search_super: bool, insertion_override: ?*ModuleObject) VMError!bool {
         if (target.origin == module_obj.origin) return error.CyclicInclude;
         if (self.moduleInSuperChain(module_obj, target)) return error.CyclicInclude;
         if (self.moduleInSuperChain(target, module_obj)) return false;
 
-        const insertion_point = if (search_super) target.origin else target;
+        const insertion_point = insertion_override orelse (if (search_super) target.origin else target);
         var visible_ancestors: std.ArrayList(*ModuleObject) = .empty;
         defer visible_ancestors.deinit(self.gc_allocator);
         try self.appendVisibleAncestors(&visible_ancestors, module_obj);
 
         var next_super = insertion_point.super;
         var i = visible_ancestors.items.len;
-        var primary_iclass: ?*ModuleObject = null;
         while (i > 0) {
             i -= 1;
             const visible_module = visible_ancestors.items[i];
@@ -11724,23 +11730,59 @@ pub const VM = struct {
             const iclass = try self.includeClassNew(visible_module, next_super);
             iclass.module.includer = target;
             next_super = &iclass.module;
-            if (i == 0) primary_iclass = &iclass.module;
+            visible_module.origin.subclasses.append(self.gc_allocator, &iclass.module) catch return error.Fatal;
         }
         insertion_point.super = next_super;
-        if (primary_iclass) |site| {
-            module_obj.origin.subclasses.append(self.gc_allocator, site) catch return error.Fatal;
-        }
         self.syncVisibleSuperclass(target);
         return true;
     }
 
-    fn propagateIncludedModule(self: *VM, owner: *ModuleObject, module_obj: *ModuleObject, search_super: bool) VMError!void {
-        for (owner.subclasses.items) |site| {
+    fn prependInsertionPoint(_: *VM, includer: *ModuleObject, site: *ModuleObject, owner: *ModuleObject) *ModuleObject {
+        var predecessor = includer;
+        var first_prepend_predecessor: ?*ModuleObject = null;
+        while (predecessor.super) |node| {
+            if (node == site) break;
+            var prepended = owner.super;
+            while (prepended) |candidate| : (prepended = candidate.super) {
+                if (candidate.is_origin_iclass) break;
+                if (ancestry.sameOrigin(node, candidate)) {
+                    if (first_prepend_predecessor == null) first_prepend_predecessor = predecessor;
+                    break;
+                }
+            }
+            predecessor = node;
+        }
+        return first_prepend_predecessor orelse predecessor;
+    }
+
+    fn includedOwnerSite(_: *VM, includer: *ModuleObject, owner: *ModuleObject) ?*ModuleObject {
+        var current = includer.super;
+        while (current) |node| : (current = node.super) {
+            if (node.object.type_tag == .iclass and node.origin == owner.origin) return node;
+        }
+        return null;
+    }
+
+    fn propagateIncludedModuleAtSites(self: *VM, owner: *ModuleObject, sites: []const *ModuleObject, module_obj: *ModuleObject, search_super: bool) VMError!void {
+        for (sites) |site| {
             const includer = site.includer orelse continue;
-            _ = self.doIncludeModulesAt(includer, module_obj, search_super) catch |err| switch (err) {
+            const insertion_point = if (search_super)
+                self.includedOwnerSite(includer, owner) orelse site
+            else
+                self.prependInsertionPoint(includer, site, owner);
+            _ = self.doIncludeModulesAt(includer, module_obj, search_super, insertion_point) catch |err| switch (err) {
                 error.CyclicInclude => continue,
                 else => return err,
             };
+        }
+    }
+
+    fn propagateIncludedModule(self: *VM, owner: *ModuleObject, module_obj: *ModuleObject, search_super: bool) VMError!void {
+        try self.propagateIncludedModuleAtSites(owner, owner.subclasses.items, module_obj, search_super);
+        // Sites created before the first prepend remain on the visible module;
+        // sites created afterward are registered on its origin node.
+        if (owner.origin != owner) {
+            try self.propagateIncludedModuleAtSites(owner, owner.origin.subclasses.items, module_obj, search_super);
         }
     }
 
@@ -11768,11 +11810,11 @@ pub const VM = struct {
     }
 
     pub fn includeModule(self: *VM, target: *value.ModuleObject, module: *value.ModuleObject) VMError!void {
-        _ = self.doIncludeModulesAt(target, module, true) catch |err| switch (err) {
+        _ = self.doIncludeModulesAt(target, module, true, null) catch |err| switch (err) {
             error.CyclicInclude => return self.raiseExceptionFmt(self.argument_error_class, "cyclic include detected", .{}),
             else => return err,
         };
-        try self.propagateIncludedModule(target.origin, module, true);
+        try self.propagateIncludedModule(target, module, true);
         if (target == &self.integer_class.module) {
             self.integer_changed = true;
         }
@@ -11781,11 +11823,11 @@ pub const VM = struct {
 
     pub fn prependModule(self: *VM, target: *value.ModuleObject, module: *value.ModuleObject) VMError!void {
         _ = try self.ensureOrigin(target);
-        _ = self.doIncludeModulesAt(target, module, false) catch |err| switch (err) {
+        _ = self.doIncludeModulesAt(target, module, false, null) catch |err| switch (err) {
             error.CyclicInclude => return self.raiseExceptionFmt(self.argument_error_class, "cyclic prepend detected", .{}),
             else => return err,
         };
-        try self.propagateIncludedModule(target.origin, module, false);
+        try self.propagateIncludedModule(target, module, false);
         if (target == &self.integer_class.module) {
             self.integer_changed = true;
         }

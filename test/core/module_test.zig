@@ -157,6 +157,118 @@ test "Module prepend" {
     try std.testing.expectEqualSlices(u8, "before 2", result.toStringObject().str);
 }
 
+test "prepending an included module preserves and propagates its methods" {
+    const result = try evalCode(
+        \\module IncludedBeforePrepend
+        \\  def original; :original; end
+        \\end
+        \\class BeforePrepend
+        \\  include IncludedBeforePrepend
+        \\end
+        \\module FirstPrepend
+        \\  def first; :first; end
+        \\end
+        \\IncludedBeforePrepend.prepend(FirstPrepend)
+        \\class AfterPrepend
+        \\  include IncludedBeforePrepend
+        \\end
+        \\module SecondPrepend
+        \\  def second; :second; end
+        \\end
+        \\IncludedBeforePrepend.prepend(SecondPrepend)
+        \\[
+        \\  BeforePrepend.new.original,
+        \\  BeforePrepend.new.first,
+        \\  BeforePrepend.new.second,
+        \\  AfterPrepend.new.original,
+        \\  AfterPrepend.new.second,
+        \\]
+    );
+    const expected = [_][]const u8{ "original", "first", "second", "original", "second" };
+    for (result.toArrayObject().elements.items, expected) |item, name| {
+        try std.testing.expectEqualStrings(name, item.toSymbolObject().name);
+    }
+}
+
+test "including into an included module preserves ancestor order" {
+    const result = try evalCode(
+        \\module Middle
+        \\end
+        \\class Receiver
+        \\  include Middle
+        \\end
+        \\module Inner
+        \\  def inner; :inner; end
+        \\end
+        \\Middle.include(Inner)
+        \\Receiver.new.inner == :inner && Receiver.ancestors[0, 3] == [Receiver, Middle, Inner]
+    );
+    try std.testing.expect(result.toBool());
+}
+
+test "including into a prepended module follows that module in existing includers" {
+    const result = try evalCode(
+        \\module Middle
+        \\end
+        \\module Before
+        \\end
+        \\Middle.prepend(Before)
+        \\class Receiver
+        \\  include Middle
+        \\end
+        \\module Inner
+        \\end
+        \\Middle.include(Inner)
+        \\Receiver.ancestors[0, 4] == [Receiver, Before, Middle, Inner]
+    );
+    try std.testing.expect(result.toBool());
+}
+
+test "changing a transitively included module reaches existing includers" {
+    const result = try evalCode(
+        \\module Inner
+        \\end
+        \\module Outer
+        \\  include Inner
+        \\end
+        \\class Receiver
+        \\  include Outer
+        \\end
+        \\module Added
+        \\  def added; :added; end
+        \\end
+        \\Inner.include(Added)
+        \\module Before
+        \\  def before; :before; end
+        \\end
+        \\Inner.prepend(Before)
+        \\Receiver.new.added == :added && Receiver.new.before == :before &&
+        \\  Receiver.ancestors[0, 5] == [Receiver, Outer, Before, Inner, Added]
+    );
+    try std.testing.expect(result.toBool());
+}
+
+test "prepending into an included module keeps neighboring inclusions in order" {
+    const result = try evalCode(
+        \\module Middle
+        \\end
+        \\module Neighbor
+        \\end
+        \\class Receiver
+        \\  include Middle
+        \\  include Neighbor
+        \\end
+        \\module First
+        \\end
+        \\module Second
+        \\end
+        \\Middle.prepend(First)
+        \\Middle.prepend(Second)
+        \\Receiver.ancestors[0, 5] == [Receiver, Neighbor, Second, First, Middle]
+    );
+    try std.testing.expect(result.toBool());
+}
+
 test "Module prepend calls feature and completion hooks" {
     const result = try evalCode(
         \\$prepend_events = []
