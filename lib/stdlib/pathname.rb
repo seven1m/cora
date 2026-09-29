@@ -43,6 +43,28 @@ class Pathname
     dirname
   end
 
+  def ascend
+    return to_enum(__method__) unless block_given?
+
+    path = @path
+    yield self
+    loop do
+      basename = File.basename(path)
+      break if basename == File::SEPARATOR
+
+      basename_start = path.rindex(basename)
+      break unless basename_start
+
+      path = path[0...basename_start]
+      break if path.empty?
+
+      parent = path.sub(%r{/+\z}, "")
+      parent = File::SEPARATOR if parent.empty?
+      yield self.class.new(parent)
+    end
+    nil
+  end
+
   def join(*args)
     Pathname.new(File.join(@path, *args))
   end
