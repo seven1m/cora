@@ -69,3 +69,24 @@ test "undef keyword in instance_eval masks an inherited method on one object" {
     try std.testing.expectEqual(false, items[0].toBool());
     try std.testing.expectEqual(true, items[1].toBool());
 }
+
+test "undef keyword continues at the next instruction" {
+    const result = try evalCode(
+        \\class Parent
+        \\  def a; end
+        \\  def b; end
+        \\  def c; end
+        \\  def d; end
+        \\  def e; end
+        \\  def f; end
+        \\  def g; end
+        \\  def h; end
+        \\end
+        \\class Child < Parent
+        \\  undef :a, :b, :c, :d, :e, :f, :g, :h
+        \\  def self.ready = 42
+        \\end
+        \\Child.ready
+    );
+    try std.testing.expectEqual(@as(i64, 42), result.toInteger());
+}

@@ -7177,8 +7177,7 @@ pub const VM = struct {
             },
 
             .UNDEF_METHOD => {
-                const argc = operands[operand_cursor];
-                operand_cursor += 1;
+                const argc = readByteFrom(frame, operands, &operand_cursor);
 
                 var args: [256]Value = undefined;
                 var i: usize = argc;
