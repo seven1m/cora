@@ -1437,20 +1437,10 @@ pub const Compiler = struct {
 
                             // Compile keyword args
                             if (kw_hash_mode) {
-                                // **splat: compile the expression
                                 if (kw_hash_pos) |pos| {
                                     const kw_node = try self.parser.asNode(args.arguments.nodes[pos]);
-                                    if (kw_node.keyword_hash.elements.size > 0) {
-                                        const first_elem = try self.parser.asNode(kw_node.keyword_hash.elements.nodes[0]);
-                                        if (first_elem == .assoc_splat) {
-                                            const expr = try self.parser.asNode(first_elem.assoc_splat.value orelse return error.UnsupportedNode);
-                                            try self.compileNode(expr, line);
-                                            // No kwargc for hash mode - the hash contains all key-value pairs
-                                            // kwargc will be determined at runtime from the hash
-                                        }
-                                    }
+                                    try self.compileNode(kw_node, line);
                                 }
-                                // kwargc = 0 for hash mode (count comes from hash at runtime)
                             } else if (kw_hash_pos) |pos| {
                                 const kw_node = try self.parser.asNode(args.arguments.nodes[pos]);
                                 const kw_hash = kw_node.keyword_hash;

@@ -266,6 +266,24 @@ test "super forwards explicit and splatted keyword arguments" {
     try std.testing.expect(result.isTrue());
 }
 
+test "super merges explicit keywords before a keyword splat" {
+    const result = try evalCode(
+        \\class Parent
+        \\  def initialize(fs:, **options)
+        \\    @received = [fs, options]
+        \\  end
+        \\  attr_reader :received
+        \\end
+        \\class Child < Parent
+        \\  def initialize(fs:, **options)
+        \\    super(fs: fs, **options)
+        \\  end
+        \\end
+        \\Child.new(fs: :disk, mode: :read).received == [:disk, {mode: :read}]
+    );
+    try std.testing.expect(result.isTrue());
+}
+
 test "super keeps positional splats separate from mixed keyword arguments" {
     const result = try evalCode(
         \\class ReferenceDefinition
