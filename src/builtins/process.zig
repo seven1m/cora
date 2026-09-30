@@ -395,7 +395,6 @@ pub fn builtinProcessDetach(vm: *VM, _: Value, args: []Value, _: ?Block) VMError
     var thread_args = [_]Value{pid_value};
     try vm.configureThread(thread, block, thread_args[0..]);
     try vm.startThread(thread);
-    try vm.schedulerYield();
 
     return thread_val;
 }

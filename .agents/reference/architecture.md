@@ -56,6 +56,28 @@ Prefer not to add new opcodes when an existing mechanism can be extended. When a
 
 **Lexical scopes:** Lexical scope chains track module/class context for constant lookup.
 
+## Thread Scheduling
+
+Threads share one native execution thread and hand off directly between saved
+coroutine contexts, following MRI's running/ready/waiting ownership model.
+`VM.runnable_queue` contains ready threads, excluding the current thread.
+`schedulerYield` dequeues one ready thread, requeues a runnable caller, saves
+its active fiber and call context, restores the target, and transfers ownership
+with `zio.coro.switchContext`. It never runs another thread through a recursive
+scheduler call. Thread creation enqueues work; thread exit transfers ownership
+without requeuing the terminated thread.
+
+Both main and worker threads are preempted at bytecode safe points. A thread's
+`scheduling_context` can point to its active fiber, so thread scheduling does
+not change Ruby fiber caller relationships. Handoffs preserve pending unwinds,
+builtin keyword/indexed-yield contexts, C extension jump buffers and keyword
+hashes, and the current loading file. Suspended native stacks remain GC roots.
+
+Sleep and I/O waiters become ready when their deadline expires, their descriptor
+is ready, or they are interrupted. When no thread is ready, the scheduler polls
+descriptors and the nearest deadline, with bounded waits for asynchronous events.
+Process signal handlers run on the main thread, waking it when necessary.
+
 ## Exception Handling
 
 - Built-in exception classes include `Exception`, `StandardError`, `RuntimeError`, `ArgumentError`, `TypeError`, `ZeroDivisionError`, and `NoMethodError`.

@@ -61,6 +61,10 @@ This is normal for a bytecode-to-C proof of concept. It keeps codegen simple and
 
 - `VM.maybeCallJittedChunk()` is the main runtime hook.
 - The JIT is attempted only in chunk-call fast paths.
+- Generated methods currently have no scheduling safe points. When another Ruby
+  thread is alive, including a sleeping thread, calls use the interpreter so
+  thread preemption and wakeups remain available. Cached JIT code can be used
+  again after those threads terminate.
 - Generated code is reused until `method_state_version` changes.
 - Integer monkeypatching and runtime guard failures fall back to the interpreter.
 

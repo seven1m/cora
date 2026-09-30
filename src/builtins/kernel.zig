@@ -2127,6 +2127,7 @@ pub fn builtinKernelLoop(vm: *VM, _: Value, args: []Value, block: ?Block) VMErro
 
     while (true) {
         _ = try vm.yieldToBlock(blk, &[_]Value{});
+        try vm.checkAsyncEvents();
         try vm.maybePreemptCurrentThread(true);
     }
 }

@@ -1018,7 +1018,7 @@ pub const VM = struct {
             .main_self = undefined,
             .pending_unwind = null,
             .pending_signal_traps = .empty,
-            .zio_main_context = undefined,
+            .zio_main_context = std.mem.zeroes(FiberCoroContext),
             .zio_stack_growth_ready = false,
             .zio_coroutines = .empty,
             .gc_vm_root_registered = false,
@@ -2098,7 +2098,8 @@ pub const VM = struct {
         self.main_fiber = main_fiber_obj;
         self.current_fiber = main_fiber_obj;
         self.restoreFiberState(main_fiber_obj);
-        self.zio_main_context = undefined;
+        self.zio_main_context = std.mem.zeroes(FiberCoroContext);
+        _ = try self.ensureMainThread();
 
         try self.buildProgramCallsiteDescriptors();
         try self.internProgramLiteralSymbols();
@@ -3364,6 +3365,19 @@ pub const VM = struct {
 
     pub fn checkAsyncEvents(self: *VM) VMError!void {
         try self.drainQueuedSignalsToAsyncExceptions();
+        // Process signals belong to the main thread. In particular, an idle
+        // handoff from an exiting worker must not execute a trap on its stack.
+        if (self.main_thread) |main| {
+            if (self.current_thread != main) {
+                if (self.pending_signal_traps.items.len != 0 or self.pending_async_exceptions.items.len != 0) {
+                    if (main.state == .sleeping) {
+                        main.state = .running;
+                        self.addRunnableThreadIfAbsent(main);
+                    }
+                }
+                return;
+            }
+        }
         if (self.hasPendingUnwind()) return;
         if (self.pending_signal_traps.items.len != 0) {
             const signo = self.pending_signal_traps.orderedRemove(0);
@@ -3660,6 +3674,11 @@ pub const VM = struct {
         args: []const Value,
     ) VMError!?Value {
         if (!self.tcc_jit_enabled or !jit.available) return null;
+        // Generated methods have no scheduling safe points yet. Once another
+        // thread is alive (including sleepers), keep execution preemptible.
+        for (self.thread_list.items) |thread| {
+            if (thread != self.current_thread and thread.state != .terminated) return null;
+        }
         if (self.integer_changed or args.len > 2 or (args.len > 0 and !args[0].isInteger()) or (args.len == 2 and !args[1].isInteger())) return null;
 
         const state = try self.getOrCreateJitState(method_chunk);
@@ -4556,22 +4575,6 @@ pub const VM = struct {
                     self.releaseFiberCoroutine(fiber);
                     return error.Unwind;
                 },
-                .thread_yield => {
-                    const root_fiber = self.rootFiberForCurrentThread();
-                    if (caller == root_fiber) {
-                        const thread = self.current_thread orelse return error.Fatal;
-                        try self.yieldCurrentThreadCoroutine(thread);
-                        continue;
-                    }
-
-                    caller.coro_event = .thread_yield;
-                    caller.state = .suspended;
-                    const caller_coro = caller.coro orelse return error.Fatal;
-                    caller_coro.yield();
-                    caller.state = .running;
-                    caller.coro_event = .none;
-                    continue;
-                },
                 .none => return error.Fatal,
             }
         }
@@ -4611,6 +4614,8 @@ pub const VM = struct {
         main_thread_obj.waiting_on_queue = false;
         main_thread_obj.waiting_on_require = false;
         main_thread_obj.preempt_requested = false;
+        main_thread_obj.scheduling_context = &self.zio_main_context;
+        main_thread_obj.call_context = .{};
         main_thread_obj.ops_until_preempt = self.thread_preempt_quantum_ops;
         main_thread_obj.sleep_deadline_ms = null;
         main_thread_obj.io_wait = null;
@@ -4623,6 +4628,16 @@ pub const VM = struct {
         self.main_thread = main_thread_obj;
         self.current_thread = main_thread_obj;
         self.setCurrentFiber(self.main_fiber);
+        // Globals installed before the main execution context exists must use
+        // its thread-local slots too, including aliases sharing those slots.
+        for ([_][]const u8{ "$~", "$&", "$`", "$'", "$?" }) |name| {
+            if (self.globals.get(name)) |global| {
+                if (global.storage == .regular) {
+                    self.currentThreadGlobalSlot(name).?.* = global.storage.regular;
+                    global.storage = .{ .thread_local = name };
+                }
+            }
+        }
         self.thread_list.append(self.gc_allocator, main_thread_obj) catch return error.Fatal;
         return main_thread_obj;
     }
@@ -4696,6 +4711,8 @@ pub const VM = struct {
         thread_obj.waiting_on_queue = false;
         thread_obj.waiting_on_require = false;
         thread_obj.preempt_requested = false;
+        thread_obj.scheduling_context = null;
+        thread_obj.call_context = .{};
         thread_obj.ops_until_preempt = self.thread_preempt_quantum_ops;
         thread_obj.sleep_deadline_ms = null;
         thread_obj.io_wait = null;
@@ -4743,7 +4760,7 @@ pub const VM = struct {
 
     pub fn startThread(self: *VM, thread_obj: *value.ThreadObject) VMError!void {
         self.thread_list.append(self.gc_allocator, thread_obj) catch return error.Fatal;
-        self.runnable_queue.append(self.gc_allocator, thread_obj) catch return error.Fatal;
+        try self.enqueueReadyThread(thread_obj);
     }
 
     pub fn releaseThreadOwnedMutexes(self: *VM, thread: *value.ThreadObject) void {
@@ -4765,10 +4782,7 @@ pub const VM = struct {
                 if (!self.isKnownThread(waiter)) continue;
                 if (waiter.state == .terminated) continue;
                 waiter.state = .running;
-                for (self.runnable_queue.items) |thread| {
-                    if (thread == waiter) return;
-                }
-                self.runnable_queue.append(self.gc_allocator, waiter) catch {};
+                self.addRunnableThreadIfAbsent(waiter);
                 return;
             }
         }
@@ -4785,6 +4799,13 @@ pub const VM = struct {
         thread.current_lexical_scope = self.current_lexical_scope;
         thread.current_fiber = self.current_fiber;
         thread.pending_unwind = self.pending_unwind;
+        thread.call_context = .{
+            .builtin_keywords = self.builtin_keyword_ctx,
+            .indexed_yield = self.indexed_yield_ctx,
+            .cext_jmp_buf = self.cext_jmp_buf,
+            .cext_keyword_hash = self.cext_keyword_hash,
+            .loading_file = self.current_loading_file,
+        };
     }
 
     fn restoreThreadState(self: *VM, thread: *value.ThreadObject) void {
@@ -4792,6 +4813,11 @@ pub const VM = struct {
         self.frames = &thread.frames;
         self.current_lexical_scope = thread.current_lexical_scope;
         self.pending_unwind = thread.pending_unwind;
+        self.builtin_keyword_ctx = thread.call_context.builtin_keywords;
+        self.indexed_yield_ctx = thread.call_context.indexed_yield;
+        self.cext_jmp_buf = thread.call_context.cext_jmp_buf;
+        self.cext_keyword_hash = thread.call_context.cext_keyword_hash;
+        self.current_loading_file = thread.call_context.loading_file;
     }
 
     fn ensureThreadCoroutine(self: *VM, thread: *value.ThreadObject) VMError!void {
@@ -4808,6 +4834,7 @@ pub const VM = struct {
         coro_obj.setup(&threadEntrypoint, thread);
         self.zio_coroutines.append(self.allocator, coro_obj) catch return error.Fatal;
         thread.coro = coro_obj;
+        thread.scheduling_context = &coro_obj.context;
     }
 
     fn threadEntrypoint(coro_obj: *FiberCoro, userdata: ?*anyopaque) void {
@@ -4843,9 +4870,9 @@ pub const VM = struct {
                     thread.terminated_normally = true;
                 },
             }
-            if (thread.coro) |c| c.yield();
-            return;
         };
+        thread.owner_vm.schedulerYield() catch @panic("failed to schedule after thread exit");
+        @panic("terminated thread resumed");
     }
 
     fn runThreadCoroutine(thread: *value.ThreadObject) VMError!void {
@@ -4866,7 +4893,6 @@ pub const VM = struct {
                 thread.result = result;
                 thread.terminated_normally = true;
                 self.releaseThreadOwnedMutexes(thread);
-                if (thread.coro) |c| c.yield();
                 return;
             },
             .receiver_builtin => |builtin_data| {
@@ -4877,7 +4903,6 @@ pub const VM = struct {
                 thread.result = result;
                 thread.terminated_normally = true;
                 self.releaseThreadOwnedMutexes(thread);
-                if (thread.coro) |c| c.yield();
                 return;
             },
             .builtin => |func| {
@@ -4893,7 +4918,6 @@ pub const VM = struct {
                         thread.exception = self.pendingException();
                         thread.terminated_normally = false;
                         self.releaseThreadOwnedMutexes(thread);
-                        if (thread.coro) |c| c.yield();
                         return;
                     }
                     return err;
@@ -4902,7 +4926,6 @@ pub const VM = struct {
                 thread.result = result;
                 thread.terminated_normally = true;
                 self.releaseThreadOwnedMutexes(thread);
-                if (thread.coro) |c| c.yield();
                 return;
             },
             .callable => |callable| {
@@ -4913,7 +4936,6 @@ pub const VM = struct {
                 thread.result = result;
                 thread.terminated_normally = true;
                 self.releaseThreadOwnedMutexes(thread);
-                if (thread.coro) |c| c.yield();
                 return;
             },
         }
@@ -4948,14 +4970,6 @@ pub const VM = struct {
                 continue;
             }
 
-            var executed_op: ?bytecode.OpCode = null;
-            if (self.frames.items.len > 0) {
-                const frame = &self.frames.storage[self.frames.items.len - 1];
-                if (frame.ip < frame.chunk.code.items.len) {
-                    executed_op = @enumFromInt(frame.chunk.code.items[frame.ip]);
-                }
-            }
-
             self.executeInstruction() catch |err| switch (err) {
                 error.Unwind => {
                     self.unwindStack() catch |unwind_err| switch (unwind_err) {
@@ -4971,13 +4985,7 @@ pub const VM = struct {
                 thread.result = self.pop();
                 thread.terminated_normally = true;
                 self.releaseThreadOwnedMutexes(thread);
-                if (thread.coro) |c| c.yield();
                 return;
-            }
-
-            const safe_point = if (executed_op) |op| isThreadPreemptSafePoint(op) else false;
-            if (self.shouldPreemptThread(thread, safe_point)) {
-                try self.threadYield();
             }
         }
     }
@@ -4986,9 +4994,13 @@ pub const VM = struct {
         for (self.runnable_queue.items) |thread| {
             if (!self.isKnownThread(thread)) continue;
             if (thread == current_thread) continue;
-            if (thread.state == .created or thread.state == .running) return true;
+            if (isThreadRunnable(thread)) return true;
         }
         return false;
+    }
+
+    inline fn isThreadRunnable(thread: *const value.ThreadObject) bool {
+        return thread.state == .created or thread.state == .running or thread.state == .aborting;
     }
 
     inline fn isKnownThread(self: *VM, candidate: *value.ThreadObject) bool {
@@ -4998,11 +5010,18 @@ pub const VM = struct {
         return false;
     }
 
-    fn addRunnableThreadIfAbsent(self: *VM, thread: *value.ThreadObject) void {
+    fn enqueueReadyThread(self: *VM, thread: *value.ThreadObject) VMError!void {
+        std.debug.assert(isThreadRunnable(thread));
         for (self.runnable_queue.items) |queued| {
             if (queued == thread) return;
         }
-        self.runnable_queue.append(self.gc_allocator, thread) catch {};
+        self.runnable_queue.append(self.gc_allocator, thread) catch return error.Fatal;
+    }
+
+    pub fn addRunnableThreadIfAbsent(self: *VM, thread: *value.ThreadObject) void {
+        if (self.current_thread == thread) return;
+        if (!isThreadRunnable(thread)) return;
+        self.enqueueReadyThread(thread) catch {};
     }
 
     fn wakeSleepingIoWaiters(self: *VM) void {
@@ -5066,6 +5085,40 @@ pub const VM = struct {
         }
     }
 
+    fn waitForThreadWakeup(self: *VM) VMError!void {
+        var fds: std.ArrayList(std.posix.pollfd) = .empty;
+        defer fds.deinit(self.allocator);
+        const now_ms = monotonicMilliseconds();
+        // Bound idle waits so signal traps and async exceptions remain prompt.
+        var timeout_ms: i64 = 100;
+        for (self.thread_list.items) |thread| {
+            if (thread.state != .sleeping) continue;
+            if (thread.sleep_deadline_ms) |deadline| {
+                timeout_ms = @min(timeout_ms, @max(0, deadline - now_ms));
+            }
+            if (thread.io_wait) |wait| {
+                fds.append(self.allocator, .{
+                    .fd = @intCast(wait.fd),
+                    .events = wait.events,
+                    .revents = 0,
+                }) catch return error.Fatal;
+                if (wait.deadline_ms) |deadline| {
+                    timeout_ms = @min(timeout_ms, @max(0, deadline - now_ms));
+                }
+            }
+        }
+        try self.checkAsyncEvents();
+        var no_fds: std.posix.pollfd = .{ .fd = -1, .events = 0, .revents = 0 };
+        const poll_ptr: [*]std.posix.pollfd = if (fds.items.len == 0) @ptrCast(&no_fds) else fds.items.ptr;
+        const rc = std.c.poll(poll_ptr, @intCast(fds.items.len), @intCast(timeout_ms));
+        if (rc < 0) {
+            const errno_code: std.posix.E = @enumFromInt(std.c._errno().*);
+            if (errno_code != .INTR) return self.raiseErrnoFmt(errno_code, "poll failed", .{});
+        }
+        try self.checkAsyncEvents();
+        self.wakeSleepingIoWaiters();
+    }
+
     pub fn timedSleepCurrentThread(self: *VM, duration_ms: i64) VMError!void {
         if (duration_ms <= 0) {
             try self.threadYield();
@@ -5084,32 +5137,6 @@ pub const VM = struct {
         thread.sleep_deadline_ms = deadline_ms;
         defer thread.sleep_deadline_ms = null;
 
-        if (self.main_thread != null and thread == self.main_thread.?) {
-            thread.state = .sleeping;
-            defer {
-                if (thread.state == .sleeping) thread.state = .running;
-            }
-
-            while (thread.state == .sleeping) {
-                try self.checkAsyncEvents();
-                self.wakeSleepingIoWaiters();
-                if (thread.state != .sleeping) break;
-
-                if (self.hasOtherRunnableThread(thread)) {
-                    try self.schedulerYield();
-                    continue;
-                }
-
-                const remaining_ms = deadline_ms - monotonicMilliseconds();
-                if (remaining_ms <= 0) {
-                    thread.state = .running;
-                    break;
-                }
-                try blockingSleepMilliseconds(self, @min(remaining_ms, 10));
-            }
-            return;
-        }
-
         thread.state = .sleeping;
         while (thread.state == .sleeping) {
             try self.threadYield();
@@ -5123,27 +5150,6 @@ pub const VM = struct {
                 try blockingSleepMilliseconds(self, 100);
             }
         };
-
-        if (self.main_thread != null and thread == self.main_thread.?) {
-            thread.state = .sleeping;
-            defer {
-                if (thread.state == .sleeping) thread.state = .running;
-            }
-
-            while (thread.state == .sleeping) {
-                try self.checkAsyncEvents();
-                self.wakeSleepingIoWaiters();
-                if (thread.state != .sleeping) break;
-
-                if (self.hasOtherRunnableThread(thread)) {
-                    try self.schedulerYield();
-                    continue;
-                }
-
-                try blockingSleepMilliseconds(self, 100);
-            }
-            return;
-        }
 
         thread.state = .sleeping;
         while (thread.state == .sleeping) {
@@ -5190,152 +5196,79 @@ pub const VM = struct {
         return @ptrFromInt(coro.context.stack_info.base);
     }
 
-    /// Yield to the thread scheduler. Runs all other runnable threads one step each,
-    /// then returns control to the caller.
+    /// Transfer ownership to one ready thread, saving the yielding thread's
+    /// active fiber context. No thread executes a scheduler on another's stack.
     pub fn schedulerYield(self: *VM) VMError!void {
+        const caller = self.current_thread orelse return;
         self.wakeSleepingIoWaiters();
-        if (self.runnable_queue.items.len == 0) return;
 
-        const caller_thread = self.current_thread orelse return;
+        var target: *value.ThreadObject = undefined;
+        while (true) {
+            if (self.runnable_queue.items.len > 0) {
+                const candidate = self.runnable_queue.orderedRemove(0);
+                std.debug.assert(candidate != caller);
+                std.debug.assert(isThreadRunnable(candidate));
+                target = candidate;
+                break;
+            }
+            if (isThreadRunnable(caller)) return;
+            try self.waitForThreadWakeup();
+        }
 
-        // Save current fiber state so we can restore it after
+        if (target.state == .created) {
+            try self.ensureThreadCoroutine(target);
+            target.state = .running;
+        }
+
         const caller_fiber = self.current_fiber;
         self.saveFiberState(caller_fiber);
-        self.saveThreadState(caller_thread);
+        self.saveThreadState(caller);
+        const caller_context: *FiberCoroContext = if (caller_fiber.coro) |c|
+            &c.context
+        else if (caller.coro) |c|
+            &c.context
+        else
+            &self.zio_main_context;
+        caller.scheduling_context = caller_context;
 
-        const caller_stack_base = try self.stackBaseForFiber(caller_fiber);
+        // The running thread is absent from the ready queue until it yields.
+        if (isThreadRunnable(caller)) try self.enqueueReadyThread(caller);
+        self.current_thread = target;
+        self.restoreThreadState(target);
+        self.current_fiber = target.current_fiber orelse target.main_fiber orelse self.main_fiber;
+        self.restoreFiberState(self.current_fiber);
+        try self.setCurrentStackBaseForGc(try self.stackBaseForFiber(self.current_fiber));
+        self.resetThreadPreemptBudget(target);
 
-        // Run each runnable thread one step
-        var i: usize = 0;
-        while (i < self.runnable_queue.items.len) {
-            const thread = self.runnable_queue.items[i];
-            if (!self.isKnownThread(thread)) {
-                _ = self.runnable_queue.orderedRemove(i);
-                continue;
-            }
-            if (thread == caller_thread) {
-                i += 1;
-                continue;
-            }
-            if (thread.state == .terminated) {
-                _ = self.runnable_queue.orderedRemove(i);
-                continue;
-            }
-
-            // Set up thread's coroutine if needed
-            if (thread.state == .created) {
-                try self.ensureThreadCoroutine(thread);
-                thread.state = .running;
-            }
-
-            if (thread.state == .sleeping) {
-                i += 1;
-                continue;
-            }
-
-            // Switch to thread
-            self.current_thread = thread;
-            self.restoreThreadState(thread);
-            self.current_fiber = thread.current_fiber orelse thread.main_fiber orelse self.main_fiber;
-
-            const target_stack_base = try self.stackBaseForThread(thread);
-            try self.setCurrentStackBaseForGc(target_stack_base);
-            self.resetThreadPreemptBudget(thread);
-
-            const target_coro = thread.coro orelse return error.Fatal;
-            const parent_context: *FiberCoroContext = if (caller_fiber.coro) |caller_coro|
-                &caller_coro.context
-            else if (caller_thread.coro) |caller_thread_coro|
-                &caller_thread_coro.context
-            else
-                &self.zio_main_context;
-            target_coro.parent_context_ptr.store(parent_context, .release);
-            target_coro.step();
-
-            self.saveThreadState(thread);
-
-            if (thread.state == .terminated) {
-                // Thread may have already removed itself from the queue
-                if (i < self.runnable_queue.items.len and self.runnable_queue.items[i] == thread) {
-                    _ = self.runnable_queue.orderedRemove(i);
-                }
-                continue;
-            }
-
-            i += 1;
-        }
-
-        // Restore caller state
-        self.current_thread = caller_thread;
-        self.restoreThreadState(caller_thread);
-        self.current_fiber = caller_fiber;
-        self.restoreFiberState(caller_fiber);
-        try self.setCurrentStackBaseForGc(caller_stack_base);
-
-        if (caller_thread.async_exception) |exc| {
-            caller_thread.async_exception = null;
-            try self.captureAndSetExceptionBacktrace(exc);
-            const exc_val = Value.fromObject(&exc.object);
-            const raised_val = try self.callMethodByName(exc_val, "exception", &.{}, null);
-            self.setPendingException(raised_val.toExceptionObject());
-            return error.Unwind;
-        }
+        const target_context = target.scheduling_context orelse return error.Fatal;
+        zio.coro.switchContext(caller_context, target_context);
+        std.debug.assert(self.current_thread == caller);
     }
 
-    fn yieldCurrentThreadCoroutine(self: *VM, thread: *value.ThreadObject) VMError!void {
-        if (thread.coro) |c| c.yield();
+    /// Yield to another ready thread and deliver events after regaining ownership.
+    pub fn threadYield(self: *VM) VMError!void {
+        try self.checkAsyncEvents();
+        const thread = self.current_thread orelse return;
+        try self.schedulerYield();
+        try self.checkAsyncEvents();
 
-        // After resuming, check if we've been killed
         if (thread.kill_requested) {
             thread.kill_requested = false;
             thread.state = .aborting;
             return self.raiseExceptionFmt(self.thread_kill_exception_class, "", .{});
         }
-
-        // Deliver async exception from Thread#raise
         if (thread.async_exception) |exc| {
             thread.async_exception = null;
             try self.captureAndSetExceptionBacktrace(exc);
-            // Call exc.exception() on the target thread (matching MRI rb_exc_exception)
-            const exc_val = Value.fromObject(&exc.object);
-            const raised_val = try self.callMethodByName(exc_val, "exception", &.{}, null);
+            const raised_val = try self.callMethodByName(Value.fromObject(&exc.object), "exception", &.{}, null);
             self.setPendingException(raised_val.toExceptionObject());
             return error.Unwind;
         }
     }
 
-    /// Yield to scheduler, used by Thread.pass and join loops
-    pub fn threadYield(self: *VM) VMError!void {
-        try self.checkAsyncEvents();
-
-        const thread = self.current_thread orelse return self.schedulerYield();
-        const main = self.main_thread orelse return self.schedulerYield();
-        if (thread == main) {
-            // Main thread: run scheduler directly
-            return self.schedulerYield();
-        }
-
-        const fiber = self.current_fiber;
-        const root_fiber = thread.main_fiber orelse self.main_fiber;
-        if (fiber.owner_thread == thread and fiber.coro != null and fiber != root_fiber) {
-            fiber.coro_event = .thread_yield;
-            fiber.state = .suspended;
-            fiber.coro.?.yield();
-            fiber.state = .running;
-            fiber.coro_event = .none;
-        } else {
-            try self.yieldCurrentThreadCoroutine(thread);
-        }
-    }
-
     pub fn maybePreemptCurrentThread(self: *VM, safe_point: bool) VMError!void {
-        try self.checkAsyncEvents();
         const thread = self.current_thread orelse return;
-        const main = self.main_thread orelse return;
-        if (thread == main) return;
-        if (self.shouldPreemptThread(thread, safe_point)) {
-            try self.threadYield();
-        }
+        if (self.shouldPreemptThread(thread, safe_point)) try self.threadYield();
     }
 
     const OptIntegerBinaryOp = enum {
@@ -5392,11 +5325,16 @@ pub const VM = struct {
     }
 
     pub fn executeInstruction(self: *VM) VMError!void {
+        return self.executeInstructionDispatch(true);
+    }
+
+    fn executeInstructionDispatch(self: *VM, comptime preempt: bool) VMError!void {
         const frame = self.currentFrame();
         if (frame.ip >= frame.chunk.code.items.len) return error.Fatal;
 
         const instr_idx = frame.ip;
         const op: bytecode.OpCode = @enumFromInt(frame.chunk.code.items[instr_idx]);
+        if (preempt) try self.maybePreemptCurrentThread(isThreadPreemptSafePoint(op));
         // ip now points just past the opcode byte; operands start here
         frame.ip = instr_idx + 1;
         const operands = frame.chunk.code.items[frame.ip..];
@@ -7568,6 +7506,7 @@ pub const VM = struct {
                 try self.callSuper(fwd_args, block, fwd_kw_ctx);
             },
         }
+        try self.checkAsyncEvents();
     }
 
     /// Execute one instruction via the slow path, handling unwind errors.
@@ -7575,7 +7514,7 @@ pub const VM = struct {
     /// (returns error.Unwind if no handler found above that depth).
     /// When bounded is false, uses full unwinding.
     inline fn executeInstructionWithUnwind(self: *VM, comptime bounded: bool, min_unwind_depth: usize) VMError!void {
-        self.executeInstruction() catch |err| switch (err) {
+        self.executeInstructionDispatch(false) catch |err| switch (err) {
             error.Unwind => {
                 if (bounded) {
                     if (!try self.unwindStackUntilFrameDepth(min_unwind_depth))
@@ -7609,6 +7548,17 @@ pub const VM = struct {
             }
 
             const op: bytecode.OpCode = @enumFromInt(code[f.ip]);
+            self.maybePreemptCurrentThread(isThreadPreemptSafePoint(op)) catch |err| switch (err) {
+                error.Unwind => {
+                    if (bounded) {
+                        if (!try self.unwindStackUntilFrameDepth(min_unwind_depth)) return error.Unwind;
+                    } else {
+                        try self.unwindStack();
+                    }
+                    continue;
+                },
+                else => return err,
+            };
             switch (op) {
                 .GET_LOCAL => {
                     // ep_offset is 2 bytes (u16) after the opcode
@@ -7652,7 +7602,7 @@ pub const VM = struct {
                             self.stack.items = self.stack.storage[0 .. len - 1];
                         } else {
                             f.ip -= 1; // back up to re-execute in full handler
-                            self.executeInstruction() catch |err| switch (err) {
+                            self.executeInstructionDispatch(false) catch |err| switch (err) {
                                 error.Unwind => try self.unwindStack(),
                                 else => return err,
                             };
@@ -7676,7 +7626,7 @@ pub const VM = struct {
                             self.stack.items = self.stack.storage[0 .. len - 1];
                         } else {
                             f.ip -= 1;
-                            self.executeInstruction() catch |err| switch (err) {
+                            self.executeInstructionDispatch(false) catch |err| switch (err) {
                                 error.Unwind => try self.unwindStack(),
                                 else => return err,
                             };

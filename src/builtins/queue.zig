@@ -301,12 +301,12 @@ fn builtinQueuePop(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!V
     const current_thread = vm.current_thread orelse {
         while (true) {
             try vm.threadYield();
-        if (dequeueAvailable(queue)) |item| {
-            if (queue.max_size != null) wakeNextEnqueueWaiter(vm, queue);
-            return item;
+            if (dequeueAvailable(queue)) |item| {
+                if (queue.max_size != null) wakeNextEnqueueWaiter(vm, queue);
+                return item;
+            }
+            if (queue.closed) return Value.nil();
         }
-        if (queue.closed) return Value.nil();
-    }
     };
 
     addDequeueWaiter(queue, current_thread);
@@ -523,8 +523,5 @@ fn countWaiting(queue: *value.QueueObject) usize {
 }
 
 fn addToRunnableIfAbsent(vm: *VM, thread: *value.ThreadObject) void {
-    for (vm.runnable_queue.items) |queued| {
-        if (queued == thread) return;
-    }
-    vm.runnable_queue.append(vm.gc_allocator, thread) catch {};
+    vm.addRunnableThreadIfAbsent(thread);
 }

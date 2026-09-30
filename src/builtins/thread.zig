@@ -194,9 +194,6 @@ fn builtinThreadNew(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMEr
 
     try vm.startThread(thread);
 
-    // Immediately yield to give the new thread a chance to start
-    try vm.schedulerYield();
-
     return thread_val;
 }
 
@@ -267,12 +264,7 @@ fn builtinThreadKillClass(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!V
     thread.kill_requested = true;
     if (thread.state == .sleeping) {
         thread.state = .running;
-        // Add back to runnable queue if not there
-        for (vm.runnable_queue.items) |t| {
-            if (t == thread) break;
-        } else {
-            vm.runnable_queue.append(vm.gc_allocator, thread) catch return error.Fatal;
-        }
+        vm.addRunnableThreadIfAbsent(thread);
     }
     return args[0];
 }
@@ -932,8 +924,5 @@ fn removeFromRunnable(vm: *VM, thread: *value.ThreadObject) void {
 }
 
 fn addToRunnableIfAbsent(vm: *VM, thread: *value.ThreadObject) void {
-    for (vm.runnable_queue.items) |t| {
-        if (t == thread) return;
-    }
-    vm.runnable_queue.append(vm.gc_allocator, thread) catch {};
+    vm.addRunnableThreadIfAbsent(thread);
 }

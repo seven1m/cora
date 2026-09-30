@@ -458,6 +458,23 @@ test "C extension rb_yield basic (no NLR)" {
     try std.testing.expectEqual(@as(i64, 77), result.toInteger());
 }
 
+test "C extension non-local returns preserve C boundaries across thread handoffs" {
+    const result = try evalCode(
+        \\$LOAD_PATH << "build/cext"
+        \\require "fixture.so"
+        \\def threaded_return(marker)
+        \\  CoraCExt.yield_nlr(marker) do |value|
+        \\    Thread.pass
+        \\    return value
+        \\  end
+        \\  :unreachable
+        \\end
+        \\workers = [11, 22].map { |marker| Thread.new { threaded_return(marker) } }
+        \\workers.map(&:value) == [11, 22]
+    );
+    try std.testing.expect(result.isTruthy());
+}
+
 test "C extension rb_yield NLR (return from block)" {
     const result = try evalCode(
         \\$LOAD_PATH << "build/cext"

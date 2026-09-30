@@ -323,6 +323,25 @@ test "Process.detach thread value has correct pid" {
     try std.testing.expectEqual(true, result.toBool());
 }
 
+test "Process.detach from concurrent workers preserves coroutine return contexts" {
+    if (builtin.os.tag == .windows) return;
+
+    const result = try evalCode(
+        \\ready = false
+        \\workers = 2.times.map do
+        \\  Thread.new do
+        \\    Thread.pass until ready
+        \\    pid = Process.spawn("/bin/sh", "-c", "exit 0")
+        \\    status = Process.detach(pid).value
+        \\    status.pid == pid && status.exitstatus == 0
+        \\  end
+        \\end
+        \\ready = true
+        \\workers.map(&:value) == [true, true]
+    );
+    try std.testing.expect(result.isTruthy());
+}
+
 test "Process.detach raises TypeError for non-integerable arg" {
     if (builtin.os.tag == .windows) return;
 

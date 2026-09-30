@@ -457,7 +457,6 @@ pub const FiberObject = struct {
         yielded,
         returned,
         raised,
-        thread_yield,
     };
 
     object: Object,
@@ -484,6 +483,14 @@ pub const FiberObject = struct {
 };
 
 pub const ThreadObject = struct {
+    pub const CallContext = struct {
+        builtin_keywords: ?*vm_mod.BuiltinKeywordContext = null,
+        indexed_yield: ?*vm_mod.IndexedYieldContext = null,
+        cext_jmp_buf: ?*[200]u8 = null,
+        cext_keyword_hash: ?Value = null,
+        loading_file: ?[]const u8 = null,
+    };
+
     pub const IoWait = struct {
         fd: i32,
         events: i16,
@@ -529,6 +536,8 @@ pub const ThreadObject = struct {
     waiting_on_queue: bool = false,
     waiting_on_require: bool = false,
     preempt_requested: bool = false,
+    scheduling_context: ?*vm_mod.FiberCoroContext = null,
+    call_context: CallContext = .{},
     ops_until_preempt: u32 = 0,
     sleep_deadline_ms: ?i64 = null,
     io_wait: ?IoWait = null,

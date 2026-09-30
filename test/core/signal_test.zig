@@ -21,6 +21,30 @@ test "Signal.trap returns previous handler" {
     try std.testing.expectEqual(@as(i64, 1), elems[2].toInteger());
 }
 
+test "Signal traps return to sleeping main thread after the last worker exits" {
+    const result = try evalCode(
+        \\main = Thread.current
+        \\handled_on_main = false
+        \\previous = Signal.trap("USR1") do
+        \\  handled_on_main = Thread.current.equal?(main)
+        \\  raise "signal wakeup"
+        \\end
+        \\pid = Process.spawn("/bin/sh", "-c", "sleep 0.02; kill -USR1 #{Process.pid}")
+        \\worker = Thread.new {}
+        \\begin
+        \\  sleep 1
+        \\rescue RuntimeError => e
+        \\  handled_on_main &&= e.message == "signal wakeup"
+        \\ensure
+        \\  Signal.trap("USR1", previous)
+        \\  Process.wait(pid)
+        \\  worker.join
+        \\end
+        \\handled_on_main
+    );
+    try std.testing.expect(result.isTruthy());
+}
+
 test "Signal.trap dispatches queued signal to Ruby handler" {
     bdwgc.init();
     defer bdwgc.deinit();

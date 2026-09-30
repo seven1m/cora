@@ -77,6 +77,42 @@ test "TinyCC JIT rejects default-arg chunk" {
     return error.TestUnexpectedResult;
 }
 
+test "TinyCC JIT cached methods remain preemptible when another thread is alive" {
+    const source =
+        \\def fib(n)
+        \\  if n == 0
+        \\    0
+        \\  elsif n == 1
+        \\    1
+        \\  else
+        \\    fib(n - 1) + fib(n - 2)
+        \\  end
+        \\end
+        \\fib(5)
+        \\phase = :computing
+        \\observed = nil
+        \\worker = Thread.new { observed = phase }
+        \\fib(18)
+        \\phase = :finished
+        \\worker.join
+        \\observed == :computing
+    ;
+
+    bdwgc.init();
+    defer bdwgc.deinit();
+    const allocator = std.testing.allocator;
+    var parser = try prism.Parser.init(allocator, source, null);
+    defer parser.deinit();
+    var program = try compiler.Compiler.compile(allocator, &parser, 1);
+    defer program.deinit();
+    var vm = VM.initEmpty(allocator, cora.gc_allocator.scanned, cora.gc_allocator.atomic, std.testing.io, std.testing.environ);
+    defer vm.deinit();
+    try vm.prepare(&program);
+    vm.setTccJitEnabled(true);
+    const result = try vm.run();
+    try std.testing.expect(result.isTruthy());
+}
+
 test "TinyCC JIT generated source includes labels and helper calls" {
     const source =
         \\def fib(n)

@@ -1834,40 +1834,8 @@ fn waitForIo(vm: *VM, io: *IoObject, events: i16, timeout_ms: i32, include_hup: 
         break :blk mask;
     };
 
-    const current_thread = vm.current_thread;
-    const is_worker_thread = current_thread != null and vm.main_thread != null and current_thread.? != vm.main_thread.?;
-    if (!is_worker_thread) {
-        const deadline_ms = if (timeout_ms < 0) null else monotonicMilliseconds() + timeout_ms;
+    const thread = vm.current_thread orelse return error.Fatal;
 
-        while (true) {
-            try vm.checkAsyncEvents();
-
-            const step_timeout_ms: i32 = if (deadline_ms) |deadline| blk: {
-                const remaining = deadline - monotonicMilliseconds();
-                if (remaining <= 0) break :blk 0;
-                break :blk @intCast(@min(remaining, 100));
-            } else 100;
-
-            const ready_count = std.c.poll(fds[0..].ptr, @intCast(fds[0..].len), step_timeout_ms);
-            if (ready_count < 0) {
-                const errno_code: std.posix.E = @enumFromInt(std.c._errno().*);
-                if (errno_code == .INTR) {
-                    try vm.checkAsyncEvents();
-                    continue;
-                }
-                return vm.raiseErrnoFmt(errno_code, "poll failed", .{});
-            }
-            try vm.checkAsyncEvents();
-            if (ready_count == 0) {
-                if (deadline_ms != null and step_timeout_ms == 0) return false;
-                try yieldSleepingMainThread(vm);
-                continue;
-            }
-            return (fds[0].revents & ready_mask) != 0;
-        }
-    }
-
-    const thread = current_thread.?;
     const deadline_ms = if (timeout_ms < 0) null else monotonicMilliseconds() + timeout_ms;
     defer {
         thread.io_wait = null;
@@ -2030,56 +1998,13 @@ fn selectResult(vm: *VM, watches: []const IoSelectWatch, pollfds: []const std.po
     return Value.fromObject(&result.object);
 }
 
-fn yieldSleepingMainThread(vm: *VM) VMError!void {
-    const thread = vm.current_thread orelse return;
-    const main_thread = vm.main_thread orelse return;
-    if (thread != main_thread) return;
-
-    thread.state = .sleeping;
-    defer {
-        if (thread.state == .sleeping) thread.state = .running;
-    }
-    try vm.schedulerYield();
-}
-
 fn ioSelectWaitNoDescriptors(vm: *VM, timeout_ms: i32) VMError!Value {
-    const current_thread = vm.current_thread;
-    const is_worker_thread = current_thread != null and vm.main_thread != null and current_thread.? != vm.main_thread.?;
-    var dummy_pollfd = [_]std.posix.pollfd{undefined};
-
-    if (is_worker_thread and timeout_ms < 0) {
-        const thread = current_thread.?;
-        defer {
-            if (thread.state == .sleeping) thread.state = .running;
-        }
-
-        while (true) {
-            thread.state = .sleeping;
-            try vm.threadYield();
-        }
+    if (timeout_ms < 0) {
+        try vm.sleepCurrentThreadForever();
+    } else {
+        try vm.timedSleepCurrentThread(timeout_ms);
     }
-
-    const deadline_ms = if (timeout_ms < 0) null else monotonicMilliseconds() + timeout_ms;
-    while (true) {
-        try vm.checkAsyncEvents();
-        const step_timeout_ms: i32 = if (deadline_ms) |deadline| blk: {
-            const remaining = deadline - monotonicMilliseconds();
-            if (remaining <= 0) break :blk 0;
-            break :blk @intCast(@min(remaining, 100));
-        } else 100;
-
-        const ready_count = std.c.poll(dummy_pollfd[0..].ptr, 0, step_timeout_ms);
-        if (ready_count < 0) {
-            const errno_code: std.posix.E = @enumFromInt(std.c._errno().*);
-            if (errno_code == .INTR) {
-                try vm.checkAsyncEvents();
-                continue;
-            }
-            return vm.raiseErrnoFmt(errno_code, "poll failed", .{});
-        }
-        if (deadline_ms != null and step_timeout_ms == 0) return Value.nil();
-        try yieldSleepingMainThread(vm);
-    }
+    return Value.nil();
 }
 
 pub fn builtinIoSelect(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
@@ -2107,43 +2032,7 @@ pub fn builtinIoSelect(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Valu
     var pollfds = try selectPollfds(vm, watches.items);
     defer pollfds.deinit(vm.allocator);
 
-    const current_thread = vm.current_thread;
-    const is_worker_thread = current_thread != null and vm.main_thread != null and current_thread.? != vm.main_thread.?;
-    if (!is_worker_thread) {
-        const deadline_ms = if (timeout_ms < 0) null else monotonicMilliseconds() + timeout_ms;
-
-        while (true) {
-            try vm.checkAsyncEvents();
-            selectResetPollfds(pollfds.items);
-
-            const step_timeout_ms: i32 = if (deadline_ms) |deadline| blk: {
-                const remaining = deadline - monotonicMilliseconds();
-                if (remaining <= 0) break :blk 0;
-                break :blk @intCast(@min(remaining, 100));
-            } else 100;
-
-            const ready_count = std.c.poll(pollfds.items.ptr, @intCast(pollfds.items.len), step_timeout_ms);
-            if (ready_count < 0) {
-                const errno_code: std.posix.E = @enumFromInt(std.c._errno().*);
-                if (errno_code == .INTR) {
-                    try vm.checkAsyncEvents();
-                    continue;
-                }
-                return vm.raiseErrnoFmt(errno_code, "poll failed", .{});
-            }
-            try selectRaiseIfInvalid(vm, pollfds.items);
-            if (ready_count == 0) {
-                if (deadline_ms != null and step_timeout_ms == 0) return Value.nil();
-                try yieldSleepingMainThread(vm);
-                continue;
-            }
-
-            const result = try selectResult(vm, watches.items, pollfds.items);
-            if (!result.isNil()) return result;
-            if (deadline_ms != null and monotonicMilliseconds() >= deadline_ms.?) return Value.nil();
-            try yieldSleepingMainThread(vm);
-        }
-    }
+    _ = vm.current_thread orelse return error.Fatal;
 
     const deadline_ms = if (timeout_ms < 0) null else monotonicMilliseconds() + timeout_ms;
     while (true) {
@@ -2166,7 +2055,7 @@ pub fn builtinIoSelect(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Valu
         if (deadline_ms) |deadline| {
             if (monotonicMilliseconds() >= deadline) return Value.nil();
         }
-        try vm.threadYield();
+        try vm.timedSleepCurrentThread(1);
     }
 }
 

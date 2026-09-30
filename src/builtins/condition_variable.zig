@@ -159,8 +159,5 @@ fn removeWaiter(cv: *value.ConditionVariableObject, thread: *value.ThreadObject)
 }
 
 fn enqueueRunnable(vm: *VM, waiter: *value.ThreadObject) void {
-    for (vm.runnable_queue.items) |thread| {
-        if (thread == waiter) return;
-    }
-    vm.runnable_queue.append(vm.gc_allocator, waiter) catch {};
+    vm.addRunnableThreadIfAbsent(waiter);
 }

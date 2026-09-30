@@ -12,6 +12,77 @@ test "Thread.new creates and runs a thread" {
     try std.testing.expectEqual(@as(i64, 42), result.toInteger());
 }
 
+test "Thread workers create child threads without recursively scheduling ancestors" {
+    const result = try evalCode(
+        \\ready = false
+        \\workers = 2.times.map do
+        \\  Thread.new do
+        \\    Thread.pass until ready
+        \\    Thread.new { Thread.pass; 42 }.value
+        \\  end
+        \\end
+        \\ready = true
+        \\workers.map(&:value) == [42, 42]
+    );
+    try std.testing.expect(result.isTruthy());
+}
+
+test "Thread scheduling preempts a busy main thread" {
+    const result = try evalCode(
+        \\done = false
+        \\worker = Thread.new { done = true }
+        \\while !done
+        \\end
+        \\worker.join
+        \\done
+    );
+    try std.testing.expect(result.isTruthy());
+}
+
+test "Thread kill allows an ensure handler to yield before termination" {
+    const result = try evalCode(
+        \\started = false
+        \\ensured = false
+        \\worker = Thread.new do
+        \\  begin
+        \\    started = true
+        \\    Thread.stop
+        \\  ensure
+        \\    Thread.pass
+        \\    ensured = true
+        \\  end
+        \\end
+        \\Thread.pass until started
+        \\worker.kill.join
+        \\ensured && !worker.alive?
+    );
+    try std.testing.expect(result.isTruthy());
+}
+
+test "Thread handoffs preserve nested fibers and main thread locals" {
+    const result = try evalCode(
+        \\main = Thread.current
+        \\main[:marker] = :root
+        \\worker = Thread.new do
+        \\  Fiber.new do
+        \\    Thread.current[:marker] = :worker_fiber
+        \\    Thread.pass
+        \\    Thread.current[:marker]
+        \\  end.resume
+        \\end
+        \\answer = Fiber.new do
+        \\  Thread.current[:marker] = :main_fiber
+        \\  Fiber.new do
+        \\    Thread.pass
+        \\    GC.start
+        \\    [Thread.current.equal?(main), worker.value]
+        \\  end.resume + [Thread.current[:marker]]
+        \\end.resume
+        \\answer == [true, :worker_fiber, :main_fiber] && main[:marker] == :root
+    );
+    try std.testing.expect(result.isTruthy());
+}
+
 test "ObjectSpace registers finalizers for large Thread objects" {
     const result = try evalCode(
         \\thread = Thread.new { 42 }
