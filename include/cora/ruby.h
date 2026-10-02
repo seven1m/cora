@@ -1,6 +1,7 @@
 #ifndef CORA_RUBY_H
 #define CORA_RUBY_H
 
+#include <errno.h>
 #include <stdint.h>
 #include <stddef.h>
 #include <stdlib.h>
@@ -127,6 +128,7 @@ extern VALUE rb_cInteger;
 extern VALUE rb_cFloat;
 extern VALUE rb_cSymbol;
 extern VALUE rb_cRange;
+extern VALUE rb_cRandom;
 extern VALUE rb_cRegexp;
 extern VALUE rb_cClass;
 extern VALUE rb_cModule;
@@ -668,6 +670,24 @@ VALUE rb_backref_get(void);
 void  rb_backref_set(VALUE val);
 void  rb_category_warn(int category, const char *fmt, ...);
 void  rb_copy_generic_ivar(VALUE clone, VALUE obj);
+
+extern VALUE rb_eIOError;
+extern VALUE rb_mEnumerable;
+VALUE rb_obj_is_proc(VALUE obj);
+VALUE rb_ary_includes(VALUE array, VALUE item);
+VALUE rb_hash_lookup(VALUE hash, VALUE key);
+VALUE rb_enc_interned_str(const char *ptr, long len, rb_encoding *encoding);
+VALUE rb_enc_interned_str_cstr(const char *ptr, rb_encoding *encoding);
+void rb_eof_error(void);
+#define RB_SCAN_ARGS_PASS_CALLED_KEYWORDS 0
+#define RB_SCAN_ARGS_KEYWORDS 1
+#define RB_SCAN_ARGS_LAST_HASH_KEYWORDS 3
+int rb_scan_args_kw(int kw_mode, int argc, const VALUE *argv, const char *fmt, ...);
+VALUE rb_ary_new_capa(long capacity);
+VALUE rb_ary_join(VALUE array, VALUE separator);
+VALUE rb_str_replace(VALUE str, VALUE other);
+VALUE rb_catch_obj(VALUE tag, rb_block_call_func *func, VALUE data);
+void rb_throw_obj(VALUE tag, VALUE value);
 
 #ifdef __cplusplus
 }

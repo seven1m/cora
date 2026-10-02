@@ -147,6 +147,7 @@ pub export var rb_cInteger: VALUE = 0;
 pub export var rb_cFloat: VALUE = 0;
 pub export var rb_cSymbol: VALUE = 0;
 pub export var rb_cRange: VALUE = 0;
+pub export var rb_cRandom: VALUE = 0;
 pub export var rb_cRegexp: VALUE = 0;
 pub export var rb_cClass: VALUE = 0;
 pub export var rb_cModule: VALUE = 0;
@@ -207,6 +208,8 @@ pub export var rb_eThreadError: VALUE = 0;
 pub export var rb_eKeyError: VALUE = 0;
 pub export var rb_eIndexError: VALUE = 0;
 pub export var rb_eStopIteration: VALUE = 0;
+pub export var rb_eIOError: VALUE = 0;
+pub export var rb_mEnumerable: VALUE = 0;
 pub export var rb_eEOFError: VALUE = 0;
 pub export var rb_eEncodingError: VALUE = 0;
 pub export var rb_eEncCompatError: VALUE = 0;
@@ -225,6 +228,7 @@ pub fn setupGlobals(vm: *VM) void {
     rb_cFloat = Value.fromObject(&vm.float_class.module.object).raw;
     rb_cSymbol = Value.fromObject(&vm.symbol_class.module.object).raw;
     rb_cRange = Value.fromObject(&vm.range_class.module.object).raw;
+    rb_cRandom = Value.fromObject(&vm.random_class.module.object).raw;
     rb_cRegexp = Value.fromObject(&vm.regexp_class.module.object).raw;
     rb_cClass = Value.fromObject(&vm.class_class.module.object).raw;
     rb_cModule = Value.fromObject(&vm.module_class.module.object).raw;
@@ -285,6 +289,8 @@ pub fn setupGlobals(vm: *VM) void {
     rb_eKeyError = Value.fromObject(&vm.key_error_class.module.object).raw;
     rb_eIndexError = Value.fromObject(&vm.index_error_class.module.object).raw;
     rb_eStopIteration = Value.fromObject(&vm.stop_iteration_class.module.object).raw;
+    rb_eIOError = Value.fromObject(&vm.io_error_class.module.object).raw;
+    rb_mEnumerable = rb_const_get(rb_cObject, rb_intern("Enumerable"));
     rb_eEOFError = Value.fromObject(&vm.eof_error_class.module.object).raw;
     rb_eEncodingError = Value.fromObject(&vm.encoding_error_class.module.object).raw;
     rb_eEncCompatError = Value.fromObject(&vm.encoding_compatibility_error_class.module.object).raw;
@@ -475,6 +481,26 @@ export fn rb_enc_str_new(ptr: [*c]const u8, len: c_long, enc_ptr: ?*anyopaque) V
     const bytes: []const u8 = if (ptr == null) "" else ptr[0..@intCast(len)];
     const result = vm.newStringWithEncoding(bytes, false, encoding.*) catch return 0;
     return result.raw;
+}
+
+export fn rb_enc_interned_str(ptr: [*c]const u8, len: c_long, enc_ptr: ?*anyopaque) VALUE {
+    if (len < 0) {
+        rb_raise(rb_eArgError, "negative string size (or size too big)");
+        return Value.NIL.raw;
+    }
+    const opaque_ptr: *anyopaque = enc_ptr orelse @ptrCast(@constCast(&encoding_instances[0]));
+    const encoding: *const enc.Encoding = @ptrCast(@alignCast(opaque_ptr));
+    const bytes: []const u8 = if (ptr == null) "" else ptr[0..@intCast(len)];
+    const result = getVM().getOrCreateCanonicalFString(bytes, encoding.*) catch return Value.NIL.raw;
+    return result.raw;
+}
+
+export fn rb_enc_interned_str_cstr(ptr: [*c]const u8, enc_ptr: ?*anyopaque) VALUE {
+    return rb_enc_interned_str(ptr, if (ptr == null) 0 else @intCast(std.mem.span(ptr).len), enc_ptr);
+}
+
+export fn rb_eof_error() void {
+    rb_raise(rb_eEOFError, "end of file reached");
 }
 
 export fn rb_enc_str_new_cstr(ptr: [*c]const u8, enc_ptr: ?*anyopaque) VALUE {
@@ -1318,6 +1344,7 @@ export fn rb_type(obj_raw: VALUE) c_int {
         .class => 0x02,
         .module => 0x03,
         .match_data => 0x0d,
+        .io => 0x0b,
         .rational => 0x0f,
         .proc => 0x0c,
         .typed_data => 0x0c,
@@ -1341,13 +1368,21 @@ export fn rb_obj_as_string(obj_raw: VALUE) VALUE {
 
 export fn rb_class_new_instance(argc: c_int, argv: [*c]const VALUE, klass_raw: VALUE) VALUE {
     const vm = getVM();
+    const pending = vm.pendingUnwind();
     const klass: *value.ClassObject = @ptrFromInt(klass_raw);
-    const instance = vm.newObjectForClass(klass) catch return 0;
+    const instance = vm.newObjectForClass(klass) catch {
+        checkPendingUnwind(vm, pending);
+        return Value.NIL.raw;
+    };
     const args: []Value = if (argv != null and argc > 0)
         @as([*]Value, @ptrCast(@constCast(argv)))[0..@intCast(argc)]
     else
         &[_]Value{};
-    _ = vm.callMethodByNameForwardingKeywords(instance, "initialize", args, null) catch return 0;
+    _ = vm.callMethodByNameForwardingKeywords(instance, "initialize", args, null) catch {
+        checkPendingUnwind(vm, pending);
+        return Value.NIL.raw;
+    };
+    checkPendingUnwind(vm, pending);
     return instance.raw;
 }
 
@@ -1643,6 +1678,18 @@ export fn rb_jump_tag(state: c_int) void {
 // ─── Argument scanning ──────────────────────────────────────────────────────
 
 export fn rb_scan_args(argc: c_int, argv: [*c]const VALUE, fmt: [*c]const u8, ...) c_int {
+    var ap = @cVaStart();
+    defer @cVaEnd(&ap);
+    return scanArgs(0, argc, argv, fmt, &ap);
+}
+
+export fn rb_scan_args_kw(kw_mode: c_int, argc: c_int, argv: [*c]const VALUE, fmt: [*c]const u8, ...) c_int {
+    var ap = @cVaStart();
+    defer @cVaEnd(&ap);
+    return scanArgs(kw_mode, argc, argv, fmt, &ap);
+}
+
+fn scanArgs(kw_mode: c_int, argc: c_int, argv: [*c]const VALUE, fmt: [*c]const u8, ap: *std.builtin.VaList) callconv(.c) c_int {
     const vm = getVM();
     const fmt_slice = if (fmt != null) std.mem.span(fmt) else "";
     var required: usize = 0;
@@ -1659,15 +1706,18 @@ export fn rb_scan_args(argc: c_int, argv: [*c]const VALUE, fmt: [*c]const u8, ..
     }
     const has_rest = fmt_index < fmt_slice.len and fmt_slice[fmt_index] == '*';
 
-    var ap = @cVaStart();
-    defer @cVaEnd(&ap);
-
-    const positional_argc = argc - @as(c_int, if (vm.cext_keyword_hash != null) 1 else 0);
+    const has_keywords = std.mem.indexOfScalar(u8, fmt_slice, ':') != null;
+    const keyword_hash: ?Value = if (!has_keywords or argc <= 0 or argv == null) null else switch (kw_mode) {
+        1 => Value{ .raw = argv[@intCast(argc - 1)] },
+        3 => if ((Value{ .raw = argv[@intCast(argc - 1)] }).isHash()) Value{ .raw = argv[@intCast(argc - 1)] } else null,
+        else => vm.cext_keyword_hash,
+    };
+    const positional_argc = argc - @as(c_int, if (keyword_hash != null) 1 else 0);
     const positional_count: usize = @intCast(@max(positional_argc, 0));
     var consumed: usize = 0;
     var i: usize = 0;
     while (i < required) : (i += 1) {
-        const out: ?*VALUE = @cVaArg(&ap, ?*VALUE);
+        const out: ?*VALUE = @cVaArg(ap, ?*VALUE);
         if (positional_count > consumed and argv != null) {
             if (out) |ptr| ptr.* = argv[consumed];
             consumed += 1;
@@ -1678,7 +1728,7 @@ export fn rb_scan_args(argc: c_int, argv: [*c]const VALUE, fmt: [*c]const u8, ..
 
     i = 0;
     while (i < optional) : (i += 1) {
-        const out: ?*VALUE = @cVaArg(&ap, ?*VALUE);
+        const out: ?*VALUE = @cVaArg(ap, ?*VALUE);
         if (positional_count > consumed and argv != null) {
             if (out) |ptr| ptr.* = argv[consumed];
             consumed += 1;
@@ -1688,7 +1738,7 @@ export fn rb_scan_args(argc: c_int, argv: [*c]const VALUE, fmt: [*c]const u8, ..
     }
 
     if (has_rest) {
-        const out: ?*VALUE = @cVaArg(&ap, ?*VALUE);
+        const out: ?*VALUE = @cVaArg(ap, ?*VALUE);
         const rest = vm.createArray() catch return 0;
         while (consumed < positional_count and argv != null) : (consumed += 1) {
             rest.elements.append(vm.gc_allocator, Value{ .raw = argv[consumed] }) catch return 0;
@@ -1697,8 +1747,8 @@ export fn rb_scan_args(argc: c_int, argv: [*c]const VALUE, fmt: [*c]const u8, ..
     }
 
     if (std.mem.indexOfScalar(u8, fmt_slice, ':') != null) {
-        const out: ?*VALUE = @cVaArg(&ap, ?*VALUE);
-        if (out) |ptr| ptr.* = if (vm.cext_keyword_hash) |hash| hash.raw else Value.NIL.raw;
+        const out: ?*VALUE = @cVaArg(ap, ?*VALUE);
+        if (out) |ptr| ptr.* = if (keyword_hash) |hash| hash.raw else Value.NIL.raw;
     }
 
     return positional_argc;
@@ -2395,7 +2445,7 @@ export fn rb_warn(fmt: [*c]const u8, ...) void {
     _ = emitCWarning(vm, fmt, &ap);
 }
 
-fn emitCWarning(vm: *VM, fmt: [*c]const u8, ap: *std.builtin.VaList) c_int {
+fn emitCWarning(vm: *VM, fmt: [*c]const u8, ap: *std.builtin.VaList) callconv(.c) c_int {
     var rendered: std.ArrayList(u8) = .empty;
     defer rendered.deinit(vm.allocator);
     if (!formatCVarargs(vm, fmt, ap, &rendered)) return 0;
@@ -2481,12 +2531,10 @@ export fn rb_class2name(klass_raw: VALUE) [*c]const u8 {
 }
 
 export fn rb_convert_type(obj_raw: VALUE, t: c_int, tname: [*c]const u8, method: [*c]const u8) VALUE {
-    _ = tname;
-    const vm = getVM();
-    const meth = if (method != null) std.mem.span(method) else return 0;
-    const result = vm.callMethodByName(Value{ .raw = obj_raw }, meth, &[_]Value{}, null) catch return 0;
-    if (rb_type(result.raw) != t) return 0;
-    return result.raw;
+    if (rb_type(obj_raw) == t) return obj_raw;
+    const result = rb_funcall(obj_raw, rb_intern(method), 0);
+    if (rb_type(result) != t) rb_raise(rb_eTypeError, "can't convert %s into %s", rb_obj_classname(obj_raw), tname);
+    return result;
 }
 
 export fn rb_check_convert_type(obj_raw: VALUE, t: c_int, tname: [*c]const u8, method: [*c]const u8) VALUE {
@@ -2871,9 +2919,14 @@ export fn rb_str_resize(str_raw: VALUE, len: c_long) VALUE {
 }
 
 export fn rb_hash_lookup2(hash_raw: VALUE, key_raw: VALUE, default_raw: VALUE) VALUE {
-    const found = rb_hash_aref(hash_raw, key_raw);
-    if (found == Value.NIL.raw) return default_raw;
-    return found;
+    const vm = getVM();
+    const pending = vm.pendingUnwind();
+    const hash = (Value{ .raw = hash_raw }).toHashObject();
+    const entry = vm.hashGetEntry(hash, Value{ .raw = key_raw }) catch {
+        checkPendingUnwind(vm, pending);
+        return Value.NIL.raw;
+    };
+    return if (entry) |found| found.value.raw else default_raw;
 }
 
 export fn rb_absint_size(val_raw: VALUE, nlz_bits_ret: ?*c_int) usize {
@@ -2997,4 +3050,132 @@ export fn ruby_scan_digits(str_ptr: [*c]const u8, len: isize, base: c_int, retle
 
     if (retlen) |r| r.* = i;
     return result;
+}
+
+export fn rb_ary_new_capa(capacity: c_long) VALUE {
+    if (capacity < 0) rb_raise(rb_eArgError, "negative array size");
+    const vm = getVM();
+    const array = vm.createArray() catch return Value.NIL.raw;
+    array.elements.ensureTotalCapacity(vm.gc_allocator, @intCast(capacity)) catch return Value.NIL.raw;
+    return Value.fromObject(&array.object).raw;
+}
+
+export fn rb_ary_join(array: VALUE, separator: VALUE) VALUE {
+    return rb_funcall(array, rb_intern("join"), 1, separator);
+}
+
+export fn rb_str_replace(str: VALUE, other: VALUE) VALUE {
+    return rb_funcall(str, rb_intern("replace"), 1, other);
+}
+
+export fn rb_catch_obj(tag: VALUE, callback: ?CExtBlockCallFunc, data: VALUE) VALUE {
+    const argv = [_]VALUE{tag};
+    return rb_block_call(rb_mKernel, rb_intern("catch"), 1, &argv, callback, data);
+}
+
+export fn rb_throw_obj(tag: VALUE, thrown: VALUE) void {
+    _ = rb_funcall(rb_mKernel, rb_intern("throw"), 2, tag, thrown);
+}
+
+export fn rb_io_descriptor(io: VALUE) c_int {
+    return @intCast(NUM2LONG(rb_funcall(io, rb_intern("fileno"), 0)));
+}
+
+const RbIo = extern struct { fd: c_int };
+
+export fn rb_io_get_io_pointer(io: VALUE) ?*RbIo {
+    const pointer = getVM().gc_allocator.create(RbIo) catch return null;
+    pointer.* = .{ .fd = rb_io_descriptor(io) };
+    return pointer;
+}
+
+fn ioFcntl(fd: c_int, command: c_int, argument: c_int) c_int {
+    const vm = getVM();
+    const pending = vm.pendingUnwind();
+    while (true) {
+        const result = std.c.fcntl(fd, command, argument);
+        if (result >= 0) return result;
+        if (std.posix.errno(result) == .INTR) {
+            vm.checkAsyncEvents() catch {};
+            checkPendingUnwind(vm, pending);
+            continue;
+        }
+        rb_sys_fail("fcntl");
+        return -1;
+    }
+}
+
+export fn rb_io_set_nonblock(io: *RbIo) void {
+    const flags = ioFcntl(io.fd, std.posix.F.GETFL, 0);
+    if (flags < 0) return;
+    const nonblock: c_int = @bitCast(std.posix.O{ .NONBLOCK = true });
+    _ = ioFcntl(io.fd, std.posix.F.SETFL, flags | nonblock);
+}
+
+// VTALRM is reserved by Ruby and cannot be installed with Signal.trap.
+// A handler without SA_RESTART lets RUBY_UBF_IO interrupt native poll calls.
+fn nativeBlockingInterrupt(_: std.posix.SIG) callconv(.c) void {}
+
+const NativeBlockingCall = struct {
+    callback: *const fn (?*anyopaque) callconv(.c) ?*anyopaque,
+    data: ?*anyopaque,
+    result: ?*anyopaque = null,
+    done: std.atomic.Value(bool) = std.atomic.Value(bool).init(false),
+
+    fn run(call: *NativeBlockingCall) void {
+        var mask = std.posix.sigemptyset();
+        std.posix.sigaddset(&mask, .VTALRM);
+        std.posix.sigprocmask(std.posix.SIG.UNBLOCK, &mask, null);
+        call.result = call.callback(call.data);
+        call.done.store(true, .release);
+    }
+};
+
+export fn rb_thread_call_without_gvl(callback: *const fn (?*anyopaque) callconv(.c) ?*anyopaque, data: ?*anyopaque, unblock: ?*const fn (?*anyopaque) callconv(.c) void, unblock_data: ?*anyopaque) ?*anyopaque {
+    const vm = getVM();
+    const pending = vm.pendingUnwind();
+    vm.checkAsyncEvents() catch {};
+    checkPendingUnwind(vm, pending);
+    const action: std.posix.Sigaction = .{
+        .handler = .{ .handler = nativeBlockingInterrupt },
+        .mask = std.posix.sigemptyset(),
+        .flags = 0,
+    };
+    std.posix.sigaction(.VTALRM, &action, null);
+    var call = NativeBlockingCall{ .callback = callback, .data = data };
+    const worker = std.Thread.spawn(.{}, NativeBlockingCall.run, .{&call}) catch {
+        rb_raise(rb_eRuntimeError, "failed to start native blocking call");
+        return null;
+    };
+    var interrupted = false;
+    while (!call.done.load(.acquire)) {
+        vm.timedSleepCurrentThread(1) catch {
+            if (!interrupted) {
+                interrupted = true;
+                // RUBY_UBF_IO is a sentinel, not a callable function pointer.
+                if (unblock) |ubf| {
+                    if (@intFromPtr(ubf) != std.math.maxInt(usize)) ubf(unblock_data);
+                }
+            }
+        };
+        if (interrupted and unblock != null and @intFromPtr(unblock.?) == std.math.maxInt(usize)) {
+            _ = std.c.pthread_kill(worker.getHandle(), .VTALRM);
+        }
+    }
+    worker.join();
+    vm.checkAsyncEvents() catch {};
+    checkPendingUnwind(vm, pending);
+    return call.result;
+}
+
+export fn rb_obj_is_proc(obj: VALUE) VALUE {
+    return if ((Value{ .raw = obj }).isProc()) Value.TRUE.raw else Value.FALSE.raw;
+}
+
+export fn rb_ary_includes(array: VALUE, item: VALUE) VALUE {
+    return rb_funcall(array, rb_intern("include?"), 1, item);
+}
+
+export fn rb_hash_lookup(hash: VALUE, key: VALUE) VALUE {
+    return rb_hash_lookup2(hash, key, Value.NIL.raw);
 }

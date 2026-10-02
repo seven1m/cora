@@ -1,3 +1,6 @@
+#include <poll.h>
+#include "ruby/io.h"
+#include "ruby/thread.h"
 #include "ruby.h"
 
 static VALUE
@@ -827,6 +830,73 @@ cext_string_and_clear(VALUE self, VALUE obj, VALUE ary)
     return rb_ary_new3(2, text, ary);
 }
 
+struct cext_poll_args { int fd; int result; };
+
+static void *cext_native_poll(void *data)
+{
+    struct cext_poll_args *args = data;
+    struct pollfd descriptor = {args->fd, POLLIN, 0};
+    args->result = poll(&descriptor, 1, 2000);
+    return data;
+}
+
+static VALUE cext_blocking_poll(VALUE self, VALUE io)
+{
+    struct cext_poll_args args = {rb_io_descriptor(io), 0};
+    void *result = rb_thread_call_without_gvl(cext_native_poll, &args, RUBY_UBF_IO, NULL);
+    return result == &args ? INT2NUM(args.result) : Qnil;
+}
+
+static VALUE cext_interned_string(VALUE self, VALUE string)
+{
+    return rb_enc_interned_str(RSTRING_PTR(string), RSTRING_LEN(string), rb_enc_get(string));
+}
+
+static VALUE cext_eof_error(VALUE self)
+{
+    rb_eof_error();
+    return Qnil;
+}
+
+static VALUE cext_random_class(VALUE self)
+{
+    return rb_cRandom;
+}
+
+static VALUE cext_scan_last_hash(int argc, VALUE *argv, VALUE self)
+{
+    VALUE positional, keywords;
+    int count = rb_scan_args_kw(RB_SCAN_ARGS_LAST_HASH_KEYWORDS, argc, argv, "01:", &positional, &keywords);
+    return rb_ary_new3(3, INT2NUM(count), positional, keywords);
+}
+
+static VALUE cext_object_throw(RB_BLOCK_CALL_FUNC_ARGLIST(tag, data))
+{
+    rb_throw_obj(tag, data);
+    return Qnil;
+}
+
+static VALUE cext_object_catch(VALUE self, VALUE tag)
+{
+    return rb_catch_obj(tag, cext_object_throw, INT2NUM(42));
+}
+
+static VALUE cext_io_nonblock(VALUE self, VALUE io)
+{
+    rb_io_t *pointer;
+    GetOpenFile(io, pointer);
+    rb_io_set_nonblock(pointer);
+    return INT2NUM(rb_io_descriptor(io));
+}
+
+static VALUE cext_native_array(VALUE self)
+{
+    VALUE array = rb_ary_new_capa(4);
+    rb_ary_push(array, rb_str_new_cstr("a"));
+    rb_ary_push(array, rb_str_new_cstr("b"));
+    return rb_ary_join(array, rb_str_new_cstr("-"));
+}
+
 void Init_fixture(void)
 {
     VALUE mCoraCExt = rb_define_module("CoraCExt");
@@ -912,6 +982,15 @@ void Init_fixture(void)
     rb_define_module_function(mCoraCExt, "read_external_root", cext_read_external_root, 0);
     rb_define_module_function(mCoraCExt, "unregister_external_root", cext_unregister_external_root, 0);
     rb_define_module_function(mCoraCExt, "string_and_clear", cext_string_and_clear, 2);
+
+    rb_define_module_function(mCoraCExt, "scan_last_hash", cext_scan_last_hash, -1);
+    rb_define_module_function(mCoraCExt, "object_catch", cext_object_catch, 1);
+    rb_define_module_function(mCoraCExt, "io_nonblock", cext_io_nonblock, 1);
+    rb_define_module_function(mCoraCExt, "interned_string", cext_interned_string, 1);
+    rb_define_module_function(mCoraCExt, "eof_error", cext_eof_error, 0);
+    rb_define_module_function(mCoraCExt, "random_class", cext_random_class, 0);
+    rb_define_module_function(mCoraCExt, "native_array", cext_native_array, 0);
+    rb_define_module_function(mCoraCExt, "blocking_poll", cext_blocking_poll, 1);
 
     rb_define_method(rb_cString, "cora_cext_test", cora_cext_test, 0);
     rb_define_method(rb_cString, "cext_yield", cext_simple_yield, 1);

@@ -1133,3 +1133,129 @@ test "C extension nested calls do not inherit surrounding builtin keywords" {
     );
     try std.testing.expectEqualStrings("ok", result.toStringObject().str);
 }
+
+test "C extension last hash keyword scanning preserves positional hashes and values" {
+    const result = try evalCode(
+        \\$LOAD_PATH << "build/cext"
+        \\require "fixture.so"
+        \\CoraCExt.scan_last_hash(7, {answer: 42}) == [1, 7, {answer: 42}] &&
+        \\  CoraCExt.scan_last_hash(7) == [1, 7, nil] &&
+        \\  CoraCExt.scan_last_hash({answer: 42}) == [0, nil, {answer: 42}] &&
+        \\  CoraCExt.scan_last_hash == [0, nil, nil]
+    );
+    try std.testing.expect(result.isTruthy());
+}
+
+test "C extension object catch and throw preserve tag identity" {
+    const result = try evalCode(
+        \\$LOAD_PATH << "build/cext"
+        \\require "fixture.so"
+        \\CoraCExt.object_catch(Object.new)
+    );
+    try std.testing.expectEqual(@as(i64, 42), result.toInteger());
+}
+
+test "C extension IO headers expose descriptors and enable nonblocking mode" {
+    const result = try evalCode(
+        \\$LOAD_PATH << "build/cext"
+        \\require "fixture.so"
+        \\reader, writer = IO.pipe
+        \\begin
+        \\  CoraCExt.io_nonblock(reader) == reader.fileno && reader.nonblock?
+        \\ensure
+        \\  reader.close
+        \\  writer.close
+        \\end
+    );
+    try std.testing.expect(result.isTruthy());
+}
+
+test "C extension array capacity and join APIs produce joined strings" {
+    const result = try evalCode(
+        \\$LOAD_PATH << "build/cext"
+        \\require "fixture.so"
+        \\CoraCExt.native_array
+    );
+    try std.testing.expectEqualStrings("a-b", result.toStringObject().str);
+}
+
+test "C extension native blocking calls allow Ruby threads to wake poll" {
+    const result = try evalCode(
+        \\$LOAD_PATH << "build/cext"
+        \\require "fixture.so"
+        \\reader, writer = IO.pipe
+        \\begin
+        \\  thread = Thread.new { sleep 0.01; writer.write("x") }
+        \\  ready = CoraCExt.blocking_poll(reader)
+        \\  thread.join
+        \\  ready == 1
+        \\ensure
+        \\  reader.close
+        \\  writer.close
+        \\end
+    );
+    try std.testing.expect(result.isTruthy());
+}
+
+test "C extension native IO unblock interrupts poll on Thread raise" {
+    const result = try evalCode(
+        \\$LOAD_PATH << "build/cext"
+        \\require "fixture.so"
+        \\reader, writer = IO.pipe
+        \\begin
+        \\  target = Thread.current
+        \\  thread = Thread.new { sleep 0.01; target.raise("interrupt native poll") }
+        \\  started = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+        \\  begin
+        \\    CoraCExt.blocking_poll(reader)
+        \\    false
+        \\  rescue RuntimeError => error
+        \\    thread.join
+        \\    error.message == "interrupt native poll" && Process.clock_gettime(Process::CLOCK_MONOTONIC) - started < 1
+        \\  end
+        \\ensure
+        \\  reader.close
+        \\  writer.close
+        \\end
+    );
+    try std.testing.expect(result.isTruthy());
+}
+
+test "C extension encoded interned strings preserve bytes encoding and frozen identity" {
+    const result = try evalCode(
+        \\$LOAD_PATH << "build/cext"
+        \\require "fixture.so"
+        \\source = "a\0b"
+        \\utf8 = CoraCExt.interned_string(source)
+        \\again = CoraCExt.interned_string(source.dup)
+        \\binary = CoraCExt.interned_string(source.b)
+        \\source.replace("changed")
+        \\utf8 == "a\0b" && utf8.frozen? && utf8.equal?(again) &&
+        \\  utf8.encoding == Encoding::UTF_8 && binary.encoding == Encoding::ASCII_8BIT &&
+        \\  !utf8.equal?(binary) && binary.frozen?
+    );
+    try std.testing.expect(result.isTruthy());
+}
+
+test "C extension eof error raises EOFError with standard message" {
+    const result = try evalCode(
+        \\$LOAD_PATH << "build/cext"
+        \\require "fixture.so"
+        \\begin
+        \\  CoraCExt.eof_error
+        \\  false
+        \\rescue EOFError => error
+        \\  error.message == "end of file reached"
+        \\end
+    );
+    try std.testing.expect(result.isTruthy());
+}
+
+test "C extension Random class export identifies the runtime Random class" {
+    const result = try evalCode(
+        \\$LOAD_PATH << "build/cext"
+        \\require "fixture.so"
+        \\CoraCExt.random_class.equal?(Random)
+    );
+    try std.testing.expect(result.isTruthy());
+}
