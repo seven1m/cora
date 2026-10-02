@@ -12,6 +12,7 @@ const prism_build_root = "build/prism";
 const tinycc_build_root = "build/tinycc";
 const cext_build_root = "build/cext";
 const ffi_build_root = "build/ffi";
+const bundler_gem_version = "4.1.0.dev";
 const psych_gem_version = "5.4.0";
 const strscan_gem_version = "3.1.8";
 const json_gem_version = "2.19.9";
@@ -708,6 +709,13 @@ pub fn build(b: *std.Build) void {
     const remove_legacy_json_ext_stdlib = b.addSystemCommand(&.{ "rm", "-f", b.getInstallPath(.prefix, "lib/stdlib/json/ext.rb") });
     remove_legacy_json_ext_stdlib.step.dependOn(&install_stdlib.step);
     b.getInstallStep().dependOn(&remove_legacy_json_ext_stdlib.step);
+
+    const install_bundler_default_gem = addInstallGemDir(b, b.path(rubygems_build_root ++ "/bundler"), "bundler", bundler_gem_version, &prepare_rubygems.step);
+    _ = addWriteGemSpec(b, rubygems_build_root ++ "/bundler", "bundler", bundler_gem_version, .default, &.{
+        &install_exe.step,
+        &install_stdlib.step,
+        install_bundler_default_gem,
+    });
 
     const install_psych_default_gem = addInstallGemDir(b, b.path("ext/psych"), "psych", psych_gem_version, null);
     const install_strscan_default_gem = addInstallGemDir(b, b.path(strscan_build_root), "strscan", strscan_gem_version, strscan_build_step);

@@ -218,3 +218,37 @@ test "Method#call preserves call state across Bundler plugin autoload" {
     try std.testing.expect(result.term == .exited and result.term.exited == 0);
     try std.testing.expectEqualSlices(u8, "Bundler::Definition\n", result.stdout);
 }
+
+test "Bundler activates a default gemspec matching its shipped code" {
+    var gpa: std.heap.DebugAllocator(.{}) = .init;
+    defer _ = gpa.deinit();
+    const allocator = gpa.allocator();
+    var threaded: std.Io.Threaded = .init(allocator, .{});
+    defer threaded.deinit();
+    const gem_home = try std.Io.Dir.cwd().realPathFileAlloc(threaded.io(), "test/gem", allocator);
+    defer allocator.free(gem_home);
+    var env_map = std.process.Environ.Map.init(allocator);
+    defer env_map.deinit();
+    try env_map.put("GEM_HOME", gem_home);
+    const code =
+        \\require "rubygems"
+        \\require "bundler"
+        \\spec = Gem.loaded_specs.fetch("bundler")
+        \\raise "Bundler version mismatch" unless spec.version.to_s == Bundler::VERSION
+        \\raise "Bundler is not a default gem" unless spec.default_gem?
+        \\metadata = Bundler::Source::Metadata.new.specs.search("bundler").first
+        \\raise "metadata uses a different Bundler" unless metadata.version == spec.version
+        \\puts "ok"
+    ;
+    const result = try std.process.run(allocator, threaded.io(), .{
+        .argv = &.{ "build/bin/cora", "-e", code },
+        .environ_map = &env_map,
+        .stdout_limit = .limited(1024 * 1024),
+        .stderr_limit = .limited(1024 * 1024),
+    });
+    defer allocator.free(result.stdout);
+    defer allocator.free(result.stderr);
+    try std.testing.expect(result.term == .exited and result.term.exited == 0);
+    try std.testing.expectEqualStrings("ok\n", result.stdout);
+    try std.testing.expectEqualStrings("", result.stderr);
+}

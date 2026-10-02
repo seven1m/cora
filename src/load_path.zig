@@ -7,7 +7,6 @@ fn defaultGemLibPath(comptime name: []const u8, comptime version: []const u8) []
 pub const repo_load_paths = [_][]const u8{
     "lib/stdlib",
     "ext/rubygems/lib",
-    "ext/rubygems/bundler/lib",
     "ext/ipaddr/lib",
     "ext/logger/lib",
     "ext/delegate/lib",
@@ -30,4 +29,5 @@ pub const repo_load_paths = [_][]const u8{
     defaultGemLibPath("psych", "5.4.0"),
     defaultGemLibPath("strscan", "3.1.8"),
     defaultGemLibPath("json", "2.19.9"),
+    defaultGemLibPath("bundler", "4.1.0.dev"),
 };

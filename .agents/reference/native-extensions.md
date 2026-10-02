@@ -45,6 +45,8 @@ the runtime root (or `build/` in test mode).
 - Pure-Ruby stdlib goes through `lib/stdlib/`.
 - Vendored non-default gem trees are listed by their `ext/<gem>/lib` path
   (e.g. `ext/rubygems/lib`, `ext/psych/lib`).
+- Bundler is installed and registered as a default gem matching the vendored
+  Bundler sources, so its loaded code and activated gemspec agree.
 - Default gem trees are referenced by their installed layout via
   `defaultGemLibPath(name, version)` which builds
   `lib/gems/4.0.0/gems/<name>-<version>/lib`.
