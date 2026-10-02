@@ -112,7 +112,7 @@ pub const OpCode = enum(u8) {
     // Super calls
     SUPER, // Operands: u8 (argc), u8 (flags), u16 (block_chunk_id)
     SUPER_KW, // Operands: u8 (argc), u8 (kwargc), u8 (flags), u16 (kw_metadata_idx), u16 (block_chunk_id)
-    FORWARDING_SUPER, // Operand: u16 (block_chunk_id)
+    FORWARDING_SUPER, // Operands: u16 block_chunk_id, u8 mode (0 bare; prefix argc + 1 for ...)
 
     // Regexp
     PUSH_REGEXP, // Operands: u16 (pattern constant index), u16 (options)
@@ -289,8 +289,8 @@ pub fn opcodeOperandSize(op: OpCode) usize {
         .SUPER => 4,
         // SUPER_KW: u8 argc + u8 kwargc + u8 flags + u16 kw_metadata_idx + u16 block_chunk_id = 7 bytes
         .SUPER_KW => 7,
-        // FORWARDING_SUPER: u16 block_chunk_id = 2 bytes
-        .FORWARDING_SUPER => 2,
+        // FORWARDING_SUPER: u16 block_chunk_id + u8 forwarding mode = 3 bytes
+        .FORWARDING_SUPER => 3,
 
         // PUSH_REGEXP: u16 pattern + u16 options = 4 bytes
         .PUSH_REGEXP => 4,

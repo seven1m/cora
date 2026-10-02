@@ -7405,7 +7405,7 @@ pub const VM = struct {
                     positional_argc = argc;
                 }
 
-                try self.callSuper(args[0..positional_argc], block, null);
+                try self.callSuper(args[0..positional_argc], block, null, args_array_mode);
             },
 
             .SUPER_KW => {
@@ -7482,11 +7482,12 @@ pub const VM = struct {
                     try self.copyKeywordContext(keys, kw_value_slice.?)
                 else
                     null;
-                try self.callSuper(args[0..positional_argc], block, keyword_ctx);
+                try self.callSuper(args[0..positional_argc], block, keyword_ctx, args_array_mode);
             },
 
             .FORWARDING_SUPER => {
                 const block_chunk_id = readU16From(frame, operands, &operand_cursor);
+                const mode = readByteFrom(frame, operands, &operand_cursor);
 
                 const forwarding_frame = self.enclosingMethodFrame(frame);
 
@@ -7498,12 +7499,21 @@ pub const VM = struct {
 
                 // Get forwarding positional arguments from current method's environment
                 var fwd_buf: [256]Value = undefined;
-                const fwd_args = self.getForwardingArguments(forwarding_frame, &fwd_buf, true);
+                const forwarded = self.getForwardingArguments(forwarding_frame, &fwd_buf, mode == 0);
+                var combined_buf: [256]Value = undefined;
+                const prefix_count: usize = if (mode == 0) 0 else mode - 1;
+                const fwd_args = if (prefix_count == 0) forwarded else blk: {
+                    const prefix_start = self.stack.items.len - prefix_count;
+                    @memcpy(combined_buf[0..prefix_count], self.stack.items[prefix_start..]);
+                    @memcpy(combined_buf[prefix_count .. prefix_count + forwarded.len], forwarded);
+                    self.stack.items.len = prefix_start;
+                    break :blk combined_buf[0 .. prefix_count + forwarded.len];
+                };
 
                 // Build forwarding keyword context from actual param slot values
                 // (includes defaults that were applied, not just what was explicitly passed).
                 const fwd_kw_ctx = try self.buildForwardingKeywordContext(forwarding_frame);
-                try self.callSuper(fwd_args, block, fwd_kw_ctx);
+                try self.callSuper(fwd_args, block, fwd_kw_ctx, true);
             },
         }
         try self.checkAsyncEvents();
@@ -9950,7 +9960,7 @@ pub const VM = struct {
     }
 
     /// Call the superclass method with the given arguments
-    fn callSuper(self: *VM, args: []const Value, block: ?Block, keyword_ctx: ?*BuiltinKeywordContext) VMError!void {
+    fn callSuper(self: *VM, args: []const Value, block: ?Block, keyword_ctx: ?*BuiltinKeywordContext, args_array_mode: bool) VMError!void {
         const frame = self.currentFrame();
         const cext_frame = frame.frame_type == .builtin and frame.super_defining_node != null;
         const method_environment = if (cext_frame) null else enclosingMethodEnvironment(frame);
@@ -9996,11 +10006,20 @@ pub const VM = struct {
             return;
         };
 
+        var dispatch_args_temp: TempValueSlice = .{};
+        defer dispatch_args_temp.deinit(self.allocator);
+        var dispatch_kw_temp: TempKeywordPairs = .{};
+        defer dispatch_kw_temp.deinit(self.allocator);
+        const raw_kw_keys = if (keyword_ctx) |ctx| if (ctx.kw_values.len > 0) ctx.kw_keys else null else null;
+        const raw_kw_values = if (keyword_ctx) |ctx| if (ctx.kw_values.len > 0) ctx.kw_values else null else null;
+        const dispatch = try self.normalizeKeywordDispatch(resolved.entry, args, raw_kw_keys, raw_kw_values, args_array_mode, &dispatch_args_temp, &dispatch_kw_temp);
+        const dispatch_keyword_ctx = if (dispatch.kw_keys) |keys| try self.copyKeywordContext(keys, dispatch.kw_values.?) else null;
+
         switch (resolved.entry.method) {
             .chunk => |method_chunk| {
-                const kw_keys = if (keyword_ctx) |ctx| if (ctx.kw_values.len > 0) ctx.kw_keys else null else null;
-                const kw_values = if (keyword_ctx) |ctx| if (ctx.kw_values.len > 0) ctx.kw_values else null else null;
-                try self.setupChunkCallFrame(method_chunk, receiver, args, .{
+                const kw_keys = dispatch.kw_keys;
+                const kw_values = dispatch.kw_values;
+                try self.setupChunkCallFrame(method_chunk, receiver, dispatch.args, .{
                     .kw_keys = kw_keys,
                     .kw_values = kw_values,
                     .method_name = resolvedMethodFrameName(resolved),
@@ -10011,18 +10030,19 @@ pub const VM = struct {
             .builtin => |fun_ptr| {
                 // For builtin methods, we need a mutable copy
                 var args_copy: [256]Value = undefined;
-                @memcpy(args_copy[0..args.len], args);
-                const result = try self.invokeBuiltinMethod(fun_ptr, receiver, resolved.name.name, args_copy[0..args.len], block, keyword_ctx);
+                @memcpy(args_copy[0..dispatch.args.len], dispatch.args);
+                const result = try self.invokeBuiltinMethod(fun_ptr, receiver, resolved.name.name, args_copy[0..dispatch.args.len], block, dispatch_keyword_ctx);
                 try self.push(result);
             },
             .cext => |cext_method| {
-                const result = try self.dispatchCExtMethod(cext_method, resolved, receiver, args, null, null);
+                const keyword_hash = if (dispatch.kw_keys) |keys| try self.createHashFromKeywordPairs(keys, dispatch.kw_values.?) else null;
+                const result = try self.dispatchCExtMethod(cext_method, resolved, receiver, dispatch.args, block, keyword_hash);
                 try self.push(result);
             },
             .proc => |proc_obj| {
-                const kw_keys: ?[]const Value = if (keyword_ctx) |ctx| if (ctx.kw_values.len > 0) ctx.kw_keys else null else null;
-                const kw_values: ?[]const Value = if (keyword_ctx) |ctx| if (ctx.kw_values.len > 0) ctx.kw_values else null else null;
-                const result = try self.callProcAsMethod(proc_obj, receiver, args, .{
+                const kw_keys = dispatch.kw_keys;
+                const kw_values = dispatch.kw_values;
+                const result = try self.callProcAsMethod(proc_obj, receiver, dispatch.args, .{
                     .kw_keys = kw_keys,
                     .kw_values = kw_values,
                     .block = block,
@@ -10040,7 +10060,7 @@ pub const VM = struct {
         const saved_frame_count = self.frames.items.len;
         const saved_stack_len = self.stack.items.len;
         const pending_unwind_before = self.pendingUnwind();
-        try self.callSuper(args, self.currentFrame().block, null);
+        try self.callSuper(args, self.currentFrame().block, null, false);
         if (self.frames.items.len > saved_frame_count) try self.executeUntilReturn(saved_frame_count);
         return self.finishSubcallFromStack(saved_frame_count, saved_stack_len, pending_unwind_before);
     }

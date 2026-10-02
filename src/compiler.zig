@@ -1315,7 +1315,7 @@ pub const Compiler = struct {
                 }
 
                 const call_byte_offset = self.current_chunk.currentOffset();
-                try self.current_chunk.emitOpU16(.FORWARDING_SUPER, block_chunk_id, line);
+                try self.current_chunk.emitOpU16U8(.FORWARDING_SUPER, block_chunk_id, 0, line);
                 try self.recordBlockCallHandler(block_chunk_id, call_byte_offset);
             },
 
@@ -1329,6 +1329,24 @@ pub const Compiler = struct {
 
                 if (super_node.arguments) |args_ptr| {
                     const args = @as(*prism.ArgumentsNode, @ptrCast(args_ptr));
+
+                    if (try self.callForwardingPrefixArgc(args)) |prefix_argc| {
+                        _ = try self.compileForwardingPrefixArguments(args, line);
+                        var block_chunk_id: chunk.ChunkId = 0;
+                        if (super_node.block) |block_ptr| {
+                            const block_node = try self.parser.asNode(@ptrCast(block_ptr));
+                            if (block_node == .block) {
+                                block_chunk_id = try self.compileBlock(block_node.block, line);
+                            } else if (block_node == .block_argument) {
+                                try self.compileBlockArgumentValue(block_node.block_argument, line);
+                                block_chunk_id = chunk.BLOCK_ARG_ON_STACK;
+                            }
+                        }
+                        const call_byte_offset = self.current_chunk.currentOffset();
+                        try self.current_chunk.emitOpU16U8(.FORWARDING_SUPER, block_chunk_id, std.math.add(u8, prefix_argc, 1) catch return error.UnsupportedNode, line);
+                        try self.recordBlockCallHandler(block_chunk_id, call_byte_offset);
+                        return;
+                    }
 
                     // Check for keyword arguments via Prism flags
                     const has_keywords = (args.base.flags & prism.ARGUMENTS_NODE_FLAGS_CONTAINS_KEYWORDS) != 0 or

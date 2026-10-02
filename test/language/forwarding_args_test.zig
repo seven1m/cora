@@ -144,3 +144,119 @@ test "Proc ruby2_keywords preserves keywords through rest argument splats" {
     try std.testing.expectEqualStrings("enabled", entries[0].key.toSymbolObject().name);
     try std.testing.expect(entries[0].value.isTrue());
 }
+
+test "ruby2_keywords forwards keywords through implicit super in a prepended initializer" {
+    const result = try evalCode(
+        \\module Initializer
+        \\  def initialize(*)
+        \\    super
+        \\  end
+        \\  ruby2_keywords :initialize
+        \\end
+        \\class KeywordConfig
+        \\  prepend Initializer
+        \\  attr_reader :values
+        \\  def initialize(app_name:, env:)
+        \\    @values = [app_name, env]
+        \\  end
+        \\end
+        \\KeywordConfig.new(app_name: "test", env: :development).values == ["test", :development]
+    );
+    try std.testing.expect(result.isTruthy());
+}
+
+test "ruby2_keywords forwards keywords through explicit super splats and marked wrappers" {
+    const result = try evalCode(
+        \\class KeywordBase
+        \\  def call(value, required:)
+        \\    [value, required, yield]
+        \\  end
+        \\end
+        \\class KeywordMiddle < KeywordBase
+        \\  def call(*args)
+        \\    super(*args)
+        \\  end
+        \\  ruby2_keywords :call
+        \\end
+        \\class KeywordChild < KeywordMiddle
+        \\  def call(*)
+        \\    super
+        \\  end
+        \\  ruby2_keywords :call
+        \\end
+        \\KeywordChild.new.call(7, required: 42) { :block } == [7, 42, :block]
+    );
+    try std.testing.expect(result.isTruthy());
+}
+
+test "implicit super does not convert an unmarked positional hash to keywords" {
+    const result = try evalCode(
+        \\class KeywordOnlyBase
+        \\  def call(required:)
+        \\    required
+        \\  end
+        \\end
+        \\class PositionalChild < KeywordOnlyBase
+        \\  def call(*args)
+        \\    super
+        \\  end
+        \\end
+        \\begin
+        \\  PositionalChild.new.call(required: 42)
+        \\  false
+        \\rescue ArgumentError
+        \\  true
+        \\end
+    );
+    try std.testing.expect(result.isTruthy());
+}
+
+test "super clears ruby2_keywords hash markers across an unmarked rest method" {
+    const result = try evalCode(
+        \\class KeywordEndpoint
+        \\  def call(required:)
+        \\    required
+        \\  end
+        \\end
+        \\class UnmarkedMiddle < KeywordEndpoint
+        \\  def call(*args)
+        \\    super(*args)
+        \\  end
+        \\end
+        \\class MarkedChild < UnmarkedMiddle
+        \\  def call(*args)
+        \\    super
+        \\  end
+        \\  ruby2_keywords :call
+        \\end
+        \\begin
+        \\  MarkedChild.new.call(required: 42)
+        \\  false
+        \\rescue ArgumentError
+        \\  true
+        \\end
+    );
+    try std.testing.expect(result.isTruthy());
+}
+
+test "forwarding arguments in explicit super excludes consumed parameters and accepts prefixes" {
+    const result = try evalCode(
+        \\class ForwardBase
+        \\  def call(*args, **kwargs)
+        \\    [args, kwargs, yield]
+        \\  end
+        \\end
+        \\class ForwardMiddle < ForwardBase
+        \\  def call(consumed, ...)
+        \\    super(:prefix, ...)
+        \\  end
+        \\end
+        \\class ForwardChild < ForwardMiddle
+        \\  def call(...)
+        \\    super(...)
+        \\  end
+        \\end
+        \\ForwardChild.new.call(:consumed, 42, required: 7) { :block } == [[:prefix, 42], {required: 7}, :block]
+    );
+    try std.testing.expect(result.isTruthy());
+}

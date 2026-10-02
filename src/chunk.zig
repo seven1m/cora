@@ -613,7 +613,14 @@ pub const Chunk = struct {
                 try writer.print("RETURN {s}\n", .{mode_name});
             },
 
-            .PUSH_CONST, .PUSH_CSTRING, .PUSH_FSTRING, .PUSH_SYMBOL, .GET_CONST, .GET_CONST_OR_NIL, .GET_TOPLEVEL_CONST, .GET_TOPLEVEL_CONST_OR_NIL, .TOPLEVEL_CONST_DEFINED, .SET_CONST, .SET_CONST_PATH, .GET_CONST_PATH, .GET_CONST_PATH_OR_NIL, .GET_GLOBAL, .GET_BACKREF, .SET_GLOBAL, .GET_CVAR, .GET_CVAR_OR_NIL, .SET_CVAR, .GET_IVAR, .IVAR_DEFINED, .SET_IVAR, .PUSH_ARRAY, .PUSH_HASH, .HASH_SET_CONST_KEY, .TRY_BEGIN, .REDO, .RETRY, .PUSH_LAMBDA, .DEF_SINGLETON_CLASS, .FORWARDING_SUPER => {
+            .FORWARDING_SUPER => {
+                const block_id = readU16(self.code.items, &ip);
+                const mode = self.code.items[ip];
+                ip += 1;
+                try writer.print("FORWARDING_SUPER {d} {d}\n", .{ block_id, mode });
+            },
+
+            .PUSH_CONST, .PUSH_CSTRING, .PUSH_FSTRING, .PUSH_SYMBOL, .GET_CONST, .GET_CONST_OR_NIL, .GET_TOPLEVEL_CONST, .GET_TOPLEVEL_CONST_OR_NIL, .TOPLEVEL_CONST_DEFINED, .SET_CONST, .SET_CONST_PATH, .GET_CONST_PATH, .GET_CONST_PATH_OR_NIL, .GET_GLOBAL, .GET_BACKREF, .SET_GLOBAL, .GET_CVAR, .GET_CVAR_OR_NIL, .SET_CVAR, .GET_IVAR, .IVAR_DEFINED, .SET_IVAR, .PUSH_ARRAY, .PUSH_HASH, .HASH_SET_CONST_KEY, .TRY_BEGIN, .REDO, .RETRY, .PUSH_LAMBDA, .DEF_SINGLETON_CLASS => {
                 const idx = readU16(self.code.items, &ip);
                 try writer.print("{s} {d}", .{ bytecode.opcodeName(op), idx });
                 if ((op == .PUSH_CONST or op == .PUSH_CSTRING or op == .PUSH_FSTRING or op == .PUSH_SYMBOL or op == .GET_CONST or op == .GET_CONST_OR_NIL or op == .GET_TOPLEVEL_CONST or op == .GET_TOPLEVEL_CONST_OR_NIL or op == .TOPLEVEL_CONST_DEFINED or op == .SET_CONST or op == .SET_CONST_PATH or op == .GET_CONST_PATH or op == .GET_CONST_PATH_OR_NIL or op == .GET_GLOBAL or op == .SET_GLOBAL or op == .GET_CVAR or op == .GET_CVAR_OR_NIL or op == .SET_CVAR or op == .GET_IVAR or op == .IVAR_DEFINED or op == .SET_IVAR) and idx < self.constants.items.len) {
