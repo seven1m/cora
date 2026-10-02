@@ -28,6 +28,6 @@ pub const repo_load_paths = [_][]const u8{
     "ext/shellwords/lib",
     "ext/weakref/lib",
     defaultGemLibPath("psych", "5.4.0"),
-    defaultGemLibPath("strscan", "3.1.9"),
+    defaultGemLibPath("strscan", "3.1.8"),
     defaultGemLibPath("json", "2.19.9"),
 };
