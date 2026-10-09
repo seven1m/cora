@@ -39,22 +39,18 @@ pub fn collectMethodsFromTable(
         const name_sym = bucket.key_ptr.*;
         const entry = bucket.value_ptr.*;
 
+        // The first definition in lookup order determines visibility, even
+        // when that visibility is excluded from this particular list.
+        if (blocked.contains(name_sym) or seen.contains(name_sym)) continue;
         if (entry.method == .undefined) {
             blocked.put(name_sym, {}) catch return error.Fatal;
-            if (seen.get(name_sym)) |idx| {
-                _ = out.swapRemove(idx);
-                _ = seen.remove(name_sym);
-                if (idx < out.items.len) {
-                    const swapped = out.items[idx];
-                    seen.put(swapped, idx) catch return error.Fatal;
-                }
-            }
             continue;
         }
 
-        if (blocked.contains(name_sym)) continue;
-        if (!methodMatchesFilter(entry, filter)) continue;
-        if (seen.contains(name_sym)) continue;
+        if (!methodMatchesFilter(entry, filter)) {
+            blocked.put(name_sym, {}) catch return error.Fatal;
+            continue;
+        }
 
         out.append(vm.gc_allocator, name_sym) catch return error.Fatal;
         seen.put(name_sym, out.items.len - 1) catch return error.Fatal;

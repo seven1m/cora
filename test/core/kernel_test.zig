@@ -1176,6 +1176,33 @@ test "Kernel#private_methods includes inherited private methods by default" {
     try std.testing.expectEqual(true, result.toBool());
 }
 
+test "Method reflection respects the nearest definition and its visibility" {
+    const result = try evalCode(
+        \\class ReflectionBase
+        \\  def marker; end
+        \\  def restored; end
+        \\  undef_method :restored
+        \\end
+        \\class ReflectionChild < ReflectionBase
+        \\  def exec; end
+        \\  def restored; end
+        \\  private
+        \\  def marker; end
+        \\end
+        \\obj = ReflectionChild.new
+        \\obj.public_methods.include?(:exec) &&
+        \\  !obj.private_methods.include?(:exec) &&
+        \\  obj.private_methods.include?(:marker) &&
+        \\  !obj.public_methods.include?(:marker) &&
+        \\  ReflectionChild.public_instance_methods.include?(:exec) &&
+        \\  !ReflectionChild.private_instance_methods.include?(:exec) &&
+        \\  ReflectionChild.private_instance_methods.include?(:marker) &&
+        \\  !ReflectionChild.public_instance_methods.include?(:marker) &&
+        \\  obj.public_methods.include?(:restored)
+    );
+    try std.testing.expect(result.isTruthy());
+}
+
 test "Kernel#private_methods(false) excludes ancestor private methods" {
     const result = try evalCode(
         \\class PrivateBaseForMethodsFalse
