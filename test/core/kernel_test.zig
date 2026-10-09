@@ -60,6 +60,15 @@ test "Kernel load searches LOAD_PATH for a relative file" {
     try std.testing.expectEqualStrings("from required file", result.toStringObject().str);
 }
 
+test "Kernel.load is callable as a public module function" {
+    const result = try evalCode(
+        \\$LOAD_PATH.unshift(File.expand_path("test/support", Dir.pwd))
+        \\Kernel.load "sets_global.rb"
+        \\$my_global
+    );
+    try std.testing.expectEqualStrings("from required file", result.toStringObject().str);
+}
+
 test "Kernel load with wrap uses an Object receiver and isolated lexical module" {
     const result = try evalCode(
         \\main_obj = TOPLEVEL_BINDING.eval("self")

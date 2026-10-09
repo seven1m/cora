@@ -319,6 +319,7 @@ pub fn register(vm: *VM) !void {
 
     const kernel_module_val = Value.fromObject(&vm.kernel_module.object);
     const kernel_singleton = try vm.getOrCreateSingletonClass(kernel_module_val);
+    try kernel_singleton.module.methods.put(load_sym, value.MethodEntry.builtin(&builtinKernelLoad, .{ .variadic = 0 }));
     try kernel_singleton.module.methods.put(exec_sym, value.MethodEntry.keywordBuiltin(&builtinKernelExec, .{ .variadic = 1 }));
     try kernel_singleton.module.methods.put(kernel_array_convert_sym, value.MethodEntry.builtin(&builtinKernelArrayConvert, .{ .exact = 1 }));
     try kernel_singleton.module.methods.put(kernel_string_convert_sym, value.MethodEntry.builtin(&builtinKernelStringConvert, .{ .exact = 1 }));
