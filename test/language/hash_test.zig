@@ -75,6 +75,35 @@ test "Hash iteration restores its guard after nested iteration and exceptions" {
     try std.testing.expect(result.isTrue());
 }
 
+test "Hash filtering and transformation respect mutation during iteration" {
+    const result = try evalCode(
+        \\[:select, :reject, :delete_if, :keep_if, :transform_keys, :transform_values].all? do |method|
+        \\  h = {a: 1, b: 2, c: 3}
+        \\  seen = []
+        \\  errors = 0
+        \\  h.send(method) do |*args|
+        \\    seen << args
+        \\    if seen.size == 1
+        \\      h.delete(:b)
+        \\      begin
+        \\        h[:new] = 9
+        \\      rescue RuntimeError
+        \\        errors += 1
+        \\      end
+        \\    end
+        \\    true
+        \\  end
+        \\  last = case method
+        \\  when :transform_keys then [:c]
+        \\  when :transform_values then [3]
+        \\  else [:c, 3]
+        \\  end
+        \\  seen.size == 2 && seen[1] == last && errors == 1 && !h.key?(:new)
+        \\end
+    );
+    try std.testing.expect(result.isTrue());
+}
+
 test "Empty hash literal" {
     const result = try evalCode("{}");
     try std.testing.expect(result.isHash());

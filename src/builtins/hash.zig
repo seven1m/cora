@@ -767,11 +767,13 @@ fn hashFilterBangShared(
     try ensureMutableHash(vm, receiver);
 
     const hash_obj = receiver.toHashObject();
-    const snapshot = vm.gc_allocator.alloc(value.HashEntry, hash_obj.entries.items.len) catch return error.Fatal;
-    @memcpy(snapshot, hash_obj.entries.items);
+    const snapshot = try hashIterationSnapshot(vm, hash_obj);
 
+    hash_obj.iteration_depth += 1;
+    defer hash_obj.iteration_depth -= 1;
     var changed = false;
-    for (snapshot) |entry| {
+    for (snapshot, 0..) |original, index| {
+        const entry = hashIterationEntry(hash_obj, original.key, index) orelse continue;
         const yield_args = [_]Value{ entry.key, entry.value };
         const yielded = try vm.yieldToBlock(blk, &yield_args);
 
@@ -848,8 +850,11 @@ pub fn builtinHashTransformKeys(vm: *VM, receiver: Value, args: []Value, block: 
 
     const result_hash = try vm.createHash();
     const hash_obj = receiver.toHashObject();
-
-    for (hash_obj.entries.items) |entry| {
+    const snapshot = try hashIterationSnapshot(vm, hash_obj);
+    hash_obj.iteration_depth += 1;
+    defer hash_obj.iteration_depth -= 1;
+    for (snapshot, 0..) |original, index| {
+        const entry = hashIterationEntry(hash_obj, original.key, index) orelse continue;
         const new_key = if (mapping_hash) |mapping|
             (try hashGetValue(mapping, vm, entry.key)) orelse blk: {
                 if (block) |blk| {
@@ -949,7 +954,11 @@ pub fn builtinHashTransformValues(vm: *VM, receiver: Value, args: []Value, block
     const result_hash = try vm.createHash();
     const hash_obj = receiver.toHashObject();
     result_hash.compare_by_identity = hash_obj.compare_by_identity;
-    for (hash_obj.entries.items) |entry| {
+    const snapshot = try hashIterationSnapshot(vm, hash_obj);
+    hash_obj.iteration_depth += 1;
+    defer hash_obj.iteration_depth -= 1;
+    for (snapshot, 0..) |original, index| {
+        const entry = hashIterationEntry(hash_obj, original.key, index) orelse continue;
         const yielded = try vm.yieldToBlock(blk, &[_]Value{entry.value});
         try vm.hashSetEntry(result_hash, entry.key, yielded);
     }
@@ -1212,6 +1221,12 @@ pub fn builtinHashEmpty(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMEr
     return Value.boolean(receiver.toHashObject().entries.items.len == 0);
 }
 
+fn hashIterationSnapshot(vm: *VM, hash_obj: *value.HashObject) VMError![]value.HashEntry {
+    const snapshot = vm.gc_allocator.alloc(value.HashEntry, hash_obj.entries.items.len) catch return error.Fatal;
+    @memcpy(snapshot, hash_obj.entries.items);
+    return snapshot;
+}
+
 fn hashIterationEntry(hash_obj: *value.HashObject, key: Value, index: usize) ?value.HashEntry {
     if (index < hash_obj.entries.items.len and hash_obj.entries.items[index].key.raw == key.raw) {
         return hash_obj.entries.items[index];
@@ -1233,8 +1248,7 @@ pub fn builtinHashEachPair(vm: *VM, receiver: Value, args: []Value, block: ?Bloc
         );
     };
     const hash_obj = receiver.toHashObject();
-    const snapshot = vm.gc_allocator.alloc(value.HashEntry, hash_obj.entries.items.len) catch return error.Fatal;
-    @memcpy(snapshot, hash_obj.entries.items);
+    const snapshot = try hashIterationSnapshot(vm, hash_obj);
 
     hash_obj.iteration_depth += 1;
     defer hash_obj.iteration_depth -= 1;
@@ -1257,8 +1271,7 @@ pub fn builtinHashEachKey(vm: *VM, receiver: Value, args: []Value, block: ?Block
         );
     };
     const hash_obj = receiver.toHashObject();
-    const snapshot = vm.gc_allocator.alloc(value.HashEntry, hash_obj.entries.items.len) catch return error.Fatal;
-    @memcpy(snapshot, hash_obj.entries.items);
+    const snapshot = try hashIterationSnapshot(vm, hash_obj);
 
     hash_obj.iteration_depth += 1;
     defer hash_obj.iteration_depth -= 1;
@@ -1282,8 +1295,7 @@ pub fn builtinHashEachValue(vm: *VM, receiver: Value, args: []Value, block: ?Blo
         );
     };
     const hash_obj = receiver.toHashObject();
-    const snapshot = vm.gc_allocator.alloc(value.HashEntry, hash_obj.entries.items.len) catch return error.Fatal;
-    @memcpy(snapshot, hash_obj.entries.items);
+    const snapshot = try hashIterationSnapshot(vm, hash_obj);
 
     hash_obj.iteration_depth += 1;
     defer hash_obj.iteration_depth -= 1;
@@ -1471,8 +1483,11 @@ pub fn builtinHashSelect(vm: *VM, receiver: Value, args: []Value, block: ?Block)
 
     const result_hash = try vm.createHash();
     result_hash.compare_by_identity = hash_obj.compare_by_identity;
-
-    for (hash_obj.entries.items) |entry| {
+    const snapshot = try hashIterationSnapshot(vm, hash_obj);
+    hash_obj.iteration_depth += 1;
+    defer hash_obj.iteration_depth -= 1;
+    for (snapshot, 0..) |original, index| {
+        const entry = hashIterationEntry(hash_obj, original.key, index) orelse continue;
         const yield_args = [_]Value{ entry.key, entry.value };
         const result = try vm.yieldToBlock(blk, &yield_args);
 
@@ -1549,8 +1564,11 @@ pub fn builtinHashReject(vm: *VM, receiver: Value, args: []Value, block: ?Block)
     const hash_obj = receiver.toHashObject();
     const keep_entries = vm.gc_allocator.alloc(value.HashEntry, hash_obj.entries.items.len) catch return error.Fatal;
     var keep_count: usize = 0;
-
-    for (hash_obj.entries.items) |entry| {
+    const snapshot = try hashIterationSnapshot(vm, hash_obj);
+    hash_obj.iteration_depth += 1;
+    defer hash_obj.iteration_depth -= 1;
+    for (snapshot, 0..) |original, index| {
+        const entry = hashIterationEntry(hash_obj, original.key, index) orelse continue;
         const yield_args = [_]Value{ entry.key, entry.value };
         const result = try vm.yieldToBlock(blk, &yield_args);
 
