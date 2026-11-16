@@ -1906,7 +1906,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/set/filter_spec.rb
 - [ ] core/set/flatten_merge_spec.rb
 - [ ] core/set/flatten_spec.rb
-- [ ] core/set/gt_spec.rb
+- [x] core/set/gt_spec.rb
 - [x] core/set/gte_spec.rb
 - [x] core/set/hash_spec.rb
 - [ ] core/set/include_spec.rb
