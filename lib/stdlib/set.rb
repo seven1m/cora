@@ -88,6 +88,15 @@ class Set
   end
   alias eql? ==
 
+  def <=>(other)
+    return nil unless other.is_a?(Set)
+    return 0 if self == other
+    return -1 if proper_subset?(other)
+    return 1 if proper_superset?(other)
+
+    nil
+  end
+
   def superset?(other)
     raise ArgumentError, "value must be a set" unless other.is_a?(Set)
 
