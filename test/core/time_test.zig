@@ -239,6 +239,28 @@ test "Time#to_a uses Ruby Time field ordering" {
     try std.testing.expectEqualStrings("UTC", items[9].toStringObject().str);
 }
 
+test "Time#to_a reports local timezone and daylight saving time" {
+    const result = try evalCode(
+        \\old_tz = ENV['TZ']
+        \\begin
+        \\  ENV['TZ'] = 'America/New_York'
+        \\  winter = Time.at(946684800).localtime
+        \\  summer = Time.at(962409600).localtime
+        \\  [winter.to_a[8], winter.to_a[9], summer.to_a[8], summer.to_a[9], summer.zone,
+        \\   Time.at(0).getlocal('+01:00').to_a[9]]
+        \\ensure
+        \\  ENV['TZ'] = old_tz
+        \\end
+    );
+    const items = result.toArrayObject().elements.items;
+    try std.testing.expect(!items[0].toBool());
+    try std.testing.expectEqualStrings("EST", items[1].toStringObject().str);
+    try std.testing.expect(items[2].toBool());
+    try std.testing.expectEqualStrings("EDT", items[3].toStringObject().str);
+    try std.testing.expectEqualStrings("EDT", items[4].toStringObject().str);
+    try std.testing.expect(items[5].isNil());
+}
+
 test "Time#strftime supports RubyGems formats" {
     const result = try evalCode(
         \\t = Time.new("2024-06-15 12:34:56.123456789 Z")

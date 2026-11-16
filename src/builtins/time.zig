@@ -629,6 +629,7 @@ fn parseStrftimeUtcOffsetSeconds(bytes: []const u8) ?i64 {
 const ZoneinfoLocalInfo = struct {
     offset_nanos: i64,
     is_dst: bool,
+    name: [6:0]u8,
 };
 
 fn zoneinfoLocalInfo(io: std.Io, epoch_seconds: i64) ?ZoneinfoLocalInfo {
@@ -677,6 +678,7 @@ fn zoneinfoLocalInfo(io: std.Io, epoch_seconds: i64) ?ZoneinfoLocalInfo {
     return .{
         .offset_nanos = @as(i64, selected_timetype.offset) * nanos_per_second,
         .is_dst = selected_timetype.isDst(),
+        .name = selected_timetype.name_data,
     };
 }
 
@@ -1437,8 +1439,6 @@ pub fn builtinTimeLocaltime(vm: *VM, receiver: Value, args: []Value, _: ?Block) 
         // Convert to system local timezone.
         const epoch_seconds = try epochSecondsForTimezone(vm, t.timew);
         const new_offset = localUtcOffsetNanos(vm.io, epoch_seconds);
-        // If already at this exact offset (fixed), do nothing (even if frozen).
-        if (!t.is_utc and t.utc_offset_nanos == new_offset) return receiver;
         try vm.guardNotFrozen(receiver);
         t.utc_offset_nanos = new_offset;
         t.is_utc = false;
@@ -1462,10 +1462,12 @@ pub fn builtinTimeLocaltime(vm: *VM, receiver: Value, args: []Value, _: ?Block) 
     }
 
     const new_offset = try parseUtcOffsetArg(vm, arg);
-    if (!t.is_utc and t.utc_offset_nanos == new_offset) return receiver;
+    if (!t.is_utc and !t.is_local and t.zone == null and t.utc_offset_nanos == new_offset) return receiver;
     try vm.guardNotFrozen(receiver);
     t.utc_offset_nanos = new_offset;
     t.is_utc = false;
+    t.is_local = false;
+    t.zone = null;
     return receiver;
 }
 
@@ -1549,7 +1551,7 @@ pub fn builtinTimeUsec(vm: *VM, receiver: Value, args: []Value, block: ?Block) V
     return vm.divFloorIntegerValues(nanoseconds, Value.integer(1000));
 }
 
-pub fn builtinTimeToA(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+pub fn builtinTimeToA(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
     const t = receiver.toTimeObject();
     const parts = try timePartsFor(vm, t);
@@ -1562,8 +1564,8 @@ pub fn builtinTimeToA(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMErro
     array_obj.elements.append(vm.gc_allocator, parts.year) catch return error.Fatal;
     array_obj.elements.append(vm.gc_allocator, Value.integer(parts.weekday)) catch return error.Fatal;
     array_obj.elements.append(vm.gc_allocator, Value.integer(parts.year_day)) catch return error.Fatal;
-    array_obj.elements.append(vm.gc_allocator, Value.boolean(false)) catch return error.Fatal;
-    array_obj.elements.append(vm.gc_allocator, try vm.newString(if (t.is_utc) "UTC" else "local", false)) catch return error.Fatal;
+    array_obj.elements.append(vm.gc_allocator, try builtinTimeDst(vm, receiver, &.{}, block)) catch return error.Fatal;
+    array_obj.elements.append(vm.gc_allocator, try builtinTimeZone(vm, receiver, &.{}, block)) catch return error.Fatal;
     return Value.fromObject(&array_obj.object);
 }
 
@@ -1820,7 +1822,14 @@ pub fn builtinTimeZone(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMErr
     }
     if (t.zone) |zone| return zone;
     if (!t.is_local) return Value.nil();
-    return vm.newString("local", false);
+    const seconds = try epochSecondsForTimezone(vm, t.timew);
+    if (zoneinfoLocalInfo(vm.io, seconds)) |info| return vm.newString(std.mem.sliceTo(&info.name, 0), false);
+    tzset();
+    var tm: CStructTm = undefined;
+    if (localtime_r(&seconds, &tm)) |_| {
+        if (tm.tm_zone) |name| return vm.newString(std.mem.span(name), false);
+    }
+    return Value.nil();
 }
 
 pub fn builtinTimeSunday(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
