@@ -95,6 +95,13 @@ class Set
   end
   alias >= superset?
 
+  def subset?(other)
+    raise ArgumentError, "value must be a set" unless other.is_a?(Set)
+
+    size <= other.size && all? { |object| other.include?(object) }
+  end
+  alias <= subset?
+
   def replace(enum)
     @hash.clear
     merge(enum)

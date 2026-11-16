@@ -1938,7 +1938,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/set/sortedset/sortedset_spec.rb
 
 ### core/set
-- [ ] core/set/subset_spec.rb
+- [x] core/set/subset_spec.rb
 - [x] core/set/subtract_spec.rb
 - [x] core/set/superset_spec.rb
 - [ ] core/set/to_a_spec.rb
