@@ -125,6 +125,12 @@ class Set
   end
   alias < proper_subset?
 
+  def intersect?(other)
+    raise ArgumentError, "value must be a set" unless other.is_a?(Set)
+
+    other.any? { |object| include?(object) }
+  end
+
   def replace(enum)
     @hash.clear
     merge(enum)
