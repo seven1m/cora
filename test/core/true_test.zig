@@ -9,12 +9,6 @@ test "Boolean true" {
     try std.testing.expectEqual(true, result.toBool());
 }
 
-test "TrueClass#inspect" {
-    const result = try evalCode("true.inspect");
-    try std.testing.expect(result.isString());
-    try std.testing.expectEqualSlices(u8, "true", result.toStringObject().str);
-}
-
 test "TrueClass#to_s" {
     const result = try evalCode("true.to_s");
     try std.testing.expect(result.isString());

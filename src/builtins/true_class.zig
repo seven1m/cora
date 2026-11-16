@@ -8,12 +8,12 @@ const Value = value.Value;
 
 pub fn register(vm: *VM) !void {
     const to_s_sym = try vm.intern("to_s");
-    try vm.true_class.module.methods.put(to_s_sym, value.MethodEntry.builtin(&builtinTrueClassToS, .{ .exact = 0 }));
+    var to_s_entry = value.MethodEntry.builtin(&builtinTrueClassToS, .{ .exact = 0 });
+    to_s_entry.original_name = to_s_sym;
+    try vm.true_class.module.methods.put(to_s_sym, to_s_entry);
 
     const inspect_sym = try vm.intern("inspect");
-    var inspect_entry = value.MethodEntry.builtin(&builtinTrueClassToS, .{ .exact = 0 });
-    inspect_entry.original_name = to_s_sym;
-    try vm.true_class.module.methods.put(inspect_sym, inspect_entry);
+    try vm.true_class.module.methods.put(inspect_sym, to_s_entry);
 
     const equal_sym = try vm.intern("==");
     try vm.true_class.module.methods.put(equal_sym, value.MethodEntry.builtin(&builtinTrueClassEqual, .{ .exact = 1 }));
