@@ -1929,7 +1929,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] core/set/proper_subset_spec.rb
 - [x] core/set/proper_superset_spec.rb
 - [ ] core/set/reject_spec.rb
-- [ ] core/set/replace_spec.rb
+- [x] core/set/replace_spec.rb
 - [ ] core/set/select_spec.rb
 - [x] core/set/set_spec.rb
 - [ ] core/set/size_spec.rb

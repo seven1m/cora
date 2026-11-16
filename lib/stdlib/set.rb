@@ -141,8 +141,15 @@ class Set
   end
 
   def replace(enum)
-    @hash.clear
-    merge(enum)
+    if enum.is_a?(Set)
+      @hash.replace(enum.instance_variable_get(:@hash))
+    else
+      replacement = {}
+      replacement.compare_by_identity if @hash.compare_by_identity?
+      each_from(enum) { |obj| replacement[obj] = true }
+      @hash.replace(replacement)
+    end
+    self
   end
 
   def merge(*enums)
