@@ -1888,7 +1888,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] core/set/compare_by_identity_spec.rb
 - [x] core/set/comparison_spec.rb
 - [ ] core/set/constructor_spec.rb
-- [ ] core/set/delete_if_spec.rb
+- [x] core/set/delete_if_spec.rb
 - [x] core/set/delete_spec.rb
 - [x] core/set/difference_spec.rb
 - [x] core/set/disjoint_spec.rb

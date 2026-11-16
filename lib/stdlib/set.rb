@@ -74,6 +74,13 @@ class Set
     @hash.delete(obj) ? self : nil
   end
 
+  def delete_if
+    return enum_for(:delete_if) unless block_given?
+
+    select { |obj| yield obj }.each { |obj| @hash.delete(obj) }
+    self
+  end
+
   def clear
     @hash.clear
     self
