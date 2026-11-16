@@ -1893,7 +1893,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] core/set/difference_spec.rb
 - [x] core/set/disjoint_spec.rb
 - [ ] core/set/divide_spec.rb
-- [ ] core/set/each_spec.rb
+- [x] core/set/each_spec.rb
 - [ ] core/set/empty_spec.rb
 
 ### core/set/enumerable
