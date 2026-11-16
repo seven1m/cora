@@ -1,5 +1,8 @@
 const std = @import("std");
 const builtin = @import("builtin");
+const native_stat_api = @cImport({
+    @cInclude("sys/stat.h");
+});
 const test_helper = @import("../test_helper.zig");
 
 const evalCode = test_helper.evalCode;
@@ -487,14 +490,14 @@ test "File.stat and IO#stat expose uid and gid" {
     defer std.testing.allocator.free(path_z);
 
     const result = try evalCode(source);
-    var native_stat: std.c.Stat = undefined;
-    try std.testing.expectEqual(@as(c_int, 0), std.c.fstatat(std.posix.AT.FDCWD, path_z, &native_stat, 0));
+    var native_stat: native_stat_api.struct_stat = undefined;
+    try std.testing.expectEqual(@as(c_int, 0), native_stat_api.fstatat(std.posix.AT.FDCWD, path_z, &native_stat, 0));
     try std.testing.expect(result.isArray());
     try std.testing.expectEqual(@as(usize, 4), result.toArrayObject().elements.items.len);
-    try std.testing.expectEqual(@as(i64, @intCast(native_stat.uid)), result.toArrayObject().elements.items[0].toInteger());
-    try std.testing.expectEqual(@as(i64, @intCast(native_stat.gid)), result.toArrayObject().elements.items[1].toInteger());
-    try std.testing.expectEqual(@as(i64, @intCast(native_stat.uid)), result.toArrayObject().elements.items[2].toInteger());
-    try std.testing.expectEqual(@as(i64, @intCast(native_stat.gid)), result.toArrayObject().elements.items[3].toInteger());
+    try std.testing.expectEqual(@as(i64, @intCast(native_stat.st_uid)), result.toArrayObject().elements.items[0].toInteger());
+    try std.testing.expectEqual(@as(i64, @intCast(native_stat.st_gid)), result.toArrayObject().elements.items[1].toInteger());
+    try std.testing.expectEqual(@as(i64, @intCast(native_stat.st_uid)), result.toArrayObject().elements.items[2].toInteger());
+    try std.testing.expectEqual(@as(i64, @intCast(native_stat.st_gid)), result.toArrayObject().elements.items[3].toInteger());
 }
 
 test "File.split matches MRI path splitting" {

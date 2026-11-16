@@ -256,7 +256,7 @@ fn buildPrism(b: *std.Build) *std.Build.Step {
         source_step = &overlay_step.step;
     }
 
-    const make_step = b.addSystemCommand(&.{ "make", "-C", "build/prism", "static", "shared" });
+    const make_step = b.addSystemCommand(&.{ "make", "-C", "build/prism", "static", "shared", b.fmt("SOEXT={s}", .{rbconfig.sharedLibraryExtension()}) });
     if (source_step) |step| make_step.step.dependOn(step);
     prism_build_step.dependOn(&make_step.step);
 
