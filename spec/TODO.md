@@ -1927,7 +1927,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] core/set/plus_spec.rb
 - [ ] core/set/pretty_print_cycle_spec.rb
 - [x] core/set/proper_subset_spec.rb
-- [ ] core/set/proper_superset_spec.rb
+- [x] core/set/proper_superset_spec.rb
 - [ ] core/set/reject_spec.rb
 - [ ] core/set/replace_spec.rb
 - [ ] core/set/select_spec.rb

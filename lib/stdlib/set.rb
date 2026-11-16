@@ -95,6 +95,13 @@ class Set
   end
   alias >= superset?
 
+  def proper_superset?(other)
+    raise ArgumentError, "value must be a set" unless other.is_a?(Set)
+
+    size > other.size && other.all? { |object| include?(object) }
+  end
+  alias > proper_superset?
+
   def subset?(other)
     raise ArgumentError, "value must be a set" unless other.is_a?(Set)
 
