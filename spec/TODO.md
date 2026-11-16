@@ -1916,7 +1916,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] core/set/intersect_spec.rb
 - [ ] core/set/intersection_spec.rb
 - [ ] core/set/join_spec.rb
-- [ ] core/set/keep_if_spec.rb
+- [x] core/set/keep_if_spec.rb
 - [x] core/set/length_spec.rb
 - [x] core/set/lt_spec.rb
 - [x] core/set/lte_spec.rb

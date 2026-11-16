@@ -81,6 +81,13 @@ class Set
     self
   end
 
+  def keep_if
+    return enum_for(:keep_if) unless block_given?
+
+    reject { |obj| yield obj }.each { |obj| @hash.delete(obj) }
+    self
+  end
+
   def clear
     @hash.clear
     self
