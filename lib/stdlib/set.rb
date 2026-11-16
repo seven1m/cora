@@ -131,6 +131,10 @@ class Set
     other.any? { |object| include?(object) }
   end
 
+  def disjoint?(other)
+    !intersect?(other)
+  end
+
   def replace(enum)
     @hash.clear
     merge(enum)

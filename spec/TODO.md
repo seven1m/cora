@@ -1891,7 +1891,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/set/delete_if_spec.rb
 - [ ] core/set/delete_spec.rb
 - [x] core/set/difference_spec.rb
-- [ ] core/set/disjoint_spec.rb
+- [x] core/set/disjoint_spec.rb
 - [ ] core/set/divide_spec.rb
 - [ ] core/set/each_spec.rb
 - [ ] core/set/empty_spec.rb
