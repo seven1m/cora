@@ -1879,7 +1879,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/ruby/source_range/inspect_spec.rb
 
 ### core/set
-- [ ] core/set/add_spec.rb
+- [x] core/set/add_spec.rb
 - [x] core/set/append_spec.rb
 - [ ] core/set/case_compare_spec.rb
 - [ ] core/set/classify_spec.rb
