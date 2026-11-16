@@ -1883,7 +1883,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] core/set/append_spec.rb
 - [ ] core/set/case_compare_spec.rb
 - [ ] core/set/classify_spec.rb
-- [ ] core/set/clear_spec.rb
+- [x] core/set/clear_spec.rb
 - [ ] core/set/collect_spec.rb
 - [x] core/set/compare_by_identity_spec.rb
 - [x] core/set/comparison_spec.rb
