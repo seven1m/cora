@@ -1920,7 +1920,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] core/set/length_spec.rb
 - [x] core/set/lt_spec.rb
 - [x] core/set/lte_spec.rb
-- [ ] core/set/map_spec.rb
+- [x] core/set/map_spec.rb
 - [ ] core/set/member_spec.rb
 - [x] core/set/merge_spec.rb
 - [x] core/set/minus_spec.rb

@@ -152,6 +152,13 @@ class Set
     self
   end
 
+  def map!(&block)
+    return enum_for(:map!) unless block
+
+    replace(map(&block))
+  end
+  alias collect! map!
+
   def merge(*enums)
     enums.each do |enum|
       each_from(enum) do |obj|
