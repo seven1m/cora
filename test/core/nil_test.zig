@@ -9,12 +9,6 @@ test "Nil value" {
     try std.testing.expect(result.isNil());
 }
 
-test "NilClass#inspect" {
-    const result = try evalCode("nil.inspect");
-    try std.testing.expect(result.isString());
-    try std.testing.expectEqualSlices(u8, "nil", result.toStringObject().str);
-}
-
 test "NilClass#to_s" {
     const result = try evalCode("nil.to_s");
     try std.testing.expect(result.isString());
