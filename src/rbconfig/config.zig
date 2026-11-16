@@ -260,8 +260,8 @@ pub const RbConfig = struct {
 
     pub fn init() RbConfig {
         const host_os_str = hostOs();
-        const target_arch_str = @tagName(builtin.cpu.arch);
-        const ruby_platform_str = comptime std.fmt.comptimePrint("{s}-{s}", .{ target_arch_str, @tagName(builtin.os.tag) });
+        const target_arch_str = version.host_cpu;
+        const ruby_platform_str = version.platform;
 
         var parts = std.mem.splitScalar(u8, version.ruby_version, '.');
         const maj = parts.first();

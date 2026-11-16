@@ -1855,7 +1855,7 @@ pub const VM = struct {
         const marshal_minor_version_sym = try self.intern("MINOR_VERSION");
         const rbconfig_ruby_engine = "cora";
         const rbconfig_ruby_version = version.ruby_version;
-        const ruby_platform = comptime std.fmt.comptimePrint("{s}-{s}", .{ @tagName(builtin.cpu.arch), @tagName(builtin.os.tag) });
+        const ruby_platform = version.platform;
         const ruby_engine_val = try self.newString(rbconfig_ruby_engine, true);
         const ruby_version_val = try self.newString(rbconfig_ruby_version, true);
         const ruby_platform_val = try self.newString(ruby_platform, true);
@@ -12142,6 +12142,30 @@ pub const VM = struct {
         }
         if (std.mem.indexOfScalar(u8, path_string.str, 0) != null) {
             return self.raiseExceptionFmt(self.argument_error_class, "path name contains null byte", .{});
+        }
+        return path_value;
+    }
+
+    pub fn coerceToFilesystemPath(self: *VM, arg: Value, type_error_message: []const u8) VMError![]const u8 {
+        const path = try self.coerceToFilesystemPathValue(arg, type_error_message);
+        return path.toStringObject().str;
+    }
+
+    pub fn coerceToFilesystemPathValue(self: *VM, arg: Value, type_error_message: []const u8) VMError!Value {
+        return self.filesystemPathValue(try self.coerceToPathValue(arg, type_error_message));
+    }
+
+    pub fn filesystemPathValue(self: *VM, path_value: Value) VMError!Value {
+        const path_string = path_value.toStringObject();
+        if (builtin.os.tag.isDarwin() and path_string.encoding != .utf8 and
+            path_string.encoding != .ascii_8bit and !enc.isAsciiOnly(path_string.str))
+        {
+            const bytes = enc.transcode(self.gc_allocator_atomic, path_string.str, path_string.encoding, .{ .utf8 = .{} }) catch |err| switch (err) {
+                error.OutOfMemory => return error.Fatal,
+                error.InvalidByteSequence => return self.raiseExceptionFmt(self.encoding_invalid_byte_sequence_error_class, "invalid byte sequence in {s}", .{path_string.encoding.name()}),
+                error.UndefinedConversion => return self.raiseExceptionFmt(self.encoding_undefined_conversion_error_class, "conversion from {s} to UTF-8", .{path_string.encoding.name()}),
+            };
+            return self.newStringWithEncoding(bytes, false, .{ .utf8 = .{} });
         }
         return path_value;
     }

@@ -32,6 +32,7 @@
 - If you only need capability probing, such as checking `to_str` support for `String#==` reverse dispatch, prefer `respond_to?` semantics rather than forcing coercion.
 - Use `VM.coerceToPath` for path arguments (`to_path` and then String coercion).
 - Use `VM.coerceToPathValue` when you must preserve the resulting String object's encoding/value.
+- For filesystem operations, use `VM.coerceToFilesystemPath` / `VM.coerceToFilesystemPathValue`; these also transcode macOS paths to UTF-8. Use `VM.filesystemPathValue` for an already coerced path, keeping the original value when storing `IO#path` or doing lexical path operations.
 - Avoid per-builtin ad hoc `to_str` helpers unless the semantics intentionally differ; if they do, document why near the helper.
 
 ## Encoding And Warning Helpers

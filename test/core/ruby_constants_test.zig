@@ -19,7 +19,9 @@ test "RUBY_VERSION is 4.0.0" {
 test "RUBY_PLATFORM matches build target arch-os" {
     const result = try evalCode("RUBY_PLATFORM");
     try std.testing.expect(result.isString());
-    const expected = comptime std.fmt.comptimePrint("{s}-{s}", .{ @tagName(builtin.cpu.arch), @tagName(builtin.os.tag) });
+    const arch = if (builtin.os.tag.isDarwin() and builtin.cpu.arch == .aarch64) "arm64" else @tagName(builtin.cpu.arch);
+    const os = if (builtin.os.tag.isDarwin()) "darwin" else @tagName(builtin.os.tag);
+    const expected = comptime std.fmt.comptimePrint("{s}-{s}", .{ arch, os });
     try std.testing.expectEqualSlices(u8, expected, result.toStringObject().str);
 }
 

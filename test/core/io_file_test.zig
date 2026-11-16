@@ -1,8 +1,26 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const test_helper = @import("../test_helper.zig");
 
 const evalCode = test_helper.evalCode;
 const evalCodeWithOutput = test_helper.evalCodeWithOutput;
+
+test "Dir glob matches UTF-8 filenames with ASCII legacy-encoded patterns on Darwin" {
+    if (!builtin.os.tag.isDarwin()) return error.SkipZigTest;
+    const result = try evalCode(
+        \\require "tmpdir"
+        \\Dir.mktmpdir do |dir|
+        \\  path = File.join(dir, "あ.txt")
+        \\  File.write(path, "x")
+        \\  pattern = File.join(dir, "*.txt").encode("Windows-31J")
+        \\  matches = Dir[pattern]
+        \\  fallback = Dir[File.join(dir, "*.txt").encode("US-ASCII")]
+        \\  matches == [path.encode("Windows-31J")] && matches.first.encoding == Encoding::Windows_31J &&
+        \\    fallback == [path] && fallback.first.encoding == Encoding::UTF_8
+        \\end
+    );
+    try std.testing.expect(result.isTrue());
+}
 
 test "File.utime nil timestamps set the current time" {
     const result = try evalCode(
@@ -465,13 +483,18 @@ test "File.stat and IO#stat expose uid and gid" {
     , .{path});
     defer std.testing.allocator.free(source);
 
+    const path_z = try std.testing.allocator.dupeZ(u8, path);
+    defer std.testing.allocator.free(path_z);
+
     const result = try evalCode(source);
+    var native_stat: std.c.Stat = undefined;
+    try std.testing.expectEqual(@as(c_int, 0), std.c.fstatat(std.posix.AT.FDCWD, path_z, &native_stat, 0));
     try std.testing.expect(result.isArray());
     try std.testing.expectEqual(@as(usize, 4), result.toArrayObject().elements.items.len);
-    try std.testing.expectEqual(@as(i64, @intCast(std.c.getuid())), result.toArrayObject().elements.items[0].toInteger());
-    try std.testing.expectEqual(@as(i64, @intCast(std.c.getgid())), result.toArrayObject().elements.items[1].toInteger());
-    try std.testing.expectEqual(@as(i64, @intCast(std.c.getuid())), result.toArrayObject().elements.items[2].toInteger());
-    try std.testing.expectEqual(@as(i64, @intCast(std.c.getgid())), result.toArrayObject().elements.items[3].toInteger());
+    try std.testing.expectEqual(@as(i64, @intCast(native_stat.uid)), result.toArrayObject().elements.items[0].toInteger());
+    try std.testing.expectEqual(@as(i64, @intCast(native_stat.gid)), result.toArrayObject().elements.items[1].toInteger());
+    try std.testing.expectEqual(@as(i64, @intCast(native_stat.uid)), result.toArrayObject().elements.items[2].toInteger());
+    try std.testing.expectEqual(@as(i64, @intCast(native_stat.gid)), result.toArrayObject().elements.items[3].toInteger());
 }
 
 test "File.split matches MRI path splitting" {
@@ -928,7 +951,7 @@ test "File.realdirpath resolves a dangling final symlink" {
         \\  target = File.join(dir, "missing")
         \\  link = File.join(dir, "link")
         \\  File.symlink(target, link)
-        \\  File.realdirpath(link) == target
+        \\  File.realdirpath(link) == File.join(File.realpath(dir), "missing")
         \\end
     );
     try std.testing.expect(result.isTrue());

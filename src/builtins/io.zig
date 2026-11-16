@@ -428,7 +428,7 @@ fn parsePopenArgs(vm: *VM, args: []Value) VMError!PopenConfig {
         config.internal_encoding = null;
     }
     if (chdir_value) |val| {
-        config.chdir_path = try vm.coerceToPath(val, "no implicit conversion into String");
+        config.chdir_path = try vm.coerceToFilesystemPath(val, "no implicit conversion into String");
     }
     if (err_value) |val| {
         const hash = try vm.createHash();
@@ -881,7 +881,7 @@ pub fn builtinIoCopyStream(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!
 
 pub fn builtinIoBinread(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCountRange(args, 1, 3);
-    const path = try vm.coerceToPath(args[0], "no implicit conversion into String");
+    const path = try vm.coerceToFilesystemPath(args[0], "no implicit conversion into String");
 
     const path_z = try vm.allocCStringZ(path);
     defer vm.allocator.free(path_z);
@@ -1231,7 +1231,7 @@ pub fn builtinIoTtyQ(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError
 
 pub fn builtinIoForeach(vm: *VM, _: Value, args: []Value, block: ?Block) VMError!Value {
     try vm.requireArgCountRange(args, 1, 3);
-    const path = try vm.coerceToPathValue(args[0], "no implicit conversion into String");
+    const path = try vm.coerceToFilesystemPathValue(args[0], "no implicit conversion into String");
     const path_obj = path.toStringObject();
 
     const path_z = try vm.allocCStringZ(path_obj.str);
@@ -1445,7 +1445,7 @@ pub fn builtinIoSysopen(vm: *VM, _: Value, args: []Value, block: ?Block) VMError
     }
     try vm.requireArgCountRange(args, 1, 3);
 
-    const path_value = try vm.coerceToPathValue(args[0], "no implicit conversion into String");
+    const path_value = try vm.coerceToFilesystemPathValue(args[0], "no implicit conversion into String");
     const parsed = if (args.len >= 2 and !args[1].isNil())
         try parseIoModeValue(vm, args[1])
     else

@@ -179,7 +179,7 @@ pub fn builtinDirChdir(vm: *VM, _: Value, args: []Value, block: ?Block) VMError!
         return vm.raiseExceptionFmt(vm.not_implemented_error_class, "Dir.chdir is not implemented on Windows", .{});
     }
 
-    const target = try vm.coerceToPath(args[0], "no implicit conversion into String");
+    const target = try vm.coerceToFilesystemPath(args[0], "no implicit conversion into String");
     const previous = std.process.currentPathAlloc(vm.io, vm.allocator) catch return error.Fatal;
     defer vm.allocator.free(previous);
     const target_z = try vm.allocCStringZ(target);
@@ -207,7 +207,7 @@ pub fn builtinDirMkdir(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Valu
         return vm.raiseExceptionFmt(vm.not_implemented_error_class, "Dir.mkdir is not implemented on Windows", .{});
     }
 
-    const target = try vm.coerceToPath(args[0], "no implicit conversion into String");
+    const target = try vm.coerceToFilesystemPath(args[0], "no implicit conversion into String");
     const permissions: std.Io.File.Permissions = if (args.len == 2) blk: {
         const missing_msg = std.fmt.allocPrint(
             vm.gc_allocator,
@@ -242,7 +242,7 @@ pub fn builtinDirRmdir(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Valu
         return vm.raiseExceptionFmt(vm.not_implemented_error_class, "Dir.rmdir is not implemented on Windows", .{});
     }
 
-    const target = try vm.coerceToPath(args[0], "no implicit conversion into String");
+    const target = try vm.coerceToFilesystemPath(args[0], "no implicit conversion into String");
     const target_z = try vm.allocCStringZ(target);
     defer vm.allocator.free(target_z);
 
@@ -260,7 +260,7 @@ pub fn builtinDirChildren(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!V
     try vm.consumeKeywordArgs(.{"encoding"}, .{&encoding_value});
 
     const target = if (args.len == 1)
-        try vm.coerceToPath(args[0], "no implicit conversion into String")
+        try vm.coerceToFilesystemPath(args[0], "no implicit conversion into String")
     else
         ".";
 
@@ -285,7 +285,7 @@ pub fn builtinDirEmpty(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Valu
         return vm.raiseExceptionFmt(vm.not_implemented_error_class, "Dir.empty? is not implemented on Windows", .{});
     }
 
-    const target = try vm.coerceToPath(args[0], "no implicit conversion into String");
+    const target = try vm.coerceToFilesystemPath(args[0], "no implicit conversion into String");
     const st = std.Io.Dir.cwd().statFile(vm.io, target, .{}) catch |err| switch (err) {
         error.FileNotFound => return vm.raiseErrnoFmt(.NOENT, "No such file or directory @ dir_s_empty - {s}", .{target}),
         else => return Value.boolean(false),
@@ -325,7 +325,7 @@ fn collectDirEntries(vm: *VM, args: []Value) VMError!Value {
 
     const target = if (args.len == 1) blk: {
         const maybe_to_path = try vm.checkCallMethodByName(args[0], "to_path", false, &.{}, null);
-        break :blk try vm.coerceToPath(maybe_to_path orelse args[0], "no implicit conversion into String");
+        break :blk try vm.coerceToFilesystemPath(maybe_to_path orelse args[0], "no implicit conversion into String");
     } else ".";
 
     var dir = std.Io.Dir.cwd().openDir(vm.io, target, .{ .iterate = true }) catch {
@@ -798,14 +798,19 @@ fn globWalk(ctx: *GlobContext, dir_abs: []const u8, rel_prefix: []const u8, segm
             joinPathAlloc(ctx.vm.allocator, rel_prefix, entry.name) catch return error.Fatal;
         defer ctx.vm.allocator.free(child_rel);
 
+        var child_is_directory = entry.kind == .directory;
+        if (entry.kind == .sym_link and (directory_only or seg_idx + 1 < segments.len)) {
+            const stat = std.Io.Dir.cwd().statFile(ctx.vm.io, child_abs, .{ .follow_symlinks = true }) catch continue;
+            child_is_directory = stat.kind == .directory;
+        }
         if (seg_idx + 1 == segments.len) {
-            if (directory_only and entry.kind != .directory) continue;
+            if (directory_only and !child_is_directory) continue;
             const display = if (ctx.return_relative) child_rel else child_abs;
-            try appendMatch(ctx, display, !ctx.return_relative, directory_only and entry.kind == .directory);
+            try appendMatch(ctx, display, !ctx.return_relative, directory_only and child_is_directory);
             continue;
         }
 
-        if (entry.kind == .directory) {
+        if (child_is_directory) {
             try globWalk(ctx, child_abs, child_rel, segments, seg_idx + 1, directory_only);
         }
     }
@@ -874,7 +879,7 @@ fn parseGlobKeywords(vm: *VM) VMError!GlobKeywords {
     var keywords: GlobKeywords = .{};
     if (try vm.consumeKeywordArg("base")) |base_val| {
         if (!base_val.isNil()) {
-            keywords.base = try vm.coerceToPath(base_val, "no implicit conversion into String");
+            keywords.base = try vm.coerceToFilesystemPath(base_val, "no implicit conversion into String");
         }
     }
     if (try vm.consumeKeywordArg("sort")) |sort_val| {
@@ -917,23 +922,47 @@ fn sortMatches(matches: []GlobMatch) void {
 }
 
 fn appendPatternMatches(ctx: *GlobContext, pattern: GlobPattern, sort: bool, out: *std.ArrayList(GlobMatch)) VMError!void {
+    const pattern_value = try ctx.vm.newStringWithEncoding(pattern.bytes, false, pattern.encoding);
+    const filesystem_pattern = (try ctx.vm.filesystemPathValue(pattern_value)).toStringObject();
+    const filesystem_encoding: enc.Encoding = if (builtin.os.tag.isDarwin() and pattern.encoding != .ascii_8bit)
+        .{ .utf8 = .{} }
+    else
+        filesystem_pattern.encoding;
     const saved_encoding = ctx.pattern_encoding;
-    ctx.pattern_encoding = pattern.encoding;
+    ctx.pattern_encoding = filesystem_encoding;
     defer ctx.pattern_encoding = saved_encoding;
-    var expanded = expandBracesAlloc(ctx.vm.allocator, pattern.bytes, ctx.flags.noescape) catch return error.Fatal;
+    var expanded = expandBracesAlloc(ctx.vm.allocator, filesystem_pattern.str, ctx.flags.noescape) catch return error.Fatal;
     defer {
         for (expanded.items) |item| ctx.vm.allocator.free(item);
         expanded.deinit(ctx.vm.allocator);
     }
     for (expanded.items) |expanded_pattern| {
         var tmp: std.ArrayList(GlobMatch) = .empty;
-        defer tmp.deinit(ctx.vm.allocator);
+        defer {
+            for (tmp.items) |entry| ctx.vm.allocator.free(entry.path);
+            tmp.deinit(ctx.vm.allocator);
+        }
         const saved_matches = ctx.matches;
         ctx.matches = &tmp;
+        defer ctx.matches = saved_matches;
         try processPattern(ctx, expanded_pattern);
         ctx.matches = saved_matches;
+        if (!filesystem_encoding.eql(pattern.encoding)) {
+            for (tmp.items) |*entry| {
+                const bytes = enc.transcode(ctx.vm.allocator, entry.path, filesystem_encoding, pattern.encoding) catch |err| switch (err) {
+                    error.OutOfMemory => return error.Fatal,
+                    // Like rb_str_conv_enc, retain the filesystem encoding
+                    // when a filename cannot be represented in the pattern's encoding.
+                    error.InvalidByteSequence, error.UndefinedConversion => continue,
+                };
+                ctx.vm.allocator.free(entry.path);
+                entry.path = bytes;
+                entry.encoding = pattern.encoding;
+            }
+        }
         if (sort) sortMatches(tmp.items);
         out.appendSlice(ctx.vm.allocator, tmp.items) catch return error.Fatal;
+        tmp.clearRetainingCapacity();
     }
 }
 

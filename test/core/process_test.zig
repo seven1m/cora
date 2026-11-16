@@ -370,10 +370,10 @@ test "Process.spawn supports chdir" {
         \\pid = Process.spawn("/bin/pwd", {out: writer, chdir: "/tmp"})
         \\writer.close
         \\Process.wait(pid)
-        \\[reader.read.strip, $?.success?]
+        \\[reader.read.strip, $?.success?, File.realpath("/tmp")]
     );
     const values = result.toArrayObject().elements.items;
-    try std.testing.expectEqualStrings("/tmp", values[0].toStringObject().str);
+    try std.testing.expectEqualStrings(values[2].toStringObject().str, values[0].toStringObject().str);
     try std.testing.expect(values[1].toBool());
 }
 

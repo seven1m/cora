@@ -351,10 +351,8 @@ describe "Dir.glob" do
     end
 
     it "will follow symlinks when processing a `*/` pattern." do
-      CORAFIXME "File.symlink and symlink traversal support are not implemented yet", exception: SpecExpectationNotMetError do
-        expected = ['special/ln/nondotfile']
-        Dir.glob('special/*/nondotfile').should == expected
-      end
+      expected = ['special/ln/nondotfile']
+      Dir.glob('special/*/nondotfile').should == expected
     end
 
     it "will not follow symlinks when recursively traversing directories" do
@@ -368,15 +366,13 @@ describe "Dir.glob" do
     end
 
     it "will follow symlinks when testing directory after recursive directory in pattern" do
-      CORAFIXME "File.symlink and symlink traversal support are not implemented yet", exception: SpecExpectationNotMetError do
-        expected = %w[
-          deeply/nondotfile
-          special/ln/nondotfile
-          subdir_one/nondotfile
-          subdir_two/nondotfile
-        ]
-        Dir.glob('**/*/nondotfile').sort.should == expected
-      end
+      expected = %w[
+        deeply/nondotfile
+        special/ln/nondotfile
+        subdir_one/nondotfile
+        subdir_two/nondotfile
+      ]
+      Dir.glob('**/*/nondotfile').sort.should == expected
     end
   end
 end
