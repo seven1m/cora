@@ -60,6 +60,12 @@ invocations resolve correctly.
 
 ## Build Pipeline
 
+On macOS, native extensions use `-undefined dynamic_lookup` to resolve Cora's
+exported C API when loaded. Native extensions use `.bundle` on macOS and `.so` on Linux; standalone shared
+libraries such as Prism use `.dylib` on macOS.
+The encoding backend loads macOS's system libiconv at runtime to avoid a Zig
+Mach-O linker crash involving its libcharset reexport and exported C API symbols.
+
 `build.zig` controls how vendored gems are wired in. Key knobs:
 
 - `runtime_ext_dirs` - list of `ext/<gem>` directories copied wholesale into

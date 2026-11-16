@@ -904,7 +904,10 @@ pub fn builtinKernelRequireRelative(vm: *VM, _: Value, args: []Value, _: ?Block)
     };
 
     const current_dir = std.fs.path.dirname(current_file) orelse ".";
-    const full_path = std.fs.path.join(vm.allocator, &[_][]const u8{ current_dir, relative_path }) catch return error.Fatal;
+    const full_path = if (std.fs.path.isAbsolute(relative_path))
+        vm.allocator.dupe(u8, relative_path) catch return error.Fatal
+    else
+        std.fs.path.join(vm.allocator, &[_][]const u8{ current_dir, relative_path }) catch return error.Fatal;
     defer vm.allocator.free(full_path);
 
     const storage_path = vm.expandPathLexical(full_path) catch return error.Fatal;
@@ -921,7 +924,7 @@ pub fn builtinKernelRequireRelative(vm: *VM, _: Value, args: []Value, _: ?Block)
             resolved_path = vm.allocator.dupe(u8, with_rb) catch return error.Fatal;
             identity_path = vm.resolveAbsolutePath(with_rb) catch return error.Fatal;
         } else {
-            const with_so = std.fmt.allocPrint(vm.allocator, "{s}.so", .{storage_path}) catch return error.Fatal;
+            const with_so = vm.nativeExtensionPath(storage_path) catch return error.Fatal;
             defer vm.allocator.free(with_so);
             if (vm.fileExists(with_so)) {
                 resolved_path = vm.allocator.dupe(u8, with_so) catch return error.Fatal;

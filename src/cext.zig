@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const value = @import("value.zig");
 const Value = value.Value;
 const StringObject = value.StringObject;
@@ -1089,7 +1090,9 @@ fn symName(id: VALUE) []const u8 {
 // ─── Method dispatch ────────────────────────────────────────────────────────
 
 extern fn siglongjmp(buf: *anyopaque, val: c_int) noreturn;
-extern fn __sigsetjmp(buf: *anyopaque, savesigs: c_int) c_int;
+const __sigsetjmp = @extern(*const fn (buf: *anyopaque, savesigs: c_int) callconv(.c) c_int, .{
+    .name = if (builtin.os.tag.isDarwin()) "sigsetjmp" else "__sigsetjmp",
+});
 fn checkPendingUnwind(vm: *VM, pending_unwind_before: ?vm_mod.PendingUnwind) void {
     if (vm.cext_jmp_buf) |buf| {
         if (vm.pendingUnwindChanged(pending_unwind_before)) siglongjmp(buf, 1);
@@ -3131,7 +3134,7 @@ const NativeBlockingCall = struct {
     }
 };
 
-export fn rb_thread_call_without_gvl(callback: *const fn (?*anyopaque) callconv(.c) ?*anyopaque, data: ?*anyopaque, unblock: ?*const fn (?*anyopaque) callconv(.c) void, unblock_data: ?*anyopaque) ?*anyopaque {
+export fn rb_thread_call_without_gvl(callback: *const fn (?*anyopaque) callconv(.c) ?*anyopaque, data: ?*anyopaque, unblock: ?*anyopaque, unblock_data: ?*anyopaque) ?*anyopaque {
     const vm = getVM();
     const pending = vm.pendingUnwind();
     vm.checkAsyncEvents() catch {};
@@ -3152,9 +3155,13 @@ export fn rb_thread_call_without_gvl(callback: *const fn (?*anyopaque) callconv(
         vm.timedSleepCurrentThread(1) catch {
             if (!interrupted) {
                 interrupted = true;
-                // RUBY_UBF_IO is a sentinel, not a callable function pointer.
+                // Keep the ABI argument untyped: RUBY_UBF_IO is -1, which is
+                // not a valid aligned function pointer on architectures like ARM.
                 if (unblock) |ubf| {
-                    if (@intFromPtr(ubf) != std.math.maxInt(usize)) ubf(unblock_data);
+                    if (@intFromPtr(ubf) != std.math.maxInt(usize)) {
+                        const function: *const fn (?*anyopaque) callconv(.c) void = @ptrCast(@alignCast(ubf));
+                        function(unblock_data);
+                    }
                 }
             }
         };

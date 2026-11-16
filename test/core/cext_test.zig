@@ -2,6 +2,27 @@ const std = @import("std");
 const test_helper = @import("../test_helper.zig");
 const evalCode = test_helper.evalCode;
 
+test "C extension require resolves the platform extension and portable so alias" {
+    var stdout_buf: [8192]u8 = undefined;
+    var stderr_buf: [8192]u8 = undefined;
+    const result = test_helper.evalCodeWithOutputAndPath(
+        \\require "rbconfig"
+        \\$LOAD_PATH << "build/cext"
+        \\first = require "fixture"
+        \\again = require "fixture.so"
+        \\relative = require_relative File.expand_path("build/cext/fixture")
+        \\native_path = File.expand_path("build/cext/fixture.#{RbConfig::CONFIG['DLEXT']}")
+        \\[first, again, $LOADED_FEATURES.include?(native_path), "".cora_cext_test, relative]
+    , &stdout_buf, &stderr_buf, "test/core/cext_test.zig");
+    if (result.err) |err| return err;
+    const items = result.value.toArrayObject().elements.items;
+    try std.testing.expect(items[0].isTruthy());
+    try std.testing.expect(!items[1].isTruthy());
+    try std.testing.expect(items[2].isTruthy());
+    try std.testing.expect(items[3].isTruthy());
+    try std.testing.expect(!items[4].isTruthy());
+}
+
 test "C extension fixture loads and defines method" {
     const result = try evalCode(
         \\$LOAD_PATH << "build/cext"

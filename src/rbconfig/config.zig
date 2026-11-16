@@ -114,7 +114,7 @@ pub const RbConfig = struct {
     nm: []const u8 = "gcc-nm",
     objdump: []const u8 = "objdump",
     objcopy: []const u8 = "objcopy",
-    @"as": []const u8 = "as",
+    as: []const u8 = "as",
     install: []const u8 = "/usr/bin/install -c",
     install_program: []const u8 = "$(INSTALL)",
     install_script: []const u8 = "$(INSTALL)",
@@ -283,7 +283,11 @@ pub const RbConfig = struct {
             .build_os = comptime std.fmt.comptimePrint("{s}-gnu", .{@tagName(builtin.os.tag)}),
             .platform = ruby_platform_str,
             .soext = sharedLibraryExtension(),
-            .dlext = sharedLibraryExtension(),
+            .dlext = nativeExtension(),
+            .dldflags = if (builtin.os.tag.isDarwin()) "-undefined dynamic_lookup" else "",
+            .ldshared = if (builtin.os.tag.isDarwin()) "$(CC) -bundle" else "$(CC) -shared",
+            .ldsharedxx = if (builtin.os.tag.isDarwin()) "$(CXX) -bundle" else "$(CXX) -shared",
+            .dldshared = if (builtin.os.tag.isDarwin()) "$(CC) -bundle" else "$(CC) -shared",
             .libpathenv = libPathEnv(),
             .preloadenv = preloadEnv(),
             .rpathflag = rpathFlag(),
@@ -301,7 +305,11 @@ fn hostOs() []const u8 {
     };
 }
 
-fn sharedLibraryExtension() []const u8 {
+pub fn sharedLibraryExtension() []const u8 {
+    return if (builtin.os.tag.isDarwin()) "dylib" else nativeExtension();
+}
+
+pub fn nativeExtension() []const u8 {
     return switch (builtin.os.tag) {
         .windows => "dll",
         .macos => "bundle",

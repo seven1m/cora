@@ -1,4 +1,7 @@
 const std = @import("std");
+const builtin = @import("builtin");
+const rbconfig = @import("src/rbconfig/config.zig");
+const native_extension_suffix = "." ++ rbconfig.nativeExtension();
 
 const optimize_state_path = "build/build-mode";
 const runtime_prefix = "build";
@@ -301,7 +304,7 @@ const JsonBuild = struct {
 
 fn buildPsych(b: *std.Build) PsychBuild {
     const psych_build_step = b.step("psych", "Build Psych native extension");
-    const psych_so_path = psych_build_root ++ "/ext/psych.so";
+    const psych_so_path = psych_build_root ++ "/ext/psych" ++ native_extension_suffix;
 
     if (!pathExists(b, psych_so_path)) {
         const mkdir_step = b.addSystemCommand(&.{ "mkdir", "-p", psych_build_root ++ "/ext" });
@@ -333,7 +336,7 @@ fn buildPsych(b: *std.Build) PsychBuild {
 
 fn buildStrscan(b: *std.Build) StrscanBuild {
     const strscan_build_step = b.step("strscan", "Build Strscan native extension");
-    const strscan_so_path = strscan_build_root ++ "/ext/strscan/strscan.so";
+    const strscan_so_path = strscan_build_root ++ "/ext/strscan/strscan" ++ native_extension_suffix;
 
     if (!pathExists(b, strscan_so_path)) {
         const copy_step = b.addSystemCommand(&.{ "sh", "-c", "mkdir -p build/strscan && cp -r ext/strscan/. build/strscan/" });
@@ -369,8 +372,8 @@ fn buildStrscan(b: *std.Build) StrscanBuild {
 
 fn buildJson(b: *std.Build) JsonBuild {
     const json_build_step = b.step("json", "Build JSON native extensions");
-    const parser_so_path = json_build_root ++ "/ext/json/ext/parser/parser.so";
-    const generator_so_path = json_build_root ++ "/ext/json/ext/generator/generator.so";
+    const parser_so_path = json_build_root ++ "/ext/json/ext/parser/parser" ++ native_extension_suffix;
+    const generator_so_path = json_build_root ++ "/ext/json/ext/generator/generator" ++ native_extension_suffix;
 
     if (!pathExists(b, parser_so_path) or !pathExists(b, generator_so_path)) {
         const copy_step = b.addSystemCommand(&.{ "sh", "-c", "mkdir -p build/json && cp -r ext/json/. build/json/" });
@@ -417,12 +420,13 @@ fn buildJson(b: *std.Build) JsonBuild {
 fn buildCExtFixture(b: *std.Build) *std.Build.Step {
     const fixture_build_step = b.step("cext-fixture", "Build C extension fixture for tests");
 
-    const fixture_so_path = cext_build_root ++ "/fixture.so";
+    const fixture_so_path = cext_build_root ++ "/fixture" ++ native_extension_suffix;
 
     const mkdir_step = b.addSystemCommand(&.{ "mkdir", "-p", cext_build_root });
     fixture_build_step.dependOn(&mkdir_step.step);
 
-    const compile_step = b.addSystemCommand(&.{ "gcc", "-shared", "-fPIC", "-I", "include/cora", "test/support/cext_fixture.c", "-o", fixture_so_path });
+    const compile_step = b.addSystemCommand(&.{ "gcc", if (builtin.os.tag.isDarwin()) "-bundle" else "-shared", "-fPIC", "-I", "include/cora", "test/support/cext_fixture.c", "-o", fixture_so_path });
+    if (builtin.os.tag.isDarwin()) compile_step.addArgs(&.{ "-undefined", "dynamic_lookup" });
     compile_step.step.dependOn(&mkdir_step.step);
     fixture_build_step.dependOn(&compile_step.step);
 
@@ -435,7 +439,8 @@ fn buildFFI(b: *std.Build) *std.Build.Step {
     const mkdir_step = b.addSystemCommand(&.{ "mkdir", "-p", ffi_build_root });
     ffi_build_step.dependOn(&mkdir_step.step);
 
-    const compile_step = b.addSystemCommand(&.{ "sh", "-c", "gcc -shared -fPIC -I include/cora $(pkg-config --cflags libffi) ext/cora_ffi.c -o build/ffi/cora_ffi.so $(pkg-config --libs libffi) -ldl" });
+    const dynamic_lookup = if (builtin.os.tag.isDarwin()) " -undefined dynamic_lookup" else "";
+    const compile_step = b.addSystemCommand(&.{ "sh", "-c", (if (builtin.os.tag.isDarwin()) "gcc -bundle" else "gcc -shared") ++ " -fPIC -I include/cora $(pkg-config --cflags libffi) ext/cora_ffi.c -o build/ffi/cora_ffi" ++ native_extension_suffix ++ " $(pkg-config --libs libffi) -ldl" ++ dynamic_lookup });
     compile_step.step.dependOn(&mkdir_step.step);
     ffi_build_step.dependOn(&compile_step.step);
 
@@ -642,6 +647,8 @@ pub fn build(b: *std.Build) void {
     linkSystemLibraries(exe.root_module);
 
     exe.rdynamic = true;
+    // Darwin otherwise strips C ABI exports referenced only by loaded bundles.
+    if (target.result.os.tag.isDarwin()) exe.link_gc_sections = false;
 
     // On Darwin aarch64, getcontext() is deprecated and does not save
     // caller-saved registers (x0-x18), making GC root scanning unreliable.
@@ -690,7 +697,8 @@ pub fn build(b: *std.Build) void {
         .install_subdir = "lib/stdlib",
     });
     b.getInstallStep().dependOn(&install_stdlib.step);
-    const install_prism_shared = b.addInstallFile(b.path(prism_build_root ++ "/build/libprism.so"), "lib/prism/libprism.so");
+    const prism_shared_name = if (builtin.os.tag.isDarwin()) "libprism.dylib" else "libprism.so";
+    const install_prism_shared = b.addInstallFile(b.path(prism_build_root ++ "/build/" ++ prism_shared_name), "lib/prism/" ++ prism_shared_name);
     install_prism_shared.step.dependOn(prism_build_step);
     b.getInstallStep().dependOn(&install_prism_shared.step);
     const install_prism_headers = b.addInstallDirectory(.{
@@ -700,7 +708,7 @@ pub fn build(b: *std.Build) void {
     });
     install_prism_headers.step.dependOn(prism_build_step);
     b.getInstallStep().dependOn(&install_prism_headers.step);
-    const install_ffi = b.addInstallFile(b.path(ffi_build_root ++ "/cora_ffi.so"), "lib/stdlib/cora_ffi.so");
+    const install_ffi = b.addInstallFile(b.path(ffi_build_root ++ "/cora_ffi" ++ native_extension_suffix), "lib/stdlib/cora_ffi" ++ native_extension_suffix);
     install_ffi.step.dependOn(ffi_build_step);
     b.getInstallStep().dependOn(&install_ffi.step);
     const remove_legacy_json_stdlib = b.addSystemCommand(&.{ "rm", "-f", b.getInstallPath(.prefix, "lib/stdlib/json.rb") });
@@ -750,34 +758,34 @@ pub fn build(b: *std.Build) void {
 
     const install_psych_default_gem_so = addInstallDefaultGemNativeLib(
         b,
-        b.path(psych_build_root ++ "/ext/psych.so"),
+        b.path(psych_build_root ++ "/ext/psych" ++ native_extension_suffix),
         "psych",
         psych_gem_version,
-        "psych.so",
+        "psych" ++ native_extension_suffix,
         psych_build_step,
     );
     const install_strscan_default_gem_so = addInstallDefaultGemNativeLib(
         b,
-        b.path(strscan_build_root ++ "/ext/strscan/strscan.so"),
+        b.path(strscan_build_root ++ "/ext/strscan/strscan" ++ native_extension_suffix),
         "strscan",
         strscan_gem_version,
-        "strscan.so",
+        "strscan" ++ native_extension_suffix,
         strscan_build_step,
     );
     const install_json_default_gem_parser_so = addInstallDefaultGemNativeLib(
         b,
-        b.path(json_build_root ++ "/ext/json/ext/parser/parser.so"),
+        b.path(json_build_root ++ "/ext/json/ext/parser/parser" ++ native_extension_suffix),
         "json",
         json_gem_version,
-        "json/ext/parser.so",
+        "json/ext/parser" ++ native_extension_suffix,
         json_build_step,
     );
     const install_json_default_gem_generator_so = addInstallDefaultGemNativeLib(
         b,
-        b.path(json_build_root ++ "/ext/json/ext/generator/generator.so"),
+        b.path(json_build_root ++ "/ext/json/ext/generator/generator" ++ native_extension_suffix),
         "json",
         json_gem_version,
-        "json/ext/generator.so",
+        "json/ext/generator" ++ native_extension_suffix,
         json_build_step,
     );
     const install_headers = b.addInstallDirectory(.{
@@ -848,7 +856,7 @@ pub fn build(b: *std.Build) void {
         install_did_you_mean_default_gem,
     });
 
-    const install_cext_fixture = b.addInstallFile(b.path(cext_build_root ++ "/fixture.so"), "cext/fixture.so");
+    const install_cext_fixture = b.addInstallFile(b.path(cext_build_root ++ "/fixture" ++ native_extension_suffix), "cext/fixture" ++ native_extension_suffix);
     install_cext_fixture.step.dependOn(cext_fixture_step);
     b.getInstallStep().dependOn(&install_cext_fixture.step);
 
@@ -899,6 +907,7 @@ pub fn build(b: *std.Build) void {
     test_exe.root_module.addIncludePath(b.path(tinycc_build_root));
     test_exe.root_module.link_libc = true;
     test_exe.rdynamic = true;
+    if (target.result.os.tag.isDarwin()) test_exe.link_gc_sections = false;
     linkSystemLibraries(test_exe.root_module);
 
     test_exe.root_module.addImport("bdwgc", bdwgc.module("bdwgc"));

@@ -21,11 +21,14 @@ const bdwgc = @import("bdwgc");
 const cext_gc = @import("cext_gc.zig");
 const version = @import("version.zig");
 const rbconfig_data = @import("rbconfig/data.zig");
+const rbconfig = @import("rbconfig/config.zig");
 
 const Value = value.Value;
 const Object = value.Object;
 
-extern fn __sigsetjmp(buf: *anyopaque, savesigs: c_int) c_int;
+const __sigsetjmp = @extern(*const fn (buf: *anyopaque, savesigs: c_int) callconv(.c) c_int, .{
+    .name = if (builtin.os.tag.isDarwin()) "sigsetjmp" else "__sigsetjmp",
+});
 extern fn siglongjmp(buf: *anyopaque, val: c_int) noreturn;
 const ClassObject = value.ClassObject;
 const ModuleObject = value.ModuleObject;
@@ -12772,6 +12775,11 @@ pub const VM = struct {
         return std.mem.indexOfScalar(u8, path, '.') == null;
     }
 
+    pub fn nativeExtensionPath(self: *VM, path: []const u8) VMError![]const u8 {
+        const stem = if (std.mem.endsWith(u8, path, ".so")) path[0 .. path.len - 3] else path;
+        return std.fmt.allocPrint(self.allocator, "{s}.{s}", .{ stem, rbconfig.nativeExtension() }) catch return error.Fatal;
+    }
+
     fn resolveFeaturePath(self: *VM, path: []const u8) VMError!?[]const u8 {
         if (self.fileExists(path)) {
             return try self.resolveAbsolutePath(path);
@@ -12783,7 +12791,7 @@ pub const VM = struct {
             return try self.resolveAbsolutePath(with_rb);
         }
 
-        const with_so = std.fmt.allocPrint(self.allocator, "{s}.so", .{path}) catch return error.Fatal;
+        const with_so = self.nativeExtensionPath(path) catch return error.Fatal;
         defer self.allocator.free(with_so);
         if (self.fileExists(with_so)) {
             return try self.resolveAbsolutePath(with_so);
@@ -12816,7 +12824,7 @@ pub const VM = struct {
             return .{ .load_path = stored, .identity_path = identity_path };
         }
 
-        const with_so = std.fmt.allocPrint(self.allocator, "{s}.so", .{load_path}) catch return error.Fatal;
+        const with_so = self.nativeExtensionPath(load_path) catch return error.Fatal;
         defer self.allocator.free(with_so);
         if (self.fileExists(with_so)) {
             self.allocator.free(load_path);
@@ -12909,7 +12917,7 @@ pub const VM = struct {
                 return .{ .load_path = stored, .identity_path = identity_path };
             }
 
-            const with_so = std.fmt.allocPrint(self.allocator, "{s}.so", .{load_candidate}) catch return error.Fatal;
+            const with_so = self.nativeExtensionPath(load_candidate) catch return error.Fatal;
             defer self.allocator.free(with_so);
             if (self.fileExists(with_so)) {
                 self.allocator.free(load_candidate);

@@ -1,15 +1,54 @@
 const builtin = @import("builtin");
 const std = @import("std");
 
-extern "c" fn iconv_open(to_code: [*:0]const u8, from_code: [*:0]const u8) *anyopaque;
-extern "c" fn iconv_close(descriptor: *anyopaque) c_int;
-extern "c" fn iconv(
-    descriptor: *anyopaque,
-    input: ?*?[*]u8,
-    input_left: ?*usize,
-    output: *?[*]u8,
-    output_left: *usize,
-) usize;
+const LibC = struct {
+    extern "c" fn iconv_open(to_code: [*:0]const u8, from_code: [*:0]const u8) *anyopaque;
+    extern "c" fn iconv_close(descriptor: *anyopaque) c_int;
+    extern "c" fn iconv(descriptor: *anyopaque, input: ?*?[*]u8, input_left: ?*usize, output: *?[*]u8, output_left: *usize) usize;
+};
+
+// Loading the system library at runtime avoids Zig's Mach-O linker crash on
+// libiconv's reexport of libcharset when the executable exports C symbols.
+const Darwin = struct {
+    extern "c" fn dlopen(path: [*:0]const u8, mode: c_int) ?*anyopaque;
+    extern "c" fn dlsym(handle: *anyopaque, name: [*:0]const u8) ?*anyopaque;
+    extern "c" fn dlclose(handle: *anyopaque) c_int;
+
+    // Keep one reference for the process lifetime, including concurrent VMs.
+    var library = std.atomic.Value(?*anyopaque).init(null);
+
+    fn symbol(comptime T: type, name: [*:0]const u8) ?T {
+        const handle = library.load(.acquire) orelse handle: {
+            const opened = dlopen("/usr/lib/libiconv.2.dylib", 1) orelse return null;
+            if (library.cmpxchgStrong(null, opened, .acq_rel, .acquire)) |existing| {
+                _ = dlclose(opened);
+                break :handle existing.?;
+            }
+            break :handle opened;
+        };
+        return @ptrCast(@alignCast(dlsym(handle, name) orelse return null));
+    }
+
+    fn iconv_open(to_code: [*:0]const u8, from_code: [*:0]const u8) *anyopaque {
+        const function = symbol(@TypeOf(&LibC.iconv_open), "iconv_open") orelse return @ptrFromInt(invalid_descriptor);
+        return function(to_code, from_code);
+    }
+
+    fn iconv_close(descriptor: *anyopaque) c_int {
+        const function = symbol(@TypeOf(&LibC.iconv_close), "iconv_close") orelse return -1;
+        return function(descriptor);
+    }
+
+    fn iconv(descriptor: *anyopaque, input: ?*?[*]u8, input_left: ?*usize, output: *?[*]u8, output_left: *usize) usize {
+        const function = symbol(@TypeOf(&LibC.iconv), "iconv") orelse return iconv_failure;
+        return function(descriptor, input, input_left, output, output_left);
+    }
+};
+
+const platform = if (builtin.os.tag.isDarwin()) Darwin else LibC;
+const iconv_open = platform.iconv_open;
+const iconv_close = platform.iconv_close;
+const iconv = platform.iconv;
 
 const invalid_descriptor = @as(usize, std.math.maxInt(usize));
 const iconv_failure = std.math.maxInt(usize);

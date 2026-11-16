@@ -139,5 +139,5 @@ pub fn getSymbol(comptime T: type, compilation: *Compilation, symbol_name: [:0]c
     if (!available) return null;
     const state = compilation.state orelse return null;
     const symbol = c.tcc_get_symbol(state, symbol_name.ptr) orelse return null;
-    return @ptrCast(symbol);
+    return @ptrCast(@alignCast(symbol));
 }
