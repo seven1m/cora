@@ -19,6 +19,17 @@ class Set
     @hash = original.instance_variable_get(:@hash).dup
   end
 
+  def initialize_clone(original, freeze: nil)
+    super
+    @hash = original.instance_variable_get(:@hash).dup
+    @hash.freeze if freeze || (freeze.nil? && original.frozen?)
+  end
+
+  def freeze
+    @hash.freeze
+    super
+  end
+
   def each(&block)
     return enum_for(:each) unless block
 

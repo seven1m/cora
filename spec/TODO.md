@@ -1910,7 +1910,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] core/set/gte_spec.rb
 - [x] core/set/hash_spec.rb
 - [ ] core/set/include_spec.rb
-- [ ] core/set/initialize_clone_spec.rb
+- [x] core/set/initialize_clone_spec.rb
 - [x] core/set/initialize_spec.rb
 - [ ] core/set/inspect_spec.rb
 - [x] core/set/intersect_spec.rb
