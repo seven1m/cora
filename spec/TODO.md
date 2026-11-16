@@ -1918,7 +1918,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/set/join_spec.rb
 - [ ] core/set/keep_if_spec.rb
 - [x] core/set/length_spec.rb
-- [ ] core/set/lt_spec.rb
+- [x] core/set/lt_spec.rb
 - [x] core/set/lte_spec.rb
 - [ ] core/set/map_spec.rb
 - [ ] core/set/member_spec.rb
