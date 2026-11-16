@@ -1437,7 +1437,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] core/module/gt_spec.rb
 - [x] core/module/gte_spec.rb
 - [ ] core/module/include_spec.rb
-- [ ] core/module/included_modules_spec.rb
+- [x] core/module/included_modules_spec.rb
 - [x] core/module/included_spec.rb
 - [ ] core/module/initialize_copy_spec.rb
 - [ ] core/module/initialize_spec.rb
