@@ -8,7 +8,12 @@ on:
 
 jobs:
   build-and-test:
-    runs-on: ubuntu-latest
+    name: Build and test (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
 
     steps:
       - name: Checkout
@@ -16,13 +21,13 @@ jobs:
         with:
           submodules: recursive
 
-      - name: Setup Zig
-        uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29
+      - name: Setup Nix
+        uses: cachix/install-nix-action@3dc140bfc76c49fbd4dd958429132e3746bcb086 # v31
         with:
-          version: 0.16.0
+          github_access_token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build
-        run: zig build
+        run: nix develop -c zig build -j1
 
       - name: Test
-        run: zig build test --summary all
+        run: nix develop -c zig build test -j1 --summary all
