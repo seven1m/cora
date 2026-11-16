@@ -2370,7 +2370,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/unboundmethod/arity_spec.rb
 - [x] core/unboundmethod/bind_call_spec.rb
 - [x] core/unboundmethod/bind_spec.rb
-- [ ] core/unboundmethod/clone_spec.rb
+- [x] core/unboundmethod/clone_spec.rb
 - [ ] core/unboundmethod/dup_spec.rb
 - [x] core/unboundmethod/eql_spec.rb
 - [x] core/unboundmethod/equal_value_spec.rb

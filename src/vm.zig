@@ -11026,6 +11026,19 @@ pub const VM = struct {
     }
 
     pub fn allocateDupShell(self: *VM, receiver: Value) VMError!Value {
+        inline for (.{ value.MethodObject, value.UnboundMethodObject }) |T| {
+            const matches = if (T == value.MethodObject) receiver.isMethodObject() else receiver.isUnboundMethodObject();
+            if (matches) {
+                const source: *T = @ptrCast(@alignCast(receiver.getObjectPointer().?));
+                const duplicate = self.gc_allocator.create(T) catch return error.Fatal;
+                duplicate.* = source.*;
+                duplicate.object.flags = 0;
+                duplicate.object.singleton_class = null;
+                duplicate.object.instance_variables = null;
+                return Value.fromObject(&duplicate.object);
+            }
+        }
+
         if (receiver.isProc()) {
             const source = receiver.toProcObject();
             const duplicate = try self.newProc(source.block);
@@ -12375,6 +12388,14 @@ pub const VM = struct {
         group.pending = true;
         group.next_pending = group.vm.pending_finalizers;
         group.vm.pending_finalizers = group;
+    }
+
+    pub fn copyObjectFinalizers(self: *VM, source: Value, target: Value) VMError!void {
+        const object = source.getObjectPointer() orelse return;
+        const group = self.finalizers_by_target.get(@intFromPtr(object)) orelse return;
+        for (group.callbacks.items) |callback| {
+            _ = try self.registerObjectFinalizer(target, callback);
+        }
     }
 
     pub fn registerObjectFinalizer(self: *VM, target: Value, callback: Value) VMError!Value {

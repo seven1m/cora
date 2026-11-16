@@ -2023,6 +2023,7 @@ pub fn builtinKernelDup(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMEr
         const src_obj = receiver.getObjectPointer() orelse return error.Fatal;
         const dst_obj = duplicate.getObjectPointer() orelse return error.Fatal;
         try vm.copyObjectInstanceVariables(src_obj, dst_obj);
+        try vm.copyObjectFinalizers(receiver, duplicate);
         duplicate.toRegexpObject().object.flags = 0;
         return duplicate;
     }
@@ -2031,6 +2032,7 @@ pub fn builtinKernelDup(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMEr
     const src_obj = receiver.getObjectPointer() orelse return receiver;
     const dst_obj = duplicate.getObjectPointer() orelse return error.Fatal;
     try vm.copyObjectInstanceVariables(src_obj, dst_obj);
+    try vm.copyObjectFinalizers(receiver, duplicate);
 
     var initialize_dup_args = [_]Value{receiver};
     _ = try vm.callMethodByName(duplicate, "initialize_dup", initialize_dup_args[0..], null);
@@ -2062,12 +2064,13 @@ pub fn builtinKernelClone(vm: *VM, receiver: Value, args: []Value, _: ?Block) VM
         }
         return receiver;
     };
-    const duplicate = if (receiver.isClass() or receiver.isModule())
+    const duplicate = if (receiver.isClass() or receiver.isModule() or receiver.isMethodObject() or receiver.isUnboundMethodObject())
         try vm.allocateDupShell(receiver)
     else
         try vm.newObjectForClass(vm.getClass(receiver));
     const dst_obj = duplicate.getObjectPointer() orelse return error.Fatal;
     try vm.copyObjectInstanceVariables(src_obj, dst_obj);
+    try vm.copyObjectFinalizers(receiver, duplicate);
 
     try vm.callInitializeClone(duplicate, receiver, kwfreeze);
     vm.applyCloneFreeze(receiver, duplicate, kwfreeze);
