@@ -444,8 +444,8 @@ fn replaceHashFrom(vm: *VM, hash_obj: *value.HashObject, source_hash: *value.Has
     hash_obj.entries.clearRetainingCapacity();
     hash_obj.map.clearRetainingCapacity();
     clearHashDefaultBehavior(hash_obj);
-    try copyHashEntries(vm, hash_obj, source_hash);
     copyHashProperties(hash_obj, source_hash);
+    try copyHashEntries(vm, hash_obj, source_hash);
 }
 
 fn replaceHashEntriesOnly(vm: *VM, hash_obj: *value.HashObject, source_hash: *value.HashObject) VMError!void {

@@ -4,6 +4,20 @@ const test_helper = @import("../test_helper.zig");
 const evalCode = test_helper.evalCode;
 const evalCodeWithOutput = test_helper.evalCodeWithOutput;
 
+test "Hash#replace copies entries using the source identity mode" {
+    const result = try evalCode(
+        \\a = 'same'.dup
+        \\b = 'same'.dup
+        \\source = {}.compare_by_identity
+        \\source[a] = 1
+        \\source[b] = 2
+        \\target = {}
+        \\target.replace(source)
+        \\target.compare_by_identity? && target.size == 2 && target[a] == 1 && target[b] == 2
+    );
+    try std.testing.expect(result.isTrue());
+}
+
 test "Hash iteration rejects new keys and observes removals and value changes" {
     const result = try evalCode(
         \\methods = [:each, :each_key, :each_value]
