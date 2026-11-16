@@ -297,6 +297,9 @@ pub fn register(vm: *VM) !void {
     const aliases_sym = try vm.intern("aliases");
     try encoding_singleton.module.methods.put(aliases_sym, value.MethodEntry.builtin(&builtinEncodingAliases, .{ .exact = 0 }));
 
+    const name_list_sym = try vm.intern("name_list");
+    try encoding_singleton.module.methods.put(name_list_sym, value.MethodEntry.builtin(&builtinEncodingNameList, .{ .exact = 0 }));
+
     const compatible_sym = try vm.intern("compatible?");
     try encoding_singleton.module.methods.put(compatible_sym, value.MethodEntry.builtin(&builtinEncodingCompatible, .{ .exact = 2 }));
 
@@ -454,6 +457,22 @@ pub fn builtinEncodingAliases(vm: *VM, _: Value, args: []Value, _: ?Block) VMErr
         try vm.hashSetEntry(aliases, try vm.newString(name, false), try vm.newString(canonical_name, false));
     }
     return Value.fromObject(&aliases.object);
+}
+
+pub fn builtinEncodingNameList(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    const aliases = try builtinEncodingAliases(vm, Value.nil(), &.{}, null);
+    const names = aliases.toHashObject();
+    const encodings = try builtinEncodingList(vm, Value.nil(), &.{}, null);
+    for (encodings.toArrayObject().elements.items) |encoding| {
+        const name = try vm.newString(encoding.toEncodingObject().encoding.name(), false);
+        try vm.hashSetEntry(names, name, Value.nil());
+    }
+    const array = try vm.createArray();
+    for (names.entries.items) |entry| {
+        array.elements.append(vm.gc_allocator, entry.key) catch return error.Fatal;
+    }
+    return Value.fromObject(&array.object);
 }
 
 pub fn builtinEncodingList(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {

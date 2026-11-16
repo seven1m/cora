@@ -414,7 +414,7 @@ Source baseline: ../ruby_spec compared to local spec/
 ### core/encoding
 - [ ] core/encoding/list_spec.rb
 - [ ] core/encoding/locale_charmap_spec.rb
-- [ ] core/encoding/name_list_spec.rb
+- [x] core/encoding/name_list_spec.rb
 - [x] core/encoding/name_spec.rb
 - [ ] core/encoding/names_spec.rb
 - [x] core/encoding/replicate_spec.rb
