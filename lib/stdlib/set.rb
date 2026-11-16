@@ -88,6 +88,14 @@ class Set
     self
   end
 
+  def reject!
+    return enum_for(:reject!) unless block_given?
+
+    original_size = size
+    delete_if { |obj| yield obj }
+    self if size != original_size
+  end
+
   def clear
     @hash.clear
     self
