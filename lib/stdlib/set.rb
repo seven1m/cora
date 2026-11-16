@@ -145,9 +145,11 @@ class Set
     merge(enum)
   end
 
-  def merge(enum)
-    each_from(enum) do |obj|
-      add(obj)
+  def merge(*enums)
+    enums.each do |enum|
+      each_from(enum) do |obj|
+        add(obj)
+      end
     end
     self
   end
