@@ -2,6 +2,16 @@ const std = @import("std");
 const test_helper = @import("../test_helper.zig");
 const evalCode = test_helper.evalCode;
 
+extern fn rb_memhash(ptr: ?*const anyopaque, len: c_long) c_long;
+
+test "C extension rb_memhash handles long byte sequences without overflow" {
+    const first = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+    const second = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdeg";
+    const hash = rb_memhash(first.ptr, first.len);
+    try std.testing.expectEqual(hash, rb_memhash(first.ptr, first.len));
+    try std.testing.expect(hash != rb_memhash(second.ptr, second.len));
+}
+
 test "C extension require resolves the platform extension and portable so alias" {
     var stdout_buf: [8192]u8 = undefined;
     var stderr_buf: [8192]u8 = undefined;

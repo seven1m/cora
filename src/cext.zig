@@ -2832,7 +2832,7 @@ export fn rb_memhash(ptr: ?*const anyopaque, len: c_long) c_long {
     var h: u64 = 5381;
     var i: c_long = 0;
     while (i < len) : (i += 1) {
-        h = ((h << 5) + h) + bytes[@intCast(i)];
+        h = ((h << 5) +% h) +% bytes[@intCast(i)];
     }
     return @intCast(h & 0x7fffffffffffffff);
 }
