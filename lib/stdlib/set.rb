@@ -88,6 +88,13 @@ class Set
   end
   alias eql? ==
 
+  def superset?(other)
+    raise ArgumentError, "value must be a set" unless other.is_a?(Set)
+
+    size >= other.size && other.all? { |object| include?(object) }
+  end
+  alias >= superset?
+
   def replace(enum)
     @hash.clear
     merge(enum)
