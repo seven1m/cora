@@ -13725,6 +13725,9 @@ pub const VM = struct {
     }
 
     pub fn hashSetEntry(self: *VM, hash_obj: *value.HashObject, key: Value, new_value: Value) VMError!void {
+        if (hash_obj.iteration_depth != 0 and (try self.hashFindEntryIndex(hash_obj, key)) == null) {
+            return self.raiseExceptionFmt(self.runtime_error_class, "can't add a new key into hash during iteration", .{});
+        }
         if (hash_obj.compare_by_identity) {
             for (hash_obj.entries.items) |*entry| {
                 if (entry.key.raw == key.raw) {

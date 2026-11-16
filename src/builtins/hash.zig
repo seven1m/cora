@@ -437,6 +437,10 @@ fn copyHashProperties(target: *value.HashObject, source: *value.HashObject) void
 }
 
 fn replaceHashFrom(vm: *VM, hash_obj: *value.HashObject, source_hash: *value.HashObject) VMError!void {
+    if (hash_obj == source_hash) return;
+    if (hash_obj.iteration_depth != 0 and source_hash.entries.items.len != 0) {
+        return vm.raiseExceptionFmt(vm.runtime_error_class, "hash modified during iteration", .{});
+    }
     hash_obj.entries.clearRetainingCapacity();
     hash_obj.map.clearRetainingCapacity();
     clearHashDefaultBehavior(hash_obj);
@@ -445,6 +449,10 @@ fn replaceHashFrom(vm: *VM, hash_obj: *value.HashObject, source_hash: *value.Has
 }
 
 fn replaceHashEntriesOnly(vm: *VM, hash_obj: *value.HashObject, source_hash: *value.HashObject) VMError!void {
+    if (hash_obj == source_hash) return;
+    if (hash_obj.iteration_depth != 0 and source_hash.entries.items.len != 0) {
+        return vm.raiseExceptionFmt(vm.runtime_error_class, "hash modified during iteration", .{});
+    }
     hash_obj.entries.clearRetainingCapacity();
     hash_obj.map.clearRetainingCapacity();
     try copyHashEntries(vm, hash_obj, source_hash);
@@ -1204,6 +1212,16 @@ pub fn builtinHashEmpty(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMEr
     return Value.boolean(receiver.toHashObject().entries.items.len == 0);
 }
 
+fn hashIterationEntry(hash_obj: *value.HashObject, key: Value, index: usize) ?value.HashEntry {
+    if (index < hash_obj.entries.items.len and hash_obj.entries.items[index].key.raw == key.raw) {
+        return hash_obj.entries.items[index];
+    }
+    for (hash_obj.entries.items) |entry| {
+        if (entry.key.raw == key.raw) return entry;
+    }
+    return null;
+}
+
 pub fn builtinHashEachPair(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
     const blk = block orelse {
@@ -1218,8 +1236,11 @@ pub fn builtinHashEachPair(vm: *VM, receiver: Value, args: []Value, block: ?Bloc
     const snapshot = vm.gc_allocator.alloc(value.HashEntry, hash_obj.entries.items.len) catch return error.Fatal;
     @memcpy(snapshot, hash_obj.entries.items);
 
-    for (snapshot) |entry| {
-        _ = try yieldHashEntryPair(vm, blk, entry);
+    hash_obj.iteration_depth += 1;
+    defer hash_obj.iteration_depth -= 1;
+    for (snapshot, 0..) |entry, index| {
+        const current = hashIterationEntry(hash_obj, entry.key, index) orelse continue;
+        _ = try yieldHashEntryPair(vm, blk, current);
     }
 
     return receiver;
@@ -1239,7 +1260,10 @@ pub fn builtinHashEachKey(vm: *VM, receiver: Value, args: []Value, block: ?Block
     const snapshot = vm.gc_allocator.alloc(value.HashEntry, hash_obj.entries.items.len) catch return error.Fatal;
     @memcpy(snapshot, hash_obj.entries.items);
 
-    for (snapshot) |entry| {
+    hash_obj.iteration_depth += 1;
+    defer hash_obj.iteration_depth -= 1;
+    for (snapshot, 0..) |entry, index| {
+        if (hashIterationEntry(hash_obj, entry.key, index) == null) continue;
         const yield_args = [_]Value{entry.key};
         _ = try vm.yieldToBlock(blk, &yield_args);
     }
@@ -1261,8 +1285,11 @@ pub fn builtinHashEachValue(vm: *VM, receiver: Value, args: []Value, block: ?Blo
     const snapshot = vm.gc_allocator.alloc(value.HashEntry, hash_obj.entries.items.len) catch return error.Fatal;
     @memcpy(snapshot, hash_obj.entries.items);
 
-    for (snapshot) |entry| {
-        const yield_args = [_]Value{entry.value};
+    hash_obj.iteration_depth += 1;
+    defer hash_obj.iteration_depth -= 1;
+    for (snapshot, 0..) |entry, index| {
+        const current = hashIterationEntry(hash_obj, entry.key, index) orelse continue;
+        const yield_args = [_]Value{current.value};
         _ = try vm.yieldToBlock(blk, &yield_args);
     }
 
@@ -1730,6 +1757,9 @@ pub fn builtinHashRehash(vm: *VM, receiver: Value, args: []Value, _: ?Block) VME
     try ensureMutableHash(vm, receiver);
 
     const hash_obj = receiver.toHashObject();
+    if (hash_obj.iteration_depth != 0) {
+        return vm.raiseExceptionFmt(vm.runtime_error_class, "rehash during iteration", .{});
+    }
     const snapshot = vm.gc_allocator.alloc(value.HashEntry, hash_obj.entries.items.len) catch return error.Fatal;
     @memcpy(snapshot, hash_obj.entries.items);
 

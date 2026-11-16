@@ -4,6 +4,63 @@ const test_helper = @import("../test_helper.zig");
 const evalCode = test_helper.evalCode;
 const evalCodeWithOutput = test_helper.evalCodeWithOutput;
 
+test "Hash iteration rejects new keys and observes removals and value changes" {
+    const result = try evalCode(
+        \\methods = [:each, :each_key, :each_value]
+        \\methods.all? do |method|
+        \\  h = {a: 1, b: 2, c: 3}
+        \\  seen = []
+        \\  h.send(method) do |*args|
+        \\    seen << args
+        \\    if seen.size == 1
+        \\      h.delete(:b)
+        \\      h[:c] = 4
+        \\      begin
+        \\        h[:new] = 5
+        \\      rescue RuntimeError
+        \\      end
+        \\    end
+        \\  end
+        \\  h[:after] = 6
+        \\  expected = case method
+        \\  when :each then [[[:a, 1]], [[:c, 4]]]
+        \\  when :each_key then [[:a], [:c]]
+        \\  else [[1], [4]]
+        \\  end
+        \\  seen == expected && !h.key?(:new) && h[:after] == 6
+        \\end
+    );
+    try std.testing.expect(result.isTrue());
+}
+
+test "Hash iteration restores its guard after nested iteration and exceptions" {
+    const result = try evalCode(
+        \\h = {a: 1}
+        \\errors = []
+        \\begin
+        \\  h.each do
+        \\    h.each { }
+        \\    begin
+        \\      h.rehash
+        \\    rescue RuntimeError => e
+        \\      errors << e.message
+        \\    end
+        \\    begin
+        \\      h.replace({b: 2})
+        \\    rescue RuntimeError => e
+        \\      errors << e.message
+        \\    end
+        \\    h[:b] = 2
+        \\  end
+        \\rescue RuntimeError => e
+        \\  errors << e.message
+        \\end
+        \\h[:c] = 3
+        \\errors == ['rehash during iteration', 'hash modified during iteration', "can't add a new key into hash during iteration"] && h == {a: 1, c: 3}
+    );
+    try std.testing.expect(result.isTrue());
+}
+
 test "Empty hash literal" {
     const result = try evalCode("{}");
     try std.testing.expect(result.isHash());

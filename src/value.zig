@@ -414,6 +414,7 @@ pub const HashObject = struct {
     default_proc: ?*ProcObject = null,
     compare_by_identity: bool = false,
     ruby2_keywords: bool = false,
+    iteration_depth: usize = 0,
 };
 
 pub const RangeObject = struct {
