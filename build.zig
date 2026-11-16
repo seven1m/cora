@@ -958,6 +958,9 @@ pub fn build(b: *std.Build) void {
 
         break :blk b.addRunArtifact(test_exe);
     };
+    const test_gem_home = b.pathFromRoot("build/lib/gems/" ++ ruby_gem_api_version);
+    test_run.setEnvironmentVariable("GEM_HOME", test_gem_home);
+    test_run.setEnvironmentVariable("GEM_PATH", test_gem_home);
     test_run.step.dependOn(prism_build_step);
     test_run.step.dependOn(onigmo_build_step);
     test_run.step.dependOn(b.getInstallStep());

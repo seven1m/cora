@@ -29,6 +29,10 @@ top-level gem/library smoke tests (`test/strscan_test.zig`,
 `test/json_test.zig`, etc.), and integration helpers/spec runner code. When
 adding a new test file, add it to `test/all_test.zig`.
 
+The test step sets `GEM_HOME` and `GEM_PATH` to the shipped gem directory so
+locally installed gems cannot override the implementations under test. Tests
+that exercise custom gem paths set their own subprocess environments.
+
 The `test` step automatically builds the Prism static lib, Onigmo, TinyCC, and
 the C extension fixture (`build/cext/fixture.so`).
 
