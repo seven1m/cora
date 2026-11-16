@@ -55,6 +55,11 @@ class Set
   end
 
   def delete(obj)
+    @hash.delete(obj)
+    self
+  end
+
+  def delete?(obj)
     @hash.delete(obj) ? self : nil
   end
 
