@@ -1582,7 +1582,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/objectspace/weakkeymap/key_spec.rb
 
 ### core/objectspace/weakmap
-- [ ] core/objectspace/weakmap/delete_spec.rb
+- [x] core/objectspace/weakmap/delete_spec.rb
 - [ ] core/objectspace/weakmap/each_key_spec.rb
 - [ ] core/objectspace/weakmap/each_pair_spec.rb
 - [ ] core/objectspace/weakmap/each_spec.rb

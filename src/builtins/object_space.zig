@@ -25,6 +25,9 @@ pub fn register(vm: *VM) !void {
     const bracket_set_sym = try vm.intern("[]=");
     try weak_map_class.module.methods.put(bracket_set_sym, value.MethodEntry.builtin(&builtinWeakMapBracketSet, .{ .exact = 2 }));
 
+    const delete_sym = try vm.intern("delete");
+    try weak_map_class.module.methods.put(delete_sym, value.MethodEntry.builtin(&builtinWeakMapDelete, .{ .exact = 1 }));
+
     const key_p_sym = try vm.intern("key?");
     try weak_map_class.module.methods.put(key_p_sym, value.MethodEntry.builtin(&builtinWeakMapKeyP, .{ .exact = 1 }));
 
@@ -127,6 +130,18 @@ fn builtinWeakMapBracketSet(vm: *VM, receiver: Value, args: []Value, block: ?Blo
         wm.values.append(vm.gc_allocator, val) catch return error.Fatal;
     }
     return val;
+}
+
+fn builtinWeakMapDelete(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
+    const wm = receiver.toWeakMapObject();
+    const idx = weakMapIndex(wm, args[0]) orelse {
+        if (block) |blk| {
+            return try vm.yieldToBlock(blk, &.{args[0]});
+        }
+        return Value.nil();
+    };
+    _ = wm.keys.orderedRemove(idx);
+    return wm.values.orderedRemove(idx);
 }
 
 fn builtinWeakMapKeyP(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
