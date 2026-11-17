@@ -28,6 +28,12 @@ pub fn register(vm: *VM) !void {
     const key_p_sym = try vm.intern("key?");
     try weak_map_class.module.methods.put(key_p_sym, value.MethodEntry.builtin(&builtinWeakMapKeyP, .{ .exact = 1 }));
 
+    const include_p_sym = try vm.intern("include?");
+    try weak_map_class.module.methods.put(include_p_sym, value.MethodEntry.builtin(&builtinWeakMapKeyP, .{ .exact = 1 }));
+
+    const member_p_sym = try vm.intern("member?");
+    try weak_map_class.module.methods.put(member_p_sym, value.MethodEntry.builtin(&builtinWeakMapKeyP, .{ .exact = 1 }));
+
     const values_sym = try vm.intern("values");
     try weak_map_class.module.methods.put(values_sym, value.MethodEntry.builtin(&builtinWeakMapValues, .{ .exact = 0 }));
 
