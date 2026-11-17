@@ -2391,7 +2391,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] core/unboundmethod/to_s_spec.rb
 
 ### core/warning
-- [ ] core/warning/categories_spec.rb
+- [x] core/warning/categories_spec.rb
 - [ ] core/warning/element_reference_spec.rb
 - [ ] core/warning/element_set_spec.rb
 - [ ] core/warning/performance_warning_spec.rb

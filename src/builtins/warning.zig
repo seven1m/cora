@@ -19,6 +19,19 @@ pub fn register(vm: *VM) !void {
 
     const set_sym = try vm.intern("[]=");
     try warning_singleton.module.methods.put(set_sym, value.MethodEntry.builtin(&builtinWarningSet, .{ .exact = 2 }));
+
+    const categories_sym = try vm.intern("categories");
+    try warning_singleton.module.methods.put(categories_sym, value.MethodEntry.builtin(&builtinWarningCategories, .{ .exact = 0 }));
+}
+
+pub fn builtinWarningCategories(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    const array_obj = try vm.createArray();
+    for ([_][]const u8{ "deprecated", "experimental", "performance" }) |name| {
+        const symbol = try vm.intern(name);
+        array_obj.elements.append(vm.gc_allocator, Value.fromObject(&symbol.object)) catch return error.Fatal;
+    }
+    return Value.fromObject(&array_obj.object);
 }
 
 pub fn builtinWarningGet(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
