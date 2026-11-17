@@ -68,7 +68,23 @@ pub fn register(vm: *VM) !void {
     try zlib_singleton.module.methods.put(try vm.intern("__inflate"), value.MethodEntry.builtin(&builtinZlibInflate, .{ .exact = 2 }));
     try zlib_singleton.module.methods.put(try vm.intern("adler32"), value.MethodEntry.builtin(&builtinZlibAdler32, .{ .variadic = 0 }));
     try zlib_singleton.module.methods.put(try vm.intern("crc32"), value.MethodEntry.builtin(&builtinZlibCrc32, .{ .variadic = 0 }));
+    try zlib_singleton.module.methods.put(try vm.intern("crc_table"), value.MethodEntry.builtin(&builtinZlibCrcTable, .{ .exact = 0 }));
     try zlib_singleton.module.methods.put(try vm.intern("zlib_version"), value.MethodEntry.builtin(&builtinZlibVersion, .{ .exact = 0 }));
+}
+
+fn builtinZlibCrcTable(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    const out = try vm.createArray();
+    var i: usize = 0;
+    while (i < 256) : (i += 1) {
+        var crc: u32 = @intCast(i);
+        var bit: usize = 0;
+        while (bit < 8) : (bit += 1) {
+            crc = if ((crc & 1) != 0) (0xEDB88320 ^ (crc >> 1)) else (crc >> 1);
+        }
+        out.elements.append(vm.gc_allocator, Value.integer(@intCast(crc))) catch return error.Fatal;
+    }
+    return Value.fromObject(&out.object);
 }
 
 pub fn builtinZlibAdler32(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
