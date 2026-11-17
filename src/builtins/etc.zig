@@ -17,6 +17,9 @@ pub fn register(vm: *VM) !void {
     const nprocessors_sym = try vm.intern("nprocessors");
     try etc_singleton.module.methods.put(nprocessors_sym, value.MethodEntry.builtin(&builtinEtcNprocessors, .{ .exact = 0 }));
 
+    const sysconfdir_sym = try vm.intern("sysconfdir");
+    try etc_singleton.module.methods.put(sysconfdir_sym, value.MethodEntry.builtin(&builtinEtcSysconfdir, .{ .exact = 0 }));
+
     const getlogin_sym = try vm.intern("getlogin");
     try etc_singleton.module.methods.put(getlogin_sym, value.MethodEntry.builtin(&builtinEtcGetlogin, .{ .exact = 0 }));
 
@@ -29,6 +32,12 @@ fn builtinEtcNprocessors(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Va
     // Use sysconf(_SC_NPROCESSORS_ONLN) on POSIX or GetSystemInfo on Windows
     const count: i64 = @intCast(std.Thread.getCpuCount() catch 1);
     return Value.integer(count);
+}
+
+fn builtinEtcSysconfdir(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    const dir = if (builtin.os.tag == .windows) "C:\\Windows" else "/etc";
+    return vm.newString(dir, false);
 }
 
 extern "c" fn getlogin() ?[*:0]u8;
