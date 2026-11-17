@@ -31,6 +31,21 @@ test "Struct preserves keyword hashes in positional initialization" {
     try std.testing.expect(entries[1].isFalse());
 }
 
+test "Struct accessors preserve encoded member names and aliases" {
+    const result = try evalCode(
+        \\name = "r\\xe9sum\\xe9".force_encoding(Encoding::ISO_8859_1).to_sym
+        \\writer = (name.to_s + "=").to_sym
+        \\klass = Struct.new(name, :other)
+        \\value = klass.new(1, 2)
+        \\value.send(writer, 3)
+        \\klass.class_eval { alias_method :other, name }
+        \\[value.send(name), value[name], value.other]
+    );
+    for (result.toArrayObject().elements.items) |entry| {
+        try std.testing.expectEqual(@as(i64, 3), entry.toInteger());
+    }
+}
+
 test "Struct.new creates subclass and instances with accessors" {
     const result = try evalCode(
         \\Customer = Struct.new(:name, :zip)
@@ -126,6 +141,22 @@ test "Struct keyword_init: true initializes from keywords" {
     try std.testing.expectEqual(@as(i64, 1), entries[0].toInteger());
     try std.testing.expectEqual(@as(i64, 2), entries[1].toInteger());
     try std.testing.expect(entries[2].toBool());
+}
+
+test "Struct keyword initialization validates hash keys" {
+    const result = try evalCode(
+        \\klass = Struct.new(:name, keyword_init: true)
+        \\value = klass.new({"name" => "Ada"}).name
+        \\message = begin
+        \\  klass.new({other: 1})
+        \\rescue ArgumentError => e
+        \\  e.message
+        \\end
+        \\[value, message]
+    );
+    const entries = result.toArrayObject().elements.items;
+    try std.testing.expectEqualStrings("Ada", entries[0].toStringObject().str);
+    try std.testing.expectEqualStrings("unknown keywords: other", entries[1].toStringObject().str);
 }
 
 test "Struct keyword_init forwards through bare super" {

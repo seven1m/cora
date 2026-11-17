@@ -66,31 +66,52 @@ fn resolveStructIndex(vm: *VM, members: *value.ArrayObject, key: Value) VMError!
         return @intCast(index);
     }
 
-    const name = try vm.coerceToMethodNameString(key);
-    return (try structIndexForMemberName(vm, members, name)) orelse
-        return vm.raiseExceptionFmt(vm.name_error_class, "no member '{s}' in struct", .{name});
+    const symbol = try vm.coerceToMethodNameSymbol(key);
+    return structIndexForMember(members, symbol) orelse
+        return vm.raiseExceptionFmt(vm.name_error_class, "no member '{s}' in struct", .{symbol.name});
+}
+
+fn structIndexForMember(members: *value.ArrayObject, symbol: *SymbolObject) ?usize {
+    for (members.elements.items, 0..) |member, idx| {
+        if (member.toSymbolObject() == symbol) return idx;
+    }
+    return null;
 }
 
 fn structMemberReaderValue(vm: *VM, receiver: Value, member: *SymbolObject) VMError!Value {
     const members = try getStructMembersForReceiver(vm, receiver);
-    const index = (try structIndexForMemberName(vm, members, member.name)).?;
+    const index = structIndexForMember(members, member).?;
     return receiver.toStructObject().members[index];
 }
 
 fn structMemberWriter(vm: *VM, receiver: Value, member: *SymbolObject, arg: Value) VMError!Value {
     try vm.guardNotFrozen(receiver);
     const members = try getStructMembersForReceiver(vm, receiver);
-    const index = (try structIndexForMemberName(vm, members, member.name)).?;
+    const index = structIndexForMember(members, member).?;
     receiver.toStructObject().members[index] = arg;
     return arg;
 }
 
 fn accessorMember(vm: *VM, receiver: Value, writer: bool) VMError!*SymbolObject {
     const called_name = vm.currentFrame().method_name orelse return error.Fatal;
-    const called_symbol = try vm.intern(called_name);
-    const resolved = try vm.findMethod(receiver, called_symbol) orelse return error.Fatal;
-    const name = (resolved.entry.original_name orelse called_symbol).name;
-    return vm.intern(if (writer) name[0 .. name.len - 1] else name);
+    const members = try getStructMembersForReceiver(vm, receiver);
+    var called_symbol: ?*SymbolObject = null;
+    for (members.elements.items) |value_member| {
+        const member = value_member.toSymbolObject();
+        if (!writer and std.mem.eql(u8, member.name, called_name)) {
+            called_symbol = member;
+            break;
+        }
+        if (writer and called_name.len == member.name.len + 1 and called_name[called_name.len - 1] == '=' and std.mem.eql(u8, member.name, called_name[0 .. called_name.len - 1])) {
+            called_symbol = try vm.internWithEncoding(called_name, member.encoding);
+            break;
+        }
+    }
+    const symbol = called_symbol orelse try vm.intern(called_name);
+    const resolved = try vm.findMethod(receiver, symbol) orelse return error.Fatal;
+    const original = resolved.entry.original_name orelse symbol;
+    const name = if (writer) original.name[0 .. original.name.len - 1] else original.name;
+    return vm.internWithEncoding(name, original.encoding);
 }
 
 fn structReader(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
@@ -136,12 +157,12 @@ fn runStructSubclassBody(vm: *VM, struct_val: Value, block: Block) VMError!void 
                     .defining_self = struct_val,
                 } },
             };
-            break :chunk_blk_result try vm.yieldToBlock(class_body_block, &[_]Value{});
+            break :chunk_blk_result try vm.yieldToBlock(class_body_block, &[_]Value{struct_val});
         },
-        .symbol => try vm.yieldToBlock(block, &[_]Value{}),
-        .receiver_builtin => try vm.yieldToBlock(block, &[_]Value{}),
-        .builtin => try vm.yieldToBlock(block, &[_]Value{}),
-        .callable => try vm.yieldToBlock(block, &[_]Value{}),
+        .symbol => try vm.yieldToBlock(block, &[_]Value{struct_val}),
+        .receiver_builtin => try vm.yieldToBlock(block, &[_]Value{struct_val}),
+        .builtin => try vm.yieldToBlock(block, &[_]Value{struct_val}),
+        .callable => try vm.yieldToBlock(block, &[_]Value{struct_val}),
     };
 }
 
@@ -245,7 +266,9 @@ pub fn builtinStructNew(vm: *VM, receiver: Value, args: []Value, block: ?Block) 
 
     var member_start: usize = 0;
     var name_arg: ?Value = null;
-    if (args.len > 0 and !args[0].isSymbol()) {
+    if (args.len > 0 and args[0].isNil()) {
+        member_start = 1;
+    } else if (args.len > 0 and !args[0].isSymbol()) {
         _ = try args[0].coerceToStr(vm, "first struct member or class name is not a symbol nor a string");
         name_arg = args[0];
         member_start = 1;
@@ -280,7 +303,7 @@ pub fn builtinStructNew(vm: *VM, receiver: Value, args: []Value, block: ?Block) 
         struct_val.toClassObject().module.methods.put(sym, value.MethodEntry.builtin(&structReader, .{ .exact = 0 })) catch return error.Fatal;
         const writer_name = std.fmt.allocPrint(vm.allocator, "{s}=", .{sym.name}) catch return error.Fatal;
         defer vm.allocator.free(writer_name);
-        const writer_sym = try vm.intern(writer_name);
+        const writer_sym = try vm.internWithEncoding(writer_name, sym.encoding);
         struct_val.toClassObject().module.methods.put(writer_sym, value.MethodEntry.builtin(&structWriter, .{ .exact = 1 })) catch return error.Fatal;
     }
     try defineStructSubclassSingletonMethods(vm, struct_val);
@@ -319,10 +342,24 @@ pub fn builtinStructInitialize(vm: *VM, receiver: Value, args: []Value, _: ?Bloc
         if (args.len == 1 and args[0].isHash()) {
             const keyword_hash = args[0].toHashObject();
             for (members.elements.items) |member_value| {
-                const member = member_value.toSymbolObject();
-                const entry = try vm.hashGetEntry(keyword_hash, member_value);
-                _ = try structMemberWriter(vm, receiver, member, if (entry) |found| found.value else Value.nil());
+                _ = try structMemberWriter(vm, receiver, member_value.toSymbolObject(), Value.nil());
             }
+            var unknown: std.ArrayList(u8) = .empty;
+            defer unknown.deinit(vm.allocator);
+            for (keyword_hash.entries.items) |entry| {
+                const key = entry.key;
+                const symbol = if (key.isSymbol()) key.toSymbolObject() else if (key.isString()) try vm.coerceToMethodNameSymbol(key) else null;
+                if (symbol) |member| {
+                    if (structIndexForMember(members, member) != null) {
+                        _ = try structMemberWriter(vm, receiver, member, entry.value);
+                        continue;
+                    }
+                }
+                if (unknown.items.len > 0) unknown.appendSlice(vm.allocator, ", ") catch return error.Fatal;
+                const name = if (key.isSymbol()) key.toSymbolObject().name else if (key.isString()) key.toStringObject().str else (try key.inspect(vm)).toStringObject().str;
+                unknown.appendSlice(vm.allocator, name) catch return error.Fatal;
+            }
+            if (unknown.items.len > 0) return vm.raiseExceptionFmt(vm.argument_error_class, "unknown keywords: {s}", .{unknown.items});
             return Value.nil();
         }
         if (args.len != 0) {
@@ -335,7 +372,17 @@ pub fn builtinStructInitialize(vm: *VM, receiver: Value, args: []Value, _: ?Bloc
             const arg = (try vm.consumeKeywordArg(member.name)) orelse Value.nil();
             _ = try structMemberWriter(vm, receiver, member, arg);
         }
-        try vm.validateKeywordArgsConsumed();
+        if (vm.builtin_keyword_ctx) |ctx| {
+            var unknown: std.ArrayList(u8) = .empty;
+            defer unknown.deinit(vm.allocator);
+            for (ctx.kw_keys, 0..) |key, idx| {
+                if (ctx.consumed[idx]) continue;
+                if (unknown.items.len > 0) unknown.appendSlice(vm.allocator, ", ") catch return error.Fatal;
+                const name = if (key.isSymbol()) key.toSymbolObject().name else if (key.isString()) key.toStringObject().str else (try key.inspect(vm)).toStringObject().str;
+                unknown.appendSlice(vm.allocator, name) catch return error.Fatal;
+            }
+            if (unknown.items.len > 0) return vm.raiseExceptionFmt(vm.argument_error_class, "unknown keywords: {s}", .{unknown.items});
+        }
         return Value.nil();
     }
 
@@ -350,7 +397,9 @@ pub fn builtinStructInitialize(vm: *VM, receiver: Value, args: []Value, _: ?Bloc
         break :blk combined;
     } else args;
     defer if (keyword_hash != null) vm.allocator.free(positional_args);
-    try vm.requireArgCountRange(positional_args, 0, members.elements.items.len);
+    if (positional_args.len > members.elements.items.len) {
+        return vm.raiseExceptionFmt(vm.argument_error_class, "struct size differs", .{});
+    }
 
     for (members.elements.items, 0..) |member, idx| {
         const arg = if (idx < positional_args.len) positional_args[idx] else Value.nil();

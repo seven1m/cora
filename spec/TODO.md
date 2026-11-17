@@ -2151,7 +2151,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] core/struct/keyword_init_spec.rb
 - [x] core/struct/length_spec.rb
 - [x] core/struct/members_spec.rb
-- [ ] core/struct/new_spec.rb
+- [x] core/struct/new_spec.rb
 - [x] core/struct/select_spec.rb
 - [x] core/struct/size_spec.rb
 - [x] core/struct/struct_spec.rb

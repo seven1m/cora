@@ -100,9 +100,8 @@ pub fn builtinBasicObjectInitialize(vm: *VM, _: Value, args: []Value, _: ?Block)
 
 pub fn builtinBasicObjectSend(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
     try vm.requireMinArgCount(args, 1);
-    const name_str = try vm.coerceToMethodNameString(args[0]);
-    const call_args = args[1..];
-    return vm.callMethodByNameForwardingKeywords(receiver, name_str, call_args, block);
+    const name = try vm.coerceToMethodNameSymbol(args[0]);
+    return vm.callMethodBySymbolForwardingKeywords(receiver, name, args[1..], block, false);
 }
 
 pub fn builtinBasicObjectInstanceEval(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {

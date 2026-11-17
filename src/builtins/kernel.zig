@@ -2190,16 +2190,14 @@ pub fn builtinKernelThen(vm: *VM, receiver: Value, args: []Value, block: ?Block)
 
 pub fn builtinKernelSend(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
     try vm.requireMinArgCount(args, 1);
-    const name_str = try vm.coerceToMethodNameString(args[0]);
-    const call_args = args[1..];
-    return vm.callMethodByNameForwardingKeywords(receiver, name_str, call_args, block);
+    const name = try vm.coerceToMethodNameSymbol(args[0]);
+    return vm.callMethodBySymbolForwardingKeywords(receiver, name, args[1..], block, false);
 }
 
 pub fn builtinKernelPublicSend(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
     try vm.requireMinArgCount(args, 1);
-    const name_str = try vm.coerceToMethodNameString(args[0]);
-    const call_args = args[1..];
-    return vm.callPublicMethodByNameForwardingKeywords(receiver, name_str, call_args, block);
+    const name = try vm.coerceToMethodNameSymbol(args[0]);
+    return vm.callMethodBySymbolForwardingKeywords(receiver, name, args[1..], block, true);
 }
 
 fn isEvalLikeFrame(frame: *const vm_mod.CallFrame) bool {

@@ -8831,6 +8831,17 @@ pub const VM = struct {
         return self.invokeMethodMissing(receiver, method_name_sym, args, keyword_ctx, block);
     }
 
+    pub fn callMethodBySymbolForwardingKeywords(self: *VM, receiver: Value, method_name: *SymbolObject, args: []Value, block: ?Block, public_only: bool) VMError!Value {
+        const resolved = try self.findMethod(receiver, method_name);
+        if (resolved) |method| {
+            if (public_only and method.entry.visibility != .public) {
+                return self.raiseMethodVisibilityError(receiver, method_name.name, method.entry.visibility);
+            }
+            return self.invokeResolvedMethodWithKeywords(method, receiver, args, block, self.builtin_keyword_ctx);
+        }
+        return self.invokeMethodMissing(receiver, method_name, args, self.builtin_keyword_ctx, block);
+    }
+
     /// Call a method by name string (not from bytecode constant pool)
     pub fn callMethodByName(self: *VM, receiver: Value, method_name: []const u8, args: []Value, block: ?Block) VMError!Value {
         return self.callMethodByNameInternal(receiver, method_name, args, block, null);
