@@ -1160,7 +1160,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/io/sysseek_spec.rb
 - [ ] core/io/syswrite_spec.rb
 - [x] core/io/tell_spec.rb
-- [ ] core/io/to_i_spec.rb
+- [x] core/io/to_i_spec.rb
 - [x] core/io/to_io_spec.rb
 - [x] core/io/to_path_spec.rb
 - [ ] core/io/try_convert_spec.rb

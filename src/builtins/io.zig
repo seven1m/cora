@@ -188,6 +188,9 @@ pub fn register(vm: *VM) !void {
     const fileno_sym = try vm.intern("fileno");
     try vm.io_class.module.methods.put(fileno_sym, value.MethodEntry.builtin(&builtinIoFileno, .{ .exact = 0 }));
 
+    const to_i_sym = try vm.intern("to_i");
+    try vm.io_class.module.methods.put(to_i_sym, value.MethodEntry.builtin(&builtinIoFileno, .{ .exact = 0 }));
+
     const flock_sym = try vm.intern("flock");
     try vm.io_class.module.methods.put(flock_sym, value.MethodEntry.builtin(&builtinIoFlock, .{ .exact = 1 }));
 
