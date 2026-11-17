@@ -1110,7 +1110,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/io/external_encoding_spec.rb
 - [ ] core/io/fcntl_spec.rb
 - [ ] core/io/fdatasync_spec.rb
-- [ ] core/io/fileno_spec.rb
+- [x] core/io/fileno_spec.rb
 - [ ] core/io/flush_spec.rb
 - [ ] core/io/for_fd_spec.rb
 - [ ] core/io/foreach_spec.rb

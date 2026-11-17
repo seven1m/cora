@@ -2666,6 +2666,7 @@ pub fn builtinIoClosed(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMErr
 pub fn builtinIoFileno(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
     const io = try requireIoReceiver(vm, receiver);
+    try ensureIoOpen(vm, io);
     return Value.integer(io.fd);
 }
 
