@@ -1343,6 +1343,7 @@ export fn rb_type(obj_raw: VALUE) c_int {
         .regexp => 0x06,
         .array => 0x07,
         .hash => 0x08,
+        .struct_object => 0x09,
         .big_integer => 0x0a,
         .class => 0x02,
         .module => 0x03,

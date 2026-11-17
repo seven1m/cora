@@ -1177,6 +1177,7 @@ pub const VM = struct {
         const struct_name_sym = try self.intern("Struct");
         const struct_class_val = try self.newClass(struct_name_sym, self.object_class);
         self.struct_class = struct_class_val.toClassObject();
+        self.struct_class.object_type = .struct_object;
 
         const method_name_sym = try self.intern("Method");
         const method_class_val = try self.newClass(method_name_sym, self.object_class);
@@ -10791,6 +10792,21 @@ pub const VM = struct {
         }
 
         return switch (class_obj.object_type) {
+            .struct_object => blk: {
+                var current: ?*ClassObject = class_obj;
+                var count: usize = 0;
+                while (current) |klass| : (current = klass.superclass) {
+                    if (klass.struct_members) |members| {
+                        count = members.elements.items.len;
+                        break;
+                    }
+                }
+                const obj = self.gc_allocator.create(value.StructObject) catch return error.Fatal;
+                const members = self.gc_allocator.alloc(Value, count) catch return error.Fatal;
+                @memset(members, Value.nil());
+                obj.* = .{ .object = .{ .type_tag = .struct_object, .flags = 0, .class = class_obj, .singleton_class = null, .instance_variables = null }, .members = members };
+                break :blk Value.fromObject(&obj.object);
+            },
             .string => self.newStringForClassWithEncoding(class_obj, "", false, .{ .ascii_8bit = .{} }),
             .array => blk: {
                 const array_obj = self.gc_allocator.create(value.ArrayObject) catch return error.Fatal;
@@ -11918,6 +11934,7 @@ pub const VM = struct {
         const arg = args[index];
         const matches = switch (expected_tag) {
             .instance => arg.isInstance(),
+            .struct_object => arg.isObject() and arg.objectTypeTag() == .struct_object,
             .binding => arg.isBinding(),
             .string => arg.isString(),
             .symbol => arg.isSymbol(),

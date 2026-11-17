@@ -3,6 +3,7 @@ const vm_mod = @import("../vm.zig");
 const value = @import("../value.zig");
 const class_builtin = @import("class.zig");
 const module_builtin = @import("module.zig");
+const kernel_builtin = @import("kernel.zig");
 const aggregate_hash = @import("aggregate_hash.zig");
 
 const VM = vm_mod.VM;
@@ -71,14 +72,41 @@ fn resolveStructIndex(vm: *VM, members: *value.ArrayObject, key: Value) VMError!
 }
 
 fn structMemberReaderValue(vm: *VM, receiver: Value, member: *SymbolObject) VMError!Value {
-    return vm.callMethodByName(receiver, member.name, &.{}, null);
+    const members = try getStructMembersForReceiver(vm, receiver);
+    const index = (try structIndexForMemberName(vm, members, member.name)).?;
+    return receiver.toStructObject().members[index];
 }
 
 fn structMemberWriter(vm: *VM, receiver: Value, member: *SymbolObject, arg: Value) VMError!Value {
-    const writer_name = std.fmt.allocPrint(vm.program.allocator, "{s}=", .{member.name}) catch return error.Fatal;
-    defer vm.program.allocator.free(writer_name);
-    var call_args = [_]Value{arg};
-    return vm.callMethodByName(receiver, writer_name, call_args[0..], null);
+    try vm.guardNotFrozen(receiver);
+    const members = try getStructMembersForReceiver(vm, receiver);
+    const index = (try structIndexForMemberName(vm, members, member.name)).?;
+    receiver.toStructObject().members[index] = arg;
+    return arg;
+}
+
+fn accessorMember(vm: *VM, receiver: Value, writer: bool) VMError!*SymbolObject {
+    const called_name = vm.currentFrame().method_name orelse return error.Fatal;
+    const called_symbol = try vm.intern(called_name);
+    const resolved = try vm.findMethod(receiver, called_symbol) orelse return error.Fatal;
+    const name = (resolved.entry.original_name orelse called_symbol).name;
+    return vm.intern(if (writer) name[0 .. name.len - 1] else name);
+}
+
+fn structReader(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    return structMemberReaderValue(vm, receiver, try accessorMember(vm, receiver, false));
+}
+
+fn structWriter(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    return structMemberWriter(vm, receiver, try accessorMember(vm, receiver, true), args[0]);
+}
+
+fn structInitializeCopy(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
+    _ = try kernel_builtin.builtinKernelInitializeCopy(vm, receiver, args, block);
+    if (receiver.raw != args[0].raw) @memcpy(receiver.toStructObject().members, args[0].toStructObject().members);
+    return receiver;
 }
 
 fn defineStructSubclassSingletonMethods(vm: *VM, class_value: Value) VMError!void {
@@ -136,6 +164,9 @@ pub fn register(vm: *VM) !void {
 
     const initialize_sym = try vm.intern("initialize");
     try vm.struct_class.module.methods.put(initialize_sym, value.MethodEntry.keywordBuiltin(&builtinStructInitialize, .{ .variadic = 0 }));
+
+    const copy_sym = try vm.intern("initialize_copy");
+    try vm.struct_class.module.methods.put(copy_sym, value.MethodEntry.builtinWithVisibility(&structInitializeCopy, .{ .exact = 1 }, .private));
 
     const instance_members_sym = try vm.intern("members");
     try vm.struct_class.module.methods.put(instance_members_sym, value.MethodEntry.builtin(&builtinStructMembers, .{ .exact = 0 }));
@@ -239,7 +270,14 @@ pub fn builtinStructNew(vm: *VM, receiver: Value, args: []Value, block: ?Block) 
         _ = try module_builtin.builtinModuleConstSet(vm, receiver, const_args[0..], null);
     }
 
-    _ = try module_builtin.builtinModuleAttrAccessor(vm, struct_val, members.elements.items, null);
+    for (members.elements.items) |member| {
+        const sym = member.toSymbolObject();
+        struct_val.toClassObject().module.methods.put(sym, value.MethodEntry.builtin(&structReader, .{ .exact = 0 })) catch return error.Fatal;
+        const writer_name = std.fmt.allocPrint(vm.allocator, "{s}=", .{sym.name}) catch return error.Fatal;
+        defer vm.allocator.free(writer_name);
+        const writer_sym = try vm.intern(writer_name);
+        struct_val.toClassObject().module.methods.put(writer_sym, value.MethodEntry.builtin(&structWriter, .{ .exact = 1 })) catch return error.Fatal;
+    }
     try defineStructSubclassSingletonMethods(vm, struct_val);
 
     if (block) |blk| {

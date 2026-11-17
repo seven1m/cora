@@ -135,3 +135,20 @@ test "Struct keyword_init forwards through bare super" {
     try std.testing.expect(entries[1].toBool());
     try std.testing.expect(entries[2].toBool());
 }
+
+test "Struct slots survive copying and are independent of accessors and instance variables" {
+    const result = try evalCode(
+        \\klass = Struct.new(:name)
+        \\original = klass.new("original")
+        \\copy = original.dup
+        \\copy.name = "copy"
+        \\original.instance_variable_set(:@name, "ivar")
+        \\def original.name; "override"; end
+        \\GC.start
+        \\[original[:name], copy[:name], original.instance_variable_get(:@name)]
+    );
+    const entries = result.toArrayObject().elements.items;
+    try std.testing.expectEqualStrings("original", entries[0].toStringObject().str);
+    try std.testing.expectEqualStrings("copy", entries[1].toStringObject().str);
+    try std.testing.expectEqualStrings("ivar", entries[2].toStringObject().str);
+}

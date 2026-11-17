@@ -30,6 +30,7 @@ pub const MethodVisibility = enum {
 // Used to identify the concrete type of a heap pointer stored in a Value.
 pub const ObjectTypeTag = enum(u8) {
     instance,
+    struct_object,
     binding,
     string,
     symbol,
@@ -90,6 +91,11 @@ pub const Object = struct {
 };
 
 pub const HASH_RUBY2_KEYWORDS_FLAG: u32 = 0x2;
+
+pub const StructObject = struct {
+    object: Object,
+    members: []Value,
+};
 
 pub const SymbolObject = struct {
     object: Object,
@@ -305,6 +311,7 @@ pub const MethodEntry = struct {
 
 pub const ObjectType = enum {
     instance,
+    struct_object,
     string,
     array,
     hash,
@@ -1063,6 +1070,10 @@ pub const Value = struct {
         return @ptrFromInt(self.raw);
     }
 
+    pub inline fn toStructObject(self: Value) *StructObject {
+        return @ptrFromInt(self.raw);
+    }
+
     pub inline fn toInstanceObject(self: Value) *Object {
         return @ptrFromInt(self.raw);
     }
@@ -1277,7 +1288,7 @@ pub const Value = struct {
                 .class => try writer.print("<Class {s}>", .{self.toClassObject().module.name.name}),
                 .iclass => try writer.print("<IClass {s}>", .{self.toIClassObject().module.name.name}),
                 .encoding_obj => try writer.print("#<Encoding:{s}>", .{self.toEncodingObject().encoding.name()}),
-                .instance => try writer.print("<{s} instance>", .{self.toInstanceObject().class.?.module.name.name}),
+                .instance, .struct_object => try writer.print("<{s} instance>", .{self.toInstanceObject().class.?.module.name.name}),
                 .array => {
                     const a = self.toArrayObject();
                     try writer.print("[", .{});
