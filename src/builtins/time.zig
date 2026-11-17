@@ -175,6 +175,9 @@ pub fn register(vm: *VM) !void {
     const to_a_sym = try vm.intern("to_a");
     try vm.time_class.module.methods.put(to_a_sym, value.MethodEntry.builtin(&builtinTimeToA, .{ .exact = 0 }));
 
+    const floor_sym = try vm.intern("floor");
+    try vm.time_class.module.methods.put(floor_sym, value.MethodEntry.builtin(&builtinTimeFloor, .{ .variadic = 0 }));
+
     const strftime_sym = try vm.intern("strftime");
     try vm.time_class.module.methods.put(strftime_sym, value.MethodEntry.builtin(&builtinTimeStrftime, .{ .exact = 1 }));
 
@@ -313,6 +316,24 @@ fn exactFloorDivByInteger(vm: *VM, value_: Value, divisor: i64) VMError!Value {
     const parts = exactParts(value_);
     const denominator = try vm.mulIntegerValues(parts.denominator, Value.integer(divisor));
     return vm.divFloorIntegerValues(parts.numerator, denominator);
+}
+
+fn decimalPowerOfTen(vm: *VM, exponent: u64) VMError!Value {
+    var result = Value.integer(1);
+    var i: u64 = 0;
+    while (i < exponent) : (i += 1) {
+        result = try vm.mulIntegerValues(result, Value.integer(10));
+    }
+    return result;
+}
+
+fn floorToQuantum(vm: *VM, value_: Value, quantum: Value) VMError!Value {
+    const a = exactParts(value_);
+    const b = exactParts(quantum);
+    const numerator = try vm.mulIntegerValues(a.numerator, b.denominator);
+    const denominator = try vm.mulIntegerValues(a.denominator, b.numerator);
+    const quotient = try vm.divFloorIntegerValues(numerator, denominator);
+    return exactMul(vm, quotient, quantum);
 }
 
 fn exactToF64(value_: Value) f64 {
@@ -1497,6 +1518,37 @@ pub fn builtinTimeToA(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMErro
     array_obj.elements.append(vm.gc_allocator, Value.boolean(false)) catch return error.Fatal;
     array_obj.elements.append(vm.gc_allocator, try vm.newString(if (t.is_utc) "UTC" else "local", false)) catch return error.Fatal;
     return Value.fromObject(&array_obj.object);
+}
+
+pub fn builtinTimeFloor(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCountRange(args, 0, 1);
+    var ndigits: i64 = 0;
+    if (args.len == 1) {
+        const ndigits_value = try args[0].coerceToIntegerValue(vm, "no implicit conversion into Integer", "no implicit conversion into Integer");
+        ndigits = try ndigits_value.integerToI64(vm, "ndigits is too large");
+        if (ndigits > std.math.maxInt(i32) or ndigits < std.math.minInt(i32)) {
+            return vm.raiseExceptionFmt(vm.range_error_class, "ndigits is too large", .{});
+        }
+    }
+
+    const shift: i64 = 9 - ndigits;
+    const exponent: u64 = @intCast(@min(@abs(shift), 100));
+    const power = try decimalPowerOfTen(vm, exponent);
+    const quantum = if (shift >= 0)
+        power
+    else
+        try vm.newRationalValues(Value.integer(1), power);
+
+    const t = receiver.toTimeObject();
+    const floored = try floorToQuantum(vm, t.timew, quantum);
+    const result = if (t.is_utc)
+        try vm.newTime(vm.time_class, floored)
+    else if (t.is_local)
+        try vm.newTimeLocal(vm.time_class, floored, t.utc_offset_nanos)
+    else
+        try vm.newTimeWithOffset(vm.time_class, floored, t.utc_offset_nanos);
+    result.toTimeObject().zone = t.zone;
+    return result;
 }
 
 pub fn builtinTimePlus(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
