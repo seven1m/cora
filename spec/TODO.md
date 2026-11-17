@@ -2200,7 +2200,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/thread/abort_on_exception_spec.rb
 - [ ] core/thread/add_trace_func_spec.rb
 - [x] core/thread/alive_spec.rb
-- [ ] core/thread/allocate_spec.rb
+- [x] core/thread/allocate_spec.rb
 
 ### core/thread/backtrace
 - [ ] core/thread/backtrace/limit_spec.rb

@@ -9,6 +9,7 @@ const Block = vm_mod.Block;
 const Value = value.Value;
 
 pub fn register(vm: *VM) !void {
+    vm.thread_class.allocation_policy = .unavailable;
     const thread_class_val = Value.fromObject(&vm.thread_class.module.object);
     const thread_singleton = try vm.getOrCreateSingletonClass(thread_class_val);
 
