@@ -47,6 +47,9 @@ pub fn register(vm: *VM) !void {
     const getpgrp_sym = try vm.intern("getpgrp");
     try process_singleton.module.methods.put(getpgrp_sym, value.MethodEntry.builtin(&builtinProcessGetpgrp, .{ .exact = 0 }));
 
+    const warmup_sym = try vm.intern("warmup");
+    try process_singleton.module.methods.put(warmup_sym, value.MethodEntry.builtin(&builtinProcessWarmup, .{ .exact = 0 }));
+
     const clock_gettime_sym = try vm.intern("clock_gettime");
     try process_singleton.module.methods.put(clock_gettime_sym, value.MethodEntry.builtin(&builtinProcessClockGettime, .{ .variadic = 1 }));
 
@@ -229,6 +232,12 @@ pub fn builtinProcessGetpgrp(vm: *VM, _: Value, args: []Value, _: ?Block) VMErro
     }
 
     return Value.integer(@intCast(getpgrp()));
+}
+
+pub fn builtinProcessWarmup(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+
+    return Value.boolean(true);
 }
 
 pub fn builtinProcessClockGettime(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
