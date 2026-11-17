@@ -1373,7 +1373,7 @@ Source baseline: ../ruby_spec compared to local spec/
 ### core/method
 - [ ] core/method/arity_spec.rb
 - [x] core/method/call_spec.rb
-- [ ] core/method/case_compare_spec.rb
+- [x] core/method/case_compare_spec.rb
 - [ ] core/method/clone_spec.rb
 - [ ] core/method/compose_spec.rb
 - [ ] core/method/curry_spec.rb

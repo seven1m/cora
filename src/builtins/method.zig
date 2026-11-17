@@ -26,6 +26,12 @@ pub fn register(vm: *VM) !void {
     try vm.method_class.module.methods.put(equal_sym, equal_entry);
     const eql_sym = try vm.intern("eql?");
     try vm.method_class.module.methods.put(eql_sym, equal_entry);
+
+    const call_entry = common.MethodEntry.keywordBuiltin(&builtinMethodCall, .{ .variadic = 0 });
+    const call_sym = try vm.intern("call");
+    try vm.method_class.module.methods.put(call_sym, call_entry);
+    const case_equal_sym = try vm.intern("===");
+    try vm.method_class.module.methods.put(case_equal_sym, call_entry);
 }
 
 fn builtinMethodInspect(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
