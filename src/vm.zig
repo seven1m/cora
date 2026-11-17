@@ -1880,6 +1880,25 @@ pub const VM = struct {
         self.object_class.module.constants.put(ruby_copyright_sym, .{ .value = ruby_copyright_val }) catch return error.Fatal;
         self.object_class.module.constants.put(ruby_release_date_sym, .{ .value = ruby_release_date_val }) catch return error.Fatal;
         self.object_class.module.constants.put(ruby_revision_sym, .{ .value = ruby_revision_val }) catch return error.Fatal;
+
+        const ruby_module_sym = try self.intern("Ruby");
+        const ruby_module_val = try self.newModule(ruby_module_sym);
+        self.object_class.module.constants.put(ruby_module_sym, .{ .value = ruby_module_val }) catch return error.Fatal;
+        const ruby_module = ruby_module_val.toModuleObject();
+        const ruby_constants = .{
+            .{ "VERSION", ruby_version_val },
+            .{ "PATCHLEVEL", Value.integer(0) },
+            .{ "COPYRIGHT", ruby_copyright_val },
+            .{ "DESCRIPTION", ruby_description_val },
+            .{ "ENGINE", ruby_engine_val },
+            .{ "ENGINE_VERSION", ruby_engine_version_val },
+            .{ "PLATFORM", ruby_platform_val },
+            .{ "RELEASE_DATE", ruby_release_date_val },
+            .{ "REVISION", ruby_revision_val },
+        };
+        inline for (ruby_constants) |constant| {
+            ruby_module.constants.put(try self.intern(constant[0]), .{ .value = constant[1] }) catch return error.Fatal;
+        }
         self.marshal_module.constants.put(marshal_major_version_sym, .{ .value = Value.integer(4) }) catch return error.Fatal;
         self.marshal_module.constants.put(marshal_minor_version_sym, .{ .value = Value.integer(8) }) catch return error.Fatal;
 
