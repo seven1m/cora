@@ -1016,9 +1016,12 @@ pub const Compiler = struct {
                         while (i < args.arguments.size) : (i += 1) {
                             const arg_node = try self.parser.asNode(args.arguments.nodes[i]);
                             if (arg_node == .splat) {
-                                const expr_ptr = arg_node.splat.expression orelse return error.UnsupportedNode;
-                                const expr = try self.parser.asNode(@ptrCast(expr_ptr));
-                                try self.compileNode(expr, line);
+                                if (arg_node.splat.expression) |expr_ptr| {
+                                    const expr = try self.parser.asNode(@ptrCast(expr_ptr));
+                                    try self.compileNode(expr, line);
+                                } else {
+                                    try self.compileAnonymousParameter("*", line);
+                                }
                                 try self.current_chunk.emitOp(.ARRAY_CONCAT_ARRAY, line);
                             } else if (arg_node == .keyword_hash) {
                                 continue;
@@ -2533,6 +2536,16 @@ pub const Compiler = struct {
         }
     }
 
+    fn compileAnonymousParameter(self: *Compiler, name: []const u8, line: u32) !void {
+        if (self.findLocal(name)) |idx| {
+            try self.emitGetLocalSlot(.{ .idx = idx, .depth = 0 }, line);
+        } else if (self.findLocalWithDepth(name)) |slot| {
+            try self.emitGetLocalSlot(.{ .idx = @intCast(slot.idx), .depth = @intCast(slot.depth) }, line);
+        } else {
+            return error.UnsupportedNode;
+        }
+    }
+
     fn emitSetLocalSlot(self: *Compiler, slot: LocalSlot, line: u32) !void {
         if (slot.depth == 0) {
             try self.current_chunk.emitOpU16(.SET_LOCAL, slot.idx, line);
@@ -3933,7 +3946,7 @@ pub const Compiler = struct {
                         const value_node = try self.parser.asNode(@ptrCast(value_ptr));
                         try self.compileNode(value_node, line);
                     } else {
-                        try self.current_chunk.emitOp(.PUSH_NIL, line);
+                        try self.compileAnonymousParameter("**", line);
                     }
                     try self.current_chunk.emitOp(.HASH_MERGE_KW, line);
                 },

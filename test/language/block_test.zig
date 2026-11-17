@@ -73,6 +73,19 @@ test "yield splat expands array arguments" {
     try std.testing.expectEqual(@as(i64, 3), result.toArrayObject().elements.items[2].toInteger());
 }
 
+test "yield forwards anonymous positional and keyword arguments from a nested block" {
+    const result = try evalCode(
+        \\def emit(*, **)
+        \\  proc { yield(*, **) }.call
+        \\end
+        \\emit(1, 2, key: 3) { |a, b, key:| [a, b, key] }
+    );
+    const items = result.toArrayObject().elements.items;
+    try std.testing.expectEqual(@as(i64, 1), items[0].toInteger());
+    try std.testing.expectEqual(@as(i64, 2), items[1].toInteger());
+    try std.testing.expectEqual(@as(i64, 3), items[2].toInteger());
+}
+
 test "yield separates splatted positional arguments from keyword arguments" {
     const result = try evalCode(
         \\def emit(*values, **keywords)
