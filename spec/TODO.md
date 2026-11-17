@@ -3884,7 +3884,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [-] library/stringio/initialize_spec.rb
 - [x] library/stringio/inspect_spec.rb
 - [x] library/stringio/internal_encoding_spec.rb
-- [ ] library/stringio/isatty_spec.rb
+- [x] library/stringio/isatty_spec.rb
 - [x] library/stringio/length_spec.rb
 - [ ] library/stringio/lineno_spec.rb
 - [x] library/stringio/new_spec.rb

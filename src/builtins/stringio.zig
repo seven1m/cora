@@ -10,6 +10,8 @@ const Value = value.Value;
 pub fn register(vm: *VM) !void {
     const getc_sym = try vm.intern("getc");
     const getbyte_sym = try vm.intern("getbyte");
+    const tty_q_sym = try vm.intern("tty?");
+    const isatty_sym = try vm.intern("isatty");
     const stringio_name_sym = try vm.intern("StringIO");
 
     if (vm.object_class.module.constants.getPtr(stringio_name_sym)) |entry| {
@@ -24,8 +26,17 @@ pub fn register(vm: *VM) !void {
                 getbyte_sym,
                 value.MethodEntry.builtin(&builtinStringIOGetbyte, .{ .exact = 0 }),
             );
+
+            const tty_q_entry = value.MethodEntry.builtin(&builtinStringIOTtyQ, .{ .exact = 0 });
+            try stringio_class.module.methods.put(tty_q_sym, tty_q_entry);
+            try stringio_class.module.methods.put(isatty_sym, tty_q_entry);
         }
     }
+}
+
+pub fn builtinStringIOTtyQ(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    return Value.boolean(false);
 }
 
 pub fn builtinStringIOGetc(vm: *VM, receiver: Value, _: []Value, _: ?Block) VMError!Value {
