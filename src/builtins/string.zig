@@ -172,6 +172,9 @@ pub fn register(vm: *VM) !void {
     const string_bit_set_sym = try vm.intern("bit_set");
     try vm.string_class.module.methods.put(string_bit_set_sym, value.MethodEntry.keywordBuiltin(&builtinStringBitSet, .{ .exact = 1 }));
 
+    const string_bit_flip_sym = try vm.intern("bit_flip");
+    try vm.string_class.module.methods.put(string_bit_flip_sym, value.MethodEntry.keywordBuiltin(&builtinStringBitFlip, .{ .exact = 1 }));
+
     const string_b_sym = try vm.intern("b");
     try vm.string_class.module.methods.put(string_b_sym, value.MethodEntry.builtin(&builtinStringB, .{ .exact = 0 }));
     const string_dedup_sym = try vm.intern("dedup");
@@ -2963,6 +2966,16 @@ pub fn builtinStringBitSet(vm: *VM, receiver: Value, args: []Value, _: ?Block) V
     const string_obj = receiver.toStringObject();
     const new_bytes = vm.gc_allocator_atomic.dupe(u8, string_obj.str) catch return error.Fatal;
     new_bytes[loc.byte_index] |= (@as(u8, 1) << loc.shift);
+    string_obj.replaceBytes(new_bytes);
+    string_obj.validity = .unknown;
+    return receiver;
+}
+
+pub fn builtinStringBitFlip(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    const loc = try stringBitMutationLocation(vm, receiver, args);
+    const string_obj = receiver.toStringObject();
+    const new_bytes = vm.gc_allocator_atomic.dupe(u8, string_obj.str) catch return error.Fatal;
+    new_bytes[loc.byte_index] ^= (@as(u8, 1) << loc.shift);
     string_obj.replaceBytes(new_bytes);
     string_obj.validity = .unknown;
     return receiver;
