@@ -45,6 +45,10 @@ test "Dir.mktmpdir creates and removes a directory" {
             \\  puts File.directory?(dir)
             \\end
             \\puts File.exist?(path)
+            \\Dir.mktmpdir('cora-removed-') do |dir|
+            \\  Dir.rmdir(dir)
+            \\end
+            \\puts 'removed early'
             ,
         },
         .stdout_limit = .limited(1024 * 1024),
@@ -54,5 +58,5 @@ test "Dir.mktmpdir creates and removes a directory" {
     defer allocator.free(result.stderr);
 
     try std.testing.expect(result.term == .exited and result.term.exited == 0);
-    try std.testing.expectEqualSlices(u8, "true\nfalse\n", result.stdout);
+    try std.testing.expectEqualSlices(u8, "true\nfalse\nremoved early\n", result.stdout);
 }

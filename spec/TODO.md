@@ -4019,7 +4019,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] library/timeout/timeout_spec.rb
 
 ### library/tmpdir/dir
-- [ ] library/tmpdir/dir/mktmpdir_spec.rb
+- [x] library/tmpdir/dir/mktmpdir_spec.rb
 - [x] library/tmpdir/dir/tmpdir_spec.rb
 
 ### library/uri
