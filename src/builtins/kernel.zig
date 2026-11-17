@@ -2062,7 +2062,10 @@ pub fn builtinKernelClone(vm: *VM, receiver: Value, args: []Value, _: ?Block) VM
         }
         return receiver;
     };
-    const duplicate = try vm.newObjectForClass(vm.getClass(receiver));
+    const duplicate = if (receiver.isClass() or receiver.isModule())
+        try vm.allocateDupShell(receiver)
+    else
+        try vm.newObjectForClass(vm.getClass(receiver));
     const dst_obj = duplicate.getObjectPointer() orelse return error.Fatal;
     try vm.copyObjectInstanceVariables(src_obj, dst_obj);
 

@@ -4,6 +4,27 @@ const test_helper = @import("../test_helper.zig");
 const evalCode = test_helper.evalCode;
 const evalCodeWithOutput = test_helper.evalCodeWithOutput;
 
+test "cloning classes and modules preserves their methods and singleton methods" {
+    const result = try evalCode(
+        \\mod = Module.new do
+        \\  def example; :instance_method; end
+        \\  def self.example; :singleton_method; end
+        \\end
+        \\klass = Class.new { include mod }
+        \\def klass.example; :class_method; end
+        \\mod_copy = mod.clone
+        \\klass_copy = klass.clone
+        \\[mod_copy.instance_methods(false).include?(:example), mod_copy.example,
+        \\ klass_copy.new.example, klass_copy.example, klass_copy.superclass == klass.superclass]
+    );
+    const values = result.toArrayObject().elements.items;
+    try std.testing.expect(values[0].isTrue());
+    try std.testing.expectEqualStrings("singleton_method", values[1].toSymbolObject().name);
+    try std.testing.expectEqualStrings("instance_method", values[2].toSymbolObject().name);
+    try std.testing.expectEqualStrings("class_method", values[3].toSymbolObject().name);
+    try std.testing.expect(values[4].isTrue());
+}
+
 test "Modules" {
     const result = try evalCode(
         \\module Foo
