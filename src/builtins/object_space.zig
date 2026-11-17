@@ -30,6 +30,9 @@ pub fn register(vm: *VM) !void {
 
     const values_sym = try vm.intern("values");
     try weak_map_class.module.methods.put(values_sym, value.MethodEntry.builtin(&builtinWeakMapValues, .{ .exact = 0 }));
+
+    const size_sym = try vm.intern("size");
+    try weak_map_class.module.methods.put(size_sym, value.MethodEntry.builtin(&builtinWeakMapSize, .{ .exact = 0 }));
 }
 
 fn builtinEachObject(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
@@ -130,4 +133,12 @@ fn builtinWeakMapValues(vm: *VM, receiver: Value, args: []Value, block: ?Block) 
         result.elements.append(vm.gc_allocator, v) catch return error.Fatal;
     }
     return Value.fromObject(&result.object);
+}
+
+fn builtinWeakMapSize(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
+    _ = vm;
+    _ = args;
+    _ = block;
+    const wm = receiver.toWeakMapObject();
+    return Value.integer(@intCast(wm.keys.items.len));
 }

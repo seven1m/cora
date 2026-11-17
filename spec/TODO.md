@@ -1595,7 +1595,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/objectspace/weakmap/keys_spec.rb
 - [ ] core/objectspace/weakmap/length_spec.rb
 - [ ] core/objectspace/weakmap/member_spec.rb
-- [ ] core/objectspace/weakmap/size_spec.rb
+- [x] core/objectspace/weakmap/size_spec.rb
 - [x] core/objectspace/weakmap/values_spec.rb
 
 ### core/objectspace
