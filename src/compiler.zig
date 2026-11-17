@@ -387,7 +387,7 @@ pub const Compiler = struct {
             inline else => |raw_ptr| @ptrCast(raw_ptr),
         };
         const raw: *prism.RawNode = @ptrCast(@alignCast(ptr));
-        const start = raw.location.start orelse return 1;
+        const start = raw.location.start;
         return self.parser.lineColumn(start).line;
     }
 
@@ -396,7 +396,7 @@ pub const Compiler = struct {
             inline else => |raw_ptr| @ptrCast(raw_ptr),
         };
         const raw: *prism.RawNode = @ptrCast(@alignCast(ptr));
-        const start = raw.location.start orelse return 1;
+        const start = raw.location.start;
         return self.parser.lineColumn(start).column + 1;
     }
 
@@ -3555,11 +3555,11 @@ pub const Compiler = struct {
 
     fn compileAliasMethod(self: *Compiler, alias_node: *prism.AliasMethodNode, line: u32) anyerror!void {
         // Both new_name and old_name are SymbolNodes in `alias new_name old_name`
-        const new_name_node: *prism.SymbolNode = @ptrCast(alias_node.new_name);
+        const new_name_node: *prism.SymbolNode = @ptrCast(@alignCast(alias_node.new_name));
         const new_name = prismStringSlice(new_name_node.unescaped);
         const new_name_idx = try self.current_chunk.addConstant(.{ .string = new_name });
 
-        const old_name_node: *prism.SymbolNode = @ptrCast(alias_node.old_name);
+        const old_name_node: *prism.SymbolNode = @ptrCast(@alignCast(alias_node.old_name));
         const old_name = prismStringSlice(old_name_node.unescaped);
         const old_name_idx = try self.current_chunk.addConstant(.{ .string = old_name });
 
@@ -3755,10 +3755,8 @@ pub const Compiler = struct {
             inline else => |raw_ptr| @ptrCast(raw_ptr),
         };
         const raw: *prism.RawNode = @ptrCast(@alignCast(ptr));
-        const start = raw.location.start orelse unreachable;
-        const finish = raw.location.end orelse unreachable;
-        const start_off = @intFromPtr(start) - @intFromPtr(self.parser.source.ptr);
-        const end_off = @intFromPtr(finish) - @intFromPtr(self.parser.source.ptr);
+        const start_off: usize = raw.location.start;
+        const end_off = start_off + raw.location.length;
         return self.parser.source[start_off..end_off];
     }
 
@@ -4072,6 +4070,8 @@ pub const Compiler = struct {
                 }
                 const block_idx = @as(u16, @intCast(self.locals.items.len - 1));
                 target_chunk.block_param_index = block_idx;
+            } else if (block_node == .no_block_parameter) {
+                target_chunk.no_block = true;
             } else {
                 unreachable;
             }

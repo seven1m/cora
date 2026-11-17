@@ -37,7 +37,7 @@ test "RbConfig::CONFIG initializes and expands values" {
     const items = result.toArrayObject().elements.items;
     try std.testing.expectEqualSlices(u8, "4", items[0].toStringObject().str);
     try std.testing.expectEqualSlices(u8, expected_bindir, items[1].toStringObject().str);
-    try std.testing.expectEqualSlices(u8, "4.0.0", items[2].toStringObject().str);
+    try std.testing.expectEqualSlices(u8, "4.1.0", items[2].toStringObject().str);
 }
 
 test "RbConfig::MAKEFILE_CONFIG stays raw and separate from CONFIG" {
@@ -59,9 +59,9 @@ test "RbConfig::MAKEFILE_CONFIG stays raw and separate from CONFIG" {
     const items = result.toArrayObject().elements.items;
     try std.testing.expectEqual(false, items[0].isTruthy());
     try std.testing.expectEqualSlices(u8, "$(MAJOR).$(MINOR).$(TEENY)", items[1].toStringObject().str);
-    try std.testing.expectEqualSlices(u8, "4.0.0", items[2].toStringObject().str);
+    try std.testing.expectEqualSlices(u8, "4.1.0", items[2].toStringObject().str);
     try std.testing.expectEqualSlices(u8, "$(exec_prefix)/bin", items[3].toStringObject().str);
-    try std.testing.expectEqualSlices(u8, "8.0.0", items[5].toStringObject().str);
+    try std.testing.expectEqualSlices(u8, "8.1.0", items[5].toStringObject().str);
 }
 
 test "RbConfig.expand handles replacements longer than the template" {

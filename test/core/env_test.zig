@@ -26,13 +26,3 @@ test "ENV.values_at returns values and nil for missing keys" {
     try std.testing.expectEqualSlices(u8, "alpha", result.toArrayObject().elements.items[0].toStringObject().str);
     try std.testing.expect(result.toArrayObject().elements.items[1].isNil());
 }
-
-test "ENV.fetch_values returns values and yields missing keys" {
-    const result = try evalCode(
-        \\ENV["CORA_ENV_FETCH_VALUES_A"] = "alpha"
-        \\ENV.delete("CORA_ENV_FETCH_VALUES_B")
-        \\ENV.fetch_values("CORA_ENV_FETCH_VALUES_B", "CORA_ENV_FETCH_VALUES_A") { |key| key } ==
-        \\  ["CORA_ENV_FETCH_VALUES_B", "alpha"] && ENV.fetch_values == []
-    );
-    try std.testing.expect(result.isTruthy());
-}

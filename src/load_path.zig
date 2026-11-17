@@ -1,4 +1,4 @@
-const ruby_gem_api_version = "4.0.0";
+const ruby_gem_api_version = "4.1.0";
 
 fn defaultGemLibPath(comptime name: []const u8, comptime version: []const u8) []const u8 {
     return "lib/gems/" ++ ruby_gem_api_version ++ "/gems/" ++ name ++ "-" ++ version ++ "/lib";

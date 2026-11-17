@@ -19,6 +19,7 @@ pub const BeginNode = c.pm_begin_node_t;
 pub const BlockNode = c.pm_block_node_t;
 pub const BlockParametersNode = c.pm_block_parameters_node_t;
 pub const BlockParameterNode = c.pm_block_parameter_node_t;
+pub const NoBlockParameterNode = c.pm_no_block_parameter_node_t;
 pub const CallNode = c.pm_call_node_t;
 pub const CallAndWriteNode = c.pm_call_and_write_node_t;
 pub const CallOperatorWriteNode = c.pm_call_operator_write_node_t;
@@ -170,6 +171,7 @@ pub const Node = union(enum) {
     block: *BlockNode,
     block_parameters: *BlockParametersNode,
     block_parameter: *BlockParameterNode,
+    no_block_parameter: *NoBlockParameterNode,
     call: *CallNode,
     call_and_write: *CallAndWriteNode,
     call_operator_write: *CallOperatorWriteNode,
@@ -401,7 +403,7 @@ pub const Parser = struct {
             .allocator = allocator,
             .source = source,
             .internal = parser,
-            .ast = @ptrCast(ast),
+            .ast = @ptrCast(@alignCast(ast)),
             .source_file = source_file,
         };
     }
@@ -417,7 +419,7 @@ pub const Parser = struct {
         return self.asNode(@ptrCast(self.ast));
     }
 
-    pub fn lineColumn(self: *const Parser, cursor: [*c]const u8) LineColumn {
+    pub fn lineColumn(self: *const Parser, cursor: u32) LineColumn {
         const result = c.pm_newline_list_line_column(
             &self.internal.newline_list,
             cursor,
@@ -507,524 +509,528 @@ pub const Parser = struct {
         const node_type = raw.type;
 
         if (node_type == c.PM_PROGRAM_NODE) {
-            return Node{ .program = @ptrCast(raw) };
+            return Node{ .program = @ptrCast(@alignCast(raw)) };
         }
 
         if (node_type == c.PM_RANGE_NODE) {
-            return Node{ .range = @ptrCast(raw) };
+            return Node{ .range = @ptrCast(@alignCast(raw)) };
         }
 
         if (node_type == c.PM_STATEMENTS_NODE) {
-            return Node{ .statements = @ptrCast(raw) };
+            return Node{ .statements = @ptrCast(@alignCast(raw)) };
         }
 
         if (node_type == c.PM_STRING_NODE) {
-            return Node{ .string = @ptrCast(raw) };
+            return Node{ .string = @ptrCast(@alignCast(raw)) };
         }
 
         if (node_type == c.PM_INTEGER_NODE) {
-            return Node{ .integer = @ptrCast(raw) };
+            return Node{ .integer = @ptrCast(@alignCast(raw)) };
         }
 
         if (node_type == c.PM_FLOAT_NODE) {
-            return Node{ .float = @ptrCast(raw) };
+            return Node{ .float = @ptrCast(@alignCast(raw)) };
         }
 
         if (node_type == c.PM_RATIONAL_NODE) {
-            return Node{ .rational = @ptrCast(raw) };
+            return Node{ .rational = @ptrCast(@alignCast(raw)) };
         }
 
         if (node_type == c.PM_SYMBOL_NODE) {
-            return Node{ .symbol = @ptrCast(raw) };
+            return Node{ .symbol = @ptrCast(@alignCast(raw)) };
         }
 
         if (node_type == c.PM_CONSTANT_READ_NODE) {
-            return Node{ .constant_read = @ptrCast(raw) };
+            return Node{ .constant_read = @ptrCast(@alignCast(raw)) };
         }
 
         if (node_type == c.PM_CONSTANT_WRITE_NODE) {
-            return Node{ .constant_write = @ptrCast(raw) };
+            return Node{ .constant_write = @ptrCast(@alignCast(raw)) };
         }
         if (node_type == c.PM_CONSTANT_AND_WRITE_NODE) {
-            return Node{ .constant_and_write = @ptrCast(raw) };
+            return Node{ .constant_and_write = @ptrCast(@alignCast(raw)) };
         }
         if (node_type == c.PM_CONSTANT_OR_WRITE_NODE) {
-            return Node{ .constant_or_write = @ptrCast(raw) };
+            return Node{ .constant_or_write = @ptrCast(@alignCast(raw)) };
         }
         if (node_type == c.PM_CONSTANT_PATH_OR_WRITE_NODE) {
-            return Node{ .constant_path_or_write = @ptrCast(raw) };
+            return Node{ .constant_path_or_write = @ptrCast(@alignCast(raw)) };
         }
         if (node_type == c.PM_CONSTANT_PATH_WRITE_NODE) {
-            return Node{ .constant_path_write = @ptrCast(raw) };
+            return Node{ .constant_path_write = @ptrCast(@alignCast(raw)) };
         }
 
         if (node_type == c.PM_CONSTANT_PATH_NODE) {
-            return Node{ .constant_path = @ptrCast(raw) };
+            return Node{ .constant_path = @ptrCast(@alignCast(raw)) };
         }
 
         if (node_type == c.PM_CALL_NODE) {
-            return Node{ .call = @ptrCast(raw) };
+            return Node{ .call = @ptrCast(@alignCast(raw)) };
         }
 
         if (node_type == c.PM_CALL_AND_WRITE_NODE) {
-            return Node{ .call_and_write = @ptrCast(raw) };
+            return Node{ .call_and_write = @ptrCast(@alignCast(raw)) };
         }
 
         if (node_type == c.PM_CALL_OPERATOR_WRITE_NODE) {
-            return Node{ .call_operator_write = @ptrCast(raw) };
+            return Node{ .call_operator_write = @ptrCast(@alignCast(raw)) };
         }
 
         if (node_type == c.PM_CALL_OR_WRITE_NODE) {
-            return Node{ .call_or_write = @ptrCast(raw) };
+            return Node{ .call_or_write = @ptrCast(@alignCast(raw)) };
         }
 
         if (node_type == c.PM_CASE_NODE) {
-            return Node{ .case_node = @ptrCast(raw) };
+            return Node{ .case_node = @ptrCast(@alignCast(raw)) };
         }
 
         if (node_type == c.PM_CASE_MATCH_NODE) {
-            return Node{ .case_match = @ptrCast(raw) };
+            return Node{ .case_match = @ptrCast(@alignCast(raw)) };
         }
 
         if (node_type == c.PM_IN_NODE) {
-            return Node{ .in_node = @ptrCast(raw) };
+            return Node{ .in_node = @ptrCast(@alignCast(raw)) };
         }
 
         if (node_type == c.PM_MODULE_NODE) {
-            return Node{ .module = @ptrCast(raw) };
+            return Node{ .module = @ptrCast(@alignCast(raw)) };
         }
 
         if (node_type == c.PM_DEF_NODE) {
-            return Node{ .def = @ptrCast(raw) };
+            return Node{ .def = @ptrCast(@alignCast(raw)) };
         }
 
         if (node_type == c.PM_DEFINED_NODE) {
-            return Node{ .defined = @ptrCast(raw) };
+            return Node{ .defined = @ptrCast(@alignCast(raw)) };
         }
 
         if (node_type == c.PM_LOCAL_VARIABLE_READ_NODE) {
-            return Node{ .local_variable_read = @ptrCast(raw) };
+            return Node{ .local_variable_read = @ptrCast(@alignCast(raw)) };
         }
 
         if (node_type == c.PM_LOCAL_VARIABLE_TARGET_NODE) {
-            return Node{ .local_variable_target = @ptrCast(raw) };
+            return Node{ .local_variable_target = @ptrCast(@alignCast(raw)) };
         }
 
         if (node_type == c.PM_LOCAL_VARIABLE_WRITE_NODE) {
-            return Node{ .local_variable_write = @ptrCast(raw) };
+            return Node{ .local_variable_write = @ptrCast(@alignCast(raw)) };
         }
         if (node_type == c.PM_LOCAL_VARIABLE_AND_WRITE_NODE) {
-            return Node{ .local_variable_and_write = @ptrCast(raw) };
+            return Node{ .local_variable_and_write = @ptrCast(@alignCast(raw)) };
         }
         if (node_type == c.PM_LOCAL_VARIABLE_OR_WRITE_NODE) {
-            return Node{ .local_variable_or_write = @ptrCast(raw) };
+            return Node{ .local_variable_or_write = @ptrCast(@alignCast(raw)) };
         }
 
         if (node_type == c.PM_LOCAL_VARIABLE_OPERATOR_WRITE_NODE) {
-            return Node{ .local_variable_operator_write = @ptrCast(raw) };
+            return Node{ .local_variable_operator_write = @ptrCast(@alignCast(raw)) };
         }
 
         if (node_type == c.PM_REQUIRED_PARAMETER_NODE) {
-            return Node{ .required_parameter = @ptrCast(raw) };
+            return Node{ .required_parameter = @ptrCast(@alignCast(raw)) };
         }
 
         if (node_type == c.PM_FORWARDING_ARGUMENTS_NODE) {
-            return Node{ .forwarding_arguments = @ptrCast(raw) };
+            return Node{ .forwarding_arguments = @ptrCast(@alignCast(raw)) };
         }
 
         if (node_type == c.PM_FORWARDING_PARAMETER_NODE) {
-            return Node{ .forwarding_parameter = @ptrCast(raw) };
+            return Node{ .forwarding_parameter = @ptrCast(@alignCast(raw)) };
         }
 
         if (node_type == c.PM_CLASS_NODE) {
-            return Node{ .class = @ptrCast(raw) };
+            return Node{ .class = @ptrCast(@alignCast(raw)) };
         }
 
         if (node_type == c.PM_SINGLETON_CLASS_NODE) {
-            return Node{ .singleton_class = @ptrCast(raw) };
+            return Node{ .singleton_class = @ptrCast(@alignCast(raw)) };
         }
 
         if (node_type == c.PM_SHAREABLE_CONSTANT_NODE) {
-            return Node{ .shareable_constant = @ptrCast(raw) };
+            return Node{ .shareable_constant = @ptrCast(@alignCast(raw)) };
         }
 
         if (node_type == c.PM_SELF_NODE) {
-            return Node{ .self = @ptrCast(raw) };
+            return Node{ .self = @ptrCast(@alignCast(raw)) };
         }
 
         if (node_type == c.PM_SOURCE_FILE_NODE) {
-            return Node{ .source_file = @ptrCast(raw) };
+            return Node{ .source_file = @ptrCast(@alignCast(raw)) };
         }
 
         if (node_type == c.PM_SOURCE_LINE_NODE) {
-            return Node{ .source_line = @ptrCast(raw) };
+            return Node{ .source_line = @ptrCast(@alignCast(raw)) };
         }
 
         if (node_type == c.PM_SOURCE_ENCODING_NODE) {
-            return Node{ .source_encoding = @ptrCast(raw) };
+            return Node{ .source_encoding = @ptrCast(@alignCast(raw)) };
         }
 
         if (node_type == c.PM_IF_NODE) {
-            return Node{ .if_node = @ptrCast(raw) };
+            return Node{ .if_node = @ptrCast(@alignCast(raw)) };
         }
 
         if (node_type == c.PM_UNLESS_NODE) {
-            return Node{ .unless_node = @ptrCast(raw) };
+            return Node{ .unless_node = @ptrCast(@alignCast(raw)) };
         }
 
         if (node_type == c.PM_ELSE_NODE) {
-            return Node{ .else_node = @ptrCast(raw) };
+            return Node{ .else_node = @ptrCast(@alignCast(raw)) };
         }
 
         if (node_type == c.PM_ENSURE_NODE) {
-            return Node{ .ensure = @ptrCast(raw) };
+            return Node{ .ensure = @ptrCast(@alignCast(raw)) };
         }
 
         if (node_type == c.PM_TRUE_NODE) {
-            return Node{ .true_node = @ptrCast(raw) };
+            return Node{ .true_node = @ptrCast(@alignCast(raw)) };
         }
 
         if (node_type == c.PM_WHEN_NODE) {
-            return Node{ .when_node = @ptrCast(raw) };
+            return Node{ .when_node = @ptrCast(@alignCast(raw)) };
         }
 
         if (node_type == c.PM_FALSE_NODE) {
-            return Node{ .false_node = @ptrCast(raw) };
+            return Node{ .false_node = @ptrCast(@alignCast(raw)) };
         }
 
         if (node_type == c.PM_NIL_NODE) {
-            return Node{ .nil_node = @ptrCast(raw) };
+            return Node{ .nil_node = @ptrCast(@alignCast(raw)) };
         }
 
         if (node_type == c.PM_PARENTHESES_NODE) {
-            return Node{ .parentheses = @ptrCast(raw) };
+            return Node{ .parentheses = @ptrCast(@alignCast(raw)) };
         }
 
         if (node_type == c.PM_YIELD_NODE) {
-            return Node{ .yield = @ptrCast(raw) };
+            return Node{ .yield = @ptrCast(@alignCast(raw)) };
         }
 
         if (node_type == c.PM_ARRAY_NODE) {
-            return Node{ .array = @ptrCast(raw) };
+            return Node{ .array = @ptrCast(@alignCast(raw)) };
         }
 
         if (node_type == c.PM_AND_NODE) {
-            return Node{ .and_node = @ptrCast(raw) };
+            return Node{ .and_node = @ptrCast(@alignCast(raw)) };
         }
 
         if (node_type == c.PM_BEGIN_NODE) {
-            return Node{ .begin = @ptrCast(raw) };
+            return Node{ .begin = @ptrCast(@alignCast(raw)) };
         }
 
         if (node_type == c.PM_BLOCK_NODE) {
-            return Node{ .block = @ptrCast(raw) };
+            return Node{ .block = @ptrCast(@alignCast(raw)) };
         }
 
         if (node_type == c.PM_BLOCK_PARAMETERS_NODE) {
-            return Node{ .block_parameters = @ptrCast(raw) };
+            return Node{ .block_parameters = @ptrCast(@alignCast(raw)) };
         }
 
         if (node_type == c.PM_BLOCK_PARAMETER_NODE) {
-            return Node{ .block_parameter = @ptrCast(raw) };
+            return Node{ .block_parameter = @ptrCast(@alignCast(raw)) };
+        }
+
+        if (node_type == c.PM_NO_BLOCK_PARAMETER_NODE) {
+            return Node{ .no_block_parameter = @ptrCast(@alignCast(raw)) };
         }
 
         if (node_type == c.PM_NUMBERED_PARAMETERS_NODE) {
-            return Node{ .numbered_parameters = @ptrCast(raw) };
+            return Node{ .numbered_parameters = @ptrCast(@alignCast(raw)) };
         }
 
         if (node_type == c.PM_RESCUE_NODE) {
-            return Node{ .rescue = @ptrCast(raw) };
+            return Node{ .rescue = @ptrCast(@alignCast(raw)) };
         }
 
         if (node_type == c.PM_RESCUE_MODIFIER_NODE) {
-            return Node{ .rescue_modifier = @ptrCast(raw) };
+            return Node{ .rescue_modifier = @ptrCast(@alignCast(raw)) };
         }
 
         if (node_type == c.PM_RETRY_NODE) {
-            return Node{ .retry = @ptrCast(raw) };
+            return Node{ .retry = @ptrCast(@alignCast(raw)) };
         }
 
         if (node_type == c.PM_REDO_NODE) {
-            return Node{ .redo = @ptrCast(raw) };
+            return Node{ .redo = @ptrCast(@alignCast(raw)) };
         }
 
         if (node_type == c.PM_RETURN_NODE) {
-            return Node{ .return_node = @ptrCast(raw) };
+            return Node{ .return_node = @ptrCast(@alignCast(raw)) };
         }
 
         if (node_type == c.PM_NEXT_NODE) {
-            return Node{ .next_node = @ptrCast(raw) };
+            return Node{ .next_node = @ptrCast(@alignCast(raw)) };
         }
 
         if (node_type == c.PM_WHILE_NODE) {
-            return Node{ .while_node = @ptrCast(raw) };
+            return Node{ .while_node = @ptrCast(@alignCast(raw)) };
         }
 
         if (node_type == c.PM_FOR_NODE) {
-            return Node{ .for_node = @ptrCast(raw) };
+            return Node{ .for_node = @ptrCast(@alignCast(raw)) };
         }
 
         if (node_type == c.PM_UNTIL_NODE) {
-            return Node{ .until_node = @ptrCast(raw) };
+            return Node{ .until_node = @ptrCast(@alignCast(raw)) };
         }
 
         if (node_type == c.PM_BREAK_NODE) {
-            return Node{ .break_node = @ptrCast(raw) };
+            return Node{ .break_node = @ptrCast(@alignCast(raw)) };
         }
 
         if (node_type == c.PM_HASH_NODE) {
-            return Node{ .hash = @ptrCast(raw) };
+            return Node{ .hash = @ptrCast(@alignCast(raw)) };
         }
 
         if (node_type == c.PM_ASSOC_NODE) {
-            return Node{ .assoc = @ptrCast(raw) };
+            return Node{ .assoc = @ptrCast(@alignCast(raw)) };
         }
         if (node_type == c.PM_ASSOC_SPLAT_NODE) {
-            return Node{ .assoc_splat = @ptrCast(raw) };
+            return Node{ .assoc_splat = @ptrCast(@alignCast(raw)) };
         }
 
         if (node_type == c.PM_LAMBDA_NODE) {
-            return Node{ .lambda = @ptrCast(raw) };
+            return Node{ .lambda = @ptrCast(@alignCast(raw)) };
         }
 
         if (node_type == c.PM_MISSING_NODE) {
-            return Node{ .missing = @ptrCast(raw) };
+            return Node{ .missing = @ptrCast(@alignCast(raw)) };
         }
 
         if (node_type == c.PM_GLOBAL_VARIABLE_READ_NODE) {
-            return Node{ .global_variable_read = @ptrCast(raw) };
+            return Node{ .global_variable_read = @ptrCast(@alignCast(raw)) };
         }
         if (node_type == c.PM_BACK_REFERENCE_READ_NODE) {
-            return Node{ .back_reference_read = @ptrCast(raw) };
+            return Node{ .back_reference_read = @ptrCast(@alignCast(raw)) };
         }
         if (node_type == c.PM_NUMBERED_REFERENCE_READ_NODE) {
-            return Node{ .numbered_reference_read = @ptrCast(raw) };
+            return Node{ .numbered_reference_read = @ptrCast(@alignCast(raw)) };
         }
 
         if (node_type == c.PM_GLOBAL_VARIABLE_WRITE_NODE) {
-            return Node{ .global_variable_write = @ptrCast(raw) };
+            return Node{ .global_variable_write = @ptrCast(@alignCast(raw)) };
         }
         if (node_type == c.PM_GLOBAL_VARIABLE_AND_WRITE_NODE) {
-            return Node{ .global_variable_and_write = @ptrCast(raw) };
+            return Node{ .global_variable_and_write = @ptrCast(@alignCast(raw)) };
         }
         if (node_type == c.PM_GLOBAL_VARIABLE_OPERATOR_WRITE_NODE) {
-            return Node{ .global_variable_operator_write = @ptrCast(raw) };
+            return Node{ .global_variable_operator_write = @ptrCast(@alignCast(raw)) };
         }
         if (node_type == c.PM_GLOBAL_VARIABLE_OR_WRITE_NODE) {
-            return Node{ .global_variable_or_write = @ptrCast(raw) };
+            return Node{ .global_variable_or_write = @ptrCast(@alignCast(raw)) };
         }
 
         if (node_type == c.PM_INSTANCE_VARIABLE_READ_NODE) {
-            return Node{ .instance_variable_read = @ptrCast(raw) };
+            return Node{ .instance_variable_read = @ptrCast(@alignCast(raw)) };
         }
 
         if (node_type == c.PM_INSTANCE_VARIABLE_WRITE_NODE) {
-            return Node{ .instance_variable_write = @ptrCast(raw) };
+            return Node{ .instance_variable_write = @ptrCast(@alignCast(raw)) };
         }
         if (node_type == c.PM_INSTANCE_VARIABLE_AND_WRITE_NODE) {
-            return Node{ .instance_variable_and_write = @ptrCast(raw) };
+            return Node{ .instance_variable_and_write = @ptrCast(@alignCast(raw)) };
         }
         if (node_type == c.PM_INSTANCE_VARIABLE_OR_WRITE_NODE) {
-            return Node{ .instance_variable_or_write = @ptrCast(raw) };
+            return Node{ .instance_variable_or_write = @ptrCast(@alignCast(raw)) };
         }
         if (node_type == c.PM_INSTANCE_VARIABLE_OPERATOR_WRITE_NODE) {
-            return Node{ .instance_variable_operator_write = @ptrCast(raw) };
+            return Node{ .instance_variable_operator_write = @ptrCast(@alignCast(raw)) };
         }
 
         if (node_type == c.PM_BLOCK_ARGUMENT_NODE) {
-            return Node{ .block_argument = @ptrCast(raw) };
+            return Node{ .block_argument = @ptrCast(@alignCast(raw)) };
         }
 
         if (node_type == c.PM_EMBEDDED_STATEMENTS_NODE) {
-            return Node{ .embedded_statements = @ptrCast(raw) };
+            return Node{ .embedded_statements = @ptrCast(@alignCast(raw)) };
         }
 
         if (node_type == c.PM_EMBEDDED_VARIABLE_NODE) {
-            return Node{ .embedded_variable = @ptrCast(raw) };
+            return Node{ .embedded_variable = @ptrCast(@alignCast(raw)) };
         }
 
         if (node_type == c.PM_INTERPOLATED_REGULAR_EXPRESSION_NODE) {
-            return Node{ .interpolated_regular_expression = @ptrCast(raw) };
+            return Node{ .interpolated_regular_expression = @ptrCast(@alignCast(raw)) };
         }
 
         if (node_type == c.PM_INTERPOLATED_STRING_NODE) {
-            return Node{ .interpolated_string = @ptrCast(raw) };
+            return Node{ .interpolated_string = @ptrCast(@alignCast(raw)) };
         }
 
         if (node_type == c.PM_INTERPOLATED_SYMBOL_NODE) {
-            return Node{ .interpolated_symbol = @ptrCast(raw) };
+            return Node{ .interpolated_symbol = @ptrCast(@alignCast(raw)) };
         }
 
         if (node_type == c.PM_X_STRING_NODE) {
-            return Node{ .x_string = @ptrCast(raw) };
+            return Node{ .x_string = @ptrCast(@alignCast(raw)) };
         }
 
         if (node_type == c.PM_INTERPOLATED_X_STRING_NODE) {
-            return Node{ .interpolated_x_string = @ptrCast(raw) };
+            return Node{ .interpolated_x_string = @ptrCast(@alignCast(raw)) };
         }
 
         if (node_type == c.PM_OPTIONAL_PARAMETER_NODE) {
-            return Node{ .optional_parameter = @ptrCast(raw) };
+            return Node{ .optional_parameter = @ptrCast(@alignCast(raw)) };
         }
 
         if (node_type == c.PM_OR_NODE) {
-            return Node{ .or_node = @ptrCast(raw) };
+            return Node{ .or_node = @ptrCast(@alignCast(raw)) };
         }
 
         if (node_type == c.PM_REST_PARAMETER_NODE) {
-            return Node{ .rest_parameter = @ptrCast(raw) };
+            return Node{ .rest_parameter = @ptrCast(@alignCast(raw)) };
         }
 
         if (node_type == c.PM_REQUIRED_KEYWORD_PARAMETER_NODE) {
-            return Node{ .required_keyword_parameter = @ptrCast(raw) };
+            return Node{ .required_keyword_parameter = @ptrCast(@alignCast(raw)) };
         }
 
         if (node_type == c.PM_OPTIONAL_KEYWORD_PARAMETER_NODE) {
-            return Node{ .optional_keyword_parameter = @ptrCast(raw) };
+            return Node{ .optional_keyword_parameter = @ptrCast(@alignCast(raw)) };
         }
 
         if (node_type == c.PM_KEYWORD_REST_PARAMETER_NODE) {
-            return Node{ .keyword_rest_parameter = @ptrCast(raw) };
+            return Node{ .keyword_rest_parameter = @ptrCast(@alignCast(raw)) };
         }
 
         if (node_type == c.PM_NO_KEYWORDS_PARAMETER_NODE) {
-            return Node{ .no_keywords_parameter = @ptrCast(raw) };
+            return Node{ .no_keywords_parameter = @ptrCast(@alignCast(raw)) };
         }
 
         if (node_type == c.PM_KEYWORD_HASH_NODE) {
-            return Node{ .keyword_hash = @ptrCast(raw) };
+            return Node{ .keyword_hash = @ptrCast(@alignCast(raw)) };
         }
 
         if (node_type == c.PM_FORWARDING_SUPER_NODE) {
-            return Node{ .forwarding_super = @ptrCast(raw) };
+            return Node{ .forwarding_super = @ptrCast(@alignCast(raw)) };
         }
 
         if (node_type == c.PM_SUPER_NODE) {
-            return Node{ .super_node = @ptrCast(raw) };
+            return Node{ .super_node = @ptrCast(@alignCast(raw)) };
         }
 
         if (node_type == c.PM_REGULAR_EXPRESSION_NODE) {
-            return Node{ .regular_expression = @ptrCast(raw) };
+            return Node{ .regular_expression = @ptrCast(@alignCast(raw)) };
         }
 
         if (node_type == c.PM_ALIAS_METHOD_NODE) {
-            return Node{ .alias_method = @ptrCast(raw) };
+            return Node{ .alias_method = @ptrCast(@alignCast(raw)) };
         }
 
         if (node_type == c.PM_ALIAS_GLOBAL_VARIABLE_NODE) {
-            return Node{ .alias_global_variable = @ptrCast(raw) };
+            return Node{ .alias_global_variable = @ptrCast(@alignCast(raw)) };
         }
 
         if (node_type == c.PM_UNDEF_NODE) {
-            return Node{ .undef_node = @ptrCast(raw) };
+            return Node{ .undef_node = @ptrCast(@alignCast(raw)) };
         }
 
         if (node_type == c.PM_MULTI_WRITE_NODE) {
-            return Node{ .multi_write = @ptrCast(raw) };
+            return Node{ .multi_write = @ptrCast(@alignCast(raw)) };
         }
 
         if (node_type == c.PM_MULTI_TARGET_NODE) {
-            return Node{ .multi_target = @ptrCast(raw) };
+            return Node{ .multi_target = @ptrCast(@alignCast(raw)) };
         }
 
         if (node_type == c.PM_SPLAT_NODE) {
-            return Node{ .splat = @ptrCast(raw) };
+            return Node{ .splat = @ptrCast(@alignCast(raw)) };
         }
 
         if (node_type == c.PM_IMPLICIT_NODE) {
-            return Node{ .implicit = @ptrCast(raw) };
+            return Node{ .implicit = @ptrCast(@alignCast(raw)) };
         }
 
         if (node_type == c.PM_IMPLICIT_REST_NODE) {
-            return Node{ .implicit_rest = @ptrCast(raw) };
+            return Node{ .implicit_rest = @ptrCast(@alignCast(raw)) };
         }
 
         if (node_type == c.PM_GLOBAL_VARIABLE_TARGET_NODE) {
-            return Node{ .global_variable_target = @ptrCast(raw) };
+            return Node{ .global_variable_target = @ptrCast(@alignCast(raw)) };
         }
 
         if (node_type == c.PM_INSTANCE_VARIABLE_TARGET_NODE) {
-            return Node{ .instance_variable_target = @ptrCast(raw) };
+            return Node{ .instance_variable_target = @ptrCast(@alignCast(raw)) };
         }
 
         if (node_type == c.PM_CONSTANT_TARGET_NODE) {
-            return Node{ .constant_target = @ptrCast(raw) };
+            return Node{ .constant_target = @ptrCast(@alignCast(raw)) };
         }
 
         if (node_type == c.PM_CONSTANT_PATH_TARGET_NODE) {
-            return Node{ .constant_path_target = @ptrCast(raw) };
+            return Node{ .constant_path_target = @ptrCast(@alignCast(raw)) };
         }
 
         if (node_type == c.PM_CLASS_VARIABLE_TARGET_NODE) {
-            return Node{ .class_variable_target = @ptrCast(raw) };
+            return Node{ .class_variable_target = @ptrCast(@alignCast(raw)) };
         }
 
         if (node_type == c.PM_CLASS_VARIABLE_READ_NODE) {
-            return Node{ .class_variable_read = @ptrCast(raw) };
+            return Node{ .class_variable_read = @ptrCast(@alignCast(raw)) };
         }
 
         if (node_type == c.PM_CLASS_VARIABLE_WRITE_NODE) {
-            return Node{ .class_variable_write = @ptrCast(raw) };
+            return Node{ .class_variable_write = @ptrCast(@alignCast(raw)) };
         }
 
         if (node_type == c.PM_CLASS_VARIABLE_AND_WRITE_NODE) {
-            return Node{ .class_variable_and_write = @ptrCast(raw) };
+            return Node{ .class_variable_and_write = @ptrCast(@alignCast(raw)) };
         }
 
         if (node_type == c.PM_CLASS_VARIABLE_OR_WRITE_NODE) {
-            return Node{ .class_variable_or_write = @ptrCast(raw) };
+            return Node{ .class_variable_or_write = @ptrCast(@alignCast(raw)) };
         }
 
         if (node_type == c.PM_CLASS_VARIABLE_OPERATOR_WRITE_NODE) {
-            return Node{ .class_variable_operator_write = @ptrCast(raw) };
+            return Node{ .class_variable_operator_write = @ptrCast(@alignCast(raw)) };
         }
 
         if (node_type == c.PM_INDEX_TARGET_NODE) {
-            return Node{ .index_target = @ptrCast(raw) };
+            return Node{ .index_target = @ptrCast(@alignCast(raw)) };
         }
 
         if (node_type == c.PM_INDEX_AND_WRITE_NODE) {
-            return Node{ .index_and_write = @ptrCast(raw) };
+            return Node{ .index_and_write = @ptrCast(@alignCast(raw)) };
         }
 
         if (node_type == c.PM_INDEX_OR_WRITE_NODE) {
-            return Node{ .index_or_write = @ptrCast(raw) };
+            return Node{ .index_or_write = @ptrCast(@alignCast(raw)) };
         }
 
         if (node_type == c.PM_INDEX_OPERATOR_WRITE_NODE) {
-            return Node{ .index_operator_write = @ptrCast(raw) };
+            return Node{ .index_operator_write = @ptrCast(@alignCast(raw)) };
         }
 
         if (node_type == c.PM_CALL_TARGET_NODE) {
-            return Node{ .call_target = @ptrCast(raw) };
+            return Node{ .call_target = @ptrCast(@alignCast(raw)) };
         }
 
         if (node_type == c.PM_MATCH_WRITE_NODE) {
-            return Node{ .match_write = @ptrCast(raw) };
+            return Node{ .match_write = @ptrCast(@alignCast(raw)) };
         }
 
         if (node_type == c.PM_MATCH_REQUIRED_NODE) {
-            return Node{ .match_required = @ptrCast(raw) };
+            return Node{ .match_required = @ptrCast(@alignCast(raw)) };
         }
 
         if (node_type == c.PM_ARRAY_PATTERN_NODE) {
-            return Node{ .array_pattern = @ptrCast(raw) };
+            return Node{ .array_pattern = @ptrCast(@alignCast(raw)) };
         }
 
         if (node_type == c.PM_HASH_PATTERN_NODE) {
-            return Node{ .hash_pattern = @ptrCast(raw) };
+            return Node{ .hash_pattern = @ptrCast(@alignCast(raw)) };
         }
 
         if (node_type == c.PM_FIND_PATTERN_NODE) {
-            return Node{ .find_pattern = @ptrCast(raw) };
+            return Node{ .find_pattern = @ptrCast(@alignCast(raw)) };
         }
 
         if (node_type == c.PM_PINNED_VARIABLE_NODE) {
-            return Node{ .pinned_variable = @ptrCast(raw) };
+            return Node{ .pinned_variable = @ptrCast(@alignCast(raw)) };
         }
 
         if (node_type == c.PM_PINNED_EXPRESSION_NODE) {
-            return Node{ .pinned_expression = @ptrCast(raw) };
+            return Node{ .pinned_expression = @ptrCast(@alignCast(raw)) };
         }
 
         var stdout_buffer: [8192]u8 = undefined;

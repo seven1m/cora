@@ -8084,6 +8084,9 @@ pub const VM = struct {
         args: []const Value,
         opts: ChunkCallOptions,
     ) VMError!void {
+        if (method_chunk.no_block and opts.block != null) {
+            return self.raiseExceptionFmt(self.argument_error_class, "no block accepted", .{});
+        }
         var args_temp: TempValueSlice = .{};
         defer args_temp.deinit(self.allocator);
 
@@ -9077,6 +9080,7 @@ pub const VM = struct {
             .chunk => |chunk_blk| blk: {
                 const pending_unwind_before = self.pendingUnwind();
                 const proc_chunk = chunk_blk.chunk;
+                if (proc_chunk.no_block and block != null) return self.raiseExceptionFmt(self.argument_error_class, "no block accepted", .{});
                 const has_kw = kw_keys != null and kw_values != null and kw_values.?.len > 0;
                 var expanded_args: ?[]Value = null;
                 defer if (expanded_args) |buf| self.allocator.free(buf);
@@ -9187,6 +9191,7 @@ pub const VM = struct {
             .callable => |callable| self.callMethodByName(callable, "call", @constCast(args), block),
             .chunk => |chunk_blk| blk: {
                 const pending_unwind_before = self.pendingUnwind();
+                if (chunk_blk.chunk.no_block and block != null) return self.raiseExceptionFmt(self.argument_error_class, "no block accepted", .{});
                 const kw_ctx = self.builtin_keyword_ctx;
                 const kw_keys = if (kw_ctx) |ctx| if (ctx.kw_values.len > 0) ctx.kw_keys else null else null;
                 const kw_values = if (kw_ctx) |ctx| if (ctx.kw_values.len > 0) ctx.kw_values else null else null;
@@ -9343,6 +9348,7 @@ pub const VM = struct {
                         .chunk => |chunk_blk| {
                             const mn = method.name.name;
                             if (std.mem.eql(u8, mn, "call") or std.mem.eql(u8, mn, "[]") or std.mem.eql(u8, mn, "yield")) {
+                                if (chunk_blk.chunk.no_block and block != null) return self.raiseExceptionFmt(self.argument_error_class, "no block accepted", .{});
                                 const ft: CallFrame.FrameType = if (chunk_blk.chunk.is_lambda) .lambda else .proc;
                                 try self.pushBlockFrame(chunk_blk.chunk, chunk_blk.defining_ep, chunk_blk.defining_self, ft, .{
                                     .block = procCallBlock(block, chunk_blk.enclosing_block_proc),
@@ -9393,6 +9399,7 @@ pub const VM = struct {
                 switch (proc_obj.block.kind) {
                     .chunk => |chunk_blk| {
                         const proc_chunk = chunk_blk.chunk;
+                        if (proc_chunk.no_block and block != null) return self.raiseExceptionFmt(self.argument_error_class, "no block accepted", .{});
                         var expanded_args: ?[]Value = null;
                         defer if (expanded_args) |buf| self.allocator.free(buf);
                         var args_to_bind = dispatch.args;
@@ -9782,7 +9789,9 @@ pub const VM = struct {
         } else if (ch.no_keywords) {
             try self.appendChunkParameter(result, "nokey", "");
         }
-        if (ch.block_param_index) |slot| {
+        if (ch.no_block) {
+            try self.appendChunkParameter(result, "noblock", "");
+        } else if (ch.block_param_index) |slot| {
             try self.appendChunkParameter(result, "block", ch.local_names.items[slot]);
         }
         return Value.fromObject(&result.object);

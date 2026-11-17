@@ -18,6 +18,7 @@ pub const DirectiveToken = struct {
     count: ?usize = null,
     star: bool = false,
     native_size: bool = false,
+    alignment: ?usize = null,
     endianness: Endianness = .native,
     err_msg: ?[]const u8 = null,
 };
@@ -40,6 +41,12 @@ pub fn arrayPack(vm: *VM, items: []Value, format: []const u8) VMError!Value {
     for (tokens.items) |token| {
         if (token.err_msg) |msg| {
             return vm.raiseExceptionFmt(vm.argument_error_class, "{s}", .{msg});
+        }
+
+        if (token.alignment) |alignment| {
+            const remainder = out.items.len % alignment;
+            if (remainder != 0) try appendZeros(vm, &out, alignment - remainder);
+            continue;
         }
 
         switch (token.directive) {
@@ -209,6 +216,17 @@ pub fn stringUnpack(vm: *VM, source: *value.StringObject, base_offset: usize, fo
             return vm.raiseExceptionFmt(vm.argument_error_class, "{s}", .{msg});
         }
 
+        if (token.alignment) |alignment| {
+            const position = if (token.directive == '@') base_offset + index else index;
+            const remainder = position % alignment;
+            const padding = if (remainder == 0) 0 else alignment - remainder;
+            if (padding > bytes.len -| index) {
+                return vm.raiseExceptionFmt(vm.argument_error_class, "{c} outside of string", .{token.directive});
+            }
+            index += padding;
+            continue;
+        }
+
         switch (token.directive) {
             'A' => try unpackA(vm, out, bytes, &index, token),
             'a' => try unpacka(vm, out, bytes, &index, token),
@@ -293,6 +311,45 @@ fn tokenize(vm: *VM, format: []const u8) VMError!std.ArrayList(DirectiveToken) {
 
         var token = DirectiveToken{ .directive = format[i] };
         i += 1;
+
+        if ((token.directive == 'x' or token.directive == '@') and i < format.len and format[i] == '!') {
+            i += 1;
+            if (i == format.len) return vm.raiseExceptionFmt(vm.argument_error_class, "missing alignment", .{});
+            var alignment: usize = 0;
+            if (std.ascii.isDigit(format[i])) {
+                while (i < format.len and std.ascii.isDigit(format[i])) : (i += 1) {
+                    alignment = std.math.mul(usize, alignment, 10) catch return vm.raiseExceptionFmt(vm.range_error_class, "invalid alignment", .{});
+                    alignment = std.math.add(usize, alignment, format[i] - '0') catch return vm.raiseExceptionFmt(vm.range_error_class, "invalid alignment", .{});
+                }
+                if (alignment == 0 or alignment > std.math.maxInt(isize)) return vm.raiseExceptionFmt(vm.range_error_class, "invalid alignment", .{});
+            } else {
+                const directive = format[i];
+                i += 1;
+                const native = i < format.len and (format[i] == '!' or format[i] == '_');
+                if (native) {
+                    if (!allowsIntModifiers(directive)) return vm.raiseExceptionFmt(vm.argument_error_class, "'_' and '!' allowed only after types sSiIlLqQjJ", .{});
+                    i += 1;
+                }
+                if (i < format.len and (format[i] == '<' or format[i] == '>')) return vm.raiseExceptionFmt(vm.argument_error_class, "endian modifier is not allowed for alignment", .{});
+                alignment = switch (directive) {
+                    'c', 'C' => 1,
+                    's', 'S' => if (native) @alignOf(c_short) else 2,
+                    'i', 'I' => @alignOf(c_int),
+                    'l', 'L' => if (native) @alignOf(c_long) else 4,
+                    'q', 'Q' => @alignOf(i64),
+                    'j', 'J' => @alignOf(usize),
+                    'n', 'v' => @alignOf(u16),
+                    'N', 'V' => @alignOf(u32),
+                    'f', 'F', 'e', 'g' => @alignOf(f32),
+                    'd', 'D', 'E', 'G' => @alignOf(f64),
+                    'p', 'P' => @alignOf(usize),
+                    else => return vm.raiseExceptionFmt(vm.argument_error_class, "unknown alignment directive '{c}'", .{directive}),
+                };
+            }
+            token.alignment = alignment;
+            list.append(vm.allocator, token) catch return error.Fatal;
+            continue;
+        }
 
         if (i < format.len and (format[i] == '>' or format[i] == '<')) {
             applyEndiannessModifier(&token, format[i]);

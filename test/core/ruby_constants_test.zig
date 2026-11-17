@@ -10,10 +10,10 @@ test "RUBY_ENGINE is cora" {
     try std.testing.expectEqualSlices(u8, "cora", result.toStringObject().str);
 }
 
-test "RUBY_VERSION is 4.0.0" {
+test "RUBY_VERSION is 4.1.0" {
     const result = try evalCode("RUBY_VERSION");
     try std.testing.expect(result.isString());
-    try std.testing.expectEqualSlices(u8, "4.0.0", result.toStringObject().str);
+    try std.testing.expectEqualSlices(u8, "4.1.0", result.toStringObject().str);
 }
 
 test "RUBY_PLATFORM matches build target arch-os" {

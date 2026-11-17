@@ -274,9 +274,9 @@ pub fn register(vm: *VM) !void {
     try vm.string_class.module.methods.put(string_delete_bang_sym, value.MethodEntry.builtin(&builtinStringDeleteBang, .{ .variadic = 0 }));
 
     const string_tr_sym = try vm.intern("tr");
-    try vm.string_class.module.methods.put(string_tr_sym, value.MethodEntry.builtin(&builtinStringTr, .{ .exact = 2 }));
+    try vm.string_class.module.methods.put(string_tr_sym, value.MethodEntry.builtin(&builtinStringTr, .{ .variadic = 0 }));
     const string_tr_bang_sym = try vm.intern("tr!");
-    try vm.string_class.module.methods.put(string_tr_bang_sym, value.MethodEntry.builtin(&builtinStringTrBang, .{ .exact = 2 }));
+    try vm.string_class.module.methods.put(string_tr_bang_sym, value.MethodEntry.builtin(&builtinStringTrBang, .{ .variadic = 0 }));
 
     const string_tr_s_sym = try vm.intern("tr_s");
     try vm.string_class.module.methods.put(string_tr_s_sym, value.MethodEntry.builtin(&builtinStringTrS, .{ .exact = 2 }));
@@ -4514,18 +4514,86 @@ fn stringTrSCompute(vm: *VM, string_obj: *value.StringObject, from_arg: Value, t
     };
 }
 
+const TrPairsResult = struct {
+    bytes: []const u8,
+    encoding: enc.Encoding,
+    modified: bool,
+};
+
+fn stringTrPairs(vm: *VM, string_obj: *value.StringObject, pairs: Value) VMError!TrPairsResult {
+    if (!pairs.isHash()) return vm.raiseExceptionFmt(vm.type_error_class, "wrong argument type {s} (expected Hash)", .{vm.className(pairs)});
+    const source_entries = pairs.toHashObject().entries.items;
+    if (string_obj.str.len == 0 or source_entries.len == 0) return .{ .bytes = string_obj.str, .encoding = string_obj.encoding, .modified = false };
+    // Coercion may mutate the input hash, so do not retain its backing slice.
+    const entries = vm.gc_allocator.dupe(value.HashEntry, source_entries) catch return error.Fatal;
+
+    var table: std.AutoHashMap(u32, Value) = .init(vm.allocator);
+    defer table.deinit();
+    var combined: std.ArrayList(u8) = .empty;
+    defer combined.deinit(vm.allocator);
+    combined.appendSlice(vm.allocator, string_obj.str) catch return error.Fatal;
+    var result_encoding = string_obj.encoding;
+    for (entries) |entry| {
+        const key = try entry.key.coerceToStringValue(vm, "no implicit conversion into String");
+        const replacement = try entry.value.coerceToStringValue(vm, "no implicit conversion into String");
+        const key_obj = key.toStringObject();
+        const replacement_obj = replacement.toStringObject();
+        var pos: usize = 0;
+        const cp = key_obj.encoding.nextCodepoint(key_obj.str, &pos);
+        if (!cp.valid or cp.len == 0 or pos != key_obj.str.len) return vm.raiseExceptionFmt(vm.argument_error_class, "keys must be of size 1", .{});
+        for ([_]*value.StringObject{ key_obj, replacement_obj }) |part| {
+            result_encoding = resolveStringConcatEncoding(result_encoding, combined.items, part.encoding, part.str) orelse {
+                return vm.raiseEncodingCompatibilityError(result_encoding, part.encoding);
+            };
+            combined.appendSlice(vm.allocator, part.str) catch return error.Fatal;
+        }
+        table.put(cp.codepoint, replacement) catch return error.Fatal;
+    }
+
+    var out: std.ArrayList(u8) = .empty;
+    defer out.deinit(vm.gc_allocator_atomic);
+    var pos: usize = 0;
+    var modified = false;
+    while (pos < string_obj.str.len) {
+        const start = pos;
+        const cp = string_obj.encoding.nextCodepoint(string_obj.str, &pos);
+        if (!cp.valid or cp.len == 0) return vm.raiseExceptionFmt(vm.argument_error_class, "invalid byte sequence in {s}", .{string_obj.encoding.name()});
+        if (table.get(cp.codepoint)) |replacement| {
+            out.appendSlice(vm.gc_allocator_atomic, replacement.toStringObject().str) catch return error.Fatal;
+            modified = true;
+        } else {
+            out.appendSlice(vm.gc_allocator_atomic, string_obj.str[start..pos]) catch return error.Fatal;
+        }
+    }
+    return .{ .bytes = out.toOwnedSlice(vm.gc_allocator_atomic) catch return error.Fatal, .encoding = result_encoding, .modified = modified };
+}
+
 pub fn builtinStringTr(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
-    try vm.requireArgCount(args, 2);
+    try vm.requireArgCountRange(args, 1, 2);
     const string_obj = receiver.toStringObject();
+    if (args.len == 1) {
+        const result = try stringTrPairs(vm, string_obj, args[0]);
+        return vm.newStringWithEncoding(result.bytes, false, if (result.modified) result.encoding else string_obj.encoding);
+    }
     const result = try stringTrCompute(vm, string_obj, args[0], args[1]);
     return try vm.newStringWithEncoding(result.bytes, false, string_obj.encoding);
 }
 
 pub fn builtinStringTrBang(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
-    try vm.requireArgCount(args, 2);
+    try vm.requireArgCountRange(args, 1, 2);
+    if (args.len == 1 and !args[0].isHash()) return vm.raiseExceptionFmt(vm.type_error_class, "wrong argument type {s} (expected Hash)", .{vm.className(args[0])});
     try vm.guardNotFrozen(receiver);
 
     const string_obj = receiver.toStringObject();
+    if (args.len == 1) {
+        const result = try stringTrPairs(vm, string_obj, args[0]);
+        if (!result.modified) return Value.nil();
+        string_obj.replaceBytes(result.bytes);
+        string_obj.encoding = result.encoding;
+        string_obj.validity = .unknown;
+        string_obj.symbol_to_s_source = null;
+        return receiver;
+    }
     const result = try stringTrCompute(vm, string_obj, args[0], args[1]);
     if (!result.modified) return Value.nil();
 
@@ -6481,14 +6549,12 @@ pub fn builtinStringUnpack(vm: *VM, receiver: Value, args: []Value, _: ?Block) V
             "no implicit conversion into Integer",
             "bignum too big to convert into `long`",
         );
-        if (offset_i64 < 0) {
-            return vm.raiseExceptionFmt(vm.argument_error_class, "offset can't be negative", .{});
-        }
-
-        offset = @intCast(offset_i64);
-        if (offset > receiver.toStringObject().str.len) {
+        const len = receiver.toStringObject().str.len;
+        const absolute_offset: i128 = if (offset_i64 < 0) @as(i128, @intCast(len)) + offset_i64 else offset_i64;
+        if (absolute_offset < 0 or absolute_offset > len) {
             return vm.raiseExceptionFmt(vm.argument_error_class, "offset outside of string", .{});
         }
+        offset = @intCast(absolute_offset);
     }
 
     const format = try args[0].coerceToStr(vm, "no implicit conversion into String");

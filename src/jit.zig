@@ -147,7 +147,7 @@ pub fn validateChunk(ch: *chunk_mod.Chunk) !void {
     if (!ch.is_simple_positional or ch.arity > 2) return error.NotEligible;
     if (ch.optional_params.items.len != 0 or ch.rest_param_index != null or ch.post_required_count != 0) return error.NotEligible;
     if (ch.required_keywords.items.len != 0 or ch.optional_keywords.items.len != 0 or ch.keyword_rest_index != null or ch.no_keywords) return error.NotEligible;
-    if (ch.block_param_index != null or ch.exception_handlers.items.len != 0) return error.NotEligible;
+    if (ch.no_block or ch.block_param_index != null or ch.exception_handlers.items.len != 0) return error.NotEligible;
 
     var ip: usize = 0;
     while (ip < ch.code.items.len) {

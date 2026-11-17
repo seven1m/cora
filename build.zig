@@ -5,7 +5,7 @@ const native_extension_suffix = "." ++ rbconfig.nativeExtension();
 
 const optimize_state_path = "build/build-mode";
 const runtime_prefix = "build";
-const ruby_gem_api_version = "4.0.0";
+const ruby_gem_api_version = "4.1.0";
 const onigmo_build_root = "build/onigmo";
 const rubygems_build_root = "build/rubygems";
 const psych_build_root = "build/psych";
@@ -241,23 +241,28 @@ fn buildOnigmo(b: *std.Build) *std.Build.Step {
     return onigmo_build_step;
 }
 
-fn buildPrism(b: *std.Build) *std.Build.Step {
+fn buildPrism(b: *std.Build, submodule_update_step: ?*std.Build.Step) *std.Build.Step {
     const prism_build_step = b.step("prism", "Build Prism library");
-
-    const libprism_path = prism_build_root ++ "/build/libprism.a";
-
-    const libprism_exists = pathExists(b, libprism_path);
-
-    var source_step: ?*std.Build.Step = null;
-    if (!libprism_exists) {
-        const copy_step = b.addSystemCommand(&.{ "sh", "-c", "mkdir -p build/prism && cp -r ext/prism/* build/prism/" });
-        const overlay_step = b.addSystemCommand(&.{ "sh", "-c", "cp -r ext/prism-templates/* build/prism/" });
-        overlay_step.step.dependOn(&copy_step.step);
-        source_step = &overlay_step.step;
-    }
+    const source_step = b.addSystemCommand(&.{
+        "sh", "-c",
+        \\changed=false
+        \\for source in ext/prism/src/*.c ext/prism/include/prism/*.h; do
+        \\  cmp -s "$source" "build/prism/${source#ext/prism/}" || changed=true
+        \\done
+        \\for source in ext/prism-templates/include/prism/*.h ext/prism-templates/src/*.c; do
+        \\  cmp -s "$source" "build/prism/${source#ext/prism-templates/}" || changed=true
+        \\done
+        \\if [ "$changed" = true ]; then
+        \\  rm -rf build/prism
+        \\  mkdir -p build/prism
+        \\  cp -r ext/prism/* build/prism/
+        \\  cp -r ext/prism-templates/* build/prism/
+        \\fi
+    });
+    if (submodule_update_step) |step| source_step.step.dependOn(step);
 
     const make_step = b.addSystemCommand(&.{ "make", "-C", "build/prism", "static", "shared", b.fmt("SOEXT={s}", .{rbconfig.sharedLibraryExtension()}) });
-    if (source_step) |step| make_step.step.dependOn(step);
+    make_step.step.dependOn(&source_step.step);
     prism_build_step.dependOn(&make_step.step);
 
     return prism_build_step;
@@ -601,7 +606,7 @@ pub fn build(b: *std.Build) void {
     options.addOption(u32, "test_timeout", test_timeout);
     const build_options_mod = options.createModule();
 
-    const prism_build_step = buildPrism(b);
+    const prism_build_step = buildPrism(b, submodule_update_step);
     const psych_build = buildPsych(b);
     const psych_build_step = psych_build.step;
     const strscan_build = buildStrscan(b);
@@ -843,7 +848,7 @@ pub fn build(b: *std.Build) void {
         install_json_default_gem_parser_so,
         install_json_default_gem_generator_so,
     });
-    const remove_legacy_csv_default_spec = b.addSystemCommand(&.{ "rm", "-f", b.getInstallPath(.prefix, "lib/gems/4.0.0/specifications/default/csv-3.3.6.gemspec") });
+    const remove_legacy_csv_default_spec = b.addSystemCommand(&.{ "rm", "-f", b.getInstallPath(.prefix, "lib/gems/4.1.0/specifications/default/csv-3.3.6.gemspec") });
     b.getInstallStep().dependOn(&remove_legacy_csv_default_spec.step);
     _ = addWriteGemSpec(b, "ext/yaml", "yaml", yaml_gem_version, .default, &.{
         &install_exe.step,

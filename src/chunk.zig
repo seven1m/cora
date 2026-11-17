@@ -131,6 +131,7 @@ pub const Chunk = struct {
     optional_keywords: std.ArrayList(OptionalKeyword) = .empty,
     keyword_rest_index: ?u16 = null,
     no_keywords: bool = false,
+    no_block: bool = false,
     has_forwarding_parameter: bool = false,
     keyword_metadata: std.ArrayList(KeywordMetadata) = .empty,
     block_param_index: ?u16 = null,

@@ -245,7 +245,9 @@ pub fn parametersForResolvedMethod(vm: *VM, resolved: vm_mod.ResolvedMethod) VME
             } else if (method_chunk.keyword_rest_index) |slot| {
                 try appendParameterDescriptor(vm, out, "keyrest", chunkParameterName(method_chunk, slot));
             }
-            if (method_chunk.block_param_index) |slot| {
+            if (method_chunk.no_block) {
+                try appendParameterDescriptor(vm, out, "noblock", null);
+            } else if (method_chunk.block_param_index) |slot| {
                 try appendParameterDescriptor(vm, out, "block", chunkParameterName(method_chunk, slot));
             } else if (method_chunk.has_forwarding_parameter) {
                 try appendParameterDescriptor(vm, out, "block", "&");

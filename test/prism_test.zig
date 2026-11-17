@@ -37,7 +37,7 @@ test "Parser.lineColumn uses parsed newline offsets" {
     var parser = try Parser.init(allocator, source, null);
     defer parser.deinit();
 
-    try std.testing.expectEqual(Parser.LineColumn{ .line = 1, .column = 0 }, parser.lineColumn(source.ptr));
-    try std.testing.expectEqual(Parser.LineColumn{ .line = 2, .column = 2 }, parser.lineColumn(source.ptr + 8));
-    try std.testing.expectEqual(Parser.LineColumn{ .line = 3, .column = 0 }, parser.lineColumn(source.ptr + 15));
+    try std.testing.expectEqual(Parser.LineColumn{ .line = 1, .column = 0 }, parser.lineColumn(0));
+    try std.testing.expectEqual(Parser.LineColumn{ .line = 2, .column = 2 }, parser.lineColumn(8));
+    try std.testing.expectEqual(Parser.LineColumn{ .line = 3, .column = 0 }, parser.lineColumn(15));
 }

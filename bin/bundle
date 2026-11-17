@@ -11,7 +11,7 @@ if [ ! -x "${cora}" ] || [ ! -f "${bundle}" ]; then
 fi
 
 GEM_HOME="${repo}/.gem"
-GEM_PATH="${GEM_HOME}:${repo}/build/lib/gems/4.0.0"
+GEM_PATH="${GEM_HOME}:${repo}/build/lib/gems/4.1.0"
 export GEM_HOME GEM_PATH
 
 exec "${cora}" "${bundle}" "$@"

@@ -516,3 +516,17 @@ test "anonymous block parameter defined via module_eval forwards" {
     );
     try std.testing.expectEqual(@as(i64, 43), result.toInteger());
 }
+
+test "no-block parameters reject passed blocks and appear in reflection" {
+    const result = try evalCode(
+        \\def no_block_method(&nil); :ok; end
+        \\pr = proc { |&nil| :ok }
+        \\klass = Class.new { define_method(:no_block, &pr) }
+        \\method_error = begin; no_block_method {}; false; rescue ArgumentError => e; e.message == "no block accepted"; end
+        \\proc_error = begin; pr.call {}; false; rescue ArgumentError => e; e.message == "no block accepted"; end
+        \\defined_error = begin; klass.new.no_block {}; false; rescue ArgumentError => e; e.message == "no block accepted"; end
+        \\no_block_method == :ok && pr.call == :ok && method(:no_block_method).parameters == [[:noblock]] &&
+        \\  pr.parameters == [[:noblock]] && method_error && proc_error && defined_error
+    );
+    try std.testing.expect(result.isTruthy());
+}
