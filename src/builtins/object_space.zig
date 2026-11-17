@@ -36,6 +36,9 @@ pub fn register(vm: *VM) !void {
 
     const size_sym = try vm.intern("size");
     try weak_map_class.module.methods.put(size_sym, value.MethodEntry.builtin(&builtinWeakMapSize, .{ .exact = 0 }));
+
+    const length_sym = try vm.intern("length");
+    try weak_map_class.module.methods.put(length_sym, value.MethodEntry.builtin(&builtinWeakMapSize, .{ .exact = 0 }));
 }
 
 fn builtinEachObject(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
