@@ -2,6 +2,7 @@ const std = @import("std");
 const onigmo = @import("../onigmo.zig");
 const vm_mod = @import("../vm.zig");
 const value = @import("../value.zig");
+const string = @import("string.zig");
 
 const VM = vm_mod.VM;
 const VMError = vm_mod.VMError;
@@ -14,6 +15,9 @@ pub fn register(vm: *VM) !void {
 
     const match_sym = try vm.intern("match");
     try vm.match_data_class.module.methods.put(match_sym, value.MethodEntry.builtin(&builtinMatchDataMatch, .{ .exact = 1 }));
+
+    const integer_at_sym = try vm.intern("integer_at");
+    try vm.match_data_class.module.methods.put(integer_at_sym, value.MethodEntry.builtin(&builtinMatchDataIntegerAt, .{ .variadic = 0 }));
 
     const captures_sym = try vm.intern("captures");
     try vm.match_data_class.module.methods.put(captures_sym, value.MethodEntry.builtin(&builtinMatchDataCaptures, .{ .exact = 0 }));
@@ -245,6 +249,41 @@ fn builtinMatchDataBracket(vm: *VM, receiver: Value, args: []Value, _: ?Block) V
 
 fn builtinMatchDataMatch(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
     return builtinMatchDataBracket(vm, receiver, args, block);
+}
+
+fn builtinMatchDataIntegerAt(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCountRange(args, 1, 2);
+    const md = try getMatchData(receiver);
+    var index: ?i64 = null;
+    if (args[0].isInteger()) {
+        index = args[0].toInteger();
+        if (index.? < std.math.minInt(i32) or index.? > std.math.maxInt(i32)) return vm.raiseExceptionFmt(vm.range_error_class, "integer {d} too big to convert to `int'", .{index.?});
+    } else {
+        if (!args[0].isSymbol() and !args[0].isString()) {
+            const inspected = try vm.callMethodByName(args[0], "inspect", &.{}, null);
+            return vm.raiseExceptionFmt(vm.index_error_class, "undefined group name reference: {s}", .{inspected.toStringObject().str});
+        }
+        const name = if (args[0].isSymbol()) args[0].toSymbolObject().name else args[0].toStringObject().str;
+        if (try resolveNamedCaptureIndex(vm, md, name)) |named_index| index = @intCast(named_index);
+    }
+
+    var base: i64 = 10;
+    if (args.len == 2) {
+        base = try args[1].coerceToI64ViaToInt(vm, "no implicit conversion into Integer", "no implicit conversion into Integer", "integer too big to convert into `int`");
+        if (base < std.math.minInt(i32) or base > std.math.maxInt(i32)) return vm.raiseExceptionFmt(vm.range_error_class, "integer {d} too big to convert to `int'", .{base});
+        if (base < 0) return vm.raiseExceptionFmt(vm.argument_error_class, "invalid radix {d}", .{base});
+    }
+    var actual = index orelse return Value.nil();
+    const len: i64 = @intCast(md.captures.items.len);
+    if (actual < 0) {
+        actual += len;
+        if (actual <= 0) return Value.nil();
+    }
+    if (actual >= len) return Value.nil();
+    const capture = md.captures.items[@intCast(actual)];
+    if (capture.isNil()) return Value.nil();
+    const parsed = try string.parseStringToInteger(vm, capture.toStringObject().str, base, 10);
+    return if (parsed.saw_digit) parsed.value else Value.nil();
 }
 
 fn builtinMatchDataCaptures(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {

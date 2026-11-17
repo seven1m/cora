@@ -4,6 +4,26 @@ const test_helper = @import("../test_helper.zig");
 const evalCode = test_helper.evalCode;
 const evalCodeWithOutput = test_helper.evalCodeWithOutput;
 
+test "MatchData integer_at handles named captures and conversion boundaries" {
+    const result = try evalCode(
+        \\m = /(?<number>12x)(?<missing>z)?/.match("12x")
+        \\[m.integer_at(:number), m.integer_at("number", 16), m.integer_at(:missing),
+        \\ m.integer_at(-1), m.integer_at(-2), m.integer_at(-3), m.integer_at(99, 1),
+        \\ (begin m.integer_at(:absent); rescue IndexError; :missing_name; end),
+        \\ (begin m.integer_at(0, 1); rescue ArgumentError; :invalid_base; end)]
+    );
+    const values = result.toArrayObject().elements.items;
+    try std.testing.expectEqual(@as(i64, 12), values[0].toInteger());
+    try std.testing.expectEqual(@as(i64, 18), values[1].toInteger());
+    try std.testing.expect(values[2].isNil());
+    try std.testing.expect(values[3].isNil());
+    try std.testing.expectEqual(@as(i64, 12), values[4].toInteger());
+    try std.testing.expect(values[5].isNil());
+    try std.testing.expect(values[6].isNil());
+    try std.testing.expectEqualStrings("missing_name", values[7].toSymbolObject().name);
+    try std.testing.expectEqualStrings("invalid_base", values[8].toSymbolObject().name);
+}
+
 test "$+ returns the last non-nil regexp capture during scan" {
     const result = try evalCode(
         \\captures = []

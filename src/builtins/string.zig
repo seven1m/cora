@@ -5649,7 +5649,7 @@ fn stringUptoGeneric(vm: *VM, receiver: Value, beg_obj: *const value.StringObjec
     }
 }
 
-pub fn parseStringToInteger(vm: *VM, s: []const u8, requested_base: i64, default_base_when_zero: u8) VMError!struct { value: Value, end_pos: usize } {
+pub fn parseStringToInteger(vm: *VM, s: []const u8, requested_base: i64, default_base_when_zero: u8) VMError!struct { value: Value, end_pos: usize, saw_digit: bool = true } {
     if ((requested_base < 2 or requested_base > 36) and requested_base != 0) {
         return vm.raiseExceptionFmt(vm.argument_error_class, "invalid radix {d}", .{requested_base});
     }
@@ -5740,7 +5740,7 @@ pub fn parseStringToInteger(vm: *VM, s: []const u8, requested_base: i64, default
         value_big.?.addScalar(&value_big.?, d) catch return error.Fatal;
     }
 
-    if (!saw_digit) return .{ .value = Value.integer(0), .end_pos = i };
+    if (!saw_digit) return .{ .value = Value.integer(0), .end_pos = i, .saw_digit = false };
 
     if (value_big) |*big| {
         if (negative and !big.eqlZero()) {
