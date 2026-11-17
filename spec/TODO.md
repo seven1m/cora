@@ -670,11 +670,11 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] core/false/case_compare_spec.rb
 - [x] core/false/dup_spec.rb
 - [x] core/false/falseclass_spec.rb
-- [-] core/false/inspect_spec.rb
+- [x] core/false/inspect_spec.rb
 - [x] core/false/or_spec.rb
 - [x] core/false/singleton_method_spec.rb
 - [x] core/false/to_s_spec.rb
-- [-] core/false/xor_spec.rb
+- [x] core/false/xor_spec.rb
 
 ### core/fiber
 - [x] core/fiber/alive_spec.rb

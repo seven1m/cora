@@ -11,7 +11,9 @@ pub fn register(vm: *VM) !void {
     try vm.false_class.module.methods.put(to_s_sym, value.MethodEntry.builtin(&builtinFalseClassToS, .{ .exact = 0 }));
 
     const inspect_sym = try vm.intern("inspect");
-    try vm.false_class.module.methods.put(inspect_sym, value.MethodEntry.builtin(&builtinFalseClassInspect, .{ .exact = 0 }));
+    var inspect_entry = value.MethodEntry.builtin(&builtinFalseClassToS, .{ .exact = 0 });
+    inspect_entry.original_name = to_s_sym;
+    try vm.false_class.module.methods.put(inspect_sym, inspect_entry);
 
     const equal_sym = try vm.intern("==");
     try vm.false_class.module.methods.put(equal_sym, value.MethodEntry.builtin(&builtinFalseClassEqual, .{ .exact = 1 }));
@@ -23,7 +25,7 @@ pub fn register(vm: *VM) !void {
     try vm.false_class.module.methods.put(or_sym, value.MethodEntry.builtin(&builtinFalseClassOr, .{ .exact = 1 }));
 
     const xor_sym = try vm.intern("^");
-    try vm.false_class.module.methods.put(xor_sym, value.MethodEntry.builtin(&builtinFalseClassXor, .{ .exact = 1 }));
+    try vm.false_class.module.methods.put(xor_sym, value.MethodEntry.builtin(&builtinFalseClassOr, .{ .exact = 1 }));
 
     const case_compare_sym = try vm.intern("===");
     try vm.false_class.module.methods.put(case_compare_sym, value.MethodEntry.builtin(&builtinFalseClassCaseCompare, .{ .exact = 1 }));
@@ -33,10 +35,6 @@ pub fn builtinFalseClassToS(vm: *VM, _: Value, args: []Value, _: ?Block) VMError
     try vm.requireArgCount(args, 0);
 
     return try vm.getOrCreateCanonicalFString("false", .{ .utf8 = .{} });
-}
-
-pub fn builtinFalseClassInspect(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
-    return builtinFalseClassToS(vm, receiver, args, block);
 }
 
 pub fn builtinFalseClassEqual(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
@@ -50,11 +48,6 @@ pub fn builtinFalseClassAnd(vm: *VM, _: Value, args: []Value, _: ?Block) VMError
 }
 
 pub fn builtinFalseClassOr(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
-    try vm.requireArgCount(args, 1);
-    return Value.boolean(args[0].isTruthy());
-}
-
-pub fn builtinFalseClassXor(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 1);
     return Value.boolean(args[0].isTruthy());
 }
