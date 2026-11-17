@@ -4269,7 +4269,7 @@ Source baseline: ../ruby_spec compared to local spec/
 
 ### library/zlib
 - [x] library/zlib/deflate_spec.rb
-- [ ] library/zlib/gunzip_spec.rb
+- [x] library/zlib/gunzip_spec.rb
 - [ ] library/zlib/gzip_spec.rb
 
 ### library/zlib/gzipfile
