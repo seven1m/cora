@@ -210,7 +210,11 @@ pub fn register(vm: *VM) !void {
     try vm.io_class.module.methods.put(pos_set_sym, value.MethodEntry.builtin(&builtinIoPosSet, .{ .exact = 1 }));
 
     const tty_q_sym = try vm.intern("tty?");
-    try vm.io_class.module.methods.put(tty_q_sym, value.MethodEntry.builtin(&builtinIoTtyQ, .{ .exact = 0 }));
+    const tty_q_entry = value.MethodEntry.builtin(&builtinIoTtyQ, .{ .exact = 0 });
+    try vm.io_class.module.methods.put(tty_q_sym, tty_q_entry);
+
+    const isatty_sym = try vm.intern("isatty");
+    try vm.io_class.module.methods.put(isatty_sym, tty_q_entry);
 
     const gets_sym = try vm.intern("gets");
     try vm.io_class.module.methods.put(gets_sym, value.MethodEntry.builtin(&builtinIoGets, .{ .variadic = 0 }));

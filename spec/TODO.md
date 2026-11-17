@@ -1123,7 +1123,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/io/internal_encoding_spec.rb
 - [ ] core/io/io_spec.rb
 - [ ] core/io/ioctl_spec.rb
-- [ ] core/io/isatty_spec.rb
+- [x] core/io/isatty_spec.rb
 - [ ] core/io/lineno_spec.rb
 - [ ] core/io/new_spec.rb
 - [ ] core/io/nonblock_spec.rb
