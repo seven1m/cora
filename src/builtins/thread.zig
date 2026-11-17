@@ -123,7 +123,11 @@ pub fn register(vm: *VM) !void {
     try vm.thread_class.module.methods.put(priority_set_sym, value.MethodEntry.builtin(&builtinThreadPrioritySet, .{ .exact = 1 }));
 
     const inspect_sym = try vm.intern("inspect");
-    try vm.thread_class.module.methods.put(inspect_sym, value.MethodEntry.builtin(&builtinThreadInspect, .{ .exact = 0 }));
+    const inspect_entry = value.MethodEntry.builtin(&builtinThreadInspect, .{ .exact = 0 });
+    try vm.thread_class.module.methods.put(inspect_sym, inspect_entry);
+
+    const to_s_sym = try vm.intern("to_s");
+    try vm.thread_class.module.methods.put(to_s_sym, inspect_entry);
 
     const backtrace_sym = try vm.intern("backtrace");
     try vm.thread_class.module.methods.put(backtrace_sym, value.MethodEntry.builtin(&builtinThreadBacktrace, .{ .exact = 0 }));
@@ -143,7 +147,6 @@ pub fn register(vm: *VM) !void {
     const lineno_sym = try vm.intern("lineno");
     try vm.thread_backtrace_location_class.module.methods.put(lineno_sym, value.MethodEntry.builtin(&builtinThreadBacktraceLocationLineno, .{ .exact = 0 }));
 
-    const to_s_sym = try vm.intern("to_s");
     try vm.thread_backtrace_location_class.module.methods.put(to_s_sym, value.MethodEntry.builtin(&builtinThreadBacktraceLocationToS, .{ .exact = 0 }));
 
     const location_inspect_sym = try vm.intern("inspect");
