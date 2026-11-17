@@ -1308,6 +1308,19 @@ test "Kernel#method raises NameError for missing method" {
     try std.testing.expect(std.mem.indexOf(u8, bad.stderr, "NameError") != null);
 }
 
+test "Hash equality respects identity comparison mode in both directions" {
+    const result = try evalCode(
+        \\ordinary = {1 => 2}
+        \\identity = {1 => 2}.compare_by_identity
+        \\empty = {}
+        \\empty_identity = {}.compare_by_identity
+        \\!(ordinary == identity) && !(identity == ordinary) &&
+        \\  !ordinary.eql?(identity) && !identity.eql?(ordinary) &&
+        \\  empty.eql?(empty_identity) && empty_identity.eql?(empty)
+    );
+    try std.testing.expect(result.isTruthy());
+}
+
 test "Hash#default= sets value returned for missing keys" {
     const result = try evalCode(
         \\h = {}

@@ -1359,6 +1359,7 @@ pub fn builtinHashEqual(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMEr
     }
     defer vm.leaveRecursionGuard(.hash_equal, receiver, args[0]);
     if (lhs.entries.items.len != rhs.entries.items.len) return Value.boolean(false);
+    if (lhs.entries.items.len != 0 and lhs.compare_by_identity != rhs.compare_by_identity) return Value.boolean(false);
 
     for (lhs.entries.items) |entry| {
         const rhs_entry = (try vm.hashGetEntry(rhs, entry.key)) orelse return Value.boolean(false);
@@ -1380,6 +1381,7 @@ pub fn builtinHashEql(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMErro
     }
     defer vm.leaveRecursionGuard(.hash_eql, receiver, args[0]);
     if (lhs.entries.items.len != rhs.entries.items.len) return Value.boolean(false);
+    if (lhs.entries.items.len != 0 and lhs.compare_by_identity != rhs.compare_by_identity) return Value.boolean(false);
 
     for (lhs.entries.items) |entry| {
         const rhs_entry = (try vm.hashGetEntry(rhs, entry.key)) orelse return Value.boolean(false);
