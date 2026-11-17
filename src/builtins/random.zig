@@ -323,7 +323,7 @@ pub fn builtinRandomSingletonSeed(vm: *VM, _: Value, args: []Value, _: ?Block) V
 
 pub fn builtinRandomSingletonNewSeed(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
-    return Value.integer(@intCast(nextSeed(vm)));
+    return Value.integer(@intCast(nextSeed(vm) & (@as(u64, std.math.maxInt(i64)) >> 1)));
 }
 
 pub fn builtinRandomSingletonUrandom(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
