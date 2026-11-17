@@ -105,7 +105,7 @@ fn builtinWeakMapInitialize(vm: *VM, receiver: Value, args: []Value, block: ?Blo
 
 fn weakMapIndex(wm: *value.WeakMapObject, key: Value) ?usize {
     for (wm.keys.items, 0..) |k, i| {
-        if (k.eql(key)) return i;
+        if (k.raw == key.raw) return i;
     }
     return null;
 }
