@@ -1979,7 +1979,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/string/bit_flip_spec.rb
 - [x] core/string/bit_get_spec.rb
 - [x] core/string/bit_set_p_spec.rb
-- [ ] core/string/bit_set_spec.rb
+- [x] core/string/bit_set_spec.rb
 - [ ] core/string/bitwise_and_spec.rb
 - [ ] core/string/bitwise_not_spec.rb
 - [ ] core/string/bitwise_or_spec.rb

@@ -169,6 +169,9 @@ pub fn register(vm: *VM) !void {
     const string_bit_set_p_sym = try vm.intern("bit_set?");
     try vm.string_class.module.methods.put(string_bit_set_p_sym, value.MethodEntry.keywordBuiltin(&builtinStringBitSetP, .{ .exact = 1 }));
 
+    const string_bit_set_sym = try vm.intern("bit_set");
+    try vm.string_class.module.methods.put(string_bit_set_sym, value.MethodEntry.keywordBuiltin(&builtinStringBitSet, .{ .exact = 1 }));
+
     const string_b_sym = try vm.intern("b");
     try vm.string_class.module.methods.put(string_b_sym, value.MethodEntry.builtin(&builtinStringB, .{ .exact = 0 }));
     const string_dedup_sym = try vm.intern("dedup");
@@ -2923,6 +2926,46 @@ pub fn builtinStringBitGet(vm: *VM, receiver: Value, args: []Value, _: ?Block) V
 pub fn builtinStringBitSetP(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     const bit = try stringBitAtOffset(vm, receiver, args);
     return if (bit) |b| Value.boolean(b) else Value.nil();
+}
+
+fn stringBitMutationLocation(vm: *VM, receiver: Value, args: []Value) VMError!struct { byte_index: usize, shift: u3 } {
+    try vm.requireArgCount(args, 1);
+    try vm.guardNotFrozen(receiver);
+
+    const offset = try args[0].integerArgToI64(vm, "no implicit conversion into Integer", "integer too big to convert into `int'");
+    if (offset < 0) {
+        return vm.raiseExceptionFmt(vm.index_error_class, "bit offset must be positive", .{});
+    }
+
+    var lsb_first = true;
+    if (try vm.consumeKeywordArg("lsb_first")) |kw_val| {
+        if (!kw_val.isBool()) {
+            return vm.raiseExceptionFmt(vm.argument_error_class, "invalid value for lsb_first", .{});
+        }
+        lsb_first = kw_val.toBool();
+    }
+    try vm.validateKeywordArgsConsumed();
+
+    const string_obj = receiver.toStringObject();
+    const bit_offset: usize = @intCast(offset);
+    const byte_index = bit_offset / 8;
+    if (byte_index >= string_obj.str.len) {
+        return vm.raiseExceptionFmt(vm.index_error_class, "bit offset out of range", .{});
+    }
+
+    const bit_in_byte: u3 = @intCast(bit_offset % 8);
+    const shift: u3 = if (lsb_first) bit_in_byte else 7 - bit_in_byte;
+    return .{ .byte_index = byte_index, .shift = shift };
+}
+
+pub fn builtinStringBitSet(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    const loc = try stringBitMutationLocation(vm, receiver, args);
+    const string_obj = receiver.toStringObject();
+    const new_bytes = vm.gc_allocator_atomic.dupe(u8, string_obj.str) catch return error.Fatal;
+    new_bytes[loc.byte_index] |= (@as(u8, 1) << loc.shift);
+    string_obj.replaceBytes(new_bytes);
+    string_obj.validity = .unknown;
+    return receiver;
 }
 
 pub fn builtinStringB(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
