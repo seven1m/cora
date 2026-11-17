@@ -797,6 +797,9 @@ pub fn register(vm: *VM) !void {
     const shuffle_sym = try vm.intern("shuffle");
     try vm.array_class.module.methods.put(shuffle_sym, value.MethodEntry.keywordBuiltin(&builtinArrayShuffle, .{ .exact = 0 }));
 
+    const sample_sym = try vm.intern("sample");
+    try vm.array_class.module.methods.put(sample_sym, value.MethodEntry.keywordBuiltin(&builtinArraySample, .{ .variadic = 0 }));
+
     const shuffle_bang_sym = try vm.intern("shuffle!");
     try vm.array_class.module.methods.put(shuffle_bang_sym, value.MethodEntry.keywordBuiltin(&builtinArrayShuffleBang, .{ .exact = 0 }));
 
@@ -3141,6 +3144,21 @@ pub fn builtinArraySortByBang(vm: *VM, receiver: Value, args: []Value, block: ?B
     return receiver;
 }
 
+fn arrayRandomIndex(vm: *VM, random: Value, limit: usize) VMError!usize {
+    var rand_args = [_]Value{Value.integer(@intCast(limit))};
+    const raw_index = try vm.callMethodByName(random, "rand", rand_args[0..], null);
+    const index_value = try raw_index.coerceToIntegerValue(
+        vm,
+        "no implicit conversion into Integer",
+        "can't convert to Integer (to_int gives non-Integer)",
+    );
+    const index = try index_value.integerToI64(vm, "bignum too big to convert into `long'");
+    if (index < 0 or index >= limit) {
+        return vm.raiseExceptionFmt(vm.range_error_class, "random number too big {d}", .{index});
+    }
+    return @intCast(index);
+}
+
 fn arrayShuffle(vm: *VM, receiver: Value) VMError!void {
     const random = (try vm.consumeKeywordArg("random")) orelse Value.fromObject(&vm.random_class.module.object);
     try vm.validateKeywordArgsConsumed();
@@ -3148,20 +3166,46 @@ fn arrayShuffle(vm: *VM, receiver: Value) VMError!void {
     const elements = receiver.toArrayObject().elements.items;
     var remaining = elements.len;
     while (remaining > 1) {
-        var rand_args = [_]Value{Value.integer(@intCast(remaining))};
-        const raw_index = try vm.callMethodByName(random, "rand", rand_args[0..], null);
-        const index_value = try raw_index.coerceToIntegerValue(
-            vm,
-            "no implicit conversion into Integer",
-            "can't convert to Integer (to_int gives non-Integer)",
-        );
-        const index = try index_value.integerToI64(vm, "bignum too big to convert into `long'");
-        if (index < 0 or index >= remaining) {
-            return vm.raiseExceptionFmt(vm.range_error_class, "random number too big {d}", .{index});
-        }
+        const index = try arrayRandomIndex(vm, random, remaining);
         remaining -= 1;
-        std.mem.swap(Value, &elements[remaining], &elements[@intCast(index)]);
+        std.mem.swap(Value, &elements[remaining], &elements[index]);
     }
+}
+
+pub fn builtinArraySample(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCountRange(args, 0, 1);
+    const random = (try vm.consumeKeywordArg("random")) orelse Value.fromObject(&vm.random_class.module.object);
+    try vm.validateKeywordArgsConsumed();
+    var count: usize = 1;
+    if (args.len == 1) {
+        const value_count = try args[0].coerceToIntegerValue(vm, "no implicit conversion into Integer", "can't convert to Integer");
+        const n = try value_count.integerToI64(vm, "bignum too big to convert into `long'");
+        if (n < 0) return vm.raiseExceptionFmt(vm.argument_error_class, "negative sample number", .{});
+        count = @intCast(n);
+    }
+    const source = receiver.toArrayObject();
+    if (args.len == 0) {
+        if (source.elements.items.len == 0) return Value.nil();
+        const index = try arrayRandomIndex(vm, random, source.elements.items.len);
+        return if (index < source.elements.items.len) source.elements.items[index] else Value.nil();
+    }
+    const original_len = source.elements.items.len;
+    count = @min(count, original_len);
+    const indices = vm.allocator.alloc(usize, original_len) catch return error.Fatal;
+    defer vm.allocator.free(indices);
+    for (indices, 0..) |*index, i| index.* = i;
+    var i: usize = 0;
+    while (i < count) : (i += 1) {
+        const index = i + try arrayRandomIndex(vm, random, original_len - i);
+        std.mem.swap(usize, &indices[i], &indices[index]);
+    }
+    const result = try vm.createArray();
+    for (indices[0..count]) |index| {
+        if (index < source.elements.items.len) {
+            result.elements.append(vm.gc_allocator, source.elements.items[index]) catch return error.Fatal;
+        }
+    }
+    return Value.fromObject(&result.object);
 }
 
 pub fn builtinArrayShuffle(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {

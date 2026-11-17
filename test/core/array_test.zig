@@ -4,6 +4,19 @@ const test_helper = @import("../test_helper.zig");
 const evalCode = test_helper.evalCode;
 const evalCodeWithOutput = test_helper.evalCodeWithOutput;
 
+test "Array#sample handles a random generator mutating the receiver" {
+    const result = try evalCode(
+        \\a = [1, 2, 3]
+        \\random = Object.new
+        \\random.define_singleton_method(:rand) { |n| a.pop; 0 }
+        \\a.sample(2, random: random)
+    );
+    try std.testing.expect(result.isArray());
+    const items = result.toArrayObject().elements.items;
+    try std.testing.expectEqual(@as(usize, 1), items.len);
+    try std.testing.expectEqual(@as(i64, 1), items[0].toInteger());
+}
+
 test "Empty array" {
     const result = try evalCode("[]");
     try std.testing.expect(result.isArray());
