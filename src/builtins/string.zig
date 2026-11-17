@@ -181,6 +181,12 @@ pub fn register(vm: *VM) !void {
     const string_bitwise_not_bang_sym = try vm.intern("bitwise_not!");
     try vm.string_class.module.methods.put(string_bitwise_not_bang_sym, value.MethodEntry.builtin(&builtinStringBitwiseNotBang, .{ .exact = 0 }));
 
+    const string_bitwise_and_sym = try vm.intern("bitwise_and");
+    try vm.string_class.module.methods.put(string_bitwise_and_sym, value.MethodEntry.builtin(&builtinStringBitwiseAnd, .{ .exact = 1 }));
+
+    const string_bitwise_and_bang_sym = try vm.intern("bitwise_and!");
+    try vm.string_class.module.methods.put(string_bitwise_and_bang_sym, value.MethodEntry.builtin(&builtinStringBitwiseAndBang, .{ .exact = 1 }));
+
     const string_b_sym = try vm.intern("b");
     try vm.string_class.module.methods.put(string_b_sym, value.MethodEntry.builtin(&builtinStringB, .{ .exact = 0 }));
     const string_dedup_sym = try vm.intern("dedup");
@@ -3001,6 +3007,45 @@ pub fn builtinStringBitwiseNotBang(vm: *VM, receiver: Value, args: []Value, _: ?
     const string_obj = receiver.toStringObject();
     const new_bytes = vm.gc_allocator_atomic.dupe(u8, string_obj.str) catch return error.Fatal;
     for (new_bytes) |*byte| byte.* = ~byte.*;
+    string_obj.replaceBytes(new_bytes);
+    string_obj.validity = .unknown;
+    return receiver;
+}
+
+const StringBitwiseOp = enum { and_, or_, xor_ };
+
+fn combineBytes(comptime op: StringBitwiseOp, lhs: u8, rhs: u8) u8 {
+    return switch (op) {
+        .and_ => lhs & rhs,
+        .or_ => lhs | rhs,
+        .xor_ => lhs ^ rhs,
+    };
+}
+
+fn stringBitwiseCombine(vm: *VM, receiver: Value, args: []Value, comptime op: StringBitwiseOp) VMError![]u8 {
+    try vm.requireArgCount(args, 1);
+    const other_value = try args[0].coerceToStringValue(vm, "no implicit conversion into String");
+    const other = other_value.toStringObject();
+    const string_obj = receiver.toStringObject();
+    if (string_obj.str.len != other.str.len) {
+        return vm.raiseExceptionFmt(vm.argument_error_class, "different string sizes", .{});
+    }
+    const new_bytes = vm.gc_allocator_atomic.dupe(u8, string_obj.str) catch return error.Fatal;
+    for (new_bytes, other.str) |*byte, other_byte| {
+        byte.* = combineBytes(op, byte.*, other_byte);
+    }
+    return new_bytes;
+}
+
+pub fn builtinStringBitwiseAnd(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    const new_bytes = try stringBitwiseCombine(vm, receiver, args, .and_);
+    return try vm.newStringWithEncoding(new_bytes, false, .{ .ascii_8bit = .{} });
+}
+
+pub fn builtinStringBitwiseAndBang(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.guardNotFrozen(receiver);
+    const new_bytes = try stringBitwiseCombine(vm, receiver, args, .and_);
+    const string_obj = receiver.toStringObject();
     string_obj.replaceBytes(new_bytes);
     string_obj.validity = .unknown;
     return receiver;
