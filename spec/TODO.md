@@ -3076,7 +3076,7 @@ Source baseline: ../ruby_spec compared to local spec/
 
 ### library/io-wait
 - [x] library/io-wait/wait_readable_spec.rb
-- [ ] library/io-wait/wait_spec.rb
+- [x] library/io-wait/wait_spec.rb
 - [x] library/io-wait/wait_writable_spec.rb
 
 ### library/ipaddr

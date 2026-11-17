@@ -252,6 +252,9 @@ pub fn register(vm: *VM) !void {
     const wait_writable_sym = try vm.intern("wait_writable");
     try vm.io_class.module.methods.put(wait_writable_sym, value.MethodEntry.builtin(&builtinIoWaitWritable, .{ .variadic = 0 }));
 
+    const wait_sym = try vm.intern("wait");
+    try vm.io_class.module.methods.put(wait_sym, value.MethodEntry.builtin(&builtinIoWait, .{ .variadic = 0 }));
+
     const binmode_sym = try vm.intern("binmode");
     try vm.io_class.module.methods.put(binmode_sym, value.MethodEntry.builtin(&builtinIoBinmode, .{ .exact = 0 }));
 
@@ -1829,7 +1832,7 @@ fn timeoutArgToPollMilliseconds(vm: *VM, timeout: Value) VMError!i32 {
     return @intFromFloat(@floor(ms));
 }
 
-fn waitForIo(vm: *VM, io: *IoObject, events: i16, timeout_ms: i32, include_hup: bool) VMError!bool {
+fn waitForIo(vm: *VM, io: *IoObject, events: i16, timeout_ms: i32, include_hup: bool) VMError!i16 {
     var fds = [_]std.posix.pollfd{.{
         .fd = @intCast(io.fd),
         .events = events,
@@ -1861,11 +1864,16 @@ fn waitForIo(vm: *VM, io: *IoObject, events: i16, timeout_ms: i32, include_hup: 
             return vm.raiseErrnoFmt(errno_code, "poll failed", .{});
         }
         if (ready_count != 0) {
-            return (fds[0].revents & ready_mask) != 0;
+            const revents = fds[0].revents;
+            if ((revents & ready_mask) == 0) return 0;
+            var result: i16 = revents & events;
+            if ((revents & std.posix.POLL.ERR) != 0) result |= events;
+            if (include_hup and (revents & std.posix.POLL.HUP) != 0) result |= std.posix.POLL.IN;
+            return result;
         }
 
         if (deadline_ms) |deadline| {
-            if (monotonicMilliseconds() >= deadline) return false;
+            if (monotonicMilliseconds() >= deadline) return 0;
         }
 
         thread.io_wait = .{
@@ -1880,11 +1888,11 @@ fn waitForIo(vm: *VM, io: *IoObject, events: i16, timeout_ms: i32, include_hup: 
 }
 
 fn waitReadable(vm: *VM, io: *IoObject, timeout_ms: i32) VMError!bool {
-    return waitForIo(vm, io, std.posix.POLL.IN, timeout_ms, true);
+    return (try waitForIo(vm, io, std.posix.POLL.IN, timeout_ms, true)) != 0;
 }
 
 fn waitWritable(vm: *VM, io: *IoObject, timeout_ms: i32) VMError!bool {
-    return waitForIo(vm, io, std.posix.POLL.OUT, timeout_ms, false);
+    return (try waitForIo(vm, io, std.posix.POLL.OUT, timeout_ms, false)) != 0;
 }
 
 fn requireSelectArrayArg(vm: *VM, arg: Value) VMError!?*value.ArrayObject {
@@ -2781,6 +2789,47 @@ pub fn builtinIoWaitWritable(vm: *VM, receiver: Value, args: []Value, _: ?Block)
 
     const timeout_ms = if (args.len == 1) try timeoutArgToPollMilliseconds(vm, args[0]) else -1;
     return if (try waitWritable(vm, io, timeout_ms)) receiver else Value.nil();
+}
+
+pub fn builtinIoWait(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    const io = try requireIoReceiver(vm, receiver);
+    var events: i16 = 0;
+    var timeout = Value.nil();
+    var has_timeout = false;
+    const return_io = args.len != 2 or args[0].isSymbol() or args[1].isSymbol();
+    if (return_io) {
+        for (args) |arg| {
+            if (arg.isSymbol()) {
+                const name = arg.toSymbolObject().name;
+                if (std.mem.eql(u8, name, "r") or std.mem.eql(u8, name, "read") or std.mem.eql(u8, name, "readable")) {
+                    events |= std.posix.POLL.IN;
+                } else if (std.mem.eql(u8, name, "w") or std.mem.eql(u8, name, "write") or std.mem.eql(u8, name, "writable")) {
+                    events |= std.posix.POLL.OUT;
+                } else if (std.mem.eql(u8, name, "rw") or std.mem.eql(u8, name, "read_write") or std.mem.eql(u8, name, "readable_writable")) {
+                    events |= std.posix.POLL.IN | std.posix.POLL.OUT;
+                } else return vm.raiseExceptionFmt(vm.argument_error_class, "unsupported mode: {s}", .{name});
+            } else if (!has_timeout) {
+                timeout = arg;
+                has_timeout = true;
+                _ = try timeoutArgToPollMilliseconds(vm, timeout);
+            } else return vm.raiseExceptionFmt(vm.argument_error_class, "timeout given more than once", .{});
+        }
+        if (events == 0) events = std.posix.POLL.IN;
+    } else {
+        const event_value = try args[0].coerceToI64ViaToInt(vm, "no implicit conversion into Integer", "no implicit conversion into Integer", "integer out of range");
+        if (event_value <= 0) return vm.raiseExceptionFmt(vm.argument_error_class, "Events must be positive integer!", .{});
+        if (event_value > std.math.maxInt(i32)) return vm.raiseExceptionFmt(vm.range_error_class, "integer {d} too big to convert to 'int'", .{event_value});
+        events = @bitCast(@as(u16, @truncate(@as(u32, @intCast(event_value)))));
+        timeout = args[1];
+    }
+    try ensureIoOpen(vm, io);
+    if ((events & std.posix.POLL.IN) != 0 and io.read_buf_avail > io.read_buf_offset) {
+        return if (return_io) Value.boolean(true) else Value.integer(std.posix.POLL.IN);
+    }
+    const timeout_ms = try timeoutArgToPollMilliseconds(vm, timeout);
+    const ready = try waitForIo(vm, io, events, timeout_ms, (events & std.posix.POLL.IN) != 0);
+    if (ready == 0) return Value.nil();
+    return if (return_io) receiver else Value.integer(ready);
 }
 
 pub fn builtinIoSeek(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {

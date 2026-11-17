@@ -8,6 +8,24 @@ const test_helper = @import("../test_helper.zig");
 const evalCode = test_helper.evalCode;
 const evalCodeWithOutput = test_helper.evalCodeWithOutput;
 
+test "requiring io/wait preserves readiness and event masks" {
+    const result = try evalCode(
+        \\require 'io/wait'
+        \\reader, writer = IO.pipe
+        \\begin
+        \\  empty = reader.wait_readable(0)
+        \\  writable = writer.wait(IO::READABLE | IO::WRITABLE, 0)
+        \\  writer.write('x')
+        \\  readable = reader.wait(IO::READABLE | IO::WRITABLE, 0)
+        \\  empty.nil? && writable == IO::WRITABLE && readable == IO::READABLE && writer.wait(65536, 0).nil?
+        \\ensure
+        \\  reader.close
+        \\  writer.close
+        \\end
+    );
+    try std.testing.expect(result.isTrue());
+}
+
 test "Dir glob matches UTF-8 filenames with ASCII legacy-encoded patterns on Darwin" {
     if (!builtin.os.tag.isDarwin()) return error.SkipZigTest;
     const result = try evalCode(
