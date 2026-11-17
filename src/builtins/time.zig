@@ -178,6 +178,9 @@ pub fn register(vm: *VM) !void {
     const floor_sym = try vm.intern("floor");
     try vm.time_class.module.methods.put(floor_sym, value.MethodEntry.builtin(&builtinTimeFloor, .{ .variadic = 0 }));
 
+    const ceil_sym = try vm.intern("ceil");
+    try vm.time_class.module.methods.put(ceil_sym, value.MethodEntry.builtin(&builtinTimeCeil, .{ .variadic = 0 }));
+
     const strftime_sym = try vm.intern("strftime");
     try vm.time_class.module.methods.put(strftime_sym, value.MethodEntry.builtin(&builtinTimeStrftime, .{ .exact = 1 }));
 
@@ -333,6 +336,17 @@ fn floorToQuantum(vm: *VM, value_: Value, quantum: Value) VMError!Value {
     const numerator = try vm.mulIntegerValues(a.numerator, b.denominator);
     const denominator = try vm.mulIntegerValues(a.denominator, b.numerator);
     const quotient = try vm.divFloorIntegerValues(numerator, denominator);
+    return exactMul(vm, quotient, quantum);
+}
+
+fn ceilToQuantum(vm: *VM, value_: Value, quantum: Value) VMError!Value {
+    const a = exactParts(value_);
+    const b = exactParts(quantum);
+    const numerator = try vm.mulIntegerValues(a.numerator, b.denominator);
+    const denominator = try vm.mulIntegerValues(a.denominator, b.numerator);
+    const negated = try vm.subIntegerValues(Value.integer(0), numerator);
+    const floored = try vm.divFloorIntegerValues(negated, denominator);
+    const quotient = try vm.subIntegerValues(Value.integer(0), floored);
     return exactMul(vm, quotient, quantum);
 }
 
@@ -1547,6 +1561,37 @@ pub fn builtinTimeFloor(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMEr
         try vm.newTimeLocal(vm.time_class, floored, t.utc_offset_nanos)
     else
         try vm.newTimeWithOffset(vm.time_class, floored, t.utc_offset_nanos);
+    result.toTimeObject().zone = t.zone;
+    return result;
+}
+
+pub fn builtinTimeCeil(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCountRange(args, 0, 1);
+    var ndigits: i64 = 0;
+    if (args.len == 1) {
+        const ndigits_value = try args[0].coerceToIntegerValue(vm, "no implicit conversion into Integer", "no implicit conversion into Integer");
+        ndigits = try ndigits_value.integerToI64(vm, "ndigits is too large");
+        if (ndigits > std.math.maxInt(i32) or ndigits < std.math.minInt(i32)) {
+            return vm.raiseExceptionFmt(vm.range_error_class, "ndigits is too large", .{});
+        }
+    }
+
+    const shift: i64 = 9 - ndigits;
+    const exponent: u64 = @intCast(@min(@abs(shift), 100));
+    const power = try decimalPowerOfTen(vm, exponent);
+    const quantum = if (shift >= 0)
+        power
+    else
+        try vm.newRationalValues(Value.integer(1), power);
+
+    const t = receiver.toTimeObject();
+    const ceiled = try ceilToQuantum(vm, t.timew, quantum);
+    const result = if (t.is_utc)
+        try vm.newTime(vm.time_class, ceiled)
+    else if (t.is_local)
+        try vm.newTimeLocal(vm.time_class, ceiled, t.utc_offset_nanos)
+    else
+        try vm.newTimeWithOffset(vm.time_class, ceiled, t.utc_offset_nanos);
     result.toTimeObject().zone = t.zone;
     return result;
 }
