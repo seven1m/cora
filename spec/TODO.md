@@ -1378,7 +1378,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/method/compose_spec.rb
 - [ ] core/method/curry_spec.rb
 - [ ] core/method/dup_spec.rb
-- [ ] core/method/element_reference_spec.rb
+- [x] core/method/element_reference_spec.rb
 - [x] core/method/eql_spec.rb
 - [x] core/method/equal_value_spec.rb
 - [x] core/method/hash_spec.rb
