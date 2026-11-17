@@ -163,6 +163,9 @@ pub fn register(vm: *VM) !void {
     const string_bit_count_sym = try vm.intern("bit_count");
     try vm.string_class.module.methods.put(string_bit_count_sym, value.MethodEntry.builtin(&builtinStringBitCount, .{ .exact = 0 }));
 
+    const string_bit_get_sym = try vm.intern("bit_get");
+    try vm.string_class.module.methods.put(string_bit_get_sym, value.MethodEntry.keywordBuiltin(&builtinStringBitGet, .{ .exact = 1 }));
+
     const string_b_sym = try vm.intern("b");
     try vm.string_class.module.methods.put(string_b_sym, value.MethodEntry.builtin(&builtinStringB, .{ .exact = 0 }));
     const string_dedup_sym = try vm.intern("dedup");
@@ -2880,6 +2883,34 @@ pub fn builtinStringBitCount(vm: *VM, receiver: Value, args: []Value, _: ?Block)
         count += @as(usize, @popCount(byte));
     }
     return Value.integer(@intCast(count));
+}
+
+pub fn builtinStringBitGet(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    const string_obj = receiver.toStringObject();
+
+    const offset = try args[0].integerArgToI64(vm, "no implicit conversion into Integer", "integer too big to convert into `int'");
+    if (offset < 0) {
+        return vm.raiseExceptionFmt(vm.index_error_class, "bit offset must be positive", .{});
+    }
+
+    var lsb_first = true;
+    if (try vm.consumeKeywordArg("lsb_first")) |kw_val| {
+        if (!kw_val.isBool()) {
+            return vm.raiseExceptionFmt(vm.argument_error_class, "invalid value for lsb_first", .{});
+        }
+        lsb_first = kw_val.toBool();
+    }
+    try vm.validateKeywordArgsConsumed();
+
+    const bit_offset: usize = @intCast(offset);
+    const byte_index = bit_offset / 8;
+    if (byte_index >= string_obj.str.len) return Value.nil();
+
+    const bit_in_byte: u3 = @intCast(bit_offset % 8);
+    const shift: u3 = if (lsb_first) bit_in_byte else 7 - bit_in_byte;
+    const bit = (string_obj.str[byte_index] >> shift) & 1;
+    return Value.integer(@intCast(bit));
 }
 
 pub fn builtinStringB(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
