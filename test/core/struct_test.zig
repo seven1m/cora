@@ -20,6 +20,17 @@ test "Struct subclass constructors forward keyword arguments to initialize" {
     try std.testing.expect(!values[1].isTruthy());
 }
 
+test "Struct preserves keyword hashes in positional initialization" {
+    const result = try evalCode(
+        \\Default = Struct.new(:first, :second)
+        \\Positional = Struct.new(:first, keyword_init: false)
+        \\[Default.new(1, flag: true).second[:flag], Positional.new(flag: false).first[:flag]]
+    );
+    const entries = result.toArrayObject().elements.items;
+    try std.testing.expect(entries[0].isTrue());
+    try std.testing.expect(entries[1].isFalse());
+}
+
 test "Struct.new creates subclass and instances with accessors" {
     const result = try evalCode(
         \\Customer = Struct.new(:name, :zip)

@@ -2144,7 +2144,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] core/struct/equal_value_spec.rb
 - [x] core/struct/filter_spec.rb
 - [x] core/struct/hash_spec.rb
-- [ ] core/struct/initialize_spec.rb
+- [x] core/struct/initialize_spec.rb
 - [x] core/struct/inspect_spec.rb
 - [x] core/struct/instance_variable_get_spec.rb
 - [x] core/struct/instance_variables_spec.rb

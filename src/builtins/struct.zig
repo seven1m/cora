@@ -163,7 +163,7 @@ pub fn register(vm: *VM) !void {
     try struct_singleton.module.methods.put(bracket_sym, value.MethodEntry.keywordBuiltin(&builtinStructNew, .{ .variadic = 0 }));
 
     const initialize_sym = try vm.intern("initialize");
-    try vm.struct_class.module.methods.put(initialize_sym, value.MethodEntry.keywordBuiltin(&builtinStructInitialize, .{ .variadic = 0 }));
+    try vm.struct_class.module.methods.put(initialize_sym, value.MethodEntry.keywordBuiltinWithVisibility(&builtinStructInitialize, .{ .variadic = 0 }, .private));
 
     const copy_sym = try vm.intern("initialize_copy");
     try vm.struct_class.module.methods.put(copy_sym, value.MethodEntry.builtinWithVisibility(&structInitializeCopy, .{ .exact = 1 }, .private));
@@ -230,8 +230,13 @@ pub fn builtinStructNew(vm: *VM, receiver: Value, args: []Value, block: ?Block) 
     std.debug.assert(receiver.isClass());
 
     const receiver_class = receiver.toClassObject();
-    if (receiver_class != vm.struct_class) {
+    if (receiver_class != vm.struct_class and receiver_class.struct_members != null) {
         return class_builtin.builtinClassNew(vm, receiver, args, block);
+    }
+    var ancestor = receiver_class.superclass;
+    while (ancestor) |klass| : (ancestor = klass.superclass) {
+        if (klass == vm.struct_class) break;
+        if (klass.struct_members != null) return class_builtin.builtinClassNew(vm, receiver, args, block);
     }
 
     var keyword_init: ?Value = null;
@@ -261,7 +266,7 @@ pub fn builtinStructNew(vm: *VM, receiver: Value, args: []Value, block: ?Block) 
 
     const class_name = if (name_arg) |name| try name.coerceToStr(vm, "class name is not a string") else "<anonymous>";
     const class_name_sym = try vm.intern(class_name);
-    const struct_val = try vm.newClass(class_name_sym, vm.struct_class);
+    const struct_val = try vm.newClass(class_name_sym, receiver_class);
     struct_val.toClassObject().struct_members = members;
     struct_val.toClassObject().struct_keyword_init = if (keyword_init) |value_arg| (if (value_arg.isNil()) null else value_arg.isTruthy()) else null;
 
@@ -310,7 +315,7 @@ pub fn builtinStructInitialize(vm: *VM, receiver: Value, args: []Value, _: ?Bloc
     const members = try getStructMembersForReceiver(vm, receiver);
     const keyword_init = structKeywordInitForClass(vm.getClass(receiver));
 
-    if (keyword_init == true) {
+    if (keyword_init == true or (keyword_init == null and args.len == 0 and vm.builtin_keyword_ctx != null)) {
         if (args.len == 1 and args[0].isHash()) {
             const keyword_hash = args[0].toHashObject();
             for (members.elements.items) |member_value| {
@@ -334,10 +339,21 @@ pub fn builtinStructInitialize(vm: *VM, receiver: Value, args: []Value, _: ?Bloc
         return Value.nil();
     }
 
-    try vm.requireArgCountRange(args, 0, members.elements.items.len);
+    const keyword_hash = if (vm.builtin_keyword_ctx) |ctx|
+        if (ctx.kw_values.len > 0) try vm.consumeKeywordArgHash() else null
+    else
+        null;
+    const positional_args = if (keyword_hash) |hash| blk: {
+        const combined = vm.allocator.alloc(Value, args.len + 1) catch return error.Fatal;
+        @memcpy(combined[0..args.len], args);
+        combined[args.len] = hash;
+        break :blk combined;
+    } else args;
+    defer if (keyword_hash != null) vm.allocator.free(positional_args);
+    try vm.requireArgCountRange(positional_args, 0, members.elements.items.len);
 
     for (members.elements.items, 0..) |member, idx| {
-        const arg = if (idx < args.len) args[idx] else Value.nil();
+        const arg = if (idx < positional_args.len) positional_args[idx] else Value.nil();
         _ = try structMemberWriter(vm, receiver, member.toSymbolObject(), arg);
     }
 
