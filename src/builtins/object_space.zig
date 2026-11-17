@@ -52,6 +52,9 @@ pub fn register(vm: *VM) !void {
     const each_sym = try vm.intern("each");
     try weak_map_class.module.methods.put(each_sym, value.MethodEntry.builtin(&builtinWeakMapEach, .{ .exact = 0 }));
 
+    const each_pair_sym = try vm.intern("each_pair");
+    try weak_map_class.module.methods.put(each_pair_sym, value.MethodEntry.builtin(&builtinWeakMapEach, .{ .exact = 0 }));
+
     const each_key_sym = try vm.intern("each_key");
     try weak_map_class.module.methods.put(each_key_sym, value.MethodEntry.builtin(&builtinWeakMapEachKey, .{ .exact = 0 }));
 }
