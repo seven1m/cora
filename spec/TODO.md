@@ -3622,7 +3622,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] library/ripper/sexp_spec.rb
 
 ### library/rubygems/gem
-- [ ] library/rubygems/gem/bin_path_spec.rb
+- [x] library/rubygems/gem/bin_path_spec.rb
 - [x] library/rubygems/gem/load_path_insert_index_spec.rb
 
 ### library/securerandom
