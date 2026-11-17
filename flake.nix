@@ -28,6 +28,8 @@
               gnumake
               libtool
               libffi
+              libxml2
+              libxslt
               libyaml
               m4
               openssl
