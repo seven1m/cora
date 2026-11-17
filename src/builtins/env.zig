@@ -112,6 +112,9 @@ pub fn register(vm: *VM) !void {
     const fetch_sym = try vm.intern("fetch");
     try env_singleton.module.methods.put(fetch_sym, value.MethodEntry.builtin(&builtinEnvFetch, .{ .variadic = 0 }));
 
+    const fetch_values_sym = try vm.intern("fetch_values");
+    try env_singleton.module.methods.put(fetch_values_sym, value.MethodEntry.builtin(&builtinEnvFetchValues, .{ .variadic = 0 }));
+
     const keys_sym = try vm.intern("keys");
     try env_singleton.module.methods.put(keys_sym, value.MethodEntry.builtin(&builtinEnvKeys, .{ .exact = 0 }));
 
@@ -637,6 +640,16 @@ pub fn builtinEnvFetch(vm: *VM, receiver: Value, args: []Value, block: ?Block) V
         const key_str = try args[0].inspect(vm);
         return vm.raiseKeyErrorFmt(args[0], receiver, "key not found: {s}", .{key_str.toStringObject().str});
     }
+}
+
+pub fn builtinEnvFetchValues(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
+    const result = try vm.createArray();
+    for (args) |arg| {
+        var fetch_args = [_]Value{arg};
+        const fetched = try builtinEnvFetch(vm, receiver, &fetch_args, block);
+        result.elements.append(vm.gc_allocator, fetched) catch return error.Fatal;
+    }
+    return Value.fromObject(&result.object);
 }
 
 pub fn builtinEnvKeys(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {

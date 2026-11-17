@@ -593,7 +593,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] core/env/empty_spec.rb
 - [x] core/env/except_spec.rb
 - [x] core/env/fetch_spec.rb
-- [ ] core/env/fetch_values_spec.rb
+- [x] core/env/fetch_values_spec.rb
 - [x] core/env/filter_spec.rb
 - [x] core/env/has_key_spec.rb
 - [x] core/env/has_value_spec.rb
