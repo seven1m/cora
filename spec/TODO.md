@@ -1983,7 +1983,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] core/string/bitwise_and_spec.rb
 - [x] core/string/bitwise_not_spec.rb
 - [x] core/string/bitwise_or_spec.rb
-- [ ] core/string/bitwise_xor_spec.rb
+- [x] core/string/bitwise_xor_spec.rb
 - [x] core/string/byteindex_spec.rb
 - [x] core/string/byterindex_spec.rb
 - [x] core/string/bytes_spec.rb
