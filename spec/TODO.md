@@ -251,7 +251,7 @@ Source baseline: ../ruby_spec compared to local spec/
 
 ### core/class
 - [x] core/class/allocate_spec.rb
-- [ ] core/class/attached_object_spec.rb
+- [x] core/class/attached_object_spec.rb
 - [x] core/class/dup_spec.rb
 - [x] core/class/inherited_spec.rb
 - [x] core/class/initialize_spec.rb
