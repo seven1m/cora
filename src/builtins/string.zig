@@ -166,6 +166,9 @@ pub fn register(vm: *VM) !void {
     const string_bit_get_sym = try vm.intern("bit_get");
     try vm.string_class.module.methods.put(string_bit_get_sym, value.MethodEntry.keywordBuiltin(&builtinStringBitGet, .{ .exact = 1 }));
 
+    const string_bit_set_p_sym = try vm.intern("bit_set?");
+    try vm.string_class.module.methods.put(string_bit_set_p_sym, value.MethodEntry.keywordBuiltin(&builtinStringBitSetP, .{ .exact = 1 }));
+
     const string_b_sym = try vm.intern("b");
     try vm.string_class.module.methods.put(string_b_sym, value.MethodEntry.builtin(&builtinStringB, .{ .exact = 0 }));
     const string_dedup_sym = try vm.intern("dedup");
@@ -2885,7 +2888,7 @@ pub fn builtinStringBitCount(vm: *VM, receiver: Value, args: []Value, _: ?Block)
     return Value.integer(@intCast(count));
 }
 
-pub fn builtinStringBitGet(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+fn stringBitAtOffset(vm: *VM, receiver: Value, args: []Value) VMError!?bool {
     try vm.requireArgCount(args, 1);
     const string_obj = receiver.toStringObject();
 
@@ -2905,12 +2908,21 @@ pub fn builtinStringBitGet(vm: *VM, receiver: Value, args: []Value, _: ?Block) V
 
     const bit_offset: usize = @intCast(offset);
     const byte_index = bit_offset / 8;
-    if (byte_index >= string_obj.str.len) return Value.nil();
+    if (byte_index >= string_obj.str.len) return null;
 
     const bit_in_byte: u3 = @intCast(bit_offset % 8);
     const shift: u3 = if (lsb_first) bit_in_byte else 7 - bit_in_byte;
-    const bit = (string_obj.str[byte_index] >> shift) & 1;
-    return Value.integer(@intCast(bit));
+    return ((string_obj.str[byte_index] >> shift) & 1) != 0;
+}
+
+pub fn builtinStringBitGet(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    const bit = try stringBitAtOffset(vm, receiver, args);
+    return if (bit) |b| Value.integer(@intCast(@intFromBool(b))) else Value.nil();
+}
+
+pub fn builtinStringBitSetP(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    const bit = try stringBitAtOffset(vm, receiver, args);
+    return if (bit) |b| Value.boolean(b) else Value.nil();
 }
 
 pub fn builtinStringB(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
