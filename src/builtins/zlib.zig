@@ -71,6 +71,7 @@ pub fn register(vm: *VM) !void {
     try zlib_singleton.module.methods.put(try vm.intern("crc_table"), value.MethodEntry.builtin(&builtinZlibCrcTable, .{ .exact = 0 }));
     try zlib_singleton.module.methods.put(try vm.intern("deflate"), value.MethodEntry.builtin(&builtinZlibDeflateString, .{ .variadic = 1 }));
     try zlib_singleton.module.methods.put(try vm.intern("gunzip"), value.MethodEntry.builtin(&builtinZlibGunzipString, .{ .exact = 1 }));
+    try zlib_singleton.module.methods.put(try vm.intern("gzip"), value.MethodEntry.builtin(&builtinZlibGzipString, .{ .variadic = 1 }));
     try zlib_singleton.module.methods.put(try vm.intern("inflate"), value.MethodEntry.builtin(&builtinZlibInflateString, .{ .exact = 1 }));
     try zlib_singleton.module.methods.put(try vm.intern("zlib_version"), value.MethodEntry.builtin(&builtinZlibVersion, .{ .exact = 0 }));
 }
@@ -171,6 +172,20 @@ pub fn builtinZlibDeflateString(vm: *VM, _: Value, args: []Value, _: ?Block) VME
         @as(i64, -1);
     const compressed = compressBytes(vm, input.toStringObject().str, .zlib, level) catch |err| {
         return raiseZlibError(vm, .zlib, err);
+    };
+    defer vm.allocator.free(compressed);
+    return vm.newStringWithEncoding(compressed, false, binary_encoding);
+}
+
+pub fn builtinZlibGzipString(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCountRange(args, 1, 2);
+    const input = try args[0].coerceToStringValue(vm, "no implicit conversion into String");
+    const level = if (args.len == 2)
+        try coerceIntegerArg(vm, args[1], "compression level must be an Integer")
+    else
+        @as(i64, -1);
+    const compressed = compressBytes(vm, input.toStringObject().str, .gzip, level) catch |err| {
+        return raiseZlibError(vm, .gzip, err);
     };
     defer vm.allocator.free(compressed);
     return vm.newStringWithEncoding(compressed, false, binary_encoding);
