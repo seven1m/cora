@@ -242,6 +242,7 @@ long  rb_array_len(VALUE ary);
 VALUE rb_ary_subseq(VALUE ary, long begin, long len);
 VALUE rb_ary_pop(VALUE ary);
 VALUE rb_ary_delete(VALUE ary, VALUE item);
+VALUE rb_ary_delete_at(VALUE ary, long index);
 void  rb_ary_store(VALUE ary, long index, VALUE value);
 long  RARRAY_LEN(VALUE ary);
 const VALUE *rb_ary_const_ptr(VALUE ary);

@@ -1031,6 +1031,11 @@ export fn rb_ary_delete(ary_raw: VALUE, item_raw: VALUE) VALUE {
     return rb_funcallv(ary_raw, rb_intern("delete"), 1, &argv);
 }
 
+export fn rb_ary_delete_at(ary_raw: VALUE, index: c_long) VALUE {
+    const argv = [_]VALUE{LONG2NUM(index)};
+    return rb_funcallv(ary_raw, rb_intern("delete_at"), 1, &argv);
+}
+
 export fn rb_ary_store(ary_raw: VALUE, index: c_long, value_raw: VALUE) void {
     const argv = [_]VALUE{ LONG2NUM(index), value_raw };
     _ = rb_funcallv(ary_raw, rb_intern("[]="), 2, &argv);

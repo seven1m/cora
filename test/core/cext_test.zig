@@ -4,6 +4,22 @@ const evalCode = test_helper.evalCode;
 
 extern fn rb_memhash(ptr: ?*const anyopaque, len: c_long) c_long;
 
+test "C extension deletes array elements by index" {
+    const result = try evalCode(
+        \\$LOAD_PATH << "build/cext"
+        \\require "fixture.so"
+        \\array = [10, 20, 30]
+        \\[CoraCExt.array_delete_at(array, -2), CoraCExt.array_delete_at(array, 9), array]
+    );
+    const items = result.toArrayObject().elements.items;
+    try std.testing.expectEqual(@as(i64, 20), items[0].toInteger());
+    try std.testing.expect(items[1].isNil());
+    const array = items[2].toArrayObject().elements.items;
+    try std.testing.expectEqual(@as(usize, 2), array.len);
+    try std.testing.expectEqual(@as(i64, 10), array[0].toInteger());
+    try std.testing.expectEqual(@as(i64, 30), array[1].toInteger());
+}
+
 test "C extension temporary buffers and integer conversions" {
     const result = try evalCode(
         \\$LOAD_PATH << "build/cext"

@@ -19,6 +19,13 @@ cext_temporary_buffer(VALUE self, VALUE value)
 }
 
 static VALUE
+cext_array_delete_at(VALUE self, VALUE array, VALUE index)
+{
+    (void)self;
+    return rb_ary_delete_at(array, NUM2LONG(index));
+}
+
+static VALUE
 cora_cext_test(VALUE str)
 {
     (void)str;
@@ -953,6 +960,7 @@ void Init_fixture(void)
     rb_define_module_function(mCoraCExt, "array_mutation", cext_array_mutation, 0);
     rb_define_module_function(mCoraCExt, "array_subseq", cext_array_subseq, 3);
     rb_define_module_function(mCoraCExt, "array_pop", cext_array_pop, 1);
+    rb_define_module_function(mCoraCExt, "array_delete_at", cext_array_delete_at, 2);
     rb_define_module_function(mCoraCExt, "id2name", cext_id2name, 1);
     rb_define_module_function(mCoraCExt, "id2name_zero", cext_id2name_zero, 0);
     rb_define_module_function(mCoraCExt, "block_call_collect", cext_block_call_collect, 1);
