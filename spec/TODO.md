@@ -1643,7 +1643,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/process/exec_spec.rb
 - [ ] core/process/exit_spec.rb
 - [ ] core/process/fork_spec.rb
-- [ ] core/process/getpgid_spec.rb
+- [x] core/process/getpgid_spec.rb
 - [ ] core/process/getpgrp_spec.rb
 - [ ] core/process/getpriority_spec.rb
 - [ ] core/process/getrlimit_spec.rb

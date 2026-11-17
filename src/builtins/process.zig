@@ -12,6 +12,7 @@ const Value = value.Value;
 extern "c" fn clock_gettime(clk_id: std.posix.CLOCK, tp: *std.posix.timespec) c_int;
 extern "c" fn clock_getres(clk_id: std.posix.CLOCK, tp: *std.posix.timespec) c_int;
 extern "c" fn getpgrp() std.c.pid_t;
+extern "c" fn getpgid(pid: std.c.pid_t) std.c.pid_t;
 extern "c" fn setsid() std.c.pid_t;
 extern "c" fn chdir(path: [*:0]const u8) c_int;
 extern "c" fn open(path: [*:0]const u8, flags: c_int, ...) c_int;
@@ -46,6 +47,9 @@ pub fn register(vm: *VM) !void {
 
     const getpgrp_sym = try vm.intern("getpgrp");
     try process_singleton.module.methods.put(getpgrp_sym, value.MethodEntry.builtin(&builtinProcessGetpgrp, .{ .exact = 0 }));
+
+    const getpgid_sym = try vm.intern("getpgid");
+    try process_singleton.module.methods.put(getpgid_sym, value.MethodEntry.builtin(&builtinProcessGetpgid, .{ .exact = 1 }));
 
     const warmup_sym = try vm.intern("warmup");
     try process_singleton.module.methods.put(warmup_sym, value.MethodEntry.builtin(&builtinProcessWarmup, .{ .exact = 0 }));
@@ -232,6 +236,20 @@ pub fn builtinProcessGetpgrp(vm: *VM, _: Value, args: []Value, _: ?Block) VMErro
     }
 
     return Value.integer(@intCast(getpgrp()));
+}
+
+pub fn builtinProcessGetpgid(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+
+    if (builtin.os.tag == .windows) {
+        return vm.raiseExceptionFmt(vm.not_implemented_error_class, "Process.getpgid is not implemented on Windows", .{});
+    }
+
+    const pid_value = try args[0].coerceToIntegerValue(vm, "no implicit conversion into Integer", "pid out of range");
+    const pid: std.c.pid_t = @intCast(try pid_value.integerToI64(vm, "pid out of range"));
+    const pgid = getpgid(pid);
+    if (pgid < 0) return vm.raiseErrnoFmt(std.posix.errno(pgid), "getpgid failed", .{});
+    return Value.integer(@intCast(pgid));
 }
 
 pub fn builtinProcessWarmup(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
