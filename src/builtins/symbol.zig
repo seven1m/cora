@@ -17,7 +17,10 @@ pub fn register(vm: *VM) !void {
     try symbol_singleton.module.methods.put(all_symbols_sym, value.MethodEntry.builtin(&builtinSymbolAllSymbols, .{ .exact = 0 }));
 
     const equal_sym = try vm.intern("==");
-    try vm.symbol_class.module.methods.put(equal_sym, value.MethodEntry.builtin(&builtinSymbolEqual, .{ .exact = 1 }));
+    const equal_entry = value.MethodEntry.builtin(&builtinSymbolEqual, .{ .exact = 1 });
+    try vm.symbol_class.module.methods.put(equal_sym, equal_entry);
+    const case_equal_sym = try vm.intern("===");
+    try vm.symbol_class.module.methods.put(case_equal_sym, equal_entry);
 
     const compare_sym = try vm.intern("<=>");
     try vm.symbol_class.module.methods.put(compare_sym, value.MethodEntry.builtin(&builtinSymbolCompare, .{ .exact = 1 }));
