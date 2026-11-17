@@ -187,6 +187,12 @@ pub fn register(vm: *VM) !void {
     const string_bitwise_and_bang_sym = try vm.intern("bitwise_and!");
     try vm.string_class.module.methods.put(string_bitwise_and_bang_sym, value.MethodEntry.builtin(&builtinStringBitwiseAndBang, .{ .exact = 1 }));
 
+    const string_bitwise_or_sym = try vm.intern("bitwise_or");
+    try vm.string_class.module.methods.put(string_bitwise_or_sym, value.MethodEntry.builtin(&builtinStringBitwiseOr, .{ .exact = 1 }));
+
+    const string_bitwise_or_bang_sym = try vm.intern("bitwise_or!");
+    try vm.string_class.module.methods.put(string_bitwise_or_bang_sym, value.MethodEntry.builtin(&builtinStringBitwiseOrBang, .{ .exact = 1 }));
+
     const string_b_sym = try vm.intern("b");
     try vm.string_class.module.methods.put(string_b_sym, value.MethodEntry.builtin(&builtinStringB, .{ .exact = 0 }));
     const string_dedup_sym = try vm.intern("dedup");
@@ -3045,6 +3051,20 @@ pub fn builtinStringBitwiseAnd(vm: *VM, receiver: Value, args: []Value, _: ?Bloc
 pub fn builtinStringBitwiseAndBang(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.guardNotFrozen(receiver);
     const new_bytes = try stringBitwiseCombine(vm, receiver, args, .and_);
+    const string_obj = receiver.toStringObject();
+    string_obj.replaceBytes(new_bytes);
+    string_obj.validity = .unknown;
+    return receiver;
+}
+
+pub fn builtinStringBitwiseOr(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    const new_bytes = try stringBitwiseCombine(vm, receiver, args, .or_);
+    return try vm.newStringWithEncoding(new_bytes, false, .{ .ascii_8bit = .{} });
+}
+
+pub fn builtinStringBitwiseOrBang(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.guardNotFrozen(receiver);
+    const new_bytes = try stringBitwiseCombine(vm, receiver, args, .or_);
     const string_obj = receiver.toStringObject();
     string_obj.replaceBytes(new_bytes);
     string_obj.validity = .unknown;
