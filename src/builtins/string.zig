@@ -160,6 +160,9 @@ pub fn register(vm: *VM) !void {
     const string_ascii_only_sym = try vm.intern("ascii_only?");
     try vm.string_class.module.methods.put(string_ascii_only_sym, value.MethodEntry.builtin(&builtinStringAsciiOnly, .{ .exact = 0 }));
 
+    const string_bit_count_sym = try vm.intern("bit_count");
+    try vm.string_class.module.methods.put(string_bit_count_sym, value.MethodEntry.builtin(&builtinStringBitCount, .{ .exact = 0 }));
+
     const string_b_sym = try vm.intern("b");
     try vm.string_class.module.methods.put(string_b_sym, value.MethodEntry.builtin(&builtinStringB, .{ .exact = 0 }));
     const string_dedup_sym = try vm.intern("dedup");
@@ -2867,6 +2870,16 @@ pub fn builtinStringAsciiOnly(vm: *VM, receiver: Value, args: []Value, _: ?Block
         return Value.boolean(false);
     }
     return Value.boolean(enc.isAsciiOnly(string_obj.str));
+}
+
+pub fn builtinStringBitCount(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    const string_obj = receiver.toStringObject();
+    var count: usize = 0;
+    for (string_obj.str) |byte| {
+        count += @as(usize, @popCount(byte));
+    }
+    return Value.integer(@intCast(count));
 }
 
 pub fn builtinStringB(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
