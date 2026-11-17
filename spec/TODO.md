@@ -1645,7 +1645,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/process/fork_spec.rb
 - [x] core/process/getpgid_spec.rb
 - [ ] core/process/getpgrp_spec.rb
-- [ ] core/process/getpriority_spec.rb
+- [x] core/process/getpriority_spec.rb
 - [ ] core/process/getrlimit_spec.rb
 
 ### core/process/gid

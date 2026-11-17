@@ -13,6 +13,7 @@ extern "c" fn clock_gettime(clk_id: std.posix.CLOCK, tp: *std.posix.timespec) c_
 extern "c" fn clock_getres(clk_id: std.posix.CLOCK, tp: *std.posix.timespec) c_int;
 extern "c" fn getpgrp() std.c.pid_t;
 extern "c" fn getpgid(pid: std.c.pid_t) std.c.pid_t;
+extern "c" fn getpriority(which: c_int, who: c_int) c_int;
 extern "c" fn setsid() std.c.pid_t;
 extern "c" fn chdir(path: [*:0]const u8) c_int;
 extern "c" fn open(path: [*:0]const u8, flags: c_int, ...) c_int;
@@ -51,6 +52,9 @@ pub fn register(vm: *VM) !void {
     const getpgid_sym = try vm.intern("getpgid");
     try process_singleton.module.methods.put(getpgid_sym, value.MethodEntry.builtin(&builtinProcessGetpgid, .{ .exact = 1 }));
 
+    const getpriority_sym = try vm.intern("getpriority");
+    try process_singleton.module.methods.put(getpriority_sym, value.MethodEntry.builtin(&builtinProcessGetpriority, .{ .exact = 2 }));
+
     const warmup_sym = try vm.intern("warmup");
     try process_singleton.module.methods.put(warmup_sym, value.MethodEntry.builtin(&builtinProcessWarmup, .{ .exact = 0 }));
 
@@ -86,6 +90,15 @@ pub fn register(vm: *VM) !void {
 
     const wnohang_sym = try vm.intern("WNOHANG");
     try vm.process_module.constants.put(wnohang_sym, .{ .value = Value.integer(std.posix.W.NOHANG) });
+
+    const prio_process_sym = try vm.intern("PRIO_PROCESS");
+    try vm.process_module.constants.put(prio_process_sym, .{ .value = Value.integer(0) });
+
+    const prio_pgrp_sym = try vm.intern("PRIO_PGRP");
+    try vm.process_module.constants.put(prio_pgrp_sym, .{ .value = Value.integer(1) });
+
+    const prio_user_sym = try vm.intern("PRIO_USER");
+    try vm.process_module.constants.put(prio_user_sym, .{ .value = Value.integer(2) });
 }
 
 pub fn builtinProcessForkRaw(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
@@ -250,6 +263,26 @@ pub fn builtinProcessGetpgid(vm: *VM, _: Value, args: []Value, _: ?Block) VMErro
     const pgid = getpgid(pid);
     if (pgid < 0) return vm.raiseErrnoFmt(std.posix.errno(pgid), "getpgid failed", .{});
     return Value.integer(@intCast(pgid));
+}
+
+pub fn builtinProcessGetpriority(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 2);
+
+    if (builtin.os.tag == .windows) {
+        return vm.raiseExceptionFmt(vm.not_implemented_error_class, "Process.getpriority is not implemented on Windows", .{});
+    }
+
+    const which_value = try args[0].coerceToIntegerValue(vm, "no implicit conversion into Integer", "which out of range");
+    const who_value = try args[1].coerceToIntegerValue(vm, "no implicit conversion into Integer", "who out of range");
+    const which: c_int = @intCast(try which_value.integerToI64(vm, "which out of range"));
+    const who: c_int = @intCast(try who_value.integerToI64(vm, "who out of range"));
+
+    std.c._errno().* = 0;
+    const priority = getpriority(which, who);
+    if (priority == -1 and std.c._errno().* != 0) {
+        return vm.raiseErrnoFmt(@enumFromInt(std.c._errno().*), "getpriority failed", .{});
+    }
+    return Value.integer(@intCast(priority));
 }
 
 pub fn builtinProcessWarmup(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
