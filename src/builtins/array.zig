@@ -390,6 +390,54 @@ fn planArraySliceRange(vm: *VM, array_len: i64, range_obj: *value.RangeObject) V
     return .{ .span = .{ .start = actual_start, .count = clamped_end - actual_start } };
 }
 
+fn arraySliceArithmeticSequence(vm: *VM, array: *value.ArrayObject, sequence: *value.EnumeratorObject) VMError!Value {
+    const method = switch (sequence.kind) {
+        .method => |method| method,
+        else => return vm.raiseExceptionFmt(vm.type_error_class, "invalid arithmetic sequence", .{}),
+    };
+    if (!method.receiver.isRange()) return vm.raiseExceptionFmt(vm.type_error_class, "invalid arithmetic sequence", .{});
+    const range = method.receiver.toRangeObject();
+    const step_value = if (sequence.method_args) |args| if (args.elements.items.len > 0) args.elements.items[0] else Value.integer(1) else Value.integer(1);
+    const step = try step_value.coerceToI64ViaToInt(vm, "no implicit conversion into Integer", "no implicit conversion into Integer", "bignum too big to convert into `long`");
+    if (step == 0) return vm.raiseExceptionFmt(vm.argument_error_class, "slice step cannot be zero", .{});
+
+    const raw_begin: ?i128 = if (range.begin.isNil()) null else try range.begin.coerceToI64ViaToInt(vm, "no implicit conversion into Integer", "no implicit conversion into Integer", "bignum too big to convert into `long`");
+    var raw_end: ?i128 = if (range.end.isNil()) null else try range.end.coerceToI64ViaToInt(vm, "no implicit conversion into Integer", "no implicit conversion into Integer", "bignum too big to convert into `long`");
+    var exclude_end = range.exclude_end;
+    if (step < 0 and exclude_end and raw_end != null) {
+        raw_end.? += 1;
+        exclude_end = false;
+    }
+    const first = if (step < 0) raw_end else raw_begin;
+    const last = if (step < 0) raw_begin else raw_end;
+    const len: i128 = @intCast(array.elements.items.len);
+    var begin: i128 = first orelse 0;
+    var end: i128 = last orelse -1;
+    if (begin < 0) begin += len;
+    if (end < 0) end += len;
+    if (last == null or !exclude_end) end += 1;
+
+    const strict = step < -1 or step > 1;
+    if (begin < 0 or (!strict and begin > len)) {
+        if (strict) return vm.raiseExceptionFmt(vm.range_error_class, "arithmetic sequence out of range", .{});
+        return Value.nil();
+    }
+    if (!strict) end = @min(end, len);
+    var span: i128 = @max(end - begin, 0);
+    if (strict and (begin > len or span > len)) return vm.raiseExceptionFmt(vm.range_error_class, "arithmetic sequence out of range", .{});
+    span = @min(span, len - begin);
+
+    const result = try vm.createArray();
+    if (span > 0) {
+        var index = if (step > 0) begin else begin + span - 1;
+        const limit = if (step > 0) begin + span else begin - 1;
+        while (if (step > 0) index < limit else index > limit) : (index += step) {
+            result.elements.append(vm.gc_allocator, array.elements.items[@intCast(index)]) catch return error.Fatal;
+        }
+    }
+    return Value.fromObject(&result.object);
+}
+
 fn planArraySliceStartLength(vm: *VM, array_len: i64, raw_start: Value, raw_length: Value) VMError!ArraySliceRangePlan {
     var actual_start = try raw_start.coerceToI64ViaToInt(
         vm,
@@ -1057,6 +1105,9 @@ pub fn builtinArrayBracket(vm: *VM, receiver: Value, args: []Value, _: ?Block) V
     const len: i64 = @intCast(array.elements.items.len);
 
     if (args.len == 1) {
+        if (args[0].isEnumerator() and args[0].toEnumeratorObject().object.class == vm.enumerator_arithmetic_sequence_class) {
+            return arraySliceArithmeticSequence(vm, array, args[0].toEnumeratorObject());
+        }
         if (args[0].isRange()) {
             return switch (try planArraySliceRange(vm, len, args[0].toRangeObject())) {
                 .nil_result => Value.nil(),
