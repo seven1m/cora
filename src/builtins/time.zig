@@ -175,6 +175,9 @@ pub fn register(vm: *VM) !void {
     const to_a_sym = try vm.intern("to_a");
     try vm.time_class.module.methods.put(to_a_sym, value.MethodEntry.builtin(&builtinTimeToA, .{ .exact = 0 }));
 
+    const dup_sym = try vm.intern("dup");
+    try vm.time_class.module.methods.put(dup_sym, value.MethodEntry.builtin(&builtinTimeDup, .{ .exact = 0 }));
+
     const floor_sym = try vm.intern("floor");
     try vm.time_class.module.methods.put(floor_sym, value.MethodEntry.builtin(&builtinTimeFloor, .{ .variadic = 0 }));
 
@@ -1562,6 +1565,23 @@ pub fn builtinTimeToA(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMErro
     array_obj.elements.append(vm.gc_allocator, Value.boolean(false)) catch return error.Fatal;
     array_obj.elements.append(vm.gc_allocator, try vm.newString(if (t.is_utc) "UTC" else "local", false)) catch return error.Fatal;
     return Value.fromObject(&array_obj.object);
+}
+
+pub fn builtinTimeDup(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    const t = receiver.toTimeObject();
+    const class_obj = vm.getClass(receiver);
+    const duplicate = if (t.is_utc)
+        try vm.newTime(class_obj, t.timew)
+    else if (t.is_local)
+        try vm.newTimeLocal(class_obj, t.timew, t.utc_offset_nanos)
+    else
+        try vm.newTimeWithOffset(class_obj, t.timew, t.utc_offset_nanos);
+    duplicate.toTimeObject().zone = t.zone;
+    const src_obj = receiver.getObjectPointer() orelse return error.Fatal;
+    const dst_obj = duplicate.getObjectPointer() orelse return error.Fatal;
+    try vm.copyObjectInstanceVariables(src_obj, dst_obj);
+    return duplicate;
 }
 
 pub fn builtinTimeFloor(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
