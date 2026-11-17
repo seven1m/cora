@@ -1053,7 +1053,7 @@ fn timeStringValue(vm: *VM, receiver: Value) VMError!Value {
     out.append(vm.allocator, ':') catch return error.Fatal;
     try strftime_fmt.appendPaddedDecimal(&out, vm.allocator, parts.second, 2);
     try appendUtcOffsetStr(&out, vm.allocator, t);
-    return vm.newString(out.items, false);
+    return try vm.newStringWithEncoding(out.items, false, .{ .us_ascii = .{} });
 }
 
 fn buildStrftimeValue(vm: *VM, receiver: Value, format_bytes: []const u8) VMError!Value {
