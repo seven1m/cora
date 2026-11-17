@@ -1764,7 +1764,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/random/new_spec.rb
 - [x] core/random/rand_spec.rb
 - [ ] core/random/random_number_spec.rb
-- [ ] core/random/seed_spec.rb
+- [x] core/random/seed_spec.rb
 - [ ] core/random/srand_spec.rb
 - [x] core/random/urandom_spec.rb
 
