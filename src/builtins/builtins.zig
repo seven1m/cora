@@ -138,8 +138,24 @@ pub fn registerMainSelf(vm: *VM) !void {
         to_s_sym,
         MethodEntry.builtin(&builtinMainToS, .{ .exact = 0 }),
     ) catch return error.Fatal;
+
+    const define_method_sym = try vm.intern("define_method");
+    main_singleton.module.methods.put(
+        define_method_sym,
+        MethodEntry.builtinWithVisibility(&builtinMainDefineMethod, .{ .variadic = 0 }, .private),
+    ) catch return error.Fatal;
 }
 
 fn builtinMainToS(vm: *VM, _: Value, _: []Value, _: ?vm_mod.Block) VMError!Value {
     return try vm.newString("main", false);
+}
+
+fn builtinMainDefineMethod(vm: *VM, receiver: Value, args: []Value, block: ?vm_mod.Block) VMError!Value {
+    const target = if (receiver.eql(vm.main_self))
+        Value.fromObject(&vm.object_class.module.object)
+    else if (vm.current_lexical_scope) |scope|
+        Value.fromObject(&scope.getModule().object)
+    else
+        Value.fromObject(&vm.object_class.module.object);
+    return module_builtin.builtinModuleDefineMethod(vm, target, args, block);
 }

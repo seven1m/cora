@@ -1291,7 +1291,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] core/kernel/yield_self_spec.rb
 
 ### core/main
-- [ ] core/main/define_method_spec.rb
+- [x] core/main/define_method_spec.rb
 - [x] core/main/include_spec.rb
 - [x] core/main/private_spec.rb
 - [x] core/main/public_spec.rb
