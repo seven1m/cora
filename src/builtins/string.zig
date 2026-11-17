@@ -175,6 +175,12 @@ pub fn register(vm: *VM) !void {
     const string_bit_flip_sym = try vm.intern("bit_flip");
     try vm.string_class.module.methods.put(string_bit_flip_sym, value.MethodEntry.keywordBuiltin(&builtinStringBitFlip, .{ .exact = 1 }));
 
+    const string_bitwise_not_sym = try vm.intern("bitwise_not");
+    try vm.string_class.module.methods.put(string_bitwise_not_sym, value.MethodEntry.builtin(&builtinStringBitwiseNot, .{ .exact = 0 }));
+
+    const string_bitwise_not_bang_sym = try vm.intern("bitwise_not!");
+    try vm.string_class.module.methods.put(string_bitwise_not_bang_sym, value.MethodEntry.builtin(&builtinStringBitwiseNotBang, .{ .exact = 0 }));
+
     const string_b_sym = try vm.intern("b");
     try vm.string_class.module.methods.put(string_b_sym, value.MethodEntry.builtin(&builtinStringB, .{ .exact = 0 }));
     const string_dedup_sym = try vm.intern("dedup");
@@ -2976,6 +2982,25 @@ pub fn builtinStringBitFlip(vm: *VM, receiver: Value, args: []Value, _: ?Block) 
     const string_obj = receiver.toStringObject();
     const new_bytes = vm.gc_allocator_atomic.dupe(u8, string_obj.str) catch return error.Fatal;
     new_bytes[loc.byte_index] ^= (@as(u8, 1) << loc.shift);
+    string_obj.replaceBytes(new_bytes);
+    string_obj.validity = .unknown;
+    return receiver;
+}
+
+pub fn builtinStringBitwiseNot(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    const string_obj = receiver.toStringObject();
+    const new_bytes = vm.gc_allocator_atomic.dupe(u8, string_obj.str) catch return error.Fatal;
+    for (new_bytes) |*byte| byte.* = ~byte.*;
+    return try vm.newStringWithEncoding(new_bytes, false, .{ .ascii_8bit = .{} });
+}
+
+pub fn builtinStringBitwiseNotBang(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    try vm.guardNotFrozen(receiver);
+    const string_obj = receiver.toStringObject();
+    const new_bytes = vm.gc_allocator_atomic.dupe(u8, string_obj.str) catch return error.Fatal;
+    for (new_bytes) |*byte| byte.* = ~byte.*;
     string_obj.replaceBytes(new_bytes);
     string_obj.validity = .unknown;
     return receiver;
