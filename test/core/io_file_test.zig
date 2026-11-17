@@ -500,6 +500,25 @@ test "File.stat and IO#stat expose uid and gid" {
     try std.testing.expectEqual(@as(i64, @intCast(native_stat.st_gid)), result.toArrayObject().elements.items[3].toInteger());
 }
 
+test "File.stat and IO#stat agree on birthtime" {
+    if (builtin.os.tag != .linux and !builtin.os.tag.isDarwin()) return error.SkipZigTest;
+    var path_buf: [128]u8 = undefined;
+    const path = try uniquePath(&path_buf);
+    const source = try std.fmt.allocPrint(std.testing.allocator,
+        \\path = "{s}"
+        \\File.write(path, "x")
+        \\File.open(path, "r") do |file|
+        \\  path_time = begin; File.stat(path).birthtime; rescue NotImplementedError; :unsupported; end
+        \\  fd_time = begin; file.stat.birthtime; rescue NotImplementedError; :unsupported; end
+        \\  path_time == fd_time
+        \\end
+    , .{path});
+    defer std.testing.allocator.free(source);
+    const result = try evalCode(source);
+    try std.testing.expect(result.isTrue());
+}
+
+
 test "File.split matches MRI path splitting" {
     var result = try evalCode("File.split('/a/b')");
     try std.testing.expect(result.isArray());

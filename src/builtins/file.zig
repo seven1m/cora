@@ -435,6 +435,7 @@ const linux_statx_request: std.os.linux.STATX = .{
     .UID = true,
     .GID = true,
     .BLOCKS = true,
+    .BTIME = true,
 };
 
 const linux_identical_statx_request: std.os.linux.STATX = .{
@@ -835,7 +836,7 @@ pub fn register(vm: *VM) !void {
 
     const ctime_sym = try vm.intern("ctime");
     try vm.file_stat_class.module.methods.put(ctime_sym, value.MethodEntry.builtin(&builtinFileStatCtime, .{ .exact = 0 }));
-    if (builtin.os.tag.isDarwin()) {
+    if (builtin.os.tag.isDarwin() or builtin.os.tag == .linux) {
         const birthtime_sym = try vm.intern("birthtime");
         try vm.file_stat_class.module.methods.put(birthtime_sym, value.MethodEntry.builtin(&builtinFileStatBirthtime, .{ .exact = 0 }));
     }
@@ -1558,6 +1559,18 @@ fn metadataFromStat(stat: std.c.Stat) PosixStatMetadata {
     };
 }
 
+fn metadataFromStatx(stat: std.os.linux.Statx) PosixStatMetadata {
+    return .{
+        .uid = @intCast(stat.uid),
+        .gid = @intCast(stat.gid),
+        .mode = @intCast(stat.mode),
+        .blocks = @intCast(stat.blocks),
+        .dev = gnuMakeDev(stat.dev_major, stat.dev_minor),
+        .rdev = gnuMakeDev(stat.rdev_major, stat.rdev_minor),
+        .birthtime = if (stat.mask.BTIME) .{ .nanoseconds = @intCast(@as(i128, stat.btime.sec) * std.time.ns_per_s + stat.btime.nsec) } else null,
+    };
+}
+
 fn loadPosixStatMetadataForPath(vm: *VM, path_obj: *value.StringObject, default_mode: i64, follow_symlinks: bool) VMError!PosixStatMetadata {
     if (builtin.os.tag.isDarwin()) {
         const path_z = try vm.allocCStringZ(path_obj.str);
@@ -1596,16 +1609,7 @@ fn loadPosixStatMetadataForPath(vm: *VM, path_obj: *value.StringObject, default_
         const flags = std.os.linux.AT.NO_AUTOMOUNT |
             (if (follow_symlinks) @as(u32, 0) else std.os.linux.AT.SYMLINK_NOFOLLOW);
         switch (std.c.errno(std.c.statx(std.os.linux.AT.FDCWD, path_z.ptr, flags, linux_statx_request, &statx))) {
-            .SUCCESS => {
-                return .{
-                    .uid = @intCast(statx.uid),
-                    .gid = @intCast(statx.gid),
-                    .mode = @intCast(statx.mode),
-                    .blocks = @intCast(statx.blocks),
-                    .dev = gnuMakeDev(statx.dev_major, statx.dev_minor),
-                    .rdev = gnuMakeDev(statx.rdev_major, statx.rdev_minor),
-                };
-            },
+            .SUCCESS => return metadataFromStatx(statx),
             .INTR => {
                 try vm.checkAsyncEvents();
                 continue;
@@ -1645,16 +1649,7 @@ fn loadPosixStatMetadataForFd(vm: *VM, fd: std.c.fd_t, default_mode: i64) VMErro
     while (true) {
         var statx = std.mem.zeroes(std.os.linux.Statx);
         switch (std.c.errno(std.c.statx(fd, "", std.os.linux.AT.EMPTY_PATH, linux_statx_request, &statx))) {
-            .SUCCESS => {
-                return .{
-                    .uid = @intCast(statx.uid),
-                    .gid = @intCast(statx.gid),
-                    .mode = @intCast(statx.mode),
-                    .blocks = @intCast(statx.blocks),
-                    .dev = gnuMakeDev(statx.dev_major, statx.dev_minor),
-                    .rdev = gnuMakeDev(statx.rdev_major, statx.rdev_minor),
-                };
-            },
+            .SUCCESS => return metadataFromStatx(statx),
             .INTR => {
                 try vm.checkAsyncEvents();
                 continue;
@@ -1733,9 +1728,8 @@ fn setFileStatIvars(vm: *VM, stat_val: Value, stat: std.Io.File.Stat, posix_meta
     try vm.setInstanceVariable(stat_val, "@atime", atime_value);
     try vm.setInstanceVariable(stat_val, "@ctime", try statTimestampToValue(vm, stat.ctime));
     try vm.setInstanceVariable(stat_val, "@mtime", try statTimestampToValue(vm, stat.mtime));
-    if (posix_metadata.birthtime) |timestamp| {
-        try vm.setInstanceVariable(stat_val, "@birthtime", try statTimestampToValue(vm, timestamp));
-    }
+    const birthtime = if (posix_metadata.birthtime) |timestamp| try statTimestampToValue(vm, timestamp) else Value.nil();
+    try vm.setInstanceVariable(stat_val, "@birthtime", birthtime);
 }
 
 fn buildFileStat(vm: *VM, stat: std.Io.File.Stat, posix_metadata: PosixStatMetadata) VMError!Value {
@@ -3195,7 +3189,9 @@ pub fn builtinFileStatCtime(vm: *VM, receiver: Value, args: []Value, _: ?Block) 
 
 pub fn builtinFileStatBirthtime(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
-    return fileStatTimeIvar(vm, receiver, "@birthtime");
+    const birthtime = try fileStatTimeIvar(vm, receiver, "@birthtime");
+    if (birthtime.isNil()) return vm.raiseExceptionFmt(vm.not_implemented_error_class, "birthtime is unimplemented on this filesystem", .{});
+    return birthtime;
 }
 
 pub fn builtinFileStatMtime(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
