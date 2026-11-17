@@ -11,7 +11,9 @@ pub fn register(vm: *VM) !void {
     try vm.true_class.module.methods.put(to_s_sym, value.MethodEntry.builtin(&builtinTrueClassToS, .{ .exact = 0 }));
 
     const inspect_sym = try vm.intern("inspect");
-    try vm.true_class.module.methods.put(inspect_sym, value.MethodEntry.builtin(&builtinTrueClassInspect, .{ .exact = 0 }));
+    var inspect_entry = value.MethodEntry.builtin(&builtinTrueClassToS, .{ .exact = 0 });
+    inspect_entry.original_name = to_s_sym;
+    try vm.true_class.module.methods.put(inspect_sym, inspect_entry);
 
     const equal_sym = try vm.intern("==");
     try vm.true_class.module.methods.put(equal_sym, value.MethodEntry.builtin(&builtinTrueClassEqual, .{ .exact = 1 }));
@@ -30,10 +32,6 @@ pub fn builtinTrueClassToS(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!
     try vm.requireArgCount(args, 0);
 
     return try vm.getOrCreateCanonicalFString("true", .{ .utf8 = .{} });
-}
-
-pub fn builtinTrueClassInspect(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
-    return builtinTrueClassToS(vm, receiver, args, block);
 }
 
 pub fn builtinTrueClassEqual(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
