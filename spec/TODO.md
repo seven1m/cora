@@ -4095,7 +4095,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] library/uri/generic/userinfo_spec.rb
 
 ### library/uri/http
-- [ ] library/uri/http/build_spec.rb
+- [x] library/uri/http/build_spec.rb
 - [x] library/uri/http/request_uri_spec.rb
 
 ### library/uri
