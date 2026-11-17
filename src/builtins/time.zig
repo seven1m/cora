@@ -187,6 +187,12 @@ pub fn register(vm: *VM) !void {
     const strftime_sym = try vm.intern("strftime");
     try vm.time_class.module.methods.put(strftime_sym, value.MethodEntry.builtin(&builtinTimeStrftime, .{ .exact = 1 }));
 
+    const iso8601_method = value.MethodEntry.builtin(&builtinTimeIso8601, .{ .variadic = 0 });
+    const iso8601_sym = try vm.intern("iso8601");
+    try vm.time_class.module.methods.put(iso8601_sym, iso8601_method);
+    const xmlschema_sym = try vm.intern("xmlschema");
+    try vm.time_class.module.methods.put(xmlschema_sym, iso8601_method);
+
     const to_s_sym = try vm.intern("to_s");
     try vm.time_class.module.methods.put(to_s_sym, value.MethodEntry.builtin(&builtinTimeToS, .{ .exact = 0 }));
 
@@ -1700,6 +1706,59 @@ pub fn builtinTimeStrftime(vm: *VM, receiver: Value, args: []Value, _: ?Block) V
     try vm.requireArgCount(args, 1);
     const format_value = try args[0].coerceToStringValue(vm, "no implicit conversion into String");
     return buildStrftimeValue(vm, receiver, format_value.toStringObject().str);
+}
+
+pub fn builtinTimeIso8601(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCountRange(args, 0, 1);
+    var fraction_digits: ?usize = null;
+    if (args.len == 1) {
+        const ndigits = try coerceIntegerComponent(vm, args[0]);
+        if (ndigits < 0) return vm.raiseExceptionFmt(vm.argument_error_class, "ndigits out of range", .{});
+        fraction_digits = @intCast(ndigits);
+    }
+
+    const t = receiver.toTimeObject();
+    const parts = try timePartsFor(vm, t);
+    var out: std.ArrayList(u8) = .empty;
+    defer out.deinit(vm.allocator);
+
+    try strftime_fmt.appendPaddedIntegerValue(&out, vm, parts.year, 4);
+    out.append(vm.allocator, '-') catch return error.Fatal;
+    try strftime_fmt.appendPaddedDecimal(&out, vm.allocator, parts.month, 2);
+    out.append(vm.allocator, '-') catch return error.Fatal;
+    try strftime_fmt.appendPaddedDecimal(&out, vm.allocator, parts.day, 2);
+    out.append(vm.allocator, 'T') catch return error.Fatal;
+    try strftime_fmt.appendPaddedDecimal(&out, vm.allocator, parts.hour, 2);
+    out.append(vm.allocator, ':') catch return error.Fatal;
+    try strftime_fmt.appendPaddedDecimal(&out, vm.allocator, parts.minute, 2);
+    out.append(vm.allocator, ':') catch return error.Fatal;
+    try strftime_fmt.appendPaddedDecimal(&out, vm.allocator, parts.second, 2);
+
+    const width = fraction_digits orelse 0;
+    if (width > 0) {
+        out.append(vm.allocator, '.') catch return error.Fatal;
+        var buf: [16]u8 = undefined;
+        const digits = std.fmt.bufPrint(&buf, "{d:0>9}", .{parts.nanosecond}) catch return error.Fatal;
+        out.appendSlice(vm.allocator, digits[0..@min(width, 9)]) catch return error.Fatal;
+        if (width > 9) {
+            for (0..width - 9) |_| out.append(vm.allocator, '0') catch return error.Fatal;
+        }
+    }
+
+    if (t.is_utc) {
+        out.append(vm.allocator, 'Z') catch return error.Fatal;
+    } else {
+        const total_seconds = @divTrunc(t.utc_offset_nanos, nanos_per_second);
+        const sign: u8 = if (total_seconds >= 0) '+' else '-';
+        const abs_seconds: i64 = if (total_seconds >= 0) total_seconds else -total_seconds;
+        const off_hours: u64 = @intCast(@divTrunc(abs_seconds, seconds_per_hour));
+        const off_minutes: u64 = @intCast(@divTrunc(@rem(abs_seconds, seconds_per_hour), seconds_per_minute));
+        var buf: [16]u8 = undefined;
+        const offset = std.fmt.bufPrint(&buf, "{c}{d:0>2}:{d:0>2}", .{ sign, off_hours, off_minutes }) catch return error.Fatal;
+        out.appendSlice(vm.allocator, offset) catch return error.Fatal;
+    }
+
+    return try vm.newStringWithEncoding(out.items, false, .{ .us_ascii = .{} });
 }
 
 pub fn builtinTimeToS(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
