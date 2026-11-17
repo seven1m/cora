@@ -4307,7 +4307,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] library/zlib/inflate/set_dictionary_spec.rb
 
 ### library/zlib
-- [ ] library/zlib/inflate_spec.rb
+- [x] library/zlib/inflate_spec.rb
 - [x] library/zlib/zlib_version_spec.rb
 
 ### library/zlib/zstream
