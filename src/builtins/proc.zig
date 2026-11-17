@@ -8,6 +8,7 @@ const Block = vm_mod.Block;
 const Value = value.Value;
 
 pub fn register(vm: *VM) !void {
+    vm.proc_class.allocation_policy = .unavailable;
     const proc_new_sym = try vm.intern("new");
     const proc_class_val = Value.fromObject(&vm.proc_class.module.object);
     const proc_singleton = try vm.getOrCreateSingletonClass(proc_class_val);

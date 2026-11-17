@@ -1602,7 +1602,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/objectspace/weakmap_spec.rb
 
 ### core/proc
-- [ ] core/proc/allocate_spec.rb
+- [x] core/proc/allocate_spec.rb
 - [ ] core/proc/arity_spec.rb
 - [ ] core/proc/binding_spec.rb
 - [ ] core/proc/block_pass_spec.rb
