@@ -4,6 +4,21 @@
 #include "ruby.h"
 
 static VALUE
+cext_temporary_buffer(VALUE self, VALUE value)
+{
+    (void)self;
+    VALUE buffer = 0;
+    long *numbers = ALLOCV(buffer, 2 * sizeof(long));
+    numbers[0] = RB_NUM2LONG(value);
+    numbers[1] = RB_FIX2LONG(INT2FIX(7));
+    VALUE result = rb_ary_new();
+    rb_ary_push(result, LONG2NUM(numbers[0]));
+    rb_ary_push(result, LONG2NUM(numbers[1]));
+    ALLOCV_END(buffer);
+    return result;
+}
+
+static VALUE
 cora_cext_test(VALUE str)
 {
     (void)str;
@@ -990,6 +1005,7 @@ void Init_fixture(void)
     rb_define_module_function(mCoraCExt, "eof_error", cext_eof_error, 0);
     rb_define_module_function(mCoraCExt, "random_class", cext_random_class, 0);
     rb_define_module_function(mCoraCExt, "native_array", cext_native_array, 0);
+    rb_define_module_function(mCoraCExt, "temporary_buffer", cext_temporary_buffer, 1);
     rb_define_module_function(mCoraCExt, "blocking_poll", cext_blocking_poll, 1);
 
     rb_define_method(rb_cString, "cora_cext_test", cora_cext_test, 0);

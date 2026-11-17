@@ -16,6 +16,7 @@ extern "C" {
 
 void *rb_alloc_tmp_buffer(volatile VALUE *store, size_t size);
 void  rb_free_tmp_buffer(volatile VALUE *store);
+#define ALLOCV(v, size) rb_alloc_tmp_buffer(&(v), (size))
 #define ALLOCV_N(type, v, n) ((type*)rb_alloc_tmp_buffer(&(v), (size_t)(n) * sizeof(type)))
 #define ALLOCV_END(v) rb_free_tmp_buffer(&(v))
 #define RB_ALLOCV_N(type, v, n) ALLOCV_N(type, v, n)

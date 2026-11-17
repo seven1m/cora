@@ -4,6 +4,17 @@ const evalCode = test_helper.evalCode;
 
 extern fn rb_memhash(ptr: ?*const anyopaque, len: c_long) c_long;
 
+test "C extension temporary buffers and integer conversions" {
+    const result = try evalCode(
+        \\$LOAD_PATH << "build/cext"
+        \\require "fixture.so"
+        \\CoraCExt.temporary_buffer(-42)
+    );
+    const items = result.toArrayObject().elements.items;
+    try std.testing.expectEqual(@as(i64, -42), items[0].toInteger());
+    try std.testing.expectEqual(@as(i64, 7), items[1].toInteger());
+}
+
 test "C extension rb_memhash handles long byte sequences without overflow" {
     const first = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
     const second = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdeg";

@@ -78,6 +78,8 @@ typedef struct { int _; } rb_encoding;
 
 #define INT2FIX(x) (((VALUE)(x)) << 1 | RUBY_FIXNUM_FLAG)
 #define FIX2LONG(x) (((long)(x)) >> 1)
+#define RB_FIX2LONG(x) FIX2LONG(x)
+#define RB_NUM2LONG(x) NUM2LONG(x)
 #define FIX2INT(x)  ((int)FIX2LONG(x))
 #define LONG2FIX(x) INT2FIX(x)
 
