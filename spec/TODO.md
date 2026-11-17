@@ -1948,7 +1948,7 @@ Source baseline: ../ruby_spec compared to local spec/
 ### core/signal
 - [x] core/signal/list_spec.rb
 - [x] core/signal/signame_spec.rb
-- [-] core/signal/trap_spec.rb
+- [x] core/signal/trap_spec.rb
 
 ### core/sizedqueue
 - [x] core/sizedqueue/append_spec.rb

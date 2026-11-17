@@ -8,6 +8,17 @@ const compiler = cora.compiler;
 const VM = cora.vm.VM;
 const evalCode = test_helper.evalCode;
 
+test "Signal.trap rejects signal names containing null bytes before checking their sign" {
+    const result = try evalCode(
+        \\begin
+        \\  Signal.trap("-HUP\0") {}
+        \\rescue ArgumentError => error
+        \\  error.message
+        \\end
+    );
+    try std.testing.expectEqualStrings("signal name with null byte", result.toStringObject().str);
+}
+
 test "Signal.trap returns previous handler" {
     const result = try evalCode(
         \\first = Signal.trap("INT") { 1 }

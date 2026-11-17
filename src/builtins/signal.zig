@@ -55,6 +55,12 @@ fn signalArgToNumber(vm: *VM, signal_value: Value) VMError!c_int {
     }
 
     const name = (try coerceSignalName(vm, signal_value)) orelse return trapSignalTypeError(vm, signal_value);
+    if (std.mem.indexOfScalar(u8, name, 0) != null) {
+        return vm.raiseExceptionFmt(vm.argument_error_class, "signal name with null byte", .{});
+    }
+    if (std.mem.startsWith(u8, name, "-")) {
+        return vm.raiseExceptionFmt(vm.argument_error_class, "negative signal name: {s}", .{name});
+    }
     return if (signal_support.infoByName(name)) |info|
         info.signo
     else
