@@ -27,6 +27,12 @@ pub fn register(vm: *VM) !void {
     const seed_sym = try vm.intern("seed");
     try vm.random_class.module.methods.put(seed_sym, value.MethodEntry.builtin(&builtinRandomSeed, .{ .exact = 0 }));
 
+    const state_sym = try vm.intern("state");
+    try vm.random_class.module.methods.put(state_sym, value.MethodEntry.builtin(&builtinRandomState, .{ .exact = 0 }));
+
+    const equal_sym = try vm.intern("==");
+    try vm.random_class.module.methods.put(equal_sym, value.MethodEntry.builtin(&builtinRandomEqual, .{ .exact = 1 }));
+
     const random_number_sym = try vm.intern("random_number");
     try formatter_module.methods.put(rand_sym, value.MethodEntry.builtin(&builtinRandomFormatterRandomNumber, .{ .variadic = 0 }));
     try formatter_module.methods.put(random_number_sym, value.MethodEntry.builtin(&builtinRandomFormatterRandomNumber, .{ .variadic = 0 }));
@@ -295,6 +301,23 @@ pub fn builtinRandomSeed(vm: *VM, receiver: Value, args: []Value, _: ?Block) VME
     const seed = try vm.getInstanceVariable(receiver, "@seed");
     if (!seed.isNil()) return seed;
     return Value.integer(@intCast(nextSeed(vm)));
+}
+
+pub fn builtinRandomState(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    const seed = try vm.getInstanceVariable(receiver, "@seed");
+    if (!seed.isNil()) return seed;
+    return Value.integer(@intCast(nextSeed(vm)));
+}
+
+pub fn builtinRandomEqual(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    const other = args[0];
+    if (!vm.isClassOrSubclassOf(vm.getClass(other), vm.random_class)) return Value.boolean(false);
+    const self_seed = try vm.getInstanceVariable(receiver, "@seed");
+    const other_seed = try vm.getInstanceVariable(other, "@seed");
+    if (self_seed.isNil() or other_seed.isNil()) return Value.boolean(receiver.raw == other.raw);
+    return Value.boolean(try vm.valueEquals(self_seed, other_seed));
 }
 
 pub fn builtinRandomSingletonRand(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
