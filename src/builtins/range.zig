@@ -1459,7 +1459,10 @@ pub fn builtinRangeInclude(vm: *VM, receiver: Value, args: []Value, _: ?Block) V
     }
 
     if (beg.isNil() and end_v.isNil()) {
-        return Value.boolean(isLinearObject(vm, val));
+        if (!isLinearObject(vm, val)) {
+            return vm.raiseExceptionFmt(vm.type_error_class, "cannot determine inclusion of {s} in beginless/endless range", .{vm.className(val)});
+        }
+        return Value.boolean(true);
     }
     if (beg.isNil() or end_v.isNil()) {
         return vm.raiseExceptionFmt(vm.type_error_class, "cannot determine inclusion in beginless/endless ranges", .{});
