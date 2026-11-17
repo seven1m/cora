@@ -3640,7 +3640,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] library/singleton/clone_spec.rb
 - [x] library/singleton/dump_spec.rb
 - [x] library/singleton/dup_spec.rb
-- [ ] library/singleton/instance_spec.rb
+- [x] library/singleton/instance_spec.rb
 - [x] library/singleton/load_spec.rb
 - [x] library/singleton/new_spec.rb
 
