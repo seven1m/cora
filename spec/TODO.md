@@ -1974,7 +1974,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] core/string/append_spec.rb
 - [x] core/string/ascii_only_spec.rb
 - [x] core/string/b_spec.rb
-- [ ] core/string/bit_clear_spec.rb
+- [x] core/string/bit_clear_spec.rb
 - [x] core/string/bit_count_spec.rb
 - [x] core/string/bit_flip_spec.rb
 - [x] core/string/bit_get_spec.rb
