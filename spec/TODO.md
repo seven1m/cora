@@ -3032,7 +3032,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] library/erb/util/url_encode_spec.rb
 
 ### library/etc
-- [ ] library/etc/confstr_spec.rb
+- [x] library/etc/confstr_spec.rb
 - [ ] library/etc/endgrent_spec.rb
 - [ ] library/etc/endpwent_spec.rb
 - [ ] library/etc/getgrent_spec.rb

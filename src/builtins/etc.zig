@@ -23,6 +23,13 @@ pub fn register(vm: *VM) !void {
     const systmpdir_sym = try vm.intern("systmpdir");
     try etc_singleton.module.methods.put(systmpdir_sym, value.MethodEntry.builtin(&builtinEtcSystmpdir, .{ .exact = 0 }));
 
+    const cs_path_sym = try vm.intern("CS_PATH");
+    const cs_path_value: i64 = if (builtin.os.tag == .macos) 7 else 0;
+    try etc_val.toModuleObject().constants.put(cs_path_sym, .{ .value = Value.integer(cs_path_value) });
+
+    const confstr_sym = try vm.intern("confstr");
+    try etc_singleton.module.methods.put(confstr_sym, value.MethodEntry.builtin(&builtinEtcConfstr, .{ .exact = 1 }));
+
     const getlogin_sym = try vm.intern("getlogin");
     try etc_singleton.module.methods.put(getlogin_sym, value.MethodEntry.builtin(&builtinEtcGetlogin, .{ .exact = 0 }));
 
@@ -47,6 +54,33 @@ fn builtinEtcSystmpdir(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Valu
     try vm.requireArgCount(args, 0);
     const dir = if (builtin.os.tag == .windows) "C:\\Windows\\Temp" else "/tmp";
     return vm.newString(dir, false);
+}
+
+extern "c" fn confstr(name: c_int, buf: [*]u8, len: usize) usize;
+
+fn builtinEtcConfstr(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    if (builtin.os.tag == .windows) {
+        return vm.raiseExceptionFmt(vm.not_implemented_error_class, "Etc.confstr is not implemented on Windows", .{});
+    }
+
+    const name_value = try args[0].coerceToIntegerValue(vm, "no implicit conversion into Integer", "name out of range");
+    const name: c_int = @intCast(try name_value.integerToI64(vm, "name out of range"));
+
+    var probe: [1]u8 = undefined;
+    std.c._errno().* = 0;
+    const size = confstr(name, &probe, 0);
+    if (size == 0) {
+        return vm.raiseErrnoFmt(@enumFromInt(std.c._errno().*), "confstr failed", .{});
+    }
+
+    const buf = vm.allocator.alloc(u8, size) catch return error.Fatal;
+    defer vm.allocator.free(buf);
+    const written = confstr(name, buf.ptr, buf.len);
+    if (written == 0 or written > buf.len) {
+        return vm.raiseErrnoFmt(@enumFromInt(std.c._errno().*), "confstr failed", .{});
+    }
+    return vm.newString(buf[0 .. written - 1], false);
 }
 
 extern "c" fn getlogin() ?[*:0]u8;
