@@ -247,6 +247,9 @@ pub fn register(vm: *VM) !void {
 
     const isdst_sym = try vm.intern("isdst");
     try vm.time_class.module.methods.put(isdst_sym, dst_method);
+
+    const deconstruct_keys_sym = try vm.intern("deconstruct_keys");
+    try vm.time_class.module.methods.put(deconstruct_keys_sym, value.MethodEntry.builtin(&builtinTimeDeconstructKeys, .{ .exact = 1 }));
 }
 
 fn floorDiv(numerator: i64, denominator: i64) i64 {
@@ -1862,4 +1865,51 @@ pub fn builtinTimeDst(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMErro
     const seconds: c_time_t = epoch_seconds;
     if (localtime_r(&seconds, &tm) == null) return Value.boolean(false);
     return Value.boolean(tm.tm_isdst > 0);
+}
+
+fn timeDeconstructedValue(vm: *VM, receiver: Value, parts: *const TimeParts, name: []const u8) VMError!?Value {
+    if (std.mem.eql(u8, name, "year")) return parts.year;
+    if (std.mem.eql(u8, name, "month")) return Value.integer(@intCast(parts.month));
+    if (std.mem.eql(u8, name, "day")) return Value.integer(@intCast(parts.day));
+    if (std.mem.eql(u8, name, "yday")) return Value.integer(@intCast(parts.year_day));
+    if (std.mem.eql(u8, name, "wday")) return Value.integer(@intCast(parts.weekday));
+    if (std.mem.eql(u8, name, "hour")) return Value.integer(@intCast(parts.hour));
+    if (std.mem.eql(u8, name, "min")) return Value.integer(@intCast(parts.minute));
+    if (std.mem.eql(u8, name, "sec")) return Value.integer(@intCast(parts.second));
+    if (std.mem.eql(u8, name, "subsec")) return try builtinTimeSubsec(vm, receiver, &.{}, null);
+    if (std.mem.eql(u8, name, "dst")) return try builtinTimeDst(vm, receiver, &.{}, null);
+    if (std.mem.eql(u8, name, "zone")) return try builtinTimeZone(vm, receiver, &.{}, null);
+    return null;
+}
+
+pub fn builtinTimeDeconstructKeys(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    if (!args[0].isNil() and !args[0].isArray()) {
+        return vm.raiseExceptionFmt(
+            vm.type_error_class,
+            "wrong argument type {s} (expected Array or nil)",
+            .{vm.className(args[0])},
+        );
+    }
+
+    const result = try vm.createHash();
+    const parts = try timePartsFor(vm, receiver.toTimeObject());
+
+    if (args[0].isNil()) {
+        const all_keys = [_][]const u8{ "year", "month", "day", "yday", "wday", "hour", "min", "sec", "subsec", "dst", "zone" };
+        for (all_keys) |name| {
+            const sym = try vm.intern(name);
+            const entry = (try timeDeconstructedValue(vm, receiver, &parts, name)).?;
+            try vm.hashSetEntry(result, Value.fromObject(&sym.object), entry);
+        }
+        return Value.fromObject(&result.object);
+    }
+
+    for (args[0].toArrayObject().elements.items) |key| {
+        if (!key.isSymbol()) continue;
+        if (try timeDeconstructedValue(vm, receiver, &parts, key.toSymbolObject().name)) |entry| {
+            try vm.hashSetEntry(result, key, entry);
+        }
+    }
+    return Value.fromObject(&result.object);
 }
