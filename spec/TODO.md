@@ -2413,7 +2413,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] language/constants_spec.rb
 - [ ] language/def_spec.rb
 - [ ] language/defined_spec.rb
-- [ ] language/delegation_spec.rb
+- [-] language/delegation_spec.rb
 - [ ] language/encoding_spec.rb
 - [ ] language/ensure_spec.rb
 - [ ] language/execution_spec.rb

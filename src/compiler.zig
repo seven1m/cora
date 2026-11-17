@@ -2209,9 +2209,12 @@ pub const Compiler = struct {
                         }
 
                         if (arg_node == .splat) {
-                            const expr_ptr = arg_node.splat.expression orelse return error.UnsupportedNode;
-                            const expr = try self.parser.asNode(@ptrCast(expr_ptr));
-                            try self.compileNode(expr, line);
+                            if (arg_node.splat.expression) |expr_ptr| {
+                                const expr = try self.parser.asNode(@ptrCast(expr_ptr));
+                                try self.compileNode(expr, line);
+                            } else {
+                                try self.compileAnonymousParameter("*", line);
+                            }
                             try self.current_chunk.emitOp(.ARRAY_CONCAT_ARRAY, line);
                         } else {
                             try self.compileNode(arg_node, line);
@@ -2234,9 +2237,12 @@ pub const Compiler = struct {
                     if (arg_node == .keyword_hash) continue;
 
                     if (result.args_array_mode and arg_node == .splat) {
-                        const expr_ptr = arg_node.splat.expression orelse return error.UnsupportedNode;
-                        const expr = try self.parser.asNode(@ptrCast(expr_ptr));
-                        try self.compileNode(expr, line);
+                        if (arg_node.splat.expression) |expr_ptr| {
+                            const expr = try self.parser.asNode(@ptrCast(expr_ptr));
+                            try self.compileNode(expr, line);
+                        } else {
+                            try self.compileAnonymousParameter("*", line);
+                        }
                         try self.current_chunk.emitOp(.ARRAY_CONCAT_ARRAY, line);
                     } else {
                         try self.compileNode(arg_node, line);
