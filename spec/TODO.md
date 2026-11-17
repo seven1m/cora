@@ -2307,7 +2307,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/time/now_spec.rb
 - [x] core/time/nsec_spec.rb
 - [ ] core/time/plus_spec.rb
-- [ ] core/time/round_spec.rb
+- [x] core/time/round_spec.rb
 - [x] core/time/saturday_spec.rb
 - [x] core/time/sec_spec.rb
 - [-] core/time/strftime_spec.rb
