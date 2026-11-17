@@ -108,8 +108,12 @@ pub fn register(vm: *VM) !void {
     const dump_sym = try vm.intern("dump");
     try marshal_singleton.module.methods.put(dump_sym, value.MethodEntry.builtin(&builtinMarshalDump, .{ .variadic = 1 }));
 
+    const load_entry = value.MethodEntry.keywordBuiltin(&builtinMarshalLoad, .{ .variadic = 1 });
     const load_sym = try vm.intern("load");
-    try marshal_singleton.module.methods.put(load_sym, value.MethodEntry.keywordBuiltin(&builtinMarshalLoad, .{ .variadic = 1 }));
+    try marshal_singleton.module.methods.put(load_sym, load_entry);
+
+    const restore_sym = try vm.intern("restore");
+    try marshal_singleton.module.methods.put(restore_sym, load_entry);
 }
 
 pub fn builtinMarshalDump(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {

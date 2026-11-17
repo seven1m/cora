@@ -1305,7 +1305,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/marshal/load_spec.rb
 - [x] core/marshal/major_version_spec.rb
 - [x] core/marshal/minor_version_spec.rb
-- [ ] core/marshal/restore_spec.rb
+- [x] core/marshal/restore_spec.rb
 
 ### core/matchdata
 - [x] core/matchdata/allocate_spec.rb
