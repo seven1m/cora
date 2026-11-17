@@ -3049,7 +3049,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] library/etc/struct_passwd_spec.rb
 - [ ] library/etc/sysconf_spec.rb
 - [x] library/etc/sysconfdir_spec.rb
-- [ ] library/etc/systmpdir_spec.rb
+- [x] library/etc/systmpdir_spec.rb
 - [x] library/etc/uname_spec.rb
 
 ### library/expect
