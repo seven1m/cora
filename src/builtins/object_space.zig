@@ -60,6 +60,9 @@ pub fn register(vm: *VM) !void {
 
     const each_value_sym = try vm.intern("each_value");
     try weak_map_class.module.methods.put(each_value_sym, value.MethodEntry.builtin(&builtinWeakMapEachValue, .{ .exact = 0 }));
+
+    const inspect_sym = try vm.intern("inspect");
+    try weak_map_class.module.methods.put(inspect_sym, value.MethodEntry.builtin(&builtinWeakMapInspect, .{ .exact = 0 }));
 }
 
 fn builtinEachObject(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
@@ -230,4 +233,38 @@ fn builtinWeakMapEachValue(vm: *VM, receiver: Value, args: []Value, block: ?Bloc
         _ = try vm.yieldToBlock(blk, &.{val});
     }
     return receiver;
+}
+
+fn writeWeakMapInspectRef(vm: *VM, writer: *std.Io.Writer, val: Value) VMError!void {
+    if (val.isObject()) {
+        writer.print("#<{s}:0x{x}>", .{ vm.className(val), val.objectId() }) catch return error.Fatal;
+    } else {
+        const inspected = try val.inspect(vm);
+        writer.writeAll(inspected.toStringObject().str) catch return error.Fatal;
+    }
+}
+
+fn builtinWeakMapInspect(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
+    _ = args;
+    _ = block;
+    const wm = receiver.toWeakMapObject();
+    var buf: std.Io.Writer.Allocating = .init(vm.allocator);
+    defer buf.deinit();
+    const writer: *std.Io.Writer = &buf.writer;
+
+    writer.print("#<{s}:0x{x}", .{ vm.className(receiver), receiver.objectId() }) catch return error.Fatal;
+    if (wm.keys.items.len > 0) {
+        writer.writeAll(": ") catch return error.Fatal;
+        for (wm.keys.items, wm.values.items, 0..) |key, val, i| {
+            if (i > 0) writer.writeAll(", ") catch return error.Fatal;
+            try writeWeakMapInspectRef(vm, writer, key);
+            writer.writeAll(" => ") catch return error.Fatal;
+            try writeWeakMapInspectRef(vm, writer, val);
+        }
+    }
+    writer.writeAll(">") catch return error.Fatal;
+
+    const out = buf.toOwnedSlice() catch return error.Fatal;
+    defer vm.allocator.free(out);
+    return try vm.newString(out, false);
 }
