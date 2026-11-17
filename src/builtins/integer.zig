@@ -518,6 +518,9 @@ pub fn register(vm: *VM) !void {
     const bit_length_sym = try vm.intern("bit_length");
     try vm.integer_class.module.methods.put(bit_length_sym, value.MethodEntry.builtin(&builtinIntegerBitLength, .{ .exact = 0 }));
 
+    const bit_count_sym = try vm.intern("bit_count");
+    try vm.integer_class.module.methods.put(bit_count_sym, value.MethodEntry.builtin(&builtinIntegerBitCount, .{ .exact = 0 }));
+
     const element_reference_sym = try vm.intern("[]");
     try vm.integer_class.module.methods.put(element_reference_sym, value.MethodEntry.builtin(&builtinIntegerElementReference, .{ .variadic = 0 }));
 
@@ -1013,6 +1016,27 @@ pub fn builtinIntegerBitLength(vm: *VM, receiver: Value, args: []Value, _: ?Bloc
     }
 
     return Value.integer(@intCast(managed.bitCountAbs()));
+}
+
+pub fn builtinIntegerBitCount(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    try receiver.ensureInteger(vm);
+
+    if (receiver.isInteger()) {
+        const val = receiver.toInteger();
+        if (val < 0) return vm.raiseExceptionFmt(vm.argument_error_class, "negative integer does not have a bit count", .{});
+        return Value.integer(@intCast(@popCount(@as(u64, @intCast(val)))));
+    }
+
+    const big = receiver.toBigIntegerObject().value;
+    if (!big.isPositive() and !big.eqlZero()) {
+        return vm.raiseExceptionFmt(vm.argument_error_class, "negative integer does not have a bit count", .{});
+    }
+
+    var count = BigInt.init(vm.allocator) catch return error.Fatal;
+    defer count.deinit();
+    count.popCount(&big, big.bitCountAbs()) catch return error.Fatal;
+    return Value.integer(@intCast(count.toInt(u64) catch return error.Fatal));
 }
 
 pub fn builtinIntegerMinus(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
