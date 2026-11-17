@@ -1607,7 +1607,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/proc/binding_spec.rb
 - [ ] core/proc/block_pass_spec.rb
 - [ ] core/proc/call_spec.rb
-- [ ] core/proc/case_compare_spec.rb
+- [x] core/proc/case_compare_spec.rb
 - [ ] core/proc/clone_spec.rb
 - [ ] core/proc/compose_spec.rb
 - [ ] core/proc/curry_spec.rb
