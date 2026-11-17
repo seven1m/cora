@@ -64,6 +64,18 @@ test "RbConfig::MAKEFILE_CONFIG stays raw and separate from CONFIG" {
     try std.testing.expectEqualSlices(u8, "8.1.0", items[5].toStringObject().str);
 }
 
+test "RbConfig configures the C preprocessor from the compiler" {
+    const result = try evalCode(
+        \\require 'rbconfig'
+        \\RbConfig.fire_update!("CC", "clang")
+        \\[RbConfig::MAKEFILE_CONFIG["CPP"], RbConfig::CONFIG["CPP"], RbConfig::CONFIG["CPPOUTFILE"]]
+    );
+    const items = result.toArrayObject().elements.items;
+    try std.testing.expectEqualSlices(u8, "$(CC) -E", items[0].toStringObject().str);
+    try std.testing.expectEqualSlices(u8, "clang -E", items[1].toStringObject().str);
+    try std.testing.expectEqualSlices(u8, "-o conftest.i", items[2].toStringObject().str);
+}
+
 test "RbConfig.expand handles replacements longer than the template" {
     const result = try evalCode(
         \\require 'rbconfig'

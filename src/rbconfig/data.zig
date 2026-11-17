@@ -85,6 +85,8 @@ pub const makefile_config_entries = [_]ConfigEntry{
     .{ .key = "LIBRUBYARG_SHARED", .value = cfg.librubyarg_shared },
     .{ .key = "LIBRUBYARG_STATIC", .value = cfg.librubyarg_static },
     .{ .key = "CC", .value = cfg.cc },
+    .{ .key = "CPP", .value = cfg.cpp },
+    .{ .key = "CPPOUTFILE", .value = cfg.cppoutfile },
     .{ .key = "CXX", .value = cfg.cxx },
     .{ .key = "LD", .value = cfg.ld },
     .{ .key = "AR", .value = cfg.ar },

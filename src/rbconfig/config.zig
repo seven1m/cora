@@ -106,6 +106,7 @@ pub const RbConfig = struct {
     ruby_so_name_dup: []const u8 = "cora",
 
     cc: []const u8 = "gcc",
+    cpp: []const u8 = "$(CC) -E",
     cxx: []const u8 = "g++",
     ld: []const u8 = "ld",
     ar: []const u8 = "ar",
