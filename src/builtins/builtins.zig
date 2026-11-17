@@ -2,7 +2,9 @@ const vm_mod = @import("../vm.zig");
 const value = @import("../value.zig");
 
 const VM = vm_mod.VM;
+const VMError = vm_mod.VMError;
 const MethodEntry = value.MethodEntry;
+const Value = value.Value;
 
 const argf = @import("argf.zig");
 const array = @import("array.zig");
@@ -130,4 +132,14 @@ pub fn registerMainSelf(vm: *VM) !void {
         public_sym,
         MethodEntry.builtinWithVisibility(&module_builtin.builtinMainPublic, .{ .variadic = 0 }, .private),
     ) catch return error.Fatal;
+
+    const to_s_sym = try vm.intern("to_s");
+    main_singleton.module.methods.put(
+        to_s_sym,
+        MethodEntry.builtin(&builtinMainToS, .{ .exact = 0 }),
+    ) catch return error.Fatal;
+}
+
+fn builtinMainToS(vm: *VM, _: Value, _: []Value, _: ?vm_mod.Block) VMError!Value {
+    return try vm.newString("main", false);
 }

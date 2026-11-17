@@ -1296,7 +1296,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] core/main/private_spec.rb
 - [x] core/main/public_spec.rb
 - [ ] core/main/ruby2_keywords_spec.rb
-- [ ] core/main/to_s_spec.rb
+- [x] core/main/to_s_spec.rb
 - [ ] core/main/using_spec.rb
 
 ### core/marshal
