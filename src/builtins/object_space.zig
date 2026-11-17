@@ -57,6 +57,9 @@ pub fn register(vm: *VM) !void {
 
     const each_key_sym = try vm.intern("each_key");
     try weak_map_class.module.methods.put(each_key_sym, value.MethodEntry.builtin(&builtinWeakMapEachKey, .{ .exact = 0 }));
+
+    const each_value_sym = try vm.intern("each_value");
+    try weak_map_class.module.methods.put(each_value_sym, value.MethodEntry.builtin(&builtinWeakMapEachValue, .{ .exact = 0 }));
 }
 
 fn builtinEachObject(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
@@ -212,6 +215,19 @@ fn builtinWeakMapEachKey(vm: *VM, receiver: Value, args: []Value, block: ?Block)
     };
     for (wm.keys.items) |key| {
         _ = try vm.yieldToBlock(blk, &.{key});
+    }
+    return receiver;
+}
+
+fn builtinWeakMapEachValue(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
+    _ = args;
+    const wm = receiver.toWeakMapObject();
+    const blk = block orelse {
+        if (wm.keys.items.len == 0) return receiver;
+        return vm.raiseExceptionFmt(vm.local_jump_error_class, "no block given", .{});
+    };
+    for (wm.values.items) |val| {
+        _ = try vm.yieldToBlock(blk, &.{val});
     }
     return receiver;
 }
