@@ -65,6 +65,8 @@ pub fn register(vm: *VM) !void {
     const success_sym = try vm.intern("success?");
     try vm.system_exit_class.module.methods.put(success_sym, value.MethodEntry.builtin(&builtinSystemExitSuccess, .{ .exact = 0 }));
 
+    try vm.key_error_class.module.methods.put(initialize_sym, value.MethodEntry.keywordBuiltin(&builtinKeyErrorInitialize, .{ .variadic = 0 }));
+
     const receiver_sym = try vm.intern("receiver");
     try vm.key_error_class.module.methods.put(receiver_sym, value.MethodEntry.builtin(&builtinKeyErrorReceiver, .{ .exact = 0 }));
 
@@ -366,6 +368,18 @@ pub fn builtinSignalExceptionSigno(vm: *VM, receiver: Value, args: []Value, _: ?
 
 pub fn builtinSignalExceptionSignm(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     return builtinExceptionToS(vm, receiver, args, null);
+}
+
+pub fn builtinKeyErrorInitialize(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    const exc = receiver.toExceptionObject();
+    const kw_receiver = try vm.consumeKeywordArg("receiver");
+    const kw_key = try vm.consumeKeywordArg("key");
+    try vm.validateKeywordArgsConsumed();
+
+    _ = try builtinExceptionInitialize(vm, receiver, args, null);
+    if (kw_receiver) |kw_value| exc.receiver = kw_value;
+    if (kw_key) |kw_value| exc.key = kw_value;
+    return receiver;
 }
 
 pub fn builtinKeyErrorReceiver(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {

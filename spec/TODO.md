@@ -641,7 +641,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] core/exception/inspect_spec.rb
 - [ ] core/exception/interrupt_spec.rb
 - [ ] core/exception/io_error_spec.rb
-- [ ] core/exception/key_error_spec.rb
+- [x] core/exception/key_error_spec.rb
 - [x] core/exception/load_error_spec.rb
 - [x] core/exception/message_spec.rb
 - [ ] core/exception/name_error_spec.rb
