@@ -27,6 +27,27 @@ pub fn register(vm: *VM) !void {
     const cs_path_value: i64 = if (builtin.os.tag == .macos) 7 else 0;
     try etc_val.toModuleObject().constants.put(cs_path_sym, .{ .value = Value.integer(cs_path_value) });
 
+    const sysconf_constants = [_]struct { name: []const u8, value: i64 }{
+        .{ .name = "SC_ARG_MAX", .value = 0 },
+        .{ .name = "SC_CHILD_MAX", .value = 1 },
+        .{ .name = "SC_CLK_TCK", .value = 2 },
+        .{ .name = "SC_NGROUPS_MAX", .value = 3 },
+        .{ .name = "SC_OPEN_MAX", .value = 4 },
+        .{ .name = "SC_STREAM_MAX", .value = 5 },
+        .{ .name = "SC_TZNAME_MAX", .value = 6 },
+        .{ .name = "SC_VERSION", .value = 29 },
+        .{ .name = "SC_PAGESIZE", .value = 30 },
+        .{ .name = "SC_RE_DUP_MAX", .value = 44 },
+        .{ .name = "SC_LOGIN_NAME_MAX", .value = 71 },
+        .{ .name = "SC_TTY_NAME_MAX", .value = 72 },
+        .{ .name = "SC_HOST_NAME_MAX", .value = 180 },
+        .{ .name = "SC_SYMLOOP_MAX", .value = 173 },
+    };
+    for (sysconf_constants) |constant| {
+        const sym = try vm.intern(constant.name);
+        try etc_val.toModuleObject().constants.put(sym, .{ .value = Value.integer(constant.value) });
+    }
+
     const confstr_sym = try vm.intern("confstr");
     try etc_singleton.module.methods.put(confstr_sym, value.MethodEntry.builtin(&builtinEtcConfstr, .{ .exact = 1 }));
 
@@ -35,6 +56,9 @@ pub fn register(vm: *VM) !void {
 
     const uname_sym = try vm.intern("uname");
     try etc_singleton.module.methods.put(uname_sym, value.MethodEntry.builtin(&builtinEtcUname, .{ .exact = 0 }));
+
+    const sysconf_sym = try vm.intern("sysconf");
+    try etc_singleton.module.methods.put(sysconf_sym, value.MethodEntry.builtin(&builtinEtcSysconf, .{ .exact = 1 }));
 }
 
 fn builtinEtcNprocessors(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
@@ -113,4 +137,20 @@ fn builtinEtcUname(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
         try vm.hashSetEntry(hash, key, try vm.newString(field.bytes, false));
     }
     return Value.fromObject(&hash.object);
+}
+
+extern "c" fn sysconf(name: c_int) c_long;
+
+fn builtinEtcSysconf(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    if (builtin.os.tag == .windows) {
+        return vm.raiseExceptionFmt(vm.not_implemented_error_class, "Etc.sysconf is not implemented on Windows", .{});
+    }
+
+    const name_value = try args[0].coerceToIntegerValue(vm, "no implicit conversion into Integer", "name out of range");
+    const name: c_int = @intCast(try name_value.integerToI64(vm, "name out of range"));
+
+    const result = sysconf(name);
+    if (result == -1) return Value.nil();
+    return Value.integer(@intCast(result));
 }
