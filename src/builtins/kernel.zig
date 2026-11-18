@@ -2459,19 +2459,19 @@ pub fn builtinKernelPublicMethods(vm: *VM, receiver: Value, args: []Value, _: ?B
 
 pub fn builtinKernelInstanceVariableGet(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 1);
-    const name_str = try vm.coerceToIvarName(args[0]);
+    const name_str = try vm.coerceToIvarName(receiver, args[0]);
     return vm.getInstanceVariable(receiver, name_str) catch return error.Fatal;
 }
 
 pub fn builtinKernelInstanceVariableDefined(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 1);
-    const name_str = try vm.coerceToIvarName(args[0]);
+    const name_str = try vm.coerceToIvarName(receiver, args[0]);
     return Value.boolean(try vm.hasInstanceVariable(receiver, name_str));
 }
 
 pub fn builtinKernelInstanceVariableSet(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 2);
-    const name_str = try vm.coerceToIvarName(args[0]);
+    const name_str = try vm.coerceToIvarName(receiver, args[0]);
     try vm.setInstanceVariable(receiver, name_str, args[1]);
     return args[1];
 }
@@ -2484,13 +2484,13 @@ pub fn builtinKernelInstanceVariables(vm: *VM, receiver: Value, args: []Value, _
 
 pub fn builtinKernelRemoveInstanceVariable(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 1);
-    const name = try vm.coerceToIvarName(args[0]);
+    const name = try vm.coerceToIvarName(receiver, args[0]);
     try vm.guardNotFrozen(receiver);
 
     if (try vm.removeInstanceVariable(receiver, name)) |removed| return removed;
 
     const name_sym = try vm.intern(name);
-    return vm.raiseNameErrorFmt(name_sym, "instance variable {s} not defined", .{name});
+    return vm.raiseNameErrorWithReceiverFmt(name_sym, receiver, "instance variable {s} not defined", .{name});
 }
 
 pub fn builtinKernelToS(vm: *VM, receiver: Value, _: []Value, _: ?Block) VMError!Value {

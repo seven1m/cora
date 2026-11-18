@@ -411,10 +411,14 @@ fn constantNameString(vm: *VM, arg: Value) VMError![]const u8 {
     return vm.raiseExceptionFmt(vm.type_error_class, "no implicit conversion of {s} into String", .{vm.className(arg)});
 }
 
-fn classVariableNameString(vm: *VM, arg: Value) VMError![]const u8 {
+fn classVariableNameString(vm: *VM, recv: Value, arg: Value) VMError![]const u8 {
     const name = try constantNameString(vm, arg);
     if (name.len < 3 or name[0] != '@' or name[1] != '@') {
-        return vm.raiseExceptionFmt(vm.name_error_class, "`{s}' is not allowed as a class variable name", .{name});
+        const message = std.fmt.allocPrint(vm.gc_allocator, "`{s}' is not allowed as a class variable name", .{name}) catch return error.Fatal;
+        const exc = try vm.createException(vm.name_error_class, message);
+        exc.receiver = recv;
+        vm.setPendingException(exc);
+        return error.Unwind;
     }
     return name;
 }
@@ -2317,6 +2321,7 @@ pub fn builtinModuleConstMissing(vm: *VM, receiver: Value, args: []Value, _: ?Bl
     else
         std.fmt.allocPrint(vm.gc_allocator, "uninitialized constant {s}::{s}", .{ vm.publicModuleName(receiver) orelse storedModuleName(receiver), name }) catch return error.Fatal;
     const exc = try vm.createException(vm.name_error_class, message);
+    exc.receiver = receiver;
     try vm.setInstanceVariable(Value.fromObject(&exc.object), "@name", args[0]);
     vm.setPendingException(exc);
     return error.Unwind;
@@ -2384,10 +2389,15 @@ pub fn builtinModuleClassVariableGet(vm: *VM, receiver: Value, args: []Value, _:
     _ = moduleFromValue(receiver) orelse {
         unreachable; // receiver is not a Module
     };
-    const name = try classVariableNameString(vm, args[0]);
+    const name = try classVariableNameString(vm, receiver, args[0]);
     const name_sym = try vm.intern(name);
-    return lookupClassVariableOnReceiver(receiver, name_sym) orelse
-        vm.raiseExceptionFmt(vm.name_error_class, "uninitialized class variable {s} in {s}", .{ name, storedModuleName(receiver) });
+    const found = lookupClassVariableOnReceiver(receiver, name_sym);
+    if (found) |val| return val;
+    const message = std.fmt.allocPrint(vm.gc_allocator, "uninitialized class variable {s} in {s}", .{ name, storedModuleName(receiver) }) catch return error.Fatal;
+    const exc = try vm.createException(vm.name_error_class, message);
+    exc.receiver = receiver;
+    vm.setPendingException(exc);
+    return error.Unwind;
 }
 
 pub fn builtinModuleClassVariableDefinedQ(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
@@ -2395,7 +2405,7 @@ pub fn builtinModuleClassVariableDefinedQ(vm: *VM, receiver: Value, args: []Valu
     _ = moduleFromValue(receiver) orelse {
         unreachable; // receiver is not a Module
     };
-    const name = try classVariableNameString(vm, args[0]);
+    const name = try classVariableNameString(vm, receiver, args[0]);
     const name_sym = try vm.intern(name);
     return Value.boolean(lookupClassVariableOnReceiver(receiver, name_sym) != null);
 }
@@ -2405,7 +2415,7 @@ pub fn builtinModuleClassVariableSet(vm: *VM, receiver: Value, args: []Value, _:
     const receiver_module = moduleFromValue(receiver) orelse {
         unreachable; // receiver is not a Module
     };
-    const name = try classVariableNameString(vm, args[0]);
+    const name = try classVariableNameString(vm, receiver, args[0]);
     const name_sym = try vm.intern(name);
     receiver_module.class_variables.put(name_sym, args[1]) catch return error.Fatal;
     return args[1];

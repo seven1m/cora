@@ -5573,7 +5573,11 @@ pub const VM = struct {
                 if (self.lookupClassVariable(ctx.module, ctx.start_class, name_sym)) |val| {
                     try self.push(val);
                 } else {
-                    return self.raiseExceptionFmt(self.name_error_class, "uninitialized class variable {s} in {s}", .{ var_name, ctx.module.name.name });
+                    const message = std.fmt.allocPrint(self.gc_allocator, "uninitialized class variable {s} in {s}", .{ var_name, ctx.module.name.name }) catch return error.Fatal;
+                    const exc = try self.createException(self.name_error_class, message);
+                    exc.receiver = Value.fromObject(&ctx.module.object);
+                    self.setPendingException(exc);
+                    return error.Unwind;
                 }
             },
 
@@ -12246,18 +12250,18 @@ pub const VM = struct {
         return true;
     }
 
-    pub fn coerceToIvarName(self: *VM, arg: Value) VMError![]const u8 {
+    pub fn coerceToIvarName(self: *VM, recv: Value, arg: Value) VMError![]const u8 {
         const name_str = if (arg.isSymbol())
             arg.toSymbolObject().name
         else
             try arg.coerceToStr(self, "is not a symbol nor a string");
 
         if (!isValidIvarName(name_str)) {
-            return self.raiseExceptionFmt(
-                self.name_error_class,
-                "'{s}' is not allowed as an instance variable name",
-                .{name_str},
-            );
+            const message = std.fmt.allocPrint(self.gc_allocator, "'{s}' is not allowed as an instance variable name", .{name_str}) catch return error.Fatal;
+            const exc = try self.createException(self.name_error_class, message);
+            exc.receiver = recv;
+            self.setPendingException(exc);
+            return error.Unwind;
         }
 
         return name_str;
