@@ -39,6 +39,7 @@ const NativeCipher = struct {
     ctx: *c.EVP_CIPHER_CTX,
     cipher: *const c.EVP_CIPHER,
     authenticated: bool,
+    iv_len_override: ?c_int = null,
 };
 
 pub fn register(vm: *VM) !void {
@@ -80,6 +81,7 @@ pub fn register(vm: *VM) !void {
     try cipher_class.module.methods.put(try vm.intern("authenticated?"), value.MethodEntry.builtin(&builtinOpenSSLCipherAuthenticated, .{ .exact = 0 }));
     try cipher_class.module.methods.put(try vm.intern("key_len"), value.MethodEntry.builtin(&builtinOpenSSLCipherKeyLen, .{ .exact = 0 }));
     try cipher_class.module.methods.put(try vm.intern("iv_len"), value.MethodEntry.builtin(&builtinOpenSSLCipherIvLen, .{ .exact = 0 }));
+    try cipher_class.module.methods.put(try vm.intern("iv_len="), value.MethodEntry.builtin(&builtinOpenSSLCipherSetIvLen, .{ .exact = 1 }));
     try cipher_class.module.methods.put(try vm.intern("encrypt"), value.MethodEntry.builtin(&builtinOpenSSLCipherEncrypt, .{ .exact = 0 }));
     try cipher_class.module.methods.put(try vm.intern("decrypt"), value.MethodEntry.builtin(&builtinOpenSSLCipherDecrypt, .{ .exact = 0 }));
     try cipher_class.module.methods.put(try vm.intern("key="), value.MethodEntry.builtin(&builtinOpenSSLCipherSetKey, .{ .exact = 1 }));
@@ -780,7 +782,21 @@ pub fn builtinOpenSSLCipherKeyLen(vm: *VM, receiver: Value, args: []Value, _: ?B
 
 pub fn builtinOpenSSLCipherIvLen(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
-    return Value.integer(c.EVP_CIPHER_get_iv_length(cipherState(receiver).cipher));
+    return Value.integer(cipherIvLength(cipherState(receiver)));
+}
+
+fn cipherIvLength(state: *NativeCipher) c_int {
+    return state.iv_len_override orelse c.EVP_CIPHER_get_iv_length(state.cipher);
+}
+
+pub fn builtinOpenSSLCipherSetIvLen(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    const len = try coerceToI64Exact(vm, args[0], "bignum too big to convert into `long`");
+    const state = cipherState(receiver);
+    if (c.EVP_CIPHER_flags(c.EVP_CIPHER_CTX_cipher(state.ctx)) & c.EVP_CIPH_FLAG_AEAD_CIPHER == 0) return raiseCipherError(vm, "cipher does not support AEAD");
+    if (c.EVP_CIPHER_CTX_ctrl(state.ctx, c.EVP_CTRL_AEAD_SET_IVLEN, @intCast(len), null) != 1) return raiseCipherError(vm, "unable to set IV length");
+    state.iv_len_override = @intCast(len);
+    return args[0];
 }
 
 fn cipherSetMode(vm: *VM, receiver: Value, encrypt: bool) VMError!Value {
@@ -805,14 +821,15 @@ pub fn builtinOpenSSLCipherSetIv(vm: *VM, receiver: Value, args: []Value, _: ?Bl
     try vm.requireArgCount(args, 1);
     const iv = (try coerceToStringValueExact(vm, args[0])).toStringObject().str;
     const state = cipherState(receiver);
-    if (iv.len != @as(usize, @intCast(c.EVP_CIPHER_get_iv_length(state.cipher)))) return vm.raiseExceptionFmt(vm.argument_error_class, "iv must be {d} bytes", .{c.EVP_CIPHER_get_iv_length(state.cipher)});
+    const expected_len = cipherIvLength(state);
+    if (iv.len != @as(usize, @intCast(expected_len))) return vm.raiseExceptionFmt(vm.argument_error_class, "iv must be {d} bytes", .{expected_len});
     if (c.EVP_CipherInit_ex(state.ctx, null, null, null, iv.ptr, -1) != 1) return raiseCipherError(vm, "iv initialization failed");
     return args[0];
 }
 
 pub fn builtinOpenSSLCipherRandomIv(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
-    const len: usize = @intCast(c.EVP_CIPHER_get_iv_length(cipherState(receiver).cipher));
+    const len: usize = @intCast(cipherIvLength(cipherState(receiver)));
     const bytes = vm.allocator.alloc(u8, len) catch return error.Fatal;
     defer vm.allocator.free(bytes);
     if (c.RAND_bytes(bytes.ptr, @intCast(len)) != 1) return raiseCipherError(vm, "random iv generation failed");

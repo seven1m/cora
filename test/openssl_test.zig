@@ -130,6 +130,53 @@ test "OpenSSL::Cipher supports authenticated encryption" {
     try std.testing.expectEqualStrings("", result.stderr);
 }
 
+test "OpenSSL::Cipher#iv_len= overrides the IV length" {
+    var stdout_buf: [1024]u8 = undefined;
+    var stderr_buf: [1024]u8 = undefined;
+    const result = evalCodeWithOutput(
+        \\require "openssl"
+        \\key = "k" * 32
+        \\encryptor = OpenSSL::Cipher.new("aes-256-gcm")
+        \\encryptor.encrypt
+        \\encryptor.key = key
+        \\encryptor.iv_len = 16
+        \\iv = encryptor.random_iv
+        \\encryptor.auth_data = "ad"
+        \\encrypted = encryptor.update("secret") + encryptor.final
+        \\tag = encryptor.auth_tag
+        \\decryptor = OpenSSL::Cipher.new("aes-256-gcm")
+        \\decryptor.decrypt
+        \\decryptor.key = key
+        \\decryptor.iv_len = 16
+        \\decryptor.iv = iv
+        \\decryptor.auth_tag = tag
+        \\decryptor.auth_data = "ad"
+        \\puts [encryptor.iv_len, iv.bytesize, decryptor.update(encrypted) + decryptor.final].inspect
+    , &stdout_buf, &stderr_buf);
+
+    try std.testing.expect(result.err == null);
+    try std.testing.expectEqualStrings("[16, 16, \"secret\"]\n", result.stdout);
+    try std.testing.expectEqualStrings("", result.stderr);
+}
+
+test "OpenSSL::Cipher#iv_len= rejects non-AEAD ciphers" {
+    var stdout_buf: [1024]u8 = undefined;
+    var stderr_buf: [1024]u8 = undefined;
+    const result = evalCodeWithOutput(
+        \\require "openssl"
+        \\cipher = OpenSSL::Cipher.new("aes-256-cbc")
+        \\begin
+        \\  cipher.iv_len = 16
+        \\rescue OpenSSL::Cipher::CipherError => e
+        \\  puts e.message
+        \\end
+    , &stdout_buf, &stderr_buf);
+
+    try std.testing.expect(result.err == null);
+    try std.testing.expectEqualStrings("cipher does not support AEAD\n", result.stdout);
+    try std.testing.expectEqualStrings("", result.stderr);
+}
+
 test "require loads RubyGems security with OpenSSL cipher defaults" {
     var gpa: std.heap.DebugAllocator(.{}) = .init;
     defer _ = gpa.deinit();
