@@ -9319,7 +9319,7 @@ pub const VM = struct {
                 const missing_method = try self.findMethod(receiver, missing_sym);
                 if (missing_method == null or missing_method.?.owner_class == self.basic_object_class) {
                     const receiver_desc = try self.noMethodReceiverDescription(receiver);
-                    return self.raiseNameErrorFmt(method_name_sym, "undefined local variable or method '{s}' for {s}", .{ method_name_sym.name, receiver_desc });
+                    return self.raiseNameErrorWithReceiverFmt(method_name_sym, receiver, "undefined local variable or method '{s}' for {s}", .{ method_name_sym.name, receiver_desc });
                 }
             }
             const keyword_ctx = if (kwargc > 0) (try self.copyKeywordContext(kw_keys.?, kw_values.?)).? else null;
@@ -12298,6 +12298,21 @@ pub const VM = struct {
     ) VMError {
         const msg = std.fmt.allocPrint(self.gc_allocator, fmt, args) catch return error.Fatal;
         const exc = self.createException(self.name_error_class, msg) catch return error.Fatal;
+        try self.setInstanceVariable(Value.fromObject(&exc.object), "@name", Value.fromObject(&name_sym.object));
+        self.setPendingException(exc);
+        return error.Unwind;
+    }
+
+    pub fn raiseNameErrorWithReceiverFmt(
+        self: *VM,
+        name_sym: *value.SymbolObject,
+        recv: Value,
+        comptime fmt: []const u8,
+        args: anytype,
+    ) VMError {
+        const msg = std.fmt.allocPrint(self.gc_allocator, fmt, args) catch return error.Fatal;
+        const exc = self.createException(self.name_error_class, msg) catch return error.Fatal;
+        exc.receiver = recv;
         try self.setInstanceVariable(Value.fromObject(&exc.object), "@name", Value.fromObject(&name_sym.object));
         self.setPendingException(exc);
         return error.Unwind;

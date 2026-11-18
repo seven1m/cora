@@ -73,7 +73,12 @@ pub fn register(vm: *VM) !void {
     const key_sym = try vm.intern("key");
     try vm.key_error_class.module.methods.put(key_sym, value.MethodEntry.builtin(&builtinKeyErrorKey, .{ .exact = 0 }));
 
-    try vm.no_method_error_class.module.methods.put(receiver_sym, value.MethodEntry.builtin(&builtinNoMethodErrorReceiver, .{ .exact = 0 }));
+    const name_error_initialize_sym = try vm.intern("initialize");
+    try vm.name_error_class.module.methods.put(name_error_initialize_sym, value.MethodEntry.keywordBuiltin(&builtinNameErrorInitialize, .{ .variadic = 0 }));
+
+    const name_error_receiver_sym = try vm.intern("receiver");
+    try vm.name_error_class.module.methods.put(name_error_receiver_sym, value.MethodEntry.builtin(&builtinNameErrorReceiver, .{ .exact = 0 }));
+    try vm.no_method_error_class.module.methods.put(receiver_sym, value.MethodEntry.builtin(&builtinNameErrorReceiver, .{ .exact = 0 }));
 
     const name_sym = try vm.intern("name");
     try vm.name_error_class.module.methods.put(name_sym, value.MethodEntry.builtin(&builtinNameErrorName, .{ .exact = 0 }));
@@ -420,8 +425,28 @@ pub fn builtinUncaughtThrowErrorValue(vm: *VM, receiver: Value, args: []Value, _
     return try vm.getInstanceVariable(receiver, "@value");
 }
 
-pub fn builtinNoMethodErrorReceiver(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+pub fn builtinNameErrorInitialize(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCountRange(args, 0, 2);
+    const kw_receiver = try vm.consumeKeywordArg("receiver");
+    try vm.validateKeywordArgsConsumed();
+
+    const message_args = if (args.len >= 1) args[0..1] else args[0..0];
+    _ = try builtinExceptionInitialize(vm, receiver, message_args, null);
+
+    if (args.len == 2) {
+        try vm.setInstanceVariable(receiver, "@name", args[1]);
+    }
+    if (kw_receiver) |kw_value| {
+        receiver.toExceptionObject().receiver = kw_value;
+    }
+    return receiver;
+}
+
+pub fn builtinNameErrorReceiver(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
     const exc = receiver.toExceptionObject();
-    return exc.receiver orelse Value.nil();
+    if (exc.receiver) |recv| {
+        return recv;
+    }
+    return vm.raiseExceptionFmt(vm.argument_error_class, "no receiver is available", .{});
 }
