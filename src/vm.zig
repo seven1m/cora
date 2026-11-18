@@ -5573,11 +5573,7 @@ pub const VM = struct {
                 if (self.lookupClassVariable(ctx.module, ctx.start_class, name_sym)) |val| {
                     try self.push(val);
                 } else {
-                    const message = std.fmt.allocPrint(self.gc_allocator, "uninitialized class variable {s} in {s}", .{ var_name, ctx.module.name.name }) catch return error.Fatal;
-                    const exc = try self.createException(self.name_error_class, message);
-                    exc.receiver = Value.fromObject(&ctx.module.object);
-                    self.setPendingException(exc);
-                    return error.Unwind;
+                    return self.raiseNameErrorWithReceiverFmt(name_sym, Value.fromObject(&ctx.module.object), "uninitialized class variable {s} in {s}", .{ var_name, ctx.module.name.name });
                 }
             },
 
@@ -12260,6 +12256,7 @@ pub const VM = struct {
             const message = std.fmt.allocPrint(self.gc_allocator, "'{s}' is not allowed as an instance variable name", .{name_str}) catch return error.Fatal;
             const exc = try self.createException(self.name_error_class, message);
             exc.receiver = recv;
+            try self.setInstanceVariable(Value.fromObject(&exc.object), "@name", arg);
             self.setPendingException(exc);
             return error.Unwind;
         }

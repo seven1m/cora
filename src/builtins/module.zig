@@ -417,6 +417,7 @@ fn classVariableNameString(vm: *VM, recv: Value, arg: Value) VMError![]const u8 
         const message = std.fmt.allocPrint(vm.gc_allocator, "`{s}' is not allowed as a class variable name", .{name}) catch return error.Fatal;
         const exc = try vm.createException(vm.name_error_class, message);
         exc.receiver = recv;
+        try vm.setInstanceVariable(Value.fromObject(&exc.object), "@name", arg);
         vm.setPendingException(exc);
         return error.Unwind;
     }
@@ -2393,11 +2394,7 @@ pub fn builtinModuleClassVariableGet(vm: *VM, receiver: Value, args: []Value, _:
     const name_sym = try vm.intern(name);
     const found = lookupClassVariableOnReceiver(receiver, name_sym);
     if (found) |val| return val;
-    const message = std.fmt.allocPrint(vm.gc_allocator, "uninitialized class variable {s} in {s}", .{ name, storedModuleName(receiver) }) catch return error.Fatal;
-    const exc = try vm.createException(vm.name_error_class, message);
-    exc.receiver = receiver;
-    vm.setPendingException(exc);
-    return error.Unwind;
+    return vm.raiseNameErrorWithReceiverFmt(name_sym, receiver, "uninitialized class variable {s} in {s}", .{ name, storedModuleName(receiver) });
 }
 
 pub fn builtinModuleClassVariableDefinedQ(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
