@@ -789,6 +789,14 @@ fn methodDefined(
     include_super: bool,
 ) bool {
     if (!include_super) return ownMethodDefined(receiver, name_sym, filter);
+    // NB: unlike alias_method and friends, *_method_defined? must not fall
+    // back to Object for module receivers; only the module's own chain counts.
+    if (receiver.isModule()) {
+        return switch (resolveModuleMethodLookup(receiver.toModuleObject(), vm.object_class, name_sym)) {
+            .found => |lookup| methodEntryMatchesQuery(lookup.resolved.entry, filter),
+            .undefined, .not_found => false,
+        };
+    }
     return switch (resolveInstanceMethodLookup(vm, receiver, name_sym)) {
         .found => |lookup| methodEntryMatchesQuery(lookup.resolved.entry, filter),
         .undefined, .not_found => false,
