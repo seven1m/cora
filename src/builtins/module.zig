@@ -23,9 +23,12 @@ const MethodQueryFilter = enum {
     public_only,
 };
 
-fn currentDefaultVisibility(vm: *VM) MethodVisibility {
+fn attrDefaultVisibility(vm: *VM, receiver: Value) MethodVisibility {
+    const receiver_module = receiver.getModuleObject() orelse return .public;
     if (vm.current_lexical_scope) |scope| {
-        return scope.default_method_visibility;
+        if (scope.getModule() == receiver_module) {
+            return scope.default_method_visibility;
+        }
     }
     return .public;
 }
@@ -1945,7 +1948,7 @@ pub fn builtinModuleAttrReader(vm: *VM, receiver: Value, args: []Value, _: ?Bloc
     };
 
     const result_array = try vm.createArray();
-    const visibility = currentDefaultVisibility(vm);
+    const visibility = attrDefaultVisibility(vm, receiver);
 
     for (args) |arg| {
         const name_str = try vm.coerceToMethodNameString(arg);
@@ -1973,7 +1976,7 @@ pub fn builtinModuleAttrWriter(vm: *VM, receiver: Value, args: []Value, _: ?Bloc
     };
 
     const result_array = try vm.createArray();
-    const visibility = currentDefaultVisibility(vm);
+    const visibility = attrDefaultVisibility(vm, receiver);
 
     for (args) |arg| {
         const name_str = try vm.coerceToMethodNameString(arg);
@@ -2003,7 +2006,7 @@ pub fn builtinModuleAttrAccessor(vm: *VM, receiver: Value, args: []Value, _: ?Bl
     };
 
     const result_array = try vm.createArray();
-    const visibility = currentDefaultVisibility(vm);
+    const visibility = attrDefaultVisibility(vm, receiver);
 
     for (args) |arg| {
         const name_str = try vm.coerceToMethodNameString(arg);
@@ -2041,7 +2044,7 @@ pub fn builtinModuleAttr(vm: *VM, receiver: Value, args: []Value, _: ?Block) VME
         unreachable; // receiver is not a Module
     };
 
-    const visibility = currentDefaultVisibility(vm);
+    const visibility = attrDefaultVisibility(vm, receiver);
     const result_array = try vm.createArray();
 
     var writable = false;
@@ -2094,6 +2097,7 @@ pub fn builtinModuleAttr(vm: *VM, receiver: Value, args: []Value, _: ?Block) VME
 
 pub fn builtinModuleAliasMethod(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 2);
+    try vm.guardNotFrozen(receiver);
 
     const new_name_str = try vm.coerceToMethodNameString(args[0]);
     const old_name_str = try vm.coerceToMethodNameString(args[1]);
@@ -2116,6 +2120,7 @@ pub fn builtinModuleAliasMethod(vm: *VM, receiver: Value, args: []Value, _: ?Blo
             if (alias_entry.original_defining_node == null) {
                 alias_entry.original_defining_node = found.resolved.defining_node;
             }
+            alias_entry.visibility = vm_mod.methodDefinitionVisibility(new_name_str, alias_entry.visibility);
             methods.put(new_name_sym, alias_entry) catch return error.Fatal;
             vm.markIntegerChangedForReceiver(receiver);
             vm.bumpMethodStateVersion();

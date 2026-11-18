@@ -1400,7 +1400,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] core/method/unbind_spec.rb
 
 ### core/module
-- [ ] core/module/alias_method_spec.rb
+- [-] core/module/alias_method_spec.rb
 - [ ] core/module/ancestors_spec.rb
 - [ ] core/module/append_features_spec.rb
 - [x] core/module/attr_accessor_spec.rb

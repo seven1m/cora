@@ -7115,6 +7115,7 @@ pub const VM = struct {
                 if (entry) |resolved_entry| {
                     var alias_entry = resolved_entry;
                     if (alias_entry.original_name == null) alias_entry.original_name = old_name_sym;
+                    alias_entry.visibility = methodDefinitionVisibility(new_name, alias_entry.visibility);
                     if (alias_entry.original_defining_node == null and current_self.isClass()) {
                         switch (self.lookupMethodDetailed(current_self.toClassObject(), old_name_sym)) {
                             .found => |found| alias_entry.original_defining_node = found.defining_node,
@@ -12228,7 +12229,14 @@ pub const VM = struct {
 
     pub fn coerceToMethodNameString(self: *VM, arg: Value) VMError![]const u8 {
         if (arg.isSymbol()) return arg.toSymbolObject().name;
-        return arg.coerceToStr(self, "is not a symbol nor a string");
+        const name_value = try arg.coerceToStringValue(self, "is not a symbol nor a string");
+        const name_string = name_value.toStringObject();
+        if (!name_string.encoding.isValid(name_string.str)) {
+            const inspected = inspect_util.inspectStringBytes(self.allocator, name_string.str, name_string.encoding, self.inspectTargetEncoding()) catch return error.Fatal;
+            defer self.allocator.free(inspected);
+            return self.raiseExceptionFmt(self.encoding_error_class, "invalid symbol in encoding {s} :{s}", .{ name_string.encoding.name(), inspected });
+        }
+        return name_string.str;
     }
 
     pub fn coerceToMethodNameSymbol(self: *VM, arg: Value) VMError!*SymbolObject {

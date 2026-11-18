@@ -6120,41 +6120,14 @@ pub fn builtinStringHex(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMEr
     return (try parseStringToInteger(vm, receiver.toStringObject().str, 16, 10)).value;
 }
 
-fn appendSymbolErrorEscapedBytes(writer: anytype, input: []const u8) !void {
-    for (input) |c| {
-        switch (c) {
-            '"' => try writer.writeAll("\\\""),
-            '\\' => try writer.writeAll("\\\\"),
-            '\n' => try writer.writeAll("\\n"),
-            '\t' => try writer.writeAll("\\t"),
-            '\r' => try writer.writeAll("\\r"),
-            '\x08' => try writer.writeAll("\\b"),
-            '\x0c' => try writer.writeAll("\\f"),
-            '\x0b' => try writer.writeAll("\\v"),
-            '\x00' => try writer.writeAll("\\0"),
-            else => {
-                if (c < 32 or c > 126) {
-                    try writer.print("\\x{X:0>2}", .{c});
-                } else {
-                    try writer.writeByte(c);
-                }
-            },
-        }
-    }
-}
-
 pub fn builtinStringToSym(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
     const string_obj = receiver.toStringObject();
 
     if (!string_obj.encoding.isValid(string_obj.str)) {
-        var escaped_bytes: std.Io.Writer.Allocating = .init(vm.allocator);
-        defer escaped_bytes.deinit();
-        const writer = &escaped_bytes.writer;
-        appendSymbolErrorEscapedBytes(writer, string_obj.str) catch return error.Fatal;
-        const escaped = escaped_bytes.toOwnedSlice() catch return error.Fatal;
-        defer vm.allocator.free(escaped);
-        return vm.raiseExceptionFmt(vm.encoding_error_class, "invalid symbol in encoding {s} :\"{s}\"", .{ string_obj.encoding.name(), escaped });
+        const inspected = inspect_util.inspectStringBytes(vm.allocator, string_obj.str, string_obj.encoding, vm.inspectTargetEncoding()) catch return error.Fatal;
+        defer vm.allocator.free(inspected);
+        return vm.raiseExceptionFmt(vm.encoding_error_class, "invalid symbol in encoding {s} :{s}", .{ string_obj.encoding.name(), inspected });
     }
 
     const symbol_encoding: enc.Encoding = if (!string_obj.encoding.isDummy() and string_obj.encoding.isAsciiCompatible() and enc.isAsciiOnly(string_obj.str))
