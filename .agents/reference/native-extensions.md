@@ -69,6 +69,8 @@ Mach-O linker crash involving its libcharset reexport and exported C API symbols
 
 `build.zig` controls how vendored gems are wired in. Key knobs:
 
+- `src/default_gems.zig` - names, versions, source kinds, and load-path
+  membership for default gems, shared by the build and runtime.
 - `runtime_ext_dirs` - list of `ext/<gem>` directories copied wholesale into
   the install prefix (`build/ext/<gem>`). Used for gem trees that are loaded
   directly from `ext/<gem>/lib` and do not need a gem layout.
