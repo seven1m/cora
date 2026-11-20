@@ -181,33 +181,8 @@ fn builtinEnumerableFlatMap(vm: *VM, receiver: Value, args: []Value, block: ?Blo
         return vm.createMethodEnumerator(receiver, method_name, &.{});
     };
 
-    const enum_value = try vm.createMethodEnumerator(receiver, try vm.intern("each"), &.{});
     const out = try vm.createArray();
-
-    while (true) {
-        const next_values = vm.callMethodByName(enum_value, "next_values", &.{}, null) catch |err| {
-            if (err == error.Unwind and vm.pendingException() != null and vm.pendingException().?.object.class == vm.stop_iteration_class) {
-                vm.setPendingException(null);
-                break;
-            }
-            return err;
-        };
-        const result = try enumerableYieldCollapsed(vm, blk, next_values.toArrayObject());
-
-        const to_ary_result = try vm.probeToAry(result);
-        switch (to_ary_result) {
-            .array => |ary| {
-                for (ary.toArrayObject().elements.items) |elem| {
-                    out.elements.append(vm.gc_allocator, elem) catch return error.Fatal;
-                }
-            },
-            .missing, .nil_result => {
-                out.elements.append(vm.gc_allocator, result) catch return error.Fatal;
-            },
-        }
-    }
-
-    return Value.fromObject(&out.object);
+    return iterateCollect(vm, receiver, .flat_map, blk, Value.fromObject(&out.object));
 }
 
 fn builtinEnumerableMap(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
@@ -356,7 +331,7 @@ fn builtinEnumerableFilterMap(vm: *VM, receiver: Value, args: []Value, block: ?B
     return iterateCollect(vm, receiver, .filter_map, blk, Value.fromObject(&out.object));
 }
 
-const CollectMode = enum { filter_map, each_with_object, sort_by };
+const CollectMode = enum { flat_map, filter_map, each_with_object, sort_by };
 
 const CollectContext = struct {
     mode: CollectMode,
@@ -384,6 +359,14 @@ fn iterateCollect(vm: *VM, receiver: Value, mode: CollectMode, block: Block, res
 fn collectEach(vm: *VM, receiver: Value, args: []Value) VMError!Value {
     const context: *CollectContext = @ptrFromInt(receiver.raw);
     switch (context.mode) {
+        .flat_map => {
+            const result = try vm.yieldToBlock(context.block, args);
+            const out = context.result.toArrayObject();
+            switch (try vm.probeToAry(result)) {
+                .array => |array| out.elements.appendSlice(vm.gc_allocator, array.toArrayObject().elements.items) catch return error.Fatal,
+                .missing, .nil_result => out.elements.append(vm.gc_allocator, result) catch return error.Fatal,
+            }
+        },
         .filter_map => {
             const result = try vm.yieldToBlock(context.block, args);
             if (result.isTruthy()) {

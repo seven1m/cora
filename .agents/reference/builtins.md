@@ -29,7 +29,7 @@
   External iteration through `Enumerator#next` remains fiber-backed.
   `Enumerator#map` and `collect` inherit the native Enumerable implementation;
   internal mapping calls `each` without consuming the external next/peek cursor.
-- Internal collection callbacks for `filter_map`, `each_with_object`, and
+- Internal collection callbacks for `flat_map`/`collect_concat`, `filter_map`, `each_with_object`, and
   `sort_by` dispatch directly to `each` in the caller's fiber. Promote captured
   user blocks before retaining them in GC-owned callback contexts.
 - Use `VM.yieldPairToBlock` for Hash/Struct pair iteration. It passes a packed

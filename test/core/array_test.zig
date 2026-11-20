@@ -99,10 +99,12 @@ test "Enumerable collectors use internal iteration in the caller fiber" {
         \\  end
         \\end
         \\$collect_fiber = Fiber.current
-        \\checks = [:filter_map, :each_with_object, :sort_by].map do |name|
+        \\checks = [:flat_map, :collect_concat, :filter_map, :each_with_object, :sort_by].map do |name|
         \\  source = CollectSource.new
         \\  memo = []
         \\  result = case name
+        \\  when :flat_map, :collect_concat
+        \\    source.public_send(name) { |n| [n, -n] }
         \\  when :filter_map
         \\    source.filter_map { |n| n * 10 if n.even? }
         \\  when :each_with_object
@@ -110,11 +112,55 @@ test "Enumerable collectors use internal iteration in the caller fiber" {
         \\  else
         \\    source.sort_by { |n| -n }
         \\  end
-        \\  expected = {filter_map: [20], each_with_object: [2, 1, 3], sort_by: [3, 2, 1]}[name]
+        \\  expected = {flat_map: [2, -2, 1, -1, 3, -3], collect_concat: [2, -2, 1, -1, 3, -3], filter_map: [20], each_with_object: [2, 1, 3], sort_by: [3, 2, 1]}[name]
         \\  result == expected && source.events == [:same, :ensured] &&
         \\    (name != :each_with_object || result.equal?(memo))
         \\end
         \\checks.all?
+    );
+    try std.testing.expect(result.isTrue());
+}
+
+test "Enumerable flat_map forwards raw yields and returns nil to each" {
+    const result = try evalCode(
+        \\class FlatMapYields
+        \\  include Enumerable
+        \\  attr_reader :results
+        \\  def each
+        \\    @results = [(yield), (yield 1, 2), (yield [3, 4])]
+        \\    :ignored
+        \\  end
+        \\end
+        \\source = FlatMapYields.new
+        \\seen = []
+        \\values = source.flat_map { |*args| seen << args; args }
+        \\pair_source = Class.new do
+        \\  include Enumerable
+        \\  def each; yield 1, 2; end
+        \\end.new
+        \\strict = pair_source.flat_map(&->(a, b) { [a, b] })
+        \\packed = {a: 1}.flat_map(&->(pair) { pair })
+        \\values == [1, 2, [3, 4]] && seen == [[], [1, 2], [[3, 4]]] &&
+        \\  source.results == [nil, nil, nil] && strict == [1, 2] && packed == [:a, 1]
+    );
+    try std.testing.expect(result.isTrue());
+}
+
+test "Enumerable flat_map retains nested callback state across Fiber yield and GC" {
+    const result = try evalCode(
+        \\fiber = Fiber.new do
+        \\  [1, 2].flat_map do |n|
+        \\    Fiber.yield n
+        \\    GC.start
+        \\    [n].collect_concat { |inner| [inner, -inner] }
+        \\  end
+        \\end
+        \\first = fiber.resume
+        \\GC.start
+        \\second = fiber.resume
+        \\GC.start
+        \\result = fiber.resume
+        \\first == 1 && second == 2 && result == [1, -1, 2, -2] && !fiber.alive?
     );
     try std.testing.expect(result.isTrue());
 }
@@ -200,7 +246,7 @@ test "Enumerable collectors unwind each ensures for break return and throw" {
         \\  source.public_send(name, *args) { return :returned }
         \\  :unreachable
         \\end
-        \\checks = [:filter_map, :each_with_object, :sort_by].map do |name|
+        \\checks = [:flat_map, :collect_concat, :filter_map, :each_with_object, :sort_by].map do |name|
         \\  args = name == :each_with_object ? [[]] : []
         \\  source = CollectUnwind.new
         \\  broken = source.public_send(name, *args) { break :broken }
@@ -229,7 +275,7 @@ test "Enumerable collectors propagate source StopIteration and block failures" {
         \\    @ensures += 1
         \\  end
         \\end
-        \\checks = [:filter_map, :each_with_object, :sort_by].map do |name|
+        \\checks = [:flat_map, :collect_concat, :filter_map, :each_with_object, :sort_by].map do |name|
         \\  args = name == :each_with_object ? [[]] : []
         \\  failure = StopIteration.new("from source")
         \\  source = CollectFailure.new(failure)
