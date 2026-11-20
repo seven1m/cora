@@ -7226,6 +7226,22 @@ pub const VM = struct {
                 try self.push(Value.boolean(has_block));
             },
 
+            .SUPER_DEFINED => {
+                const environment = enclosingMethodEnvironment(frame);
+                const fallback = self.enclosingMethodFrame(frame);
+                const name = if (environment) |env| env.context.method_name else fallback.method_name orelse "";
+                const defining_node = if (environment) |env| env.context.defining_node else fallback.super_defining_node;
+                const method_chunk = if (environment) |env| env.context.chunk else fallback.chunk;
+                const name_sym = try self.intern(name);
+                const resolved = if (defining_node) |node|
+                    self.lookupMethodAfterDefiningNode(frame.self_value, node, name_sym)
+                else if (method_chunk.lexical_scope) |scope| switch (scope.scope_module) {
+                    .module => |mod| self.lookupMethodForSuperFromScope(self.getDispatchClass(frame.self_value), .{ .module = mod }, name_sym),
+                    .class => |cls| self.lookupMethodForSuperFromScope(self.getDispatchClass(frame.self_value), .{ .class = cls }, name_sym),
+                } else null;
+                try self.push(Value.boolean(resolved != null));
+            },
+
             .MULTI_ASSIGN_PREPARE => {
                 const receiver = self.pop();
 

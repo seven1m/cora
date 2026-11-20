@@ -4,6 +4,31 @@ const test_helper = @import("../test_helper.zig");
 const evalCode = test_helper.evalCode;
 const evalCodeWithOutput = test_helper.evalCodeWithOutput;
 
+test "defined super checks the next method without calling it" {
+    const result = try evalCode(
+        \\class DefinedSuperBase
+        \\  def present; raise 'must not run'; end
+        \\  def removed; end
+        \\end
+        \\class DefinedSuperMiddle < DefinedSuperBase
+        \\  undef_method :removed
+        \\end
+        \\class DefinedSuperChild < DefinedSuperMiddle
+        \\  def present; [defined?(super), defined?(super())]; end
+        \\  def missing; defined?(super); end
+        \\  def removed; defined?(super); end
+        \\  def in_block; [1].map { defined?(super) }.first; end
+        \\end
+        \\o = DefinedSuperChild.new
+        \\[o.present, o.missing, o.removed, o.in_block]
+    );
+    const values = result.toArrayObject().elements.items;
+    const present = values[0].toArrayObject().elements.items;
+    try std.testing.expectEqualStrings("super", present[0].toStringObject().str);
+    try std.testing.expectEqualStrings("super", present[1].toStringObject().str);
+    for (values[1..]) |v| try std.testing.expect(v.isNil());
+}
+
 test "Basic super with explicit arguments" {
     const result = try evalCode(
         \\class A

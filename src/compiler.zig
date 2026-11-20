@@ -1799,6 +1799,11 @@ pub const Compiler = struct {
                 try self.emitBoolToDefinedDescriptor("yield", line);
             },
 
+            .super_node, .forwarding_super => {
+                try self.current_chunk.emitOp(.SUPER_DEFINED, line);
+                try self.emitBoolToDefinedDescriptor("super", line);
+            },
+
             .call => |call_node| {
                 try self.compileDefinedCall(call_node, line);
             },

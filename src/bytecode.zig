@@ -127,6 +127,7 @@ pub const OpCode = enum(u8) {
 
     // Introspection
     BLOCK_GIVEN, // No operands - pushes true/false if a block is available in the caller's frame
+    SUPER_DEFINED, // No operands - checks for a superclass method
 };
 
 pub const ReceiverCallStyle = enum(u8) {
@@ -213,6 +214,7 @@ pub fn opcodeOperandSize(op: OpCode) usize {
         .NEXT,
         .MULTI_ASSIGN_PREPARE,
         .BLOCK_GIVEN,
+        .SUPER_DEFINED,
         => 0,
 
         // 1-byte operands
@@ -495,5 +497,6 @@ pub fn opcodeName(op: OpCode) []const u8 {
         .UNDEF_METHOD => "UNDEF_METHOD",
         .MULTI_ASSIGN_PREPARE => "MULTI_ASSIGN_PREPARE",
         .BLOCK_GIVEN => "BLOCK_GIVEN",
+        .SUPER_DEFINED => "SUPER_DEFINED",
     };
 }
