@@ -4,6 +4,81 @@ const test_helper = @import("../test_helper.zig");
 const evalCode = test_helper.evalCode;
 const evalCodeWithOutput = test_helper.evalCodeWithOutput;
 
+test "Enumerable short circuit methods use internal iteration and unwind each on early exit" {
+    const result = try evalCode(
+        \\class SearchSource
+        \\  include Enumerable
+        \\  attr_reader :events
+        \\  def initialize
+        \\    @events = []
+        \\  end
+        \\  def each
+        \\    @events << (Fiber.current.equal?($search_fiber) ? :same_fiber : :other_fiber)
+        \\    yield 1, 2
+        \\    @events << :continued
+        \\    yield 3, 4
+        \\    @events << :exhausted
+        \\  ensure
+        \\    @events << :ensured
+        \\  end
+        \\end
+        \\$search_fiber = Fiber.current
+        \\checks = [:find, :find_index, :include?, :any?, :all?, :none?, :one?, :first, :take, :take_while].map do |name|
+        \\  source = SearchSource.new
+        \\  result = if name == :include?
+        \\    source.include?([1, 2])
+        \\  elsif name == :first
+        \\    source.first
+        \\  elsif name == :take
+        \\    source.take(1)
+        \\  elsif name == :take_while
+        \\    source.take_while { |a, b| a < 3 }
+        \\  else
+        \\    source.public_send(name) { |*values| name != :all? }
+        \\  end
+        \\  expected = {find: [1, 2], find_index: 0, include?: true, any?: true, all?: false, none?: false, one?: false, first: [1, 2], take: [[1, 2]], take_while: [[1, 2]]}[name]
+        \\  events = (name == :one? || name == :take_while) ? [:same_fiber, :continued, :ensured] : [:same_fiber, :ensured]
+        \\  result == expected && source.events == events
+        \\end
+        \\source = SearchSource.new
+        \\prefix = source.first(1) == [[1, 2]] && source.events == [:same_fiber, :ensured]
+        \\source = SearchSource.new
+        \\zero = source.take(0) == [] && source.events.empty?
+        \\source = SearchSource.new
+        \\enum = source.to_enum
+        \\external = enum.next == [1, 2] && source.events == [:other_fiber]
+        \\enum.next
+        \\begin
+        \\  enum.next
+        \\rescue StopIteration
+        \\end
+        \\checks.all? && prefix && zero && external && source.events == [:other_fiber, :continued, :exhausted, :ensured]
+    );
+    try std.testing.expect(result.isTruthy());
+}
+
+test "Enumerable internal iteration preserves nested searches and user control flow" {
+    const result = try evalCode(
+        \\events = []
+        \\source = Object.new
+        \\source.extend(Enumerable)
+        \\source.define_singleton_method(:each) do |&block|
+        \\  begin
+        \\    block.call(nil)
+        \\    block.call(2)
+        \\  ensure
+        \\    events << :ensured
+        \\  end
+        \\end
+        \\fallback = -> { raise "unexpected fallback" }
+        \\found_nil = source.find(fallback) { [true].find { true } }
+        \\broken = source.find { break :broken }
+        \\thrown = catch(:done) { source.any? { throw :done, :thrown } }
+        \\found_nil.nil? && broken == :broken && thrown == :thrown && events == [:ensured, :ensured, :ensured]
+    );
+    try std.testing.expect(result.isTruthy());
+}
+
 test "Array#replace preserves its elements when replacing itself" {
     const result = try evalCode(
         \\a = [1, 2]

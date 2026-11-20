@@ -17,6 +17,13 @@
 - Use `VM.callMethodByName` when the call must always happen or its side effects must be preserved.
 - Use `VM.respondsToMethodByName` for capability probes that should not force the method call.
 - Use `VM.allocCStringZ` for temporary NUL-terminated C strings needed by libc APIs.
+- Use `VM.callMethodWithIterationBreak` for native internal iteration that can
+  stop early. Its callback requests termination with `VM.startThrow` and the
+  private break tag; the helper consumes that termination after running Ruby
+  ensure handlers and propagates unrelated exceptions and control flow. This
+  path is shared by Enumerable predicates, prefix methods such as `take`, and
+  C extension `rb_block_call`.
+  External iteration through `Enumerator#next` remains fiber-backed.
 - Use `VM.copyObjectInstanceVariables` for dup/clone-style shallow ivar copying.
 
 ## Array And String Coercion Helpers

@@ -372,36 +372,96 @@ fn builtinEnumerableFilterMap(vm: *VM, receiver: Value, args: []Value, block: ?B
     return Value.fromObject(&out.object);
 }
 
-fn builtinEnumerableAny(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
+const PredicateMode = enum { any, all, one, find, find_index, include };
+
+const PredicateContext = struct {
+    mode: PredicateMode,
+    pattern: ?Value,
+    block: ?Block,
+    index: i64 = 0,
+    matched: bool = false,
+};
+
+fn iterationValue(result: VM.IterationResult) Value {
+    return switch (result) {
+        .completed, .stopped => |result_value| result_value,
+    };
+}
+
+fn packYieldValues(vm: *VM, args: []Value) VMError!Value {
+    return switch (args.len) {
+        0 => Value.nil(),
+        1 => args[0],
+        else => blk: {
+            const values = try vm.createArray();
+            values.elements.appendSlice(vm.gc_allocator, args) catch return error.Fatal;
+            break :blk Value.fromObject(&values.object);
+        },
+    };
+}
+
+fn iteratePredicate(vm: *VM, receiver: Value, mode: PredicateMode, pattern: ?Value, block: ?Block) VMError!VM.IterationResult {
+    const context = vm.gc_allocator.create(PredicateContext) catch return error.Fatal;
+    context.* = .{
+        .mode = mode,
+        .pattern = pattern,
+        .block = if (block) |blk| (try vm.procValueForBlock(blk)).toProcObject().block else null,
+    };
+    const context_value = Value{ .raw = @intFromPtr(context) };
+    const each_block = Block{ .kind = .{ .receiver_builtin = .{
+        .receiver = context_value,
+        .func = &predicateEach,
+        .arity = -1,
+    } } };
+    const result = try vm.callMethodWithIterationBreak(receiver, "each", &.{}, each_block, context_value);
+    return switch (result) {
+        .stopped => result,
+        .completed => .{ .completed = switch (mode) {
+            .all => Value.boolean(true),
+            .one => Value.boolean(context.matched),
+            .any, .include => Value.boolean(false),
+            .find, .find_index => Value.nil(),
+        } },
+    };
+}
+
+fn predicateEach(vm: *VM, receiver: Value, args: []Value) VMError!Value {
+    const context: *PredicateContext = @ptrFromInt(receiver.raw);
+    const element = if (context.pattern != null or context.block == null or context.mode == .find)
+        try packYieldValues(vm, args)
+    else
+        Value.nil();
+    const matches = if (context.pattern) |pattern|
+        if (context.mode == .include or context.mode == .find_index)
+            try vm.valueEquals(element, pattern)
+        else
+            try enumerablePatternMatches(vm, pattern, element)
+    else if (context.block) |block|
+        (try vm.yieldToBlock(block, if (context.mode == .find) &.{element} else args)).isTruthy()
+    else
+        element.isTruthy();
+
+    const stop_value: ?Value = switch (context.mode) {
+        .any, .include => if (matches) Value.boolean(true) else null,
+        .all => if (!matches) Value.boolean(false) else null,
+        .one => if (matches and context.matched) Value.boolean(false) else null,
+        .find => if (matches) element else null,
+        .find_index => if (matches) Value.integer(context.index) else null,
+    };
+    if (stop_value) |result| try vm.startThrow(receiver, result);
+    context.matched = context.matched or matches;
+    context.index += 1;
+    return Value.nil();
+}
+
+fn enumerableTest(vm: *VM, receiver: Value, args: []Value, block: ?Block, mode: PredicateMode) VMError!Value {
     try vm.requireArgCountRange(args, 0, 1);
-    const pattern = if (args.len == 1) args[0] else null;
+    if (args.len == 1 and block != null) try warning_builtin.warnBlockUnused(vm);
+    return iterationValue(try iteratePredicate(vm, receiver, mode, if (args.len == 1) args[0] else null, if (args.len == 0) block else null));
+}
 
-    if (pattern != null and block != null) {
-        try warning_builtin.warnBlockUnused(vm);
-    }
-
-    const enum_value = try vm.createMethodEnumerator(receiver, try vm.intern("each"), &.{});
-
-    if (pattern) |pat| {
-        while (try enumerableNextElement(vm, enum_value)) |element| {
-            if (try enumerablePatternMatches(vm, pat, element)) return Value.boolean(true);
-        }
-        return Value.boolean(false);
-    }
-
-    if (block) |blk| {
-        while (true) {
-            const next_values = try enumerableNextValues(vm, enum_value) orelse break;
-            const result = try vm.yieldToBlock(blk, next_values.elements.items);
-            if (result.isTruthy()) return Value.boolean(true);
-        }
-        return Value.boolean(false);
-    }
-
-    while (try enumerableNextElement(vm, enum_value)) |element| {
-        if (element.isTruthy()) return Value.boolean(true);
-    }
-    return Value.boolean(false);
+fn builtinEnumerableAny(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
+    return enumerableTest(vm, receiver, args, block, .any);
 }
 
 fn builtinEnumerableNone(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
@@ -410,76 +470,11 @@ fn builtinEnumerableNone(vm: *VM, receiver: Value, args: []Value, block: ?Block)
 }
 
 fn builtinEnumerableOne(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
-    try vm.requireArgCountRange(args, 0, 1);
-    const pattern = if (args.len == 1) args[0] else null;
-
-    if (pattern != null and block != null) {
-        try warning_builtin.warnBlockUnused(vm);
-    }
-
-    const enum_value = try vm.createMethodEnumerator(receiver, try vm.intern("each"), &.{});
-    var matched = false;
-
-    if (pattern) |pat| {
-        while (try enumerableNextElement(vm, enum_value)) |element| {
-            if (try enumerablePatternMatches(vm, pat, element)) {
-                if (matched) return Value.boolean(false);
-                matched = true;
-            }
-        }
-        return Value.boolean(matched);
-    }
-
-    if (block) |blk| {
-        while (try enumerableNextValues(vm, enum_value)) |next_values| {
-            const result = try vm.yieldToBlock(blk, next_values.elements.items);
-            if (result.isTruthy()) {
-                if (matched) return Value.boolean(false);
-                matched = true;
-            }
-        }
-        return Value.boolean(matched);
-    }
-
-    while (try enumerableNextElement(vm, enum_value)) |element| {
-        if (element.isTruthy()) {
-            if (matched) return Value.boolean(false);
-            matched = true;
-        }
-    }
-    return Value.boolean(matched);
+    return enumerableTest(vm, receiver, args, block, .one);
 }
 
 fn builtinEnumerableAll(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
-    try vm.requireArgCountRange(args, 0, 1);
-    const pattern = if (args.len == 1) args[0] else null;
-
-    if (pattern != null and block != null) {
-        try warning_builtin.warnBlockUnused(vm);
-    }
-
-    const enum_value = try vm.createMethodEnumerator(receiver, try vm.intern("each"), &.{});
-
-    if (pattern) |pat| {
-        while (try enumerableNextElement(vm, enum_value)) |element| {
-            if (!try enumerablePatternMatches(vm, pat, element)) return Value.boolean(false);
-        }
-        return Value.boolean(true);
-    }
-
-    if (block) |blk| {
-        while (true) {
-            const next_values = try enumerableNextValues(vm, enum_value) orelse break;
-            const result = try vm.yieldToBlock(blk, next_values.elements.items);
-            if (result.isFalsey()) return Value.boolean(false);
-        }
-        return Value.boolean(true);
-    }
-
-    while (try enumerableNextElement(vm, enum_value)) |element| {
-        if (element.isFalsey()) return Value.boolean(false);
-    }
-    return Value.boolean(true);
+    return enumerableTest(vm, receiver, args, block, .all);
 }
 
 fn collapseYieldValues(yield_values: *value.ArrayObject) Value {
@@ -520,11 +515,7 @@ fn enumerableYieldCollapsed(vm: *VM, blk: Block, next_values: *value.ArrayObject
 
 fn builtinEnumerableInclude(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 1);
-    const enum_value = try vm.createMethodEnumerator(receiver, try vm.intern("each"), &.{});
-    while (try enumerableNextElement(vm, enum_value)) |element| {
-        if (try vm.valueEquals(element, args[0])) return Value.boolean(true);
-    }
-    return Value.boolean(false);
+    return iterationValue(try iteratePredicate(vm, receiver, .include, args[0], null));
 }
 
 fn builtinEnumerableToA(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
@@ -793,55 +784,24 @@ fn builtinEnumerableGrepV(vm: *VM, receiver: Value, args: []Value, block: ?Block
 
 fn builtinEnumerableFind(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
     try vm.requireArgCountRange(args, 0, 1);
-    const blk = block orelse {
-        return vm.createMethodEnumerator(receiver, try vm.intern("find"), args);
-    };
-
-    const ifnone = if (args.len == 1) args[0] else Value.nil();
-    const enum_value = try vm.createMethodEnumerator(receiver, try vm.intern("each"), &.{});
-    while (try enumerableNextElement(vm, enum_value)) |element| {
-        const yield_args = [_]Value{element};
-        const result = try vm.yieldToBlock(blk, &yield_args);
-        if (result.isTruthy()) return element;
+    const blk = block orelse return vm.createMethodEnumerator(receiver, try vm.intern("find"), args);
+    switch (try iteratePredicate(vm, receiver, .find, null, blk)) {
+        .stopped => |element| return element,
+        .completed => {},
     }
-
-    if (!ifnone.isNil()) {
-        return vm.callMethodByName(ifnone, "call", &.{}, null);
+    if (args.len == 1 and !args[0].isNil()) {
+        return vm.callMethodByName(args[0], "call", &.{}, null);
     }
     return Value.nil();
 }
 
 fn builtinEnumerableFindIndex(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
     try vm.requireArgCountRange(args, 0, 1);
-    const pattern = if (args.len == 1) args[0] else null;
-
-    if (pattern != null and block != null) {
-        try warning_builtin.warnBlockUnused(vm);
-    }
-
-    if (block == null and pattern == null) {
+    if (args.len == 1 and block != null) try warning_builtin.warnBlockUnused(vm);
+    if (block == null and args.len == 0) {
         return vm.createMethodEnumerator(receiver, try vm.intern("find_index"), args);
     }
-
-    const enum_value = try vm.createMethodEnumerator(receiver, try vm.intern("each"), &.{});
-    var index: i64 = 0;
-
-    if (pattern) |pat| {
-        while (try enumerableNextElement(vm, enum_value)) |element| {
-            if (try vm.valueEquals(element, pat)) return Value.integer(index);
-            index += 1;
-        }
-        return Value.nil();
-    }
-
-    const blk = block.?;
-    while (true) {
-        const next_values = try enumerableNextValues(vm, enum_value) orelse break;
-        const result = try vm.yieldToBlock(blk, next_values.elements.items);
-        if (result.isTruthy()) return Value.integer(index);
-        index += 1;
-    }
-    return Value.nil();
+    return iterationValue(try iteratePredicate(vm, receiver, .find_index, if (args.len == 1) args[0] else null, if (args.len == 0) block else null));
 }
 
 fn raiseEnumerableInjectArgError(vm: *VM, given: usize, expected: []const u8) VMError {
@@ -1313,57 +1273,70 @@ fn builtinEnumerableEachWithIndex(vm: *VM, receiver: Value, args: []Value, block
     return receiver;
 }
 
-fn builtinEnumerableFirst(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
-    try vm.requireArgCountRange(args, 0, 1);
+const PrefixContext = struct {
+    output: ?*value.ArrayObject,
+    remaining: ?i64,
+    block: ?Block,
+};
 
-    if (args.len == 0) {
-        const enum_value = try vm.createMethodEnumerator(receiver, try vm.intern("each"), &.{});
-        return (try enumerableNextElement(vm, enum_value)) orelse Value.nil();
+fn iteratePrefix(vm: *VM, receiver: Value, count: ?i64, block: ?Block, single: bool) VMError!Value {
+    const output = if (single) null else try vm.createArray();
+    if (count != null and count.? == 0) return Value.fromObject(&output.?.object);
+    const context = vm.gc_allocator.create(PrefixContext) catch return error.Fatal;
+    context.* = .{
+        .output = output,
+        .remaining = count,
+        .block = if (block) |blk| (try vm.procValueForBlock(blk)).toProcObject().block else null,
+    };
+    const context_value = Value{ .raw = @intFromPtr(context) };
+    const each_block = Block{ .kind = .{ .receiver_builtin = .{
+        .receiver = context_value,
+        .func = &prefixEach,
+        .arity = -1,
+    } } };
+    switch (try vm.callMethodWithIterationBreak(receiver, "each", &.{}, each_block, context_value)) {
+        .stopped => |result| return result,
+        .completed => return if (output) |array| Value.fromObject(&array.object) else Value.nil(),
     }
+}
 
-    const count = try args[0].coerceToI64ViaToInt(
+fn prefixEach(vm: *VM, receiver: Value, args: []Value) VMError!Value {
+    const context: *PrefixContext = @ptrFromInt(receiver.raw);
+    const output = context.output orelse {
+        try vm.startThrow(receiver, try packYieldValues(vm, args));
+        unreachable;
+    };
+    const output_value = Value.fromObject(&output.object);
+    if (context.block) |block| {
+        if (!(try vm.yieldToBlock(block, args)).isTruthy()) try vm.startThrow(receiver, output_value);
+    }
+    output.elements.append(vm.gc_allocator, try packYieldValues(vm, args)) catch return error.Fatal;
+    if (context.remaining) |*remaining| {
+        remaining.* -= 1;
+        if (remaining.* == 0) try vm.startThrow(receiver, output_value);
+    }
+    return Value.nil();
+}
+
+fn enumerablePrefixCount(vm: *VM, count_value: Value) VMError!i64 {
+    const count = try count_value.coerceToI64ViaToInt(
         vm,
         "no implicit conversion into Integer",
         "no implicit conversion into Integer",
         "bignum too big to convert into `long`",
     );
-    if (count < 0) {
-        return vm.raiseExceptionFmt(vm.argument_error_class, "negative array size", .{});
-    }
+    if (count < 0) return vm.raiseExceptionFmt(vm.argument_error_class, "negative array size", .{});
+    return count;
+}
 
-    const enum_value = try vm.createMethodEnumerator(receiver, try vm.intern("each"), &.{});
-    const out = try vm.createArray();
-    var taken: i64 = 0;
-    while (taken < count) {
-        const element = (try enumerableNextElement(vm, enum_value)) orelse break;
-        out.elements.append(vm.gc_allocator, element) catch return error.Fatal;
-        taken += 1;
-    }
-    return Value.fromObject(&out.object);
+fn builtinEnumerableFirst(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCountRange(args, 0, 1);
+    return iteratePrefix(vm, receiver, if (args.len == 1) try enumerablePrefixCount(vm, args[0]) else null, null, args.len == 0);
 }
 
 fn builtinEnumerableTake(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 1);
-
-    const count = try args[0].coerceToI64ViaToInt(
-        vm,
-        "no implicit conversion into Integer",
-        "no implicit conversion into Integer",
-        "bignum too big to convert into `long`",
-    );
-    if (count < 0) {
-        return vm.raiseExceptionFmt(vm.argument_error_class, "negative array size", .{});
-    }
-
-    const enum_value = try vm.createMethodEnumerator(receiver, try vm.intern("each"), &.{});
-    const out = try vm.createArray();
-    var taken: i64 = 0;
-    while (taken < count) {
-        const element = (try enumerableNextElement(vm, enum_value)) orelse break;
-        out.elements.append(vm.gc_allocator, element) catch return error.Fatal;
-        taken += 1;
-    }
-    return Value.fromObject(&out.object);
+    return iteratePrefix(vm, receiver, try enumerablePrefixCount(vm, args[0]), null, false);
 }
 
 fn builtinEnumerableDrop(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
@@ -1394,20 +1367,8 @@ fn builtinEnumerableDrop(vm: *VM, receiver: Value, args: []Value, _: ?Block) VME
 
 fn builtinEnumerableTakeWhile(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
-    const blk = block orelse {
-        return vm.createMethodEnumerator(receiver, try vm.intern("take_while"), args);
-    };
-
-    const enum_value = try vm.createMethodEnumerator(receiver, try vm.intern("each"), &.{});
-    const out = try vm.createArray();
-
-    while (try enumerableNextValues(vm, enum_value)) |next_values| {
-        const result = try vm.yieldToBlock(blk, next_values.elements.items);
-        if (!result.isTruthy()) break;
-        out.elements.append(vm.gc_allocator, collapseYieldValues(next_values)) catch return error.Fatal;
-    }
-
-    return Value.fromObject(&out.object);
+    const blk = block orelse return vm.createMethodEnumerator(receiver, try vm.intern("take_while"), args);
+    return iteratePrefix(vm, receiver, null, blk, false);
 }
 
 fn builtinEnumerableDropWhile(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {

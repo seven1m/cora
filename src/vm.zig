@@ -9020,6 +9020,36 @@ pub const VM = struct {
         return call_result;
     }
 
+    pub const IterationResult = union(enum) {
+        completed: Value,
+        stopped: Value,
+    };
+
+    /// Native internal iteration shares the caller's fiber. A callback can
+    /// stop it with startThrow(break_tag, result), allowing each's ensures to
+    /// run through the ordinary unwinder. Other control flow is propagated.
+    pub fn callMethodWithIterationBreak(
+        self: *VM,
+        receiver: Value,
+        method_name: []const u8,
+        args: []Value,
+        block: ?Block,
+        break_tag: ?Value,
+    ) VMError!IterationResult {
+        const result = self.callMethodByName(receiver, method_name, args, block) catch |err| {
+            if (err == error.Unwind and break_tag != null) {
+                if (self.pendingThrow()) |pending| {
+                    if (self.throwTagsMatch(pending.tag, break_tag.?)) {
+                        self.clearPendingThrow();
+                        return .{ .stopped = pending.value };
+                    }
+                }
+            }
+            return err;
+        };
+        return .{ .completed = result };
+    }
+
     /// Call the appropriate method-definition hook after a method is defined.
     /// Singleton classes notify their attached object via singleton_method_added;
     /// ordinary modules and classes receive method_added directly.

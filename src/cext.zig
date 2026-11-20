@@ -1241,20 +1241,20 @@ export fn rb_block_call(obj_raw: VALUE, mid: VALUE, argc: c_int, argv: [*c]const
         @as([*]Value, @ptrCast(@constCast(argv)))[0..@intCast(argc)]
     else
         &[_]Value{};
-    const result = vm.callMethodByName(Value{ .raw = obj_raw }, symName(mid), args, block) catch |err| {
-        if (err == error.Unwind and context != null) {
-            if (vm.pendingThrow()) |pending| {
-                if (pending.tag.raw == context_value.raw) {
-                    vm.clearPendingThrow();
-                    return pending.value.raw;
-                }
-            }
-            checkPendingUnwind(vm, pending_before);
-        }
+    const result = vm.callMethodWithIterationBreak(
+        Value{ .raw = obj_raw },
+        symName(mid),
+        args,
+        block,
+        if (context != null) context_value else null,
+    ) catch |err| {
+        if (err == error.Unwind) checkPendingUnwind(vm, pending_before);
         return 0;
     };
     checkPendingUnwind(vm, pending_before);
-    return result.raw;
+    return switch (result) {
+        .completed, .stopped => |result_value| result_value.raw,
+    };
 }
 
 export fn rb_iter_break() void {
