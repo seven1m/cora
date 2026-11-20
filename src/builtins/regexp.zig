@@ -728,6 +728,19 @@ const RegexpSearchResult = struct {
     match_data: *value.MatchDataObject,
 };
 
+// Keep encoding-specific compiled patterns with their owning regexp, so repeated
+// matches do not allocate a new Ruby object and recompile the same pattern.
+fn regexpForSourceEncoding(vm: *VM, regexp: *value.RegexpObject, encoding: enc.Encoding) VMError!*value.RegexpObject {
+    if (!regexp.encoding.eql(.{ .us_ascii = .{} }) or !encoding.isAsciiCompatible() or encoding.eql(.{ .us_ascii = .{} })) return regexp;
+
+    for (regexp.encoding_variants.items) |variant| {
+        if (variant.encoding.eql(encoding)) return variant;
+    }
+    const variant = (try vm.newRegexpWithEncoding(regexp.pattern, regexp.options, encoding)).toRegexpObject();
+    regexp.encoding_variants.append(vm.gc_allocator, variant) catch return error.Fatal;
+    return variant;
+}
+
 fn searchRegexp(
     vm: *VM,
     regexp_obj: *value.RegexpObject,
@@ -767,10 +780,7 @@ fn searchRegexp(
         };
     }
 
-    const effective_regexp = if (regexp_obj.encoding.eql(.{ .us_ascii = .{} }) and source_obj.encoding.isAsciiCompatible() and !source_obj.encoding.eql(.{ .us_ascii = .{} }))
-        (try vm.newRegexpWithEncoding(regexp_obj.pattern, regexp_obj.options, source_obj.encoding)).toRegexpObject()
-    else
-        regexp_obj;
+    const effective_regexp = try regexpForSourceEncoding(vm, regexp_obj, source_obj.encoding);
 
     if (effective_regexp.encoding.isUnicode() and !source_obj.encoding.isValid(source_obj.str)) {
         return vm.raiseExceptionFmt(vm.argument_error_class, "invalid byte sequence in {s}", .{source_obj.encoding.name()});
@@ -894,10 +904,7 @@ pub fn regexpRindexAt(
         break :blk pos;
     };
 
-    const effective_regexp = if (regexp_obj.encoding.eql(.{ .us_ascii = .{} }) and source_obj.encoding.isAsciiCompatible() and !source_obj.encoding.eql(.{ .us_ascii = .{} }))
-        (try vm.newRegexpWithEncoding(regexp_obj.pattern, regexp_obj.options, source_obj.encoding)).toRegexpObject()
-    else
-        regexp_obj;
+    const effective_regexp = try regexpForSourceEncoding(vm, regexp_obj, source_obj.encoding);
 
     if (effective_regexp.encoding.isUnicode() and !source_obj.encoding.isValid(source_obj.str)) {
         return vm.raiseExceptionFmt(vm.argument_error_class, "invalid byte sequence in {s}", .{source_obj.encoding.name()});
@@ -978,10 +985,7 @@ pub fn regexpMatchOpAtByte(
         );
     }
 
-    const effective_regexp = if (regexp_obj.encoding.eql(.{ .us_ascii = .{} }) and source_obj.encoding.isAsciiCompatible() and !source_obj.encoding.eql(.{ .us_ascii = .{} }))
-        (try vm.newRegexpWithEncoding(regexp_obj.pattern, regexp_obj.options, source_obj.encoding)).toRegexpObject()
-    else
-        regexp_obj;
+    const effective_regexp = try regexpForSourceEncoding(vm, regexp_obj, source_obj.encoding);
 
     if (effective_regexp.encoding.isUnicode() and !source_obj.encoding.isValid(source_obj.str)) {
         return vm.raiseExceptionFmt(vm.argument_error_class, "invalid byte sequence in {s}", .{source_obj.encoding.name()});
@@ -1057,10 +1061,7 @@ pub fn regexpRindexAtByte(
         );
     }
 
-    const effective_regexp = if (regexp_obj.encoding.eql(.{ .us_ascii = .{} }) and source_obj.encoding.isAsciiCompatible() and !source_obj.encoding.eql(.{ .us_ascii = .{} }))
-        (try vm.newRegexpWithEncoding(regexp_obj.pattern, regexp_obj.options, source_obj.encoding)).toRegexpObject()
-    else
-        regexp_obj;
+    const effective_regexp = try regexpForSourceEncoding(vm, regexp_obj, source_obj.encoding);
 
     if (effective_regexp.encoding.isUnicode() and !source_obj.encoding.isValid(source_obj.str)) {
         return vm.raiseExceptionFmt(vm.argument_error_class, "invalid byte sequence in {s}", .{source_obj.encoding.name()});

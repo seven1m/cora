@@ -664,6 +664,7 @@ pub const RegexpObject = struct {
     encoding: Encoding,
     options: u16,
     regex: onigmo.OnigRegex,
+    encoding_variants: std.ArrayList(*RegexpObject) = .empty,
 };
 
 pub const MatchDataObject = struct {

@@ -4,6 +4,54 @@ const test_helper = @import("../test_helper.zig");
 const evalCode = test_helper.evalCode;
 const evalCodeWithOutput = test_helper.evalCodeWithOutput;
 
+test "Regexp literals reuse identity per site while interpolation stays dynamic" {
+    const result = try evalCode(
+        \\def literal; /cache-me/i; end
+        \\def other_literal; /cache-me/i; end
+        \\def dynamic(text); /#{text}/; end
+        \\first = literal
+        \\300.times { |i| Regexp.new("unrelated-#{i}") }
+        \\GC.start
+        \\20.times do |i|
+        \\  raise "stale eval literal" unless eval("/pattern-#{i}/").source == "pattern-#{i}"
+        \\end
+        \\first.equal?(literal) && first.frozen? && !first.equal?(other_literal) &&
+        \\  first.match?("CACHE-ME") && !dynamic("x").equal?(dynamic("x")) &&
+        \\  dynamic("x").source == "x" && dynamic("y").source == "y"
+    );
+    try std.testing.expect(result.isTrue());
+}
+
+test "Regexp matching preserves encoding and MatchData across cached variants" {
+    const result = try evalCode(
+        \\regexp = /./
+        \\sources = ["é", "\xE9".force_encoding("ISO-8859-1"), "abc".b, "xyz".force_encoding("US-ASCII")]
+        \\20.times do
+        \\  sources.each do |source|
+        \\    match = regexp.match(source)
+        \\    raise "match identity" unless match.regexp.equal?(regexp)
+        \\    raise "character boundary" unless match[0] == source[0]
+        \\    raise "match encoding" unless match[0].encoding == source.encoding
+        \\    raise "match predicate" unless regexp.match?(source)
+        \\    raise "match operator" unless (regexp =~ source) == 0
+        \\    raise "forward search" unless source.index(regexp) == 0
+        \\    raise "reverse search" unless source.rindex(regexp) == source.length - 1
+        \\    raise "scan" unless source.scan(regexp) == source.chars
+        \\    raise "sub" unless source.sub(regexp, "_") == "_" + source[1..-1]
+        \\    raise "gsub" unless source.gsub(regexp, "_") == "_" * source.length
+        \\  end
+        \\  GC.start
+        \\end
+        \\begin
+        \\  regexp.match?("\xFF".force_encoding("UTF-8"))
+        \\  raise "invalid encoding accepted"
+        \\rescue ArgumentError
+        \\end
+        \\regexp.encoding == Encoding::US_ASCII && regexp.source == "." && regexp.options == 0
+    );
+    try std.testing.expect(result.isTrue());
+}
+
 test "MatchData integer_at handles named captures and conversion boundaries" {
     const result = try evalCode(
         \\m = /(?<number>12x)(?<missing>z)?/.match("12x")

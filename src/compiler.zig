@@ -533,6 +533,7 @@ pub const Compiler = struct {
                 const flags = regexp_node.base.flags;
                 const idx = try self.current_chunk.addConstant(literalRegexpConstant(decoded_pattern, flags));
                 const options = regexpOptionsFromFlags(flags);
+                try self.current_chunk.regexp_literal_offsets.append(self.allocator, self.current_chunk.code.items.len);
                 try self.current_chunk.emitOpU16U16(.PUSH_REGEXP, @intCast(idx), options, line);
             },
 

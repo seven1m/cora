@@ -505,6 +505,11 @@ const EncodedStringKey = struct {
     encoding_tag: usize,
 };
 
+const RegexpLiteralKey = struct {
+    chunk: *Chunk,
+    byte_offset: usize,
+};
+
 const EncodedStringKeyContext = struct {
     pub fn hash(_: EncodedStringKeyContext, key: EncodedStringKey) u64 {
         var hasher = std.hash.Wyhash.init(0);
@@ -620,6 +625,7 @@ pub const VM = struct {
     symbols: std.HashMap(EncodedStringKey, *SymbolObject, EncodedStringKeyContext, std.hash_map.default_max_load_percentage),
     globals: std.StringHashMap(*GlobalSlot),
     fstring_cache: std.StringHashMap(Value),
+    regexp_literals: std.AutoHashMap(RegexpLiteralKey, Value),
     canonical_fstrings: std.HashMapUnmanaged(EncodedStringKey, Value, EncodedStringKeyContext, std.hash_map.default_max_load_percentage) = .empty,
     packed_pointer_targets: std.AutoHashMap(*StringObject, PackedPointerTargets),
     errno_classes: std.AutoHashMap(c_int, *ClassObject),
@@ -870,6 +876,7 @@ pub const VM = struct {
             .symbols = std.HashMap(EncodedStringKey, *SymbolObject, EncodedStringKeyContext, std.hash_map.default_max_load_percentage).init(gc_allocator),
             .globals = std.StringHashMap(*GlobalSlot).init(gc_allocator),
             .fstring_cache = std.StringHashMap(Value).init(gc_allocator),
+            .regexp_literals = std.AutoHashMap(RegexpLiteralKey, Value).init(gc_allocator),
             .canonical_fstrings = .empty,
             .packed_pointer_targets = std.AutoHashMap(*StringObject, PackedPointerTargets).init(gc_allocator),
             .errno_classes = std.AutoHashMap(c_int, *ClassObject).init(gc_allocator),
@@ -3077,6 +3084,7 @@ pub const VM = struct {
             self.allocator.free(key.*);
         }
         self.fstring_cache.deinit();
+        self.regexp_literals.deinit();
         self.canonical_fstrings.deinit(self.gc_allocator);
         var packed_targets_iter = self.packed_pointer_targets.valueIterator();
         while (packed_targets_iter.next()) |targets| {
@@ -7086,6 +7094,11 @@ pub const VM = struct {
             .PUSH_REGEXP => {
                 const pattern_idx = readU16From(frame, operands, &operand_cursor);
                 const options = readU16From(frame, operands, &operand_cursor);
+                const key = RegexpLiteralKey{ .chunk = frame.chunk, .byte_offset = instr_idx };
+                if (self.regexp_literals.get(key)) |cached| {
+                    try self.push(cached);
+                    return;
+                }
                 const pattern_constant = constants[pattern_idx];
                 const pattern: []const u8 = switch (pattern_constant) {
                     .string => |bytes| bytes,
@@ -7099,6 +7112,7 @@ pub const VM = struct {
                 };
                 const normalized = self.normalizeRegexpEncoding(pattern, source_encoding, options);
                 const result = try self.newRegexpWithEncoding(pattern, normalized.options, normalized.encoding);
+                self.regexp_literals.put(key, result) catch return error.Fatal;
                 try self.push(result);
             },
 
@@ -13215,6 +13229,12 @@ pub const VM = struct {
         return self.loadFileWrapped(absolute_path, false);
     }
 
+    fn releaseRegexpLiterals(self: *VM, target_chunk: *Chunk) void {
+        for (target_chunk.regexp_literal_offsets.items) |byte_offset| {
+            _ = self.regexp_literals.remove(.{ .chunk = target_chunk, .byte_offset = byte_offset });
+        }
+    }
+
     pub fn loadFileWrapped(self: *VM, absolute_path: []const u8, wrap: bool) VMError!void {
         if (std.mem.endsWith(u8, absolute_path, ".so") or std.mem.endsWith(u8, absolute_path, ".bundle")) {
             return self.loadCExtFile(absolute_path);
@@ -13229,6 +13249,7 @@ pub const VM = struct {
         defer program.child_chunks.deinit();
         const main_chunk = try self.allocateOwnedMainChunk(&program);
         defer {
+            self.releaseRegexpLiterals(main_chunk);
             main_chunk.deinit();
             self.allocator.destroy(main_chunk);
         }
@@ -13346,6 +13367,7 @@ pub const VM = struct {
         defer eval_program.child_chunks.deinit();
         const eval_main_chunk = try self.allocateOwnedMainChunk(&eval_program);
         defer {
+            self.releaseRegexpLiterals(eval_main_chunk);
             eval_main_chunk.deinit();
             self.allocator.destroy(eval_main_chunk);
         }

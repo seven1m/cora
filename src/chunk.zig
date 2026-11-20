@@ -148,6 +148,8 @@ pub const Chunk = struct {
     // Callsite caches indexed by callsite_id
     callsite_caches: std.ArrayList(?CallSiteCache) = .empty,
     callsite_descriptors: std.ArrayList(?CallSiteDescriptor) = .empty,
+    // Lets the VM release literal roots when a temporary load/eval chunk ends.
+    regexp_literal_offsets: std.ArrayList(usize) = .empty,
     block_call_handlers: std.ArrayList(BlockCallHandler) = .empty,
 
     pub fn init(allocator: std.mem.Allocator, name: []const u8) Chunk {
@@ -207,6 +209,7 @@ pub const Chunk = struct {
         self.keyword_metadata.deinit(self.allocator);
         self.callsite_caches.deinit(self.allocator);
         self.callsite_descriptors.deinit(self.allocator);
+        self.regexp_literal_offsets.deinit(self.allocator);
         self.block_call_handlers.deinit(self.allocator);
     }
 
