@@ -831,6 +831,7 @@ fn setVisibility(vm: *VM, receiver: Value, args: []Value, visibility: MethodVisi
         const method_entry = entry orelse {
             return vm.raiseExceptionFmt(vm.name_error_class, "undefined method '{s}'", .{name_sym.name});
         };
+        if (method_entry.visibility == visibility) continue;
         var updated = method_entry;
         updated.visibility = visibility;
         methods.put(name_sym, updated) catch return error.Fatal;
