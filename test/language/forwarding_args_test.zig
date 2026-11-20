@@ -125,6 +125,23 @@ test "pure forwarding from nested blocks preserves positional and keyword argume
     try std.testing.expect(values[1].isTrue());
 }
 
+test "escaped forwarding lambda retains defining arguments and block" {
+    const result = try evalCode(
+        \\class ForwardingTarget
+        \\  def receive(*args, **kwargs, &block)
+        \\    [args, kwargs, block.call]
+        \\  end
+        \\end
+        \\def capture(consumed, ...)
+        \\  -> target { target.receive(:prefix, ...) }
+        \\end
+        \\operation = capture(:consumed, :first, :second, enabled: true) { :original }
+        \\operation.call(ForwardingTarget.new) { :replacement } ==
+        \\  [[:prefix, :first, :second], { enabled: true }, :original]
+    );
+    try std.testing.expect(result.isTruthy());
+}
+
 test "Proc ruby2_keywords preserves keywords through rest argument splats" {
     const result = try evalCode(
         \\class KeywordTarget

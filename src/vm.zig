@@ -301,6 +301,7 @@ const MethodEnvironmentContext = struct {
     chunk: *Chunk,
     method_name: []const u8,
     defining_node: ?*ModuleObject,
+    forwarded_block: ?*value.ProcObject = null,
 };
 
 pub const Block = struct {
@@ -2261,6 +2262,10 @@ pub const VM = struct {
             .chunk = frame.chunk,
             .method_name = frame.method_name orelse frame.chunk.name,
             .defining_node = frame.super_defining_node,
+            .forwarded_block = if (frame.chunk.has_forwarding_parameter)
+                if (frame.block) |block| try self.ensureBlockProc(block) else null
+            else
+                null,
         };
         frame.ep[4] = .{ .raw = @intFromPtr(context) };
     }
@@ -6429,7 +6434,7 @@ pub const VM = struct {
                 const call_flags = readByteFrom(frame, operands, &operand_cursor);
                 const block_chunk_id = readU16From(frame, operands, &operand_cursor);
                 const call_style: ReceiverCallStyle = bytecode.decodeReceiverCallStyle(call_flags);
-                const forwarding_frame = self.enclosingMethodFrame(frame);
+                var forwarding_frame = self.forwardingFrame(frame);
 
                 var block = try self.resolveBlock(block_chunk_id, frame);
                 if (block == null) {
@@ -6437,8 +6442,8 @@ pub const VM = struct {
                 }
 
                 var fwd_buf: [256]Value = undefined;
-                const fwd_args = self.getForwardingArguments(forwarding_frame, &fwd_buf, false);
-                const fwd_kw_ctx = try self.buildForwardingKeywordContext(forwarding_frame);
+                const fwd_args = self.getForwardingArguments(&forwarding_frame, &fwd_buf, false);
+                const fwd_kw_ctx = try self.buildForwardingKeywordContext(&forwarding_frame);
                 const kw_keys: ?[]Value = if (fwd_kw_ctx) |ctx|
                     if (ctx.kw_values.len > 0) @constCast(ctx.kw_keys) else null
                 else
@@ -6465,7 +6470,7 @@ pub const VM = struct {
                 const block_chunk_id = readU16From(frame, operands, &operand_cursor);
                 const prefix_argc = readByteFrom(frame, operands, &operand_cursor);
                 const call_style: ReceiverCallStyle = bytecode.decodeReceiverCallStyle(call_flags);
-                const forwarding_frame = self.enclosingMethodFrame(frame);
+                var forwarding_frame = self.forwardingFrame(frame);
 
                 var block = try self.resolveBlock(block_chunk_id, frame);
                 if (block == null) {
@@ -6473,8 +6478,8 @@ pub const VM = struct {
                 }
 
                 var fwd_buf: [256]Value = undefined;
-                const fwd_args = self.getForwardingArguments(forwarding_frame, &fwd_buf, false);
-                const fwd_kw_ctx = try self.buildForwardingKeywordContext(forwarding_frame);
+                const fwd_args = self.getForwardingArguments(&forwarding_frame, &fwd_buf, false);
+                const fwd_kw_ctx = try self.buildForwardingKeywordContext(&forwarding_frame);
                 const kw_keys: ?[]Value = if (fwd_kw_ctx) |ctx|
                     if (ctx.kw_values.len > 0) @constCast(ctx.kw_keys) else null
                 else
@@ -7541,7 +7546,7 @@ pub const VM = struct {
                 const block_chunk_id = readU16From(frame, operands, &operand_cursor);
                 const mode = readByteFrom(frame, operands, &operand_cursor);
 
-                const forwarding_frame = self.enclosingMethodFrame(frame);
+                var forwarding_frame = self.forwardingFrame(frame);
 
                 // Resolve block, falling back to frame's block for forwarding
                 var block = try self.resolveBlock(block_chunk_id, frame);
@@ -7551,7 +7556,7 @@ pub const VM = struct {
 
                 // Get forwarding positional arguments from current method's environment
                 var fwd_buf: [256]Value = undefined;
-                const forwarded = self.getForwardingArguments(forwarding_frame, &fwd_buf, mode == 0);
+                const forwarded = self.getForwardingArguments(&forwarding_frame, &fwd_buf, mode == 0);
                 var combined_buf: [256]Value = undefined;
                 const prefix_count: usize = if (mode == 0) 0 else mode - 1;
                 const fwd_args = if (prefix_count == 0) forwarded else blk: {
@@ -7564,7 +7569,7 @@ pub const VM = struct {
 
                 // Build forwarding keyword context from actual param slot values
                 // (includes defaults that were applied, not just what was explicitly passed).
-                const fwd_kw_ctx = try self.buildForwardingKeywordContext(forwarding_frame);
+                const fwd_kw_ctx = try self.buildForwardingKeywordContext(&forwarding_frame);
                 try self.callSuper(fwd_args, block, fwd_kw_ctx, true);
             },
         }
@@ -10028,6 +10033,20 @@ pub const VM = struct {
             }
         }
         return frame;
+    }
+
+    /// Forwarding can outlive the defining method's active call frame.
+    fn forwardingFrame(self: *VM, frame: *CallFrame) CallFrame {
+        var result = self.enclosingMethodFrame(frame).*;
+        if (enclosingMethodEnvironment(frame)) |environment| {
+            result.chunk = environment.context.chunk;
+            result.ep = environment.ep;
+            result.block = if (self.activeMethodFrameForEp(environment.ep)) |active| active.block else frame.block;
+            if (result.chunk.has_forwarding_parameter) {
+                result.block = if (environment.context.forwarded_block) |proc_obj| proc_obj.block else null;
+            }
+        }
+        return result;
     }
 
     fn activeMethodFrameForEp(self: *VM, method_ep: [*]Value) ?*CallFrame {
