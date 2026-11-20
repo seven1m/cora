@@ -30,6 +30,8 @@ Some gems that are known to work, though I haven't tested each thoroughly:
 - nokogiri
 - psych/yaml
 - rack
+- rails
+- railties
 - rake
 - sinatra
 - sqlite3
