@@ -97,3 +97,9 @@
 [submodule "ext/resolv"]
 	path = ext/resolv
 	url = https://github.com/ruby/resolv
+[submodule "ext/prettyprint"]
+	path = ext/prettyprint
+	url = https://github.com/ruby/prettyprint
+[submodule "ext/pp"]
+	path = ext/pp
+	url = https://github.com/ruby/pp

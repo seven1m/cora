@@ -1,6 +1,6 @@
 const std = @import("std");
 
-test "network libraries are available as default gems without installed gems" {
+test "standard libraries are available as default gems without installed gems" {
     var gpa: std.heap.DebugAllocator(.{}) = .init;
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
@@ -19,8 +19,13 @@ test "network libraries are available as default gems without installed gems" {
         \\require "rubygems"
         \\require "net/http"
         \\require "open-uri"
+        \\require "pp"
+        \\require "prettyprint"
+        \\raise unless PP.pp([1, 2], +"") == "[1, 2]\n"
+        \\raise unless PrettyPrint.format(+"") { |q| q.text("hello") } == "hello"
+        \\pp :printed
         \\raise unless Net::HTTP && Resolv && URI.respond_to?(:open)
-        \\%w[net-http net-protocol open-uri resolv].each do |name|
+        \\%w[net-http net-protocol open-uri resolv pp prettyprint].each do |name|
         \\  raise name unless Gem.loaded_specs[name]&.default_gem?
         \\end
         \\%w[timeout uri time].each do |name|
@@ -37,11 +42,21 @@ test "network libraries are available as default gems without installed gems" {
     defer allocator.free(result.stdout);
     defer allocator.free(result.stderr);
     try std.testing.expect(result.term == .exited and result.term.exited == 0);
-    try std.testing.expectEqualStrings("ok\n", result.stdout);
+    try std.testing.expectEqualStrings(":printed\nok\n", result.stdout);
     try std.testing.expectEqualStrings("", result.stderr);
 
+    const no_gems_code =
+        \\require "net/http"
+        \\require "open-uri"
+        \\require "pp"
+        \\require "prettyprint"
+        \\raise unless PP.pp([1, 2], +"") == "[1, 2]\n"
+        \\raise unless PrettyPrint.format(+"") { |q| q.text("hello") } == "hello"
+        \\pp :printed
+        \\puts [Net::HTTP.name, Resolv.name, URI.respond_to?(:open)].join(":")
+    ;
     const no_gems = try std.process.run(allocator, threaded.io(), .{
-        .argv = &.{ "build/bin/cora", "--disable-gems", "-e", "require 'net/http'; require 'open-uri'; puts [Net::HTTP.name, Resolv.name, URI.respond_to?(:open)].join(':')" },
+        .argv = &.{ "build/bin/cora", "--disable-gems", "-e", no_gems_code },
         .environ_map = &env_map,
         .stdout_limit = .limited(1024 * 1024),
         .stderr_limit = .limited(1024 * 1024),
@@ -49,7 +64,7 @@ test "network libraries are available as default gems without installed gems" {
     defer allocator.free(no_gems.stdout);
     defer allocator.free(no_gems.stderr);
     try std.testing.expect(no_gems.term == .exited and no_gems.term.exited == 0);
-    try std.testing.expectEqualStrings("Net::HTTP:Resolv:true\n", no_gems.stdout);
+    try std.testing.expectEqualStrings(":printed\nNet::HTTP:Resolv:true\n", no_gems.stdout);
     try std.testing.expectEqualStrings("", no_gems.stderr);
 }
 

@@ -14,6 +14,8 @@ pub const gems = [_]Gem{
     .{ .name = "strscan", .version = "3.1.8", .source = .strscan, .load_path = true },
     .{ .name = "json", .version = "2.19.9", .source = .json, .load_path = true },
     .{ .name = "bundler", .version = "4.1.0.dev", .source = .bundler, .load_path = true },
+    .{ .name = "prettyprint", .version = "0.2.1", .load_path = true },
+    .{ .name = "pp", .version = "0.6.4", .load_path = true },
     .{ .name = "net-http", .version = "0.10.0", .load_path = true },
     .{ .name = "net-protocol", .version = "0.4.0", .load_path = true },
     .{ .name = "open-uri", .version = "0.5.0", .load_path = true },

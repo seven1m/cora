@@ -105,6 +105,8 @@ Steps per gem:
   libraries installed and registered as default gems.
 - `time`, `timeout`, `uri` - vendored libraries also registered as default
   gems so RubyGems can resolve their dependent gems.
+- `pp`, `prettyprint` - pure Ruby default gems with their installed library
+  directories on the load path, including when RubyGems is disabled.
 - `csv`, `test-unit`, `power_assert` - pure Ruby; installed as ordinary bundled gems
   with `test-unit` depending on `power_assert`.
 
