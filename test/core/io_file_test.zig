@@ -57,6 +57,24 @@ test "File.utime nil timestamps set the current time" {
     try std.testing.expect(result.isTruthy());
 }
 
+test "FileUtils.touch creates and updates relative build stamps" {
+    const result = try evalCode(
+        \\require "tmpdir"
+        \\require "fileutils"
+        \\Dir.mktmpdir do |dir|
+        \\  Dir.chdir(dir) do
+        \\    FileUtils.touch("stamp")
+        \\    created = File.file?("stamp")
+        \\    FileUtils.touch("stamp", mtime: Time.at(123))
+        \\    updated = File.mtime("stamp").to_i == 123
+        \\    FileUtils.touch("stamp")
+        \\    created && updated && File.mtime("stamp").to_i > 123
+        \\  end
+        \\end
+    );
+    try std.testing.expect(result.isTruthy());
+}
+
 test "File.fnmatch coerces patterns through to_str" {
     const result = try evalCode(
         \\pattern = Object.new

@@ -2804,9 +2804,15 @@ pub fn builtinFileUtime(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Val
             .{ .sec = atime_secs, .nsec = 0 },
             .{ .sec = mtime_secs, .nsec = 0 },
         };
-        const result = std.c.utimensat(-100, path_z.ptr, if (use_current_time) null else &ts, 0);
-        if (result != 0) {
-            return vm.raiseErrnoFmt(std.posix.errno(result), "failed to utime: {s}", .{path});
+        while (true) {
+            const result = std.c.utimensat(std.posix.AT.FDCWD, path_z.ptr, if (use_current_time) null else &ts, 0);
+            if (result == 0) break;
+            const errno_code = std.posix.errno(result);
+            if (errno_code == .INTR) {
+                try vm.checkAsyncEvents();
+                continue;
+            }
+            return vm.raiseErrnoFmt(errno_code, "failed to utime: {s}", .{path});
         }
         changed += 1;
     }
