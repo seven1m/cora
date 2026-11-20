@@ -126,7 +126,7 @@ pub fn register(vm: *VM) !void {
     try digest_class.module.methods.put(digest_new_instance_sym, value.MethodEntry.builtin(&builtinOpenSSLDigestNew, .{ .exact = 0 }));
 
     const digest_digest_sym = try vm.intern("digest");
-    try digest_class.module.methods.put(digest_digest_sym, value.MethodEntry.builtin(&builtinOpenSSLDigestDigest, .{ .exact = 0 }));
+    try digest_class.module.methods.put(digest_digest_sym, value.MethodEntry.builtin(&builtinOpenSSLDigestDigest, .{ .variadic = 0 }));
 
     const digest_hexdigest_sym = try vm.intern("hexdigest");
     try digest_class.module.methods.put(digest_hexdigest_sym, value.MethodEntry.builtin(&builtinOpenSSLDigestHexdigest, .{ .exact = 0 }));
@@ -136,7 +136,6 @@ pub fn register(vm: *VM) !void {
 
     const digest_base64digest_sym = try vm.intern("base64digest");
     try digest_class.module.methods.put(digest_base64digest_sym, value.MethodEntry.builtin(&builtinOpenSSLDigestBase64digest, .{ .exact = 0 }));
-
     const digest_name_sym = try vm.intern("name");
     try digest_class.module.methods.put(digest_name_sym, value.MethodEntry.builtin(&builtinOpenSSLDigestName, .{ .exact = 0 }));
 
@@ -678,12 +677,17 @@ fn digestAlgorithmForReceiver(vm: *VM, receiver: Value) VMError!DigestAlgorithm 
     return resolveDigestAlgorithmByName(name_value.toStringObject().str) orelse return error.Fatal;
 }
 
-fn digestDupAndFinalize(ctx: *c.EVP_MD_CTX, out: *[64]u8) VMError!usize {
+fn digestDupAndFinalize(ctx: *c.EVP_MD_CTX, extra: ?[]const u8, out: *[64]u8) VMError!usize {
     const duped = c.EVP_MD_CTX_new();
     if (duped == null) return error.Fatal;
     defer c.EVP_MD_CTX_destroy(duped);
     if (c.EVP_MD_CTX_copy_ex(duped, ctx) != 1) {
         return error.Fatal;
+    }
+    if (extra) |chunk| {
+        if (chunk.len > 0 and c.EVP_DigestUpdate(duped, chunk.ptr, chunk.len) != 1) {
+            return error.Fatal;
+        }
     }
     var len: c_uint = @intCast(out.len);
     if (c.EVP_DigestFinal_ex(duped, out, &len) != 1) {
@@ -1003,18 +1007,27 @@ pub fn builtinOpenSSLDigestBlockLength(vm: *VM, receiver: Value, args: []Value, 
 }
 
 pub fn builtinOpenSSLDigestDigest(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
-    try vm.requireArgCount(args, 0);
+    try vm.requireArgCountRange(args, 0, 1);
     const ctx = digestCtxFromReceiver(receiver);
+    var extra: ?[]const u8 = null;
+    if (args.len == 1) {
+        _ = try builtinOpenSSLDigestReset(vm, receiver, &[_]Value{}, null);
+        extra = (try coerceToStringValueExact(vm, args[0])).toStringObject().str;
+    }
     var digest_buf: [64]u8 = undefined;
-    const len = try digestDupAndFinalize(ctx, &digest_buf);
-    return binaryString(vm, digest_buf[0..len]);
+    const len = try digestDupAndFinalize(ctx, extra, &digest_buf);
+    const result = try binaryString(vm, digest_buf[0..len]);
+    if (args.len == 1) {
+        _ = try builtinOpenSSLDigestReset(vm, receiver, &[_]Value{}, null);
+    }
+    return result;
 }
 
 pub fn builtinOpenSSLDigestHexdigest(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
     const ctx = digestCtxFromReceiver(receiver);
     var digest_buf: [64]u8 = undefined;
-    const len = try digestDupAndFinalize(ctx, &digest_buf);
+    const len = try digestDupAndFinalize(ctx, null, &digest_buf);
     return digestHex(vm, digest_buf[0..len]);
 }
 
@@ -1030,7 +1043,7 @@ pub fn builtinOpenSSLDigestBase64digest(vm: *VM, receiver: Value, args: []Value,
     try vm.requireArgCount(args, 0);
     const ctx = digestCtxFromReceiver(receiver);
     var digest_buf: [64]u8 = undefined;
-    const len = try digestDupAndFinalize(ctx, &digest_buf);
+    const len = try digestDupAndFinalize(ctx, null, &digest_buf);
     return digestBase64(vm, digest_buf[0..len]);
 }
 

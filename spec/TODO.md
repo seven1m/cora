@@ -2937,7 +2937,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] library/digest/md5/block_length_spec.rb
 - [ ] library/digest/md5/digest_bang_spec.rb
 - [x] library/digest/md5/digest_length_spec.rb
-- [ ] library/digest/md5/digest_spec.rb
+- [x] library/digest/md5/digest_spec.rb
 - [ ] library/digest/md5/equal_spec.rb
 - [ ] library/digest/md5/file_spec.rb
 - [x] library/digest/md5/hexdigest_bang_spec.rb
