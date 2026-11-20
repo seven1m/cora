@@ -36,6 +36,7 @@ Some gems that are known to work, though I haven't tested each thoroughly:
 - sinatra
 - sqlite3
 - webrick
+- zeitwerk
 
 Cora passes over 15,000 ruby/spec examples, about 43% of the 34,724 passing in a [recent CRuby run](https://eregon.me/rubyspec-stats/).
 
