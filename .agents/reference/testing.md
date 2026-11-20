@@ -24,6 +24,10 @@ zig build test -Dtest-timing -Dtest-timeout=10
 zig build test -Dtest-jobs=8
 ```
 
+Without `-Dtest-jobs`, the runner uses the reported CPU count, capped by the
+number of tests. Set `-Dtest-jobs=1` for serial execution; choose another cap
+when a specific resource constraint justifies it.
+
 Tests live under `test/` including `test/core/*.zig`, `test/language/*.zig`,
 top-level gem/library smoke tests (`test/strscan_test.zig`,
 `test/json_test.zig`, etc.), and integration helpers/spec runner code. When

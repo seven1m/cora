@@ -48,10 +48,16 @@ zig build test -Dtest-filter="Proc"
 zig build test -Dtest-filter="Proc" -Dtest-verbose
 zig build test -Dtest-filter="Proc" -Dtest-verbose -Dtest-timing
 zig build test -Dtest-filter="Proc" -Dtest-verbose -Dtest-timing -Dtest-timeout=10
+zig build test -Dtest-jobs=1       # run tests serially
 zig build run -- [flags] [filename]
 build/bin/cora [flags] [filename]
 bin/gem [gem-args]                  # polyglot sh+Ruby wrapper; uses bin/cora
 ```
+
+By default the test runner uses the reported CPU count, capped by the number
+of tests; omitting `-Dtest-jobs` does not run tests serially. Use
+`-Dtest-jobs=N` to set a specific worker count, and limit it only when there is
+evidence that resource contention or another constraint calls for it.
 
 The TinyCC JIT and per-gem native extension build steps (`psych`, `strscan`,
 `onigmo`, `tinycc`, `cext-fixture`) are documented in
