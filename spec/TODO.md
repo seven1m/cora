@@ -1446,7 +1446,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/module/instance_methods_spec.rb
 - [x] core/module/lt_spec.rb
 - [x] core/module/lte_spec.rb
-- [ ] core/module/method_added_spec.rb
+- [x] core/module/method_added_spec.rb
 - [x] core/module/method_defined_spec.rb
 - [ ] core/module/method_removed_spec.rb
 - [ ] core/module/method_undefined_spec.rb

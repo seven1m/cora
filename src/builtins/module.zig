@@ -832,9 +832,12 @@ fn setVisibility(vm: *VM, receiver: Value, args: []Value, visibility: MethodVisi
             return vm.raiseExceptionFmt(vm.name_error_class, "undefined method '{s}'", .{name_sym.name});
         };
         if (method_entry.visibility == visibility) continue;
+        const inherited = !methods.contains(name_sym);
         var updated = method_entry;
         updated.visibility = visibility;
         methods.put(name_sym, updated) catch return error.Fatal;
+        vm.bumpMethodStateVersion();
+        if (inherited) try vm.triggerMethodAdded(receiver, name_sym);
     }
     vm.markIntegerChangedForReceiver(receiver);
     vm.bumpMethodStateVersion();
@@ -993,6 +996,7 @@ fn copyMethodToModuleSingleton(vm: *VM, module_receiver: Value, name_sym: *Symbo
     singleton_class.module.methods.put(name_sym, singleton_entry) catch return error.Fatal;
     vm.markIntegerChangedForReceiver(module_receiver);
     vm.bumpMethodStateVersion();
+    try vm.triggerMethodAdded(Value.fromObject(&singleton_class.module.object), name_sym);
 }
 
 fn moduleFunctionLookup(vm: *VM, receiver: Value, name_sym: *SymbolObject) ?value.MethodEntry {
@@ -2133,6 +2137,7 @@ pub fn builtinModuleAliasMethod(vm: *VM, receiver: Value, args: []Value, _: ?Blo
             methods.put(new_name_sym, alias_entry) catch return error.Fatal;
             vm.markIntegerChangedForReceiver(receiver);
             vm.bumpMethodStateVersion();
+            try vm.triggerMethodAdded(receiver, new_name_sym);
         },
         else => {
             const msg = std.fmt.allocPrint(

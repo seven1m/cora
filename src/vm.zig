@@ -6716,6 +6716,7 @@ pub const VM = struct {
                         singleton_class.module.methods.put(method_name_sym, singleton_entry) catch return error.Fatal;
                         self.markIntegerChangedForReceiver(Value.fromObject(&singleton_class.module.object));
                         self.bumpMethodStateVersion();
+                        try self.triggerMethodAdded(Value.fromObject(&singleton_class.module.object), method_name_sym);
                     }
 
                     try self.triggerMethodAdded(method_owner, method_name_sym);
@@ -7128,6 +7129,8 @@ pub const VM = struct {
                     methods.put(new_name_sym, alias_entry) catch return error.Fatal;
                     self.markIntegerChangedForReceiver(current_self);
                     self.bumpMethodStateVersion();
+                    const owner = if (current_self.isClass() or current_self.isModule()) current_self else Value.fromObject(&self.object_class.module.object);
+                    try self.triggerMethodAdded(owner, new_name_sym);
                 } else {
                     const msg = std.fmt.allocPrint(
                         self.gc_allocator,
