@@ -11,6 +11,7 @@ are built and tested.
   `ext/logger`, `ext/time`, `ext/optparse`, `ext/uri`, `ext/delegate`, `ext/did_you_mean`,
   `ext/tmpdir`, `ext/tempfile`, `ext/cgi`, `ext/erb`, `ext/forwardable`,
   `ext/timeout`, `ext/singleton`, `ext/open3`, `ext/shellwords`, `ext/yaml`,
+  `ext/net-http`, `ext/net-protocol`, `ext/open-uri`, `ext/resolv`,
   `ext/weakref`, `ext/psych`, `ext/strscan`, `ext/csv`, `ext/json`,
   `ext/test-unit`, `ext/power_assert`).
 - `lib/stdlib/` - pure-Ruby standard library code vendored outside the gem
@@ -98,6 +99,8 @@ Steps per gem:
   can be declared, but invoking callbacks is not implemented. Structs and
   general ruby-ffi compatibility are not implemented.
 - `yaml` - pure Ruby; installed as a default gem without an `.so`.
+- `net-http`, `net-protocol`, `open-uri`, `resolv` - pure Ruby network
+  libraries installed and registered as default gems.
 - `csv`, `test-unit`, `power_assert` - pure Ruby; installed as ordinary bundled gems
   with `test-unit` depending on `power_assert`.
 

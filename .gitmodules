@@ -85,3 +85,15 @@
 [submodule "ext/did_you_mean"]
 	path = ext/did_you_mean
 	url = https://github.com/ruby/did_you_mean.git
+[submodule "ext/net-protocol"]
+	path = ext/net-protocol
+	url = https://github.com/ruby/net-protocol
+[submodule "ext/net-http"]
+	path = ext/net-http
+	url = https://github.com/ruby/net-http
+[submodule "ext/open-uri"]
+	path = ext/open-uri
+	url = https://github.com/ruby/open-uri
+[submodule "ext/resolv"]
+	path = ext/resolv
+	url = https://github.com/ruby/resolv

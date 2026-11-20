@@ -1,5 +1,55 @@
 const std = @import("std");
 
+test "network libraries are available as default gems without installed gems" {
+    var gpa: std.heap.DebugAllocator(.{}) = .init;
+    defer _ = gpa.deinit();
+    const allocator = gpa.allocator();
+    var threaded: std.Io.Threaded = .init(allocator, .{});
+    defer threaded.deinit();
+    const gem_home = try std.Io.Dir.cwd().realPathFileAlloc(threaded.io(), "test/gem", allocator);
+    defer allocator.free(gem_home);
+    const home = try std.Io.Dir.cwd().realPathFileAlloc(threaded.io(), "test", allocator);
+    defer allocator.free(home);
+    var env_map = std.process.Environ.Map.init(allocator);
+    defer env_map.deinit();
+    try env_map.put("GEM_HOME", gem_home);
+    try env_map.put("HOME", home);
+
+    const code =
+        \\require "rubygems"
+        \\require "net/http"
+        \\require "open-uri"
+        \\raise unless Net::HTTP && Resolv && URI.respond_to?(:open)
+        \\%w[net-http net-protocol open-uri resolv].each do |name|
+        \\  raise name unless Gem::Specification.find_by_name(name).default_gem?
+        \\end
+        \\puts :ok
+    ;
+    const result = try std.process.run(allocator, threaded.io(), .{
+        .argv = &.{ "build/bin/cora", "-e", code },
+        .environ_map = &env_map,
+        .stdout_limit = .limited(1024 * 1024),
+        .stderr_limit = .limited(1024 * 1024),
+    });
+    defer allocator.free(result.stdout);
+    defer allocator.free(result.stderr);
+    try std.testing.expect(result.term == .exited and result.term.exited == 0);
+    try std.testing.expectEqualStrings("ok\n", result.stdout);
+    try std.testing.expectEqualStrings("", result.stderr);
+
+    const no_gems = try std.process.run(allocator, threaded.io(), .{
+        .argv = &.{ "build/bin/cora", "--disable-gems", "-e", "require 'net/http'; require 'open-uri'; puts [Net::HTTP.name, Resolv.name, URI.respond_to?(:open)].join(':')" },
+        .environ_map = &env_map,
+        .stdout_limit = .limited(1024 * 1024),
+        .stderr_limit = .limited(1024 * 1024),
+    });
+    defer allocator.free(no_gems.stdout);
+    defer allocator.free(no_gems.stderr);
+    try std.testing.expect(no_gems.term == .exited and no_gems.term.exited == 0);
+    try std.testing.expectEqualStrings("Net::HTTP:Resolv:true\n", no_gems.stdout);
+    try std.testing.expectEqualStrings("", no_gems.stderr);
+}
+
 test "bundled gems activate through RubyGems and are not default gems" {
     var gpa: std.heap.DebugAllocator(.{}) = .init;
     defer _ = gpa.deinit();

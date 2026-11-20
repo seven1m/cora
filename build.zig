@@ -21,6 +21,12 @@ const strscan_gem_version = "3.1.8";
 const json_gem_version = "2.19.9";
 const yaml_gem_version = "0.4.0";
 const did_you_mean_gem_version = "2.0.0";
+const network_default_gems = [_]struct { name: []const u8, version: []const u8 }{
+    .{ .name = "net-http", .version = "0.10.0" },
+    .{ .name = "net-protocol", .version = "0.4.0" },
+    .{ .name = "open-uri", .version = "0.5.0" },
+    .{ .name = "resolv", .version = "0.6.2" },
+};
 const bundled_gems = [_]struct { name: []const u8, version: []const u8 }{
     .{ .name = "csv", .version = "3.3.6" },
     .{ .name = "power_assert", .version = "3.0.1" },
@@ -735,6 +741,16 @@ pub fn build(b: *std.Build) void {
     const install_json_default_gem = addInstallGemDir(b, b.path(json_build_root), "json", json_gem_version, json_build_step);
     const install_yaml_default_gem = addInstallGemDir(b, b.path("ext/yaml"), "yaml", yaml_gem_version, null);
     const install_did_you_mean_default_gem = addInstallGemDir(b, b.path("ext/did_you_mean"), "did_you_mean", did_you_mean_gem_version, null);
+
+    for (network_default_gems) |gem| {
+        const gem_dir = b.fmt("ext/{s}", .{gem.name});
+        const install_gem = addInstallGemDir(b, b.path(gem_dir), gem.name, gem.version, null);
+        _ = addWriteGemSpec(b, gem_dir, gem.name, gem.version, .default, &.{
+            &install_exe.step,
+            &install_stdlib.step,
+            install_gem,
+        });
+    }
 
     const stdlib_gem_specs = b.addWriteFiles();
     for (stdlib_default_gems) |gem| {

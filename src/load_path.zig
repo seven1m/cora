@@ -30,4 +30,8 @@ pub const repo_load_paths = [_][]const u8{
     defaultGemLibPath("strscan", "3.1.8"),
     defaultGemLibPath("json", "2.19.9"),
     defaultGemLibPath("bundler", "4.1.0.dev"),
+    defaultGemLibPath("net-http", "0.10.0"),
+    defaultGemLibPath("net-protocol", "0.4.0"),
+    defaultGemLibPath("open-uri", "0.5.0"),
+    defaultGemLibPath("resolv", "0.6.2"),
 };
