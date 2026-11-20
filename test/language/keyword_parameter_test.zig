@@ -43,6 +43,19 @@ test "Optional keyword with default" {
     try std.testing.expectEqual(100, result.toInteger());
 }
 
+test "Blocks bind absent keyword arguments on all call paths" {
+    const result = try evalCode(
+        \\def invoke; yield 1; end
+        \\pr = proc { |v, key: 42| v + key }
+        \\required = proc { |key:| key }
+        \\missing = begin; required.call; rescue ArgumentError; :missing; end
+        \\[pr.call(1), invoke(&pr), [1].map(&pr).first, missing]
+    );
+    const items = result.toArrayObject().elements.items;
+    for (items[0..3]) |item| try std.testing.expectEqual(@as(i64, 43), item.toInteger());
+    try std.testing.expectEqualStrings("missing", items[3].toSymbolObject().name);
+}
+
 test "Optional keyword overridden" {
     const result = try evalCode("def bar(y: 100); y; end\nbar(y: 5)");
     try std.testing.expectEqual(5, result.toInteger());

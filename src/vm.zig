@@ -6949,6 +6949,9 @@ pub const VM = struct {
                         const arity_mode: ArityMode = if (chunk_blk.chunk.is_lambda) .strict else .lenient;
                         const block_frame = self.currentFrame();
                         try self.copyArgumentsWithRestParam(chunk_blk.chunk, block_frame, yield_args[0..argc], arity_mode);
+                        if (chunkAcceptsKeywords(chunk_blk.chunk)) {
+                            try self.bindKeywordArguments(chunk_blk.chunk, block_frame, &.{}, &.{});
+                        }
                     },
                     .receiver_builtin => |builtin_data| {
                         const result = try builtin_data.func(self, builtin_data.receiver, yield_args[0..argc]);
@@ -9079,6 +9082,9 @@ pub const VM = struct {
                 const arity_mode: ArityMode = if (chunk_blk.chunk.is_lambda) .strict else .lenient;
                 const block_frame = self.currentFrame();
                 try self.copyArgumentsWithRestParam(chunk_blk.chunk, block_frame, yield_args, arity_mode);
+                if (chunkAcceptsKeywords(chunk_blk.chunk)) {
+                    try self.bindKeywordArguments(chunk_blk.chunk, block_frame, &.{}, &.{});
+                }
 
                 const saved_frame_count = self.frames.items.len - 1;
                 try self.executeUntilReturn(saved_frame_count);
@@ -9398,6 +9404,9 @@ pub const VM = struct {
                                 const mode: ArityMode = if (chunk_blk.chunk.is_lambda) .strict else .lenient;
                                 try self.copyArgumentsWithRestParam(chunk_blk.chunk, current_frame, dispatch.args, mode);
                                 try self.bindMethodBlockParam(chunk_blk.chunk, procCallBlock(block, chunk_blk.enclosing_block_proc));
+                                if (chunkAcceptsKeywords(chunk_blk.chunk)) {
+                                    try self.bindKeywordArguments(chunk_blk.chunk, current_frame, &.{}, &.{});
+                                }
                                 return;
                             }
                         },
