@@ -23,9 +23,6 @@ pub fn register(vm: *VM) !void {
     const each_with_index_sym = try vm.intern("each_with_index");
     try vm.enumerator_class.module.methods.put(each_with_index_sym, MethodEntry.builtin(&builtinEnumeratorEachWithIndex, .{ .exact = 0 }));
 
-    const map_sym = try vm.intern("map");
-    try vm.enumerator_class.module.methods.put(map_sym, MethodEntry.builtin(&builtinEnumeratorMap, .{ .exact = 0 }));
-
     const to_a_sym = try vm.intern("to_a");
     try vm.enumerator_class.module.methods.put(to_a_sym, MethodEntry.builtin(&builtinEnumeratorToA, .{ .variadic = 0 }));
 
@@ -379,29 +376,6 @@ fn builtinEnumeratorToA(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMEr
             return err;
         };
         out.elements.append(vm.gc_allocator, next_val) catch return error.Fatal;
-    }
-
-    return Value.fromObject(&out.object);
-}
-
-fn builtinEnumeratorMap(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
-    try vm.requireArgCount(args, 0);
-    const blk = block orelse {
-        return vm.createMethodEnumerator(receiver, try vm.intern("map"), &.{});
-    };
-
-    const out = try vm.createArray();
-    while (true) {
-        const next_val = builtinEnumeratorNext(vm, receiver, &[_]Value{}, null) catch |err| {
-            if (err == error.Unwind and vm.pendingException() != null and vm.pendingException().?.object.class == vm.stop_iteration_class) {
-                vm.setPendingException(null);
-                break;
-            }
-            return err;
-        };
-
-        const mapped = try vm.yieldToBlock(blk, &[_]Value{next_val});
-        out.elements.append(vm.gc_allocator, mapped) catch return error.Fatal;
     }
 
     return Value.fromObject(&out.object);

@@ -87,6 +87,181 @@ test "Array#each_with_index without block returns Enumerator" {
     try std.testing.expect(result.isEnumerator());
 }
 
+test "Enumerator map uses internal iteration without consuming an external cursor" {
+    const result = try evalCode(
+        \\class EnumeratorMapSource
+        \\  attr_reader :fibers, :ensures
+        \\  def initialize
+        \\    @fibers = []
+        \\    @ensures = 0
+        \\  end
+        \\  def each
+        \\    @fibers << Fiber.current
+        \\    yield 1
+        \\    yield 2
+        \\    yield 3
+        \\  ensure
+        \\    @ensures += 1
+        \\  end
+        \\end
+        \\source = EnumeratorMapSource.new
+        \\iterator = source.to_enum
+        \\caller_fiber = Fiber.current
+        \\first = iterator.next
+        \\peeked = iterator.peek
+        \\mapped = iterator.map { |n| n * 10 }
+        \\collected = iterator.collect { |n| n + 1 }
+        \\peek_after = iterator.peek
+        \\rest = [iterator.next, iterator.next]
+        \\finished = begin iterator.next; false; rescue StopIteration; true; end
+        \\first == 1 && peeked == 2 && mapped == [10, 20, 30] && collected == [2, 3, 4] &&
+        \\  peek_after == 2 && rest == [2, 3] && finished && source.ensures == 3 &&
+        \\  !source.fibers[0].equal?(caller_fiber) && source.fibers[1].equal?(caller_fiber) &&
+        \\  source.fibers[2].equal?(caller_fiber)
+    );
+    try std.testing.expect(result.isTrue());
+}
+
+test "Enumerator map preserves zero and multiple yield arguments and callback returns" {
+    const result = try evalCode(
+        \\returns = []
+        \\iterator = Enumerator.new do |yielder|
+        \\  returns << yielder.yield
+        \\  returns << yielder.yield(1)
+        \\  returns << yielder.yield(2, 3)
+        \\  returns << yielder.yield([4, 5])
+        \\end
+        \\mapped = iterator.map { |*args| args }
+        \\pairs = Enumerator.new { |y| y.yield(1, 2) }
+        \\strict = pairs.map(&->(a, b) { a + b })
+        \\zero = Enumerator.new { |y| y.yield }.map(&-> { :zero })
+        \\wrong = begin Enumerator.new { |y| y.yield([1, 2]) }.map(&->(a, b) { a + b }); false; rescue ArgumentError; true; end
+        \\mapped == [[], [1], [2, 3], [[4, 5]]] && returns == [nil, nil, nil, nil] &&
+        \\  strict == [3] && zero == [:zero] && wrong
+    );
+    try std.testing.expect(result.isTrue());
+}
+
+test "Enumerator map preserves source and block exceptions and runs ensure" {
+    const result = try evalCode(
+        \\ensures = []
+        \\failure = StopIteration.new("from generator")
+        \\iterator = Enumerator.new do |y|
+        \\  begin
+        \\    y << 1
+        \\    raise failure
+        \\  ensure
+        \\    ensures << :source
+        \\  end
+        \\end
+        \\caught = begin iterator.map { |n| n }; rescue StopIteration => error; error; end
+        \\second = Enumerator.new do |y|
+        \\  begin
+        \\    y << 1
+        \\    y << 2
+        \\  ensure
+        \\    ensures << :block
+        \\  end
+        \\end
+        \\block_failure = RuntimeError.new("from block")
+        \\block_caught = begin second.map { raise block_failure }; rescue RuntimeError => error; error; end
+        \\caught.equal?(failure) && block_caught.equal?(block_failure) && ensures == [:source, :block]
+    );
+    try std.testing.expect(result.isTrue());
+}
+
+test "Enumerator map preserves break return throw and suspended nested callbacks" {
+    const result = try evalCode(
+        \\def enumerator_mapping_return(iterator)
+        \\  iterator.map { return :returned }
+        \\  :unreachable
+        \\end
+        \\ensures = []
+        \\iterator = Enumerator.new do |y|
+        \\  begin
+        \\    y << 1
+        \\    y << 2
+        \\  ensure
+        \\    ensures << :ensured
+        \\  end
+        \\end
+        \\broken = iterator.map { break :broken }
+        \\returned = enumerator_mapping_return(iterator)
+        \\thrown = catch(:map_done) { iterator.map { throw :map_done, :thrown } }
+        \\fiber = Fiber.new do
+        \\  iterator.map do |n|
+        \\    Fiber.yield n
+        \\    GC.start
+        \\    [n].each.map { |value| value * 10 }.first
+        \\  end
+        \\end
+        \\first = fiber.resume
+        \\GC.start
+        \\second = fiber.resume
+        \\GC.start
+        \\result = fiber.resume
+        \\broken == :broken && returned == :returned && thrown == :thrown &&
+        \\  first == 1 && second == 2 && result == [10, 20] && ensures == [:ensured] * 4
+    );
+    try std.testing.expect(result.isTrue());
+}
+
+test "Enumerator map inherits sized fallback and respects overridden each" {
+    const result = try evalCode(
+        \\iterator = [1, 2, 3].each
+        \\mapping = iterator.map
+        \\fallback = mapping.is_a?(Enumerator) && mapping.size == 3 && mapping.each { |n| n * 2 } == [2, 4, 6]
+        \\def iterator.each
+        \\  yield :custom
+        \\  self
+        \\end
+        \\exhausted = [1].each
+        \\exhausted.next
+        \\begin exhausted.next; rescue StopIteration; end
+        \\replayed = exhausted.map { |n| n }
+        \\still_done = begin exhausted.next; false; rescue StopIteration; true; end
+        \\fallback && iterator.map { |n| n } == [:custom] &&
+        \\  iterator.collect { |n| n } == [:custom] && replayed == [1] && still_done
+    );
+    try std.testing.expect(result.isTrue());
+}
+
+test "Enumerator map preserves Hash and Struct pair block arity" {
+    const result = try evalCode(
+        \\record = Struct.new(:name, :number).new("sample", 7)
+        \\hash = {name: "sample", number: 7}
+        \\checks = [record, hash].map do |object|
+        \\  pairs = [[:name, "sample"], [:number, 7]]
+        \\  direct = []
+        \\  object.each_pair { |pair| direct << pair }
+        \\  rest = []
+        \\  object.each_pair { |*args| rest << args }
+        \\  lambda_pairs = []
+        \\  object.each_pair(&->(pair) { lambda_pairs << pair })
+        \\  mapped = object.each_pair.map { |pair| pair }
+        \\  strict_mapped = object.each_pair.map(&->(key, value) { [key, value] })
+        \\  direct == pairs && rest == pairs.map { |pair| [pair] } && lambda_pairs == pairs &&
+        \\    mapped == pairs && strict_mapped == pairs
+        \\end
+        \\checks.all?
+    );
+    try std.testing.expect(result.isTrue());
+}
+
+test "Enumerator map pair iteration keeps direct lambdas strict" {
+    const sources = [_][]const u8{
+        "Struct.new(:name).new(1).each_pair(&->(key, value) { nil })",
+        "{name: 1}.each_pair(&->(key, value) { nil })",
+    };
+    for (sources) |code| {
+        var stdout_buf: [4096]u8 = undefined;
+        var stderr_buf: [4096]u8 = undefined;
+        const result = evalCodeWithOutput(code, &stdout_buf, &stderr_buf);
+        try std.testing.expectEqual(error.UnhandledException, result.err.?);
+        try std.testing.expect(std.mem.indexOf(u8, result.stderr, "ArgumentError") != null);
+    }
+}
+
 // --- Rewind ---
 
 test "Enumerator#rewind" {

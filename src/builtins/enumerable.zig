@@ -242,7 +242,7 @@ fn enumerableMapEach(vm: *VM, receiver: Value, args: []Value) VMError!Value {
     const out = state.elements.items[0].toArrayObject();
     const result = try vm.callMethodByName(state.elements.items[1], "call", args, null);
     out.elements.append(vm.gc_allocator, result) catch return error.Fatal;
-    return result;
+    return Value.nil();
 }
 
 fn builtinEnumerableSelect(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {

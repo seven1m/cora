@@ -467,8 +467,7 @@ pub fn builtinStructEachPair(vm: *VM, receiver: Value, args: []Value, block: ?Bl
 
     for (members.elements.items) |member| {
         const value_arg = try structMemberReaderValue(vm, receiver, member.toSymbolObject());
-        const yield_args = [_]Value{ Value.fromObject(&member.toSymbolObject().object), value_arg };
-        _ = try vm.yieldToBlock(block.?, yield_args[0..]);
+        _ = try vm.yieldPairToBlock(block.?, Value.fromObject(&member.toSymbolObject().object), value_arg);
     }
 
     return receiver;

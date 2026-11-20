@@ -563,38 +563,7 @@ fn digIntoValue(vm: *VM, current_value: Value, remaining_args: []Value) VMError!
 }
 
 fn yieldHashEntryPair(vm: *VM, blk: Block, entry: value.HashEntry) VMError!Value {
-    const pair = try vm.createArray();
-    pair.elements.append(vm.gc_allocator, entry.key) catch return error.Fatal;
-    pair.elements.append(vm.gc_allocator, entry.value) catch return error.Fatal;
-    const pair_value = Value.fromObject(&pair.object);
-
-    const yielded = switch (blk.kind) {
-        .chunk => |chunk_blk| blk_result: {
-            const parameter_count = chunk_blk.chunk.arity + chunk_blk.chunk.post_required_count + chunk_blk.chunk.optional_params.items.len;
-            if (chunk_blk.chunk.is_lambda or chunk_blk.chunk.rest_param_index != null or parameter_count <= 1) {
-                const yield_args = [_]Value{pair_value};
-                break :blk_result try vm.yieldToBlock(blk, &yield_args);
-            }
-
-            const yield_args = [_]Value{ entry.key, entry.value };
-            break :blk_result try vm.yieldToBlock(blk, &yield_args);
-        },
-        .receiver_builtin => |builtin_data| blk_result: {
-            if (builtin_data.arity > 1) {
-                const yield_args = [_]Value{ entry.key, entry.value };
-                break :blk_result try vm.yieldToBlock(blk, &yield_args);
-            }
-
-            const yield_args = [_]Value{pair_value};
-            break :blk_result try vm.yieldToBlock(blk, &yield_args);
-        },
-        .symbol, .builtin, .callable => blk_result: {
-            const yield_args = [_]Value{pair_value};
-            break :blk_result try vm.yieldToBlock(blk, &yield_args);
-        },
-    };
-
-    return yielded;
+    return vm.yieldPairToBlock(blk, entry.key, entry.value);
 }
 
 pub fn builtinHashInitialize(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {

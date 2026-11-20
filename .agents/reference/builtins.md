@@ -27,9 +27,14 @@
   path is shared by Enumerable predicates, prefix methods such as `take`, and
   C extension `rb_block_call`.
   External iteration through `Enumerator#next` remains fiber-backed.
+  `Enumerator#map` and `collect` inherit the native Enumerable implementation;
+  internal mapping calls `each` without consuming the external next/peek cursor.
 - Internal collection callbacks for `filter_map`, `each_with_object`, and
   `sort_by` dispatch directly to `each` in the caller's fiber. Promote captured
   user blocks before retaining them in GC-owned callback contexts.
+- Use `VM.yieldPairToBlock` for Hash/Struct pair iteration. It passes a packed
+  `[key, value]` to one-argument/rest/lambda blocks, or two arguments to compatible
+  native callbacks and ordinary multi-argument blocks.
 - Use `VM.yieldPackedToBlock` for a packed multi-value entry that Ruby yields
   with forced block-argument destructuring (including strict lambdas). Use
   `VM.yieldToBlock` for ordinary raw argument lists; the distinction matters for

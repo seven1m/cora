@@ -9288,6 +9288,25 @@ pub const VM = struct {
         return self.yieldToBlockInternal(block, &.{entry}, true);
     }
 
+    /// Hash/Struct pair iteration packs a single Array unless the block can
+    /// accept an optimized two-value yield. Lambdas keep their strict arity.
+    pub fn yieldPairToBlock(self: *VM, block: Block, key: Value, item: Value) VMError!Value {
+        const separate = switch (block.kind) {
+            .chunk => |chunk_block| blk: {
+                const ch = chunk_block.chunk;
+                const positional_count = ch.arity + ch.post_required_count + ch.optional_params.items.len;
+                break :blk !ch.is_lambda and ch.rest_param_index == null and positional_count > 1;
+            },
+            .receiver_builtin => |builtin_data| builtin_data.arity > 1,
+            .symbol, .builtin, .callable => false,
+        };
+        if (separate) return self.yieldToBlock(block, &.{ key, item });
+
+        const pair = try self.createArray();
+        pair.elements.appendSlice(self.gc_allocator, &.{ key, item }) catch return error.Fatal;
+        return self.yieldToBlock(block, &.{Value.fromObject(&pair.object)});
+    }
+
     fn yieldToBlockInternal(self: *VM, block: Block, yield_args: []const Value, destructure: bool) VMError!Value {
         return switch (block.kind) {
             .receiver_builtin => |builtin_data| builtin_data.func(self, builtin_data.receiver, @constCast(yield_args)),
