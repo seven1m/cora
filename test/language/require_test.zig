@@ -1,6 +1,76 @@
 const std = @import("std");
 
 const evalCodeWithOutput = @import("../test_helper.zig").evalCodeWithOutput;
+const evalCode = @import("../test_helper.zig").evalCode;
+
+test "require loaded feature lookup tracks load path and loaded feature mutations" {
+    const result = try evalCode(
+        \\require "tmpdir"
+        \\Dir.mktmpdir("cora-require-") do |dir|
+        \\  dir = File.realpath(dir)
+        \\  original_path = $LOAD_PATH.dup
+        \\  original_features = $LOADED_FEATURES.dup
+        \\  begin
+        \\    left, right = "#{dir}/left", "#{dir}/right"
+        \\    [left, right].each { |path| Dir.mkdir(path); Dir.mkdir("#{path}/nested") }
+        \\    feature = "nested/cora_fast_require"
+        \\    left_file, right_file = "#{left}/#{feature}.rb", "#{right}/#{feature}.rb"
+        \\    File.write(left_file, "$fast_require_events << :left")
+        \\    File.write(right_file, "$fast_require_events << :right")
+        \\    $fast_require_events = []
+        \\    $LOAD_PATH.replace([left])
+        \\    raise "first load" unless require(feature)
+        \\    raise "repeat load" if require(feature)
+        \\    raise "explicit extension" if require("#{feature}.rb")
+        \\    $LOAD_PATH.unshift(right)
+        \\    raise "earlier path shadows loaded Ruby file" if require(feature)
+        \\    $LOAD_PATH.shift
+        \\    $LOAD_PATH[0] = right
+        \\    raise "mutated load path" unless require(feature)
+        \\    index = $LOADED_FEATURES.index(right_file)
+        \\    entry = right_file.dup
+        \\    $LOADED_FEATURES[index] = entry
+        \\    entry.replace("#{right}/absent.rb")
+        \\    raise "mutated feature entry" unless require(feature)
+        \\    $LOADED_FEATURES.delete(right_file)
+        \\    raise "removed feature entry" unless require(feature)
+        \\    File.unlink(right_file)
+        \\    raise "deleted source reloaded" if require(feature)
+        \\    driver = "#{dir}/driver.rb"
+        \\    File.write(driver, "$fast_require_recursive = require __FILE__; $fast_require_completed = require #{feature.inspect}")
+        \\    raise "outer load" unless require(driver)
+        \\    raise "recursive load" unless $fast_require_recursive == false
+        \\    raise "completed feature during outer load" unless $fast_require_completed == false
+        \\    raise "unexpected loads" unless $fast_require_events == [:left, :right, :right, :right]
+        \\    true
+        \\  ensure
+        \\    $LOAD_PATH.replace(original_path)
+        \\    $LOADED_FEATURES.replace(original_features)
+        \\  end
+        \\end
+    );
+    try std.testing.expect(result.isTrue());
+}
+
+test "require prefers an unloaded Ruby source over a loaded native feature" {
+    const result = try evalCode(
+        \\require "tmpdir"
+        \\Dir.mktmpdir("cora-require-native-") do |dir|
+        \\  dir = File.realpath(dir)
+        \\  original_features = $LOADED_FEATURES.dup
+        \\  begin
+        \\    $LOAD_PATH.unshift(dir)
+        \\    File.write("#{dir}/cora_fast_native.rb", "$fast_native_loaded = true")
+        \\    $LOADED_FEATURES << "#{dir}/cora_fast_native.so"
+        \\    require("cora_fast_native") && $fast_native_loaded
+        \\  ensure
+        \\    $LOAD_PATH.delete(dir)
+        \\    $LOADED_FEATURES.replace(original_features)
+        \\  end
+        \\end
+    );
+    try std.testing.expect(result.isTrue());
+}
 
 test "require loads RubyGems after extending $LOAD_PATH" {
     var gpa: std.heap.DebugAllocator(.{}) = .init;

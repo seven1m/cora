@@ -700,13 +700,15 @@ pub fn builtinKernelRequire(vm: *VM, _: Value, args: []Value, _: ?Block) VMError
         }
     }
 
+    if (try vm.loadedRubyFeatureMatches(feature)) return Value.boolean(false);
+
     const resolved_feature = vm.resolveRequireFeature(feature) catch {
         return raiseLoadErrorForFeature(vm, feature);
     } orelse {
         if (try vm.loadedFeatureMatches(feature, null)) {
             return Value.boolean(false);
         }
-        if (VM.isBareFeatureWithoutExt(feature) and try vm.loadedFeatureMatchesCurrentLoadPath(feature)) {
+        if (VM.isBareFeatureWithoutExt(feature) and try vm.loadedFeatureMatchesCurrentLoadPath(feature, false)) {
             return Value.boolean(false);
         }
         if (try tryLazyLoadRubygems(vm, feature)) {
@@ -745,7 +747,7 @@ pub fn builtinKernelRequire(vm: *VM, _: Value, args: []Value, _: ?Block) VMError
         vm.allocator.free(identity_path);
         return Value.boolean(false);
     }
-    if (VM.isBareFeatureWithoutExt(feature) and try vm.loadedFeatureMatchesCurrentLoadPath(feature)) {
+    if (VM.isBareFeatureWithoutExt(feature) and try vm.loadedFeatureMatchesCurrentLoadPath(feature, false)) {
         vm.allocator.free(absolute_path);
         vm.allocator.free(identity_path);
         return Value.boolean(false);

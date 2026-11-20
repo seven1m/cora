@@ -13177,7 +13177,25 @@ pub const VM = struct {
         return self.loaded_feature_realpaths.contains(resolved_path.?);
     }
 
-    pub fn loadedFeatureMatchesCurrentLoadPath(self: *VM, feature: []const u8) VMError!bool {
+    pub fn loadedRubyFeatureMatches(self: *VM, feature: []const u8) VMError!bool {
+        if (feature.len == 0) return false;
+        const extension = std.fs.path.extension(feature);
+        if (extension.len != 0 and !std.mem.eql(u8, extension, ".rb")) return false;
+        if (extension.len != 0 and self.loaded_files.contains(feature) and self.loadedFeatureIsComplete(feature)) return true;
+        if (std.fs.path.isAbsolute(feature) or hasExplicitRelativePrefix(feature)) return false;
+
+        return self.loadedFeatureMatchesCurrentLoadPath(feature, true);
+    }
+
+    fn loadedFeatureIsComplete(self: *VM, path: []const u8) bool {
+        if (self.require_in_progress.count() == 0) return true;
+        // Loaded entries are published before execution finishes. Only skip
+        // resolution when this path is a known realpath and is not loading;
+        // aliases, recursion, and cross-thread waits use the normal path.
+        return self.loaded_feature_realpaths.contains(path) and !self.require_in_progress.contains(path);
+    }
+
+    pub fn loadedFeatureMatchesCurrentLoadPath(self: *VM, feature: []const u8, comptime ruby_only: bool) VMError!bool {
         if (self.load_path == null) return false;
         const load_path = try self.getExpandedLoadPath();
         for (load_path) |dir| {
@@ -13186,11 +13204,14 @@ pub const VM = struct {
 
             const candidate = try self.normalizeAbsolutePathAlloc(joined);
             defer self.allocator.free(candidate);
-            if (self.loaded_files.contains(candidate)) return true;
+            if (!ruby_only or std.mem.endsWith(u8, feature, ".rb")) {
+                if (self.loaded_files.contains(candidate) and (!ruby_only or self.loadedFeatureIsComplete(candidate))) return true;
+                if (ruby_only) continue;
+            }
 
             const with_rb = std.fmt.allocPrint(self.allocator, "{s}.rb", .{candidate}) catch return error.Fatal;
             defer self.allocator.free(with_rb);
-            if (self.loaded_files.contains(with_rb)) return true;
+            if (self.loaded_files.contains(with_rb) and (!ruby_only or self.loadedFeatureIsComplete(with_rb))) return true;
         }
         return false;
     }
