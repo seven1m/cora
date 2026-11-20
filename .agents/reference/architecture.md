@@ -82,6 +82,14 @@ Thread join/value waiters park with a target thread and become ready when that
 target terminates; timed joins also use a sleep deadline.
 Process signal handlers run on the main thread, waking it when necessary.
 
+Terminated workers are retired after ownership transfers to another native stack,
+either at a new thread entrypoint or when `schedulerYield` resumes. Retirement
+unregisters their thread and fiber coroutines before freeing native stacks, drops
+scheduler/group roots and per-thread bookkeeping, and clears execution buffers.
+Results, exceptions, escaped closures/bindings, and observable thread/fiber locals
+remain available through retained Ruby objects. Removed GC-owned list slots are
+cleared even outside `items.len`, since the collector scans the whole allocation.
+
 ## Exception Handling
 
 - Built-in exception classes include `Exception`, `StandardError`, `RuntimeError`, `ArgumentError`, `TypeError`, `ZeroDivisionError`, and `NoMethodError`.
@@ -97,6 +105,9 @@ Process signal handlers run on the main thread, waking it when necessary.
 **GC allocator (Boehm-Demers-Weiser):** Use for Ruby heap objects such as classes, modules, object instances, arrays, hashes, procs, fibers, regexps, and method/constant maps. Do not manually `free()` GC-managed objects.
 
 **Atomic GC allocator:** Use for atomic objects without internal pointers, such as duplicated string storage.
+
+Scanned GC allocations recognize interior pointers into execution stacks and
+environments. Only large atomic buffers use ignore-off-page allocation.
 
 **Pointer lifetimes:**
 - Parser strings are borrowed from the AST and valid for the VM lifetime.

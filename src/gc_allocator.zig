@@ -1,9 +1,9 @@
 const std = @import("std");
 const bdwgc = @import("bdwgc");
 
-// Ignore off-page interior pointers for large allocations. Cora retains the
-// base pointer for every live heap object and byte buffer, satisfying BDWGC's
-// requirement for these allocation functions.
+// Large byte buffers retain their base pointers. Scanned allocations must
+// recognize interior pointers: VM environments and execution stacks can keep
+// objects alive through addresses beyond their first page.
 const large_allocation_threshold = 256 * 1024;
 const Options = struct {
     atomic: bool,
@@ -43,8 +43,6 @@ fn allocateRaw(options: *const Options, len: usize) ?[*]u8 {
             bdwgc.c.GC_malloc_atomic_ignore_off_page(len)
         else
             bdwgc.c.GC_malloc_atomic(len)
-    else if (len >= large_allocation_threshold)
-        bdwgc.c.GC_malloc_ignore_off_page(len)
     else
         bdwgc.c.GC_malloc(len);
     return @ptrCast(ptr);
@@ -119,7 +117,7 @@ fn remap(
         return @ptrCast(ptr);
     }
 
-    // GC_realloc does not preserve ignore-off-page allocation behavior.
+    // GC_realloc does not preserve large atomic buffers' ignore-off-page behavior.
     const new_ptr = alloc(context, new_len, alignment, return_address) orelse return null;
     @memcpy(new_ptr[0..memory.len], memory);
     free(context, memory, alignment, return_address);

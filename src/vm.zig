@@ -16,6 +16,7 @@ const prism = @import("prism.zig");
 const builtins = @import("builtins/builtins.zig");
 const comparable_builtin = @import("builtins/comparable.zig");
 const warning_builtin = @import("builtins/warning.zig");
+const thread_builtin = @import("builtins/thread.zig");
 const zio = @import("zio");
 const bdwgc = @import("bdwgc");
 const cext_gc = @import("cext_gc.zig");
@@ -365,6 +366,14 @@ pub const FiberFrameStack = FixedBufferList(CallFrame, MAX_FIBER_FRAMES);
 pub const FiberCoro = zio.coro.Coroutine;
 pub const FiberCoroContext = zio.coro.Context;
 
+const CoroutineEntry = struct {
+    coro: *FiberCoro,
+    owner: union(enum) {
+        fiber: *FiberObject,
+        thread: *ThreadObject,
+    },
+};
+
 pub const PendingThrow = struct {
     tag: Value,
     value: Value,
@@ -711,7 +720,7 @@ pub const VM = struct {
     main_stack_base: ?*anyopaque = null,
     zio_main_context: FiberCoroContext = undefined,
     zio_stack_growth_ready: bool = false,
-    zio_coroutines: std.ArrayList(*FiberCoro) = .empty,
+    zio_coroutines: std.ArrayList(CoroutineEntry) = .empty,
     gc_vm_root_registered: bool = false,
 
     // Exception classes
@@ -3069,9 +3078,9 @@ pub const VM = struct {
 
         self.stack.deinit(self.gc_allocator);
         self.frames.deinit(self.gc_allocator);
-        for (self.zio_coroutines.items) |c| {
-            zio.coro.stackFree(c.context.stack_info);
-            self.allocator.destroy(c);
+        for (self.zio_coroutines.items) |entry| {
+            zio.coro.stackFree(entry.coro.context.stack_info);
+            self.allocator.destroy(entry.coro);
         }
         self.zio_coroutines.deinit(self.allocator);
         if (self.zio_stack_growth_ready) {
@@ -4354,7 +4363,8 @@ pub const VM = struct {
         const self = VM.active_gc_roots_vm orelse return;
         const current_coro = FiberCoro.getCurrent();
         var inside_real_coroutine = false;
-        for (self.zio_coroutines.items) |coro_obj| {
+        for (self.zio_coroutines.items) |entry| {
+            const coro_obj = entry.coro;
             if (current_coro != null and current_coro.? == coro_obj) {
                 inside_real_coroutine = true;
                 continue;
@@ -4528,21 +4538,26 @@ pub const VM = struct {
         zio.coro.stackAlloc(&coro_obj.context.stack_info, 8 * 1024 * 1024, 256 * 1024) catch return error.Fatal;
         errdefer zio.coro.stackFree(coro_obj.context.stack_info);
         coro_obj.setup(&fiberEntrypoint, fiber);
-        self.zio_coroutines.append(self.allocator, coro_obj) catch return error.Fatal;
+        self.zio_coroutines.append(self.allocator, .{ .coro = coro_obj, .owner = .{ .fiber = fiber } }) catch return error.Fatal;
         fiber.coro = coro_obj;
     }
 
-    fn releaseFiberCoroutine(self: *VM, fiber: *FiberObject) void {
-        const coro_obj = fiber.coro orelse return;
+    fn releaseCoroutine(self: *VM, coro_obj: *FiberCoro) void {
+        std.debug.assert(FiberCoro.getCurrent() != coro_obj);
         for (self.zio_coroutines.items, 0..) |entry, index| {
-            if (entry == coro_obj) {
+            if (entry.coro == coro_obj) {
                 _ = self.zio_coroutines.swapRemove(index);
                 break;
             }
         }
-        fiber.coro = null;
         zio.coro.stackFree(coro_obj.context.stack_info);
         self.allocator.destroy(coro_obj);
+    }
+
+    fn releaseFiberCoroutine(self: *VM, fiber: *FiberObject) void {
+        const coro_obj = fiber.coro orelse return;
+        fiber.coro = null;
+        self.releaseCoroutine(coro_obj);
     }
 
     pub fn fiberYield(self: *VM, yield_value: Value) VMError!Value {
@@ -4848,7 +4863,7 @@ pub const VM = struct {
     pub fn wakeNextMutexWaiter(self: *VM, mutex: *value.MutexObject) void {
         if (self.mutex_waiters.getPtr(mutex)) |waiters| {
             while (waiters.items.len > 0) {
-                const waiter = waiters.orderedRemove(0);
+                const waiter = removeThreadListEntry(waiters, 0);
                 if (!self.isKnownThread(waiter)) continue;
                 if (waiter.state == .terminated) continue;
                 waiter.state = .running;
@@ -4890,6 +4905,120 @@ pub const VM = struct {
         self.current_loading_file = thread.call_context.loading_file;
     }
 
+    /// GC scans backing allocations, including slots outside ArrayList.items.
+    pub fn removeThreadListEntry(list: *std.ArrayList(*ThreadObject), index: usize) *ThreadObject {
+        const removed = list.orderedRemove(index);
+        @memset(std.mem.asBytes(&list.unusedCapacitySlice()[0]), 0);
+        return removed;
+    }
+
+    pub fn clearThreadList(list: *std.ArrayList(*ThreadObject)) void {
+        @memset(std.mem.sliceAsBytes(list.items), 0);
+        list.clearRetainingCapacity();
+    }
+
+    fn clearExecutionStacks(stack: *FiberValueStack, frames: *FiberFrameStack) void {
+        @memset(&stack.storage, Value.nil());
+        stack.items = stack.storage[0..0];
+        @memset(std.mem.asBytes(&frames.storage), 0);
+        frames.items = frames.storage[0..0];
+    }
+
+    fn clearRetiredFiberExecution(fiber: *FiberObject) void {
+        clearExecutionStacks(&fiber.stack, &fiber.frames);
+        fiber.block = null;
+        fiber.pending_unwind = null;
+        fiber.current_lexical_scope = null;
+        fiber.caller = null;
+        fiber.coro_result = Value.nil();
+        fiber.coro_exception = null;
+        @memset(&fiber.first_resume_args, Value.nil());
+        fiber.first_resume_argc = 0;
+        // Keep locals/storage and observable suspended-fiber state intact.
+        fiber.active_catches.clearAndFree(fiber.owner_vm.gc_allocator);
+        fiber.ensure_saved_unwinds.clearAndFree(fiber.owner_vm.gc_allocator);
+        fiber.rescued_exceptions.clearAndFree(fiber.owner_vm.gc_allocator);
+    }
+
+    fn reapTerminatedThreads(self: *VM) VMError!void {
+        var index: usize = 0;
+        while (index < self.thread_list.items.len) {
+            const thread = self.thread_list.items[index];
+            if (thread.state != .terminated or thread == self.current_thread or thread == self.main_thread) {
+                index += 1;
+                continue;
+            }
+            try thread_builtin.removeTerminatedThreadFromGroup(self, thread);
+            var coro_index: usize = 0;
+            while (coro_index < self.zio_coroutines.items.len) {
+                const entry = self.zio_coroutines.items[coro_index];
+                const owned = switch (entry.owner) {
+                    .thread => |owner| owner == thread,
+                    .fiber => |fiber| fiber.owner_thread == thread,
+                };
+                if (!owned) {
+                    coro_index += 1;
+                    continue;
+                }
+                if (entry.owner == .fiber) {
+                    const fiber = entry.owner.fiber;
+                    fiber.coro = null;
+                    clearRetiredFiberExecution(fiber);
+                }
+                self.releaseCoroutine(entry.coro);
+            }
+            thread.coro = null;
+            thread.scheduling_context = null;
+            thread.block = null;
+            thread.args = null;
+            thread.pending_unwind = null;
+            thread.async_exception = null;
+            thread.current_lexical_scope = null;
+            thread.call_context = .{};
+            thread.joining_thread = null;
+            thread.sleep_deadline_ms = null;
+            thread.io_wait = null;
+            clearExecutionStacks(&thread.stack, &thread.frames);
+            if (thread.main_fiber) |fiber| {
+                clearRetiredFiberExecution(fiber);
+                fiber.state = .terminated;
+            }
+            thread.current_fiber = thread.main_fiber;
+            if (self.thread_active_catches.fetchRemove(thread)) |entry| {
+                var list = entry.value;
+                list.deinit(self.allocator);
+            }
+            if (self.thread_ensure_saved_unwinds.fetchRemove(thread)) |entry| {
+                var list = entry.value;
+                list.deinit(self.allocator);
+            }
+            if (self.thread_rescued_exceptions.fetchRemove(thread)) |entry| {
+                var list = entry.value;
+                list.deinit(self.allocator);
+            }
+            if (self.thread_owned_mutexes.fetchRemove(thread)) |entry| {
+                var list = entry.value;
+                list.deinit(self.allocator);
+            }
+            var waiters = self.mutex_waiters.valueIterator();
+            while (waiters.next()) |list| {
+                var i: usize = 0;
+                while (i < list.items.len) {
+                    if (list.items[i] == thread) {
+                        _ = removeThreadListEntry(list, i);
+                    } else i += 1;
+                }
+            }
+            var queued: usize = 0;
+            while (queued < self.runnable_queue.items.len) {
+                if (self.runnable_queue.items[queued] == thread) {
+                    _ = removeThreadListEntry(&self.runnable_queue, queued);
+                } else queued += 1;
+            }
+            _ = removeThreadListEntry(&self.thread_list, index);
+        }
+    }
+
     fn ensureThreadCoroutine(self: *VM, thread: *value.ThreadObject) VMError!void {
         if (thread.coro != null) return;
 
@@ -4902,7 +5031,7 @@ pub const VM = struct {
         zio.coro.stackAlloc(&coro_obj.context.stack_info, 8 * 1024 * 1024, 256 * 1024) catch return error.Fatal;
         errdefer zio.coro.stackFree(coro_obj.context.stack_info);
         coro_obj.setup(&threadEntrypoint, thread);
-        self.zio_coroutines.append(self.allocator, coro_obj) catch return error.Fatal;
+        self.zio_coroutines.append(self.allocator, .{ .coro = coro_obj, .owner = .{ .thread = thread } }) catch return error.Fatal;
         thread.coro = coro_obj;
         thread.scheduling_context = &coro_obj.context;
     }
@@ -4910,6 +5039,7 @@ pub const VM = struct {
     fn threadEntrypoint(coro_obj: *FiberCoro, userdata: ?*anyopaque) void {
         _ = coro_obj;
         const thread: *value.ThreadObject = @ptrCast(@alignCast(userdata.?));
+        thread.owner_vm.reapTerminatedThreads() catch @panic("failed to retire terminated thread");
         runThreadCoroutine(thread) catch |err| {
             const self = thread.owner_vm;
             thread.state = .terminated;
@@ -5296,7 +5426,7 @@ pub const VM = struct {
         var target: *value.ThreadObject = undefined;
         while (true) {
             if (self.runnable_queue.items.len > 0) {
-                const candidate = self.runnable_queue.orderedRemove(0);
+                const candidate = removeThreadListEntry(&self.runnable_queue, 0);
                 std.debug.assert(candidate != caller);
                 std.debug.assert(isThreadRunnable(candidate));
                 target = candidate;
@@ -5334,6 +5464,7 @@ pub const VM = struct {
         const target_context = target.scheduling_context orelse return error.Fatal;
         zio.coro.switchContext(caller_context, target_context);
         std.debug.assert(self.current_thread == caller);
+        try self.reapTerminatedThreads();
     }
 
     /// Yield to another ready thread and deliver events after regaining ownership.

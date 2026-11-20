@@ -417,11 +417,18 @@ fn appendThreadToGroup(vm: *VM, receiver: Value, thread: *value.ThreadObject) VM
     threads.elements.append(vm.gc_allocator, thread_value) catch return error.Fatal;
 }
 
+pub fn removeTerminatedThreadFromGroup(vm: *VM, thread: *value.ThreadObject) VMError!void {
+    const group = try threadGroupForThread(vm, thread);
+    const threads = try vm.getInstanceVariable(group, "@threads");
+    if (threads.isArray()) try removeThreadFromGroup(vm, group, thread);
+}
+
 fn removeThreadFromGroup(vm: *VM, receiver: Value, thread: *value.ThreadObject) VMError!void {
     const threads = try threadGroupThreads(vm, receiver);
     for (threads.elements.items, 0..) |entry, i| {
         if (entry.isThread() and entry.toThreadObject() == thread) {
             _ = threads.elements.orderedRemove(i);
+            threads.elements.unusedCapacitySlice()[0] = Value.nil();
             return;
         }
     }
@@ -921,7 +928,7 @@ fn removeFromRunnable(vm: *VM, thread: *value.ThreadObject) void {
     var i: usize = 0;
     while (i < vm.runnable_queue.items.len) {
         if (vm.runnable_queue.items[i] == thread) {
-            _ = vm.runnable_queue.orderedRemove(i);
+            _ = VM.removeThreadListEntry(&vm.runnable_queue, i);
         } else {
             i += 1;
         }

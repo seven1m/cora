@@ -40,7 +40,7 @@ fn builtinConditionVariableNew(vm: *VM, receiver: Value, args: []Value, block: ?
 
 fn builtinConditionVariableInitialize(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
-    receiver.toConditionVariableObject().waiters.clearRetainingCapacity();
+    VM.clearThreadList(&receiver.toConditionVariableObject().waiters);
     return receiver;
 }
 
@@ -101,7 +101,7 @@ fn builtinConditionVariableSignal(vm: *VM, receiver: Value, args: []Value, _: ?B
 
     const cv = receiver.toConditionVariableObject();
     while (cv.waiters.items.len > 0) {
-        const waiter = cv.waiters.orderedRemove(0);
+        const waiter = VM.removeThreadListEntry(&cv.waiters, 0);
         if (waiter.state == .terminated) continue;
         waiter.state = .running;
         enqueueRunnable(vm, waiter);
@@ -116,7 +116,7 @@ fn builtinConditionVariableBroadcast(vm: *VM, receiver: Value, args: []Value, _:
 
     const cv = receiver.toConditionVariableObject();
     while (cv.waiters.items.len > 0) {
-        const waiter = cv.waiters.orderedRemove(0);
+        const waiter = VM.removeThreadListEntry(&cv.waiters, 0);
         if (waiter.state == .terminated) continue;
         waiter.state = .running;
         enqueueRunnable(vm, waiter);
@@ -151,7 +151,7 @@ fn removeWaiter(cv: *value.ConditionVariableObject, thread: *value.ThreadObject)
     var i: usize = 0;
     while (i < cv.waiters.items.len) {
         if (cv.waiters.items[i] == thread) {
-            _ = cv.waiters.orderedRemove(i);
+            _ = VM.removeThreadListEntry(&cv.waiters, i);
             return;
         }
         i += 1;

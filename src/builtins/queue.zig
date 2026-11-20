@@ -417,8 +417,8 @@ fn dequeueAvailable(queue: *value.QueueObject) ?Value {
 fn resetQueue(queue: *value.QueueObject) void {
     queue.items.clearRetainingCapacity();
     queue.read_index = 0;
-    queue.dequeue_waiters.clearRetainingCapacity();
-    queue.enqueue_waiters.clearRetainingCapacity();
+    VM.clearThreadList(&queue.dequeue_waiters);
+    VM.clearThreadList(&queue.enqueue_waiters);
     queue.closed = false;
 }
 
@@ -442,7 +442,7 @@ fn removeDequeueWaiter(queue: *value.QueueObject, thread: *value.ThreadObject) v
     var i: usize = 0;
     while (i < queue.dequeue_waiters.items.len) {
         if (queue.dequeue_waiters.items[i] == thread) {
-            _ = queue.dequeue_waiters.orderedRemove(i);
+            _ = VM.removeThreadListEntry(&queue.dequeue_waiters, i);
         } else {
             i += 1;
         }
@@ -460,7 +460,7 @@ fn removeEnqueueWaiter(queue: *value.QueueObject, thread: *value.ThreadObject) v
     var i: usize = 0;
     while (i < queue.enqueue_waiters.items.len) {
         if (queue.enqueue_waiters.items[i] == thread) {
-            _ = queue.enqueue_waiters.orderedRemove(i);
+            _ = VM.removeThreadListEntry(&queue.enqueue_waiters, i);
         } else {
             i += 1;
         }
@@ -469,7 +469,7 @@ fn removeEnqueueWaiter(queue: *value.QueueObject, thread: *value.ThreadObject) v
 
 fn wakeNextDequeueWaiter(vm: *VM, queue: *value.QueueObject) void {
     while (queue.dequeue_waiters.items.len > 0) {
-        const waiter = queue.dequeue_waiters.orderedRemove(0);
+        const waiter = VM.removeThreadListEntry(&queue.dequeue_waiters, 0);
         if (waiter.state == .terminated) {
             continue;
         }
@@ -486,12 +486,12 @@ fn wakeAllDequeueWaiters(vm: *VM, queue: *value.QueueObject) void {
             addToRunnableIfAbsent(vm, waiter);
         }
     }
-    queue.dequeue_waiters.clearRetainingCapacity();
+    VM.clearThreadList(&queue.dequeue_waiters);
 }
 
 fn wakeNextEnqueueWaiter(vm: *VM, queue: *value.QueueObject) void {
     while (queue.enqueue_waiters.items.len > 0) {
-        const waiter = queue.enqueue_waiters.orderedRemove(0);
+        const waiter = VM.removeThreadListEntry(&queue.enqueue_waiters, 0);
         if (waiter.state == .terminated) {
             continue;
         }
@@ -508,7 +508,7 @@ fn wakeAllEnqueueWaiters(vm: *VM, queue: *value.QueueObject) void {
             addToRunnableIfAbsent(vm, waiter);
         }
     }
-    queue.enqueue_waiters.clearRetainingCapacity();
+    VM.clearThreadList(&queue.enqueue_waiters);
 }
 
 fn countWaiting(queue: *value.QueueObject) usize {

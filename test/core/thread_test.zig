@@ -1,8 +1,90 @@
 const std = @import("std");
+const cora = @import("cora");
+const bdwgc = @import("bdwgc");
 const test_helper = @import("../test_helper.zig");
 
 const evalCode = test_helper.evalCode;
 const evalCodeWithOutput = test_helper.evalCodeWithOutput;
+
+test "Thread retirement releases scheduler roots and suspended coroutine stacks" {
+    bdwgc.init();
+    defer bdwgc.deinit();
+    const allocator = std.testing.allocator;
+    var parser = try cora.prism.Parser.init(allocator,
+        \\workers = Array.new(24) do
+        \\  Thread.new do
+        \\    fiber = Fiber.new { Fiber.yield; :unreachable }
+        \\    fiber.resume
+        \\    fiber
+        \\  end
+        \\end
+        \\fibers = workers.map(&:value)
+        \\GC.start
+        \\fibers.all?(&:alive?) && workers.all? { |worker| worker.status == false } && Thread.list == [Thread.main]
+    , null);
+    defer parser.deinit();
+    var program = try cora.compiler.Compiler.compile(allocator, &parser, 1);
+    defer program.deinit();
+    var vm = cora.vm.VM.initEmpty(allocator, cora.gc_allocator.scanned, cora.gc_allocator.atomic, std.testing.io, std.testing.environ);
+    defer vm.deinit();
+    try vm.prepare(&program);
+    try std.testing.expect((try vm.run()).isTrue());
+    try std.testing.expectEqual(@as(usize, 1), vm.thread_list.items.len);
+    try std.testing.expectEqual(@as(usize, 0), vm.runnable_queue.items.len);
+    try std.testing.expectEqual(@as(usize, 0), vm.zio_coroutines.items.len);
+    try std.testing.expectEqual(@as(u32, 1), vm.thread_active_catches.count());
+    try std.testing.expectEqual(@as(u32, 1), vm.thread_ensure_saved_unwinds.count());
+    try std.testing.expectEqual(@as(u32, 1), vm.thread_rescued_exceptions.count());
+    // Removed GC-owned list slots must not retain pointers outside items.len.
+    for (vm.thread_list.unusedCapacitySlice()) |*slot| {
+        for (std.mem.asBytes(slot)) |byte| try std.testing.expectEqual(@as(u8, 0), byte);
+    }
+    for (vm.runnable_queue.unusedCapacitySlice()) |*slot| {
+        for (std.mem.asBytes(slot)) |byte| try std.testing.expectEqual(@as(u8, 0), byte);
+    }
+}
+
+test "Thread retirement preserves retained values bindings locals and group" {
+    const result = try evalCode(
+        \\group = ThreadGroup.new
+        \\worker = Thread.new do
+        \\  Thread.current.name = "retained"
+        \\  Thread.current[:fiber_key] = :fiber_value
+        \\  Thread.current.thread_variable_set(:thread_key, :thread_value)
+        \\  payload = ["escaped"]
+        \\  [-> { payload }, binding, Fiber.current]
+        \\end
+        \\group.add(worker)
+        \\answer = worker.value
+        \\20.times { Thread.new {}.join }
+        \\GC.start
+        \\worker.join.equal?(worker) && worker.value.equal?(answer) &&
+        \\  answer[0].call.equal?(answer[1].local_variable_get(:payload)) &&
+        \\  answer[0].call == ["escaped"] && !answer[2].alive? &&
+        \\  worker[:fiber_key] == :fiber_value && worker.thread_variable_get(:thread_key) == :thread_value &&
+        \\  worker.name == "retained" && worker.group.equal?(group) && group.list.empty? &&
+        \\  worker.status == false && worker.backtrace.nil?
+    );
+    try std.testing.expect(result.isTrue());
+}
+
+test "Thread retirement preserves exceptions and cross-thread fiber errors" {
+    const result = try evalCode(
+        \\worker = Thread.new { raise "retained failure" }
+        \\worker.report_on_exception = false
+        \\original = begin worker.join; rescue RuntimeError => error; error; end
+        \\GC.start
+        \\again = begin worker.value; rescue RuntimeError => error; error; end
+        \\holder = Thread.new { fiber = Fiber.new { Fiber.yield }; fiber.resume; fiber }
+        \\fiber = holder.value
+        \\GC.start
+        \\cross_thread = begin fiber.resume; rescue FiberError => error; error.message; end
+        \\original.equal?(again) && again.message == "retained failure" &&
+        \\  !again.backtrace.empty? && worker.status.nil? && fiber.alive? &&
+        \\  cross_thread == "fiber called across threads"
+    );
+    try std.testing.expect(result.isTrue());
+}
 
 test "Thread.new creates and runs a thread" {
     const result = try evalCode(
