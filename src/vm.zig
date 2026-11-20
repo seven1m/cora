@@ -500,20 +500,20 @@ const KeywordDispatch = struct {
     kw_values: ?[]const Value = null,
 };
 
-const SymbolKey = struct {
+const EncodedStringKey = struct {
     bytes: []const u8,
     encoding_tag: usize,
 };
 
-const SymbolKeyContext = struct {
-    pub fn hash(_: SymbolKeyContext, key: SymbolKey) u64 {
+const EncodedStringKeyContext = struct {
+    pub fn hash(_: EncodedStringKeyContext, key: EncodedStringKey) u64 {
         var hasher = std.hash.Wyhash.init(0);
         hasher.update(key.bytes);
         hasher.update(std.mem.asBytes(&key.encoding_tag));
         return hasher.final();
     }
 
-    pub fn eql(_: SymbolKeyContext, a: SymbolKey, b: SymbolKey) bool {
+    pub fn eql(_: EncodedStringKeyContext, a: EncodedStringKey, b: EncodedStringKey) bool {
         return a.encoding_tag == b.encoding_tag and std.mem.eql(u8, a.bytes, b.bytes);
     }
 };
@@ -617,10 +617,10 @@ pub const VM = struct {
     stack: *FiberValueStack,
     frames: *FiberFrameStack,
 
-    symbols: std.HashMap(SymbolKey, *SymbolObject, SymbolKeyContext, std.hash_map.default_max_load_percentage),
+    symbols: std.HashMap(EncodedStringKey, *SymbolObject, EncodedStringKeyContext, std.hash_map.default_max_load_percentage),
     globals: std.StringHashMap(*GlobalSlot),
     fstring_cache: std.StringHashMap(Value),
-    canonical_fstrings: std.ArrayList(Value) = .empty,
+    canonical_fstrings: std.HashMapUnmanaged(EncodedStringKey, Value, EncodedStringKeyContext, std.hash_map.default_max_load_percentage) = .empty,
     packed_pointer_targets: std.AutoHashMap(*StringObject, PackedPointerTargets),
     errno_classes: std.AutoHashMap(c_int, *ClassObject),
 
@@ -867,7 +867,7 @@ pub const VM = struct {
             .env_map = std.process.Environ.Map.init(allocator),
             .stack = undefined,
             .frames = undefined,
-            .symbols = std.HashMap(SymbolKey, *SymbolObject, SymbolKeyContext, std.hash_map.default_max_load_percentage).init(gc_allocator),
+            .symbols = std.HashMap(EncodedStringKey, *SymbolObject, EncodedStringKeyContext, std.hash_map.default_max_load_percentage).init(gc_allocator),
             .globals = std.StringHashMap(*GlobalSlot).init(gc_allocator),
             .fstring_cache = std.StringHashMap(Value).init(gc_allocator),
             .canonical_fstrings = .empty,
@@ -5460,15 +5460,9 @@ pub const VM = struct {
                             .{ source_hash, content_hash, encoding_tag },
                         ) catch return error.Fatal;
                         if (self.fstring_cache.get(key)) |cached| {
-                            const canonical = try self.getOrCreateCanonicalFStringValue(cached);
-                            try self.push(canonical);
+                            try self.push(cached);
                         } else {
-                            const frozen = try self.newStringWithEncoding(
-                                s,
-                                true,
-                                literal_encoding,
-                            );
-                            const canonical = try self.getOrCreateCanonicalFStringValue(frozen);
+                            const canonical = try self.getOrCreateCanonicalFString(s, literal_encoding);
                             const owned_key = self.allocator.dupe(u8, key) catch return error.Fatal;
                             self.fstring_cache.put(owned_key, canonical) catch return error.Fatal;
                             try self.push(canonical);
@@ -5490,15 +5484,9 @@ pub const VM = struct {
                             .{ source_hash, content_hash, encoding_tag },
                         ) catch return error.Fatal;
                         if (self.fstring_cache.get(key)) |cached| {
-                            const canonical = try self.getOrCreateCanonicalFStringValue(cached);
-                            try self.push(canonical);
+                            try self.push(cached);
                         } else {
-                            const frozen = try self.newStringWithEncoding(
-                                s.bytes,
-                                true,
-                                s.encoding,
-                            );
-                            const canonical = try self.getOrCreateCanonicalFStringValue(frozen);
+                            const canonical = try self.getOrCreateCanonicalFString(s.bytes, s.encoding);
                             const owned_key = self.allocator.dupe(u8, key) catch return error.Fatal;
                             self.fstring_cache.put(owned_key, canonical) catch return error.Fatal;
                             try self.push(canonical);
@@ -10374,7 +10362,7 @@ pub const VM = struct {
             .{ .us_ascii = .{} }
         else
             symbol_encoding;
-        const probe_key = SymbolKey{
+        const probe_key = EncodedStringKey{
             .bytes = str,
             .encoding_tag = canonical_encoding.encodingIndex(),
         };
@@ -10383,7 +10371,7 @@ pub const VM = struct {
         }
 
         const key_bytes = self.gc_allocator_atomic.dupeZ(u8, str) catch return error.Fatal;
-        const map_key = SymbolKey{
+        const map_key = EncodedStringKey{
             .bytes = key_bytes,
             .encoding_tag = canonical_encoding.encodingIndex(),
         };
@@ -11297,48 +11285,35 @@ pub const VM = struct {
     }
 
     pub fn getOrCreateCanonicalFString(self: *VM, str: []const u8, encoding: enc.Encoding) VMError!Value {
-        for (self.canonical_fstrings.items) |existing| {
-            const existing_obj = existing.toStringObject();
-            if (encodingKey(existing_obj.encoding) == encodingKey(encoding) and std.mem.eql(u8, existing_obj.str, str)) {
-                return existing;
-            }
-        }
+        const key = EncodedStringKey{ .bytes = str, .encoding_tag = encodingKey(encoding) };
+        if (self.canonical_fstrings.get(key)) |existing| return existing;
 
         const frozen = try self.newStringWithEncoding(str, true, encoding);
-        self.canonical_fstrings.append(self.gc_allocator, frozen) catch return error.Fatal;
+        // Keys must reference the canonical string's storage, not a caller's
+        // temporary or mutable input buffer.
+        const string_obj = frozen.toStringObject();
+        self.canonical_fstrings.put(self.gc_allocator, .{
+            .bytes = string_obj.str,
+            .encoding_tag = encodingKey(string_obj.encoding),
+        }, frozen) catch return error.Fatal;
         return frozen;
     }
 
     pub fn getOrCreateCanonicalFStringValue(self: *VM, string_value: Value) VMError!Value {
         const string_obj = string_value.toStringObject();
-        for (self.canonical_fstrings.items) |existing| {
-            const existing_obj = existing.toStringObject();
-            if (encodingKey(existing_obj.encoding) == encodingKey(string_obj.encoding) and std.mem.eql(u8, existing_obj.str, string_obj.str)) {
-                return existing;
-            }
-        }
+        const key = EncodedStringKey{ .bytes = string_obj.str, .encoding_tag = encodingKey(string_obj.encoding) };
+        if (self.canonical_fstrings.get(key)) |existing| return existing;
 
-        self.canonical_fstrings.append(self.gc_allocator, string_value) catch return error.Fatal;
+        self.canonical_fstrings.put(self.gc_allocator, key, string_value) catch return error.Fatal;
         return string_value;
     }
 
     pub fn isCanonicalFStringValue(self: *VM, string_value: Value) bool {
         if (!string_value.isString()) return false;
-        for (self.canonical_fstrings.items) |existing| {
-            if (existing.raw == string_value.raw) return true;
-        }
-        return false;
-    }
-
-    fn getOrCreateFrozenStringLiteral(self: *VM, str: []const u8) VMError!Value {
-        if (self.fstring_cache.get(str)) |cached| {
-            return cached;
-        }
-
-        const frozen = try self.newString(str, true);
-        const key = self.allocator.dupe(u8, str) catch return error.Fatal;
-        self.fstring_cache.put(key, frozen) catch return error.Fatal;
-        return frozen;
+        const string_obj = string_value.toStringObject();
+        const key = EncodedStringKey{ .bytes = string_obj.str, .encoding_tag = encodingKey(string_obj.encoding) };
+        const canonical = self.canonical_fstrings.get(key) orelse return false;
+        return canonical.raw == string_value.raw;
     }
 
     pub fn newString(self: *VM, str: []const u8, frozen: bool) VMError!Value {

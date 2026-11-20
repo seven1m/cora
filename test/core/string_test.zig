@@ -4,6 +4,29 @@ const test_helper = @import("../test_helper.zig");
 const evalCode = test_helper.evalCode;
 const evalCodeWithOutput = test_helper.evalCodeWithOutput;
 
+test "Frozen string identities preserve encoding and survive garbage collection" {
+    const result = try evalCode(
+        \\# frozen_string_literal: true
+        \\source = ["inter", "ned", "\0value"].join
+        \\canonical = -source
+        \\source.replace("changed")
+        \\ascii = -(["inter", "ned", "\0value"].join.force_encoding("US-ASCII"))
+        \\binary = -(["inter", "ned", "\0value"].join.b)
+        \\3000.times { |i| -("unrelated-#{i}") }
+        \\GC.start
+        \\again = -(["inter", "ned", "\0value"].join.freeze)
+        \\ascii_again = -(["inter", "ned", "\0value"].join.force_encoding("US-ASCII").freeze)
+        \\binary_again = -(["inter", "ned", "\0value"].join.b.freeze)
+        \\left = eval("# frozen_string_literal: true\n'cross-file literal'", nil, "left.rb")
+        \\right = eval("# frozen_string_literal: true\n'cross-file literal'", nil, "right.rb")
+        \\canonical == "interned\0value" && canonical.frozen? && canonical.equal?(again) &&
+        \\  ascii.equal?(ascii_again) && binary.equal?(binary_again) &&
+        \\  !canonical.equal?(ascii) && !canonical.equal?(binary) && !ascii.equal?(binary) &&
+        \\  left.equal?(right) && left.frozen?
+    );
+    try std.testing.expect(result.isTrue());
+}
+
 test "String bang substitutions return self when a match leaves bytes unchanged" {
     const result = try evalCode(
         \\a = "posts"
