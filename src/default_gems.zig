@@ -20,6 +20,9 @@ pub const gems = [_]Gem{
     .{ .name = "resolv", .version = "0.6.2", .load_path = true },
     .{ .name = "yaml", .version = "0.4.0" },
     .{ .name = "did_you_mean", .version = "2.0.0" },
+    .{ .name = "timeout", .version = "0.6.1" },
+    .{ .name = "uri", .version = "1.1.1" },
+    .{ .name = "time", .version = "0.4.2" },
     // These use temporary minimal gemspecs until ported from lib/stdlib.
     .{ .name = "stringio", .version = "3.2.0", .source = .stdlib },
     .{ .name = "date", .version = "3.5.1", .source = .stdlib },

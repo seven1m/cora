@@ -75,14 +75,19 @@ fn appendLoadPathIfExists(virtual_machine: *vm.VM, io: std.Io, candidate: []cons
     try virtual_machine.appendLoadPath(path_buffer[0..abs_len]);
 }
 
+const AppendedLoadPaths = struct {
+    count: usize = 0,
+    first_default_index: ?usize = null,
+};
+
 fn appendLoadPathsRelativeToRoot(
     allocator: std.mem.Allocator,
     virtual_machine: *vm.VM,
     io: std.Io,
     root_dir: []const u8,
-) !usize {
-    var appended: usize = 0;
-    for (load_path.repo_load_paths) |suffix| {
+) !AppendedLoadPaths {
+    var appended: AppendedLoadPaths = .{};
+    for (load_path.repo_load_paths, 0..) |suffix, index| {
         const runtime_path = try std.fs.path.join(allocator, &.{ root_dir, suffix });
         defer allocator.free(runtime_path);
 
@@ -94,7 +99,11 @@ fn appendLoadPathsRelativeToRoot(
         if (abs_len == 0) continue;
 
         try virtual_machine.appendLoadPath(path_buffer[0..abs_len]);
-        appended += 1;
+        if (index >= load_path.default_gem_load_paths_start and appended.first_default_index == null) {
+            const paths = virtual_machine.load_path orelse return error.Fatal;
+            appended.first_default_index = paths.elements.items.len - 1;
+        }
+        appended.count += 1;
     }
     return appended;
 }
@@ -106,6 +115,7 @@ fn configureLoadPath(
     argv0: []const u8,
     extra_load_paths: []const []const u8,
 ) !void {
+    var first_default_index: ?usize = null;
     var exe_path_buffer: [4096]u8 = undefined;
     const exe_abs_len = if (std.fs.path.isAbsolute(argv0))
         std.Io.Dir.realPathFileAbsolute(io, argv0, &exe_path_buffer) catch 0
@@ -118,11 +128,13 @@ fn configureLoadPath(
             const runtime_root = try std.fs.path.join(allocator, &.{ exe_dir, ".." });
             defer allocator.free(runtime_root);
 
-            const runtime_count = try appendLoadPathsRelativeToRoot(allocator, virtual_machine, io, runtime_root);
-            if (runtime_count == 0) {
+            const runtime_paths = try appendLoadPathsRelativeToRoot(allocator, virtual_machine, io, runtime_root);
+            first_default_index = runtime_paths.first_default_index;
+            if (runtime_paths.count == 0) {
                 const legacy_root = try std.fs.path.join(allocator, &.{ exe_dir, "..", ".." });
                 defer allocator.free(legacy_root);
-                _ = try appendLoadPathsRelativeToRoot(allocator, virtual_machine, io, legacy_root);
+                const legacy_paths = try appendLoadPathsRelativeToRoot(allocator, virtual_machine, io, legacy_root);
+                first_default_index = legacy_paths.first_default_index;
             }
         }
     } else {
@@ -131,12 +143,11 @@ fn configureLoadPath(
 
     if (virtual_machine.load_path) |lp| {
         if (lp.elements.items.len > 0) {
-            // Set sitelibdir to the last stdlib entry so RubyGems'
-            // load_path_insert_index returns its index instead of 0.
-            // This puts gem LOAD_PATH entries after all built-in stdlib
-            // dirs, so the pure-Ruby stdlib implementations take priority
-            // over gem versions that need native extensions.
-            try virtual_machine.setSitelibdirValue(lp.elements.items[lp.elements.items.len - 1]);
+            // RubyGems scans paths before sitelibdir for user overrides. Put
+            // that boundary after Cora's builtins but before installed default
+            // gem paths so those paths do not suppress gemspec activation.
+            const index = first_default_index orelse lp.elements.items.len - 1;
+            try virtual_machine.setSitelibdirValue(lp.elements.items[index]);
         }
     }
 

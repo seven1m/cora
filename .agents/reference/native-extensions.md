@@ -103,6 +103,8 @@ Steps per gem:
 - `yaml` - pure Ruby; installed as a default gem without an `.so`.
 - `net-http`, `net-protocol`, `open-uri`, `resolv` - pure Ruby network
   libraries installed and registered as default gems.
+- `time`, `timeout`, `uri` - vendored libraries also registered as default
+  gems so RubyGems can resolve their dependent gems.
 - `csv`, `test-unit`, `power_assert` - pure Ruby; installed as ordinary bundled gems
   with `test-unit` depending on `power_assert`.
 

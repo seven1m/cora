@@ -21,6 +21,9 @@ test "network libraries are available as default gems without installed gems" {
         \\require "open-uri"
         \\raise unless Net::HTTP && Resolv && URI.respond_to?(:open)
         \\%w[net-http net-protocol open-uri resolv].each do |name|
+        \\  raise name unless Gem.loaded_specs[name]&.default_gem?
+        \\end
+        \\%w[timeout uri time].each do |name|
         \\  raise name unless Gem::Specification.find_by_name(name).default_gem?
         \\end
         \\puts :ok

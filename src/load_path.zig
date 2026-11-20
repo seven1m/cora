@@ -5,7 +5,7 @@ fn defaultGemLibPath(comptime name: []const u8, comptime version: []const u8) []
     return "lib/gems/" ++ ruby_gem_api_version ++ "/gems/" ++ name ++ "-" ++ version ++ "/lib";
 }
 
-pub const repo_load_paths = [_][]const u8{
+const builtin_load_paths = [_][]const u8{
     "lib/stdlib",
     "ext/rubygems/lib",
     "ext/ipaddr/lib",
@@ -27,7 +27,10 @@ pub const repo_load_paths = [_][]const u8{
     "ext/open3/lib",
     "ext/shellwords/lib",
     "ext/weakref/lib",
-} ++ installed_default_paths;
+};
+
+pub const default_gem_load_paths_start = builtin_load_paths.len;
+pub const repo_load_paths = builtin_load_paths ++ installed_default_paths;
 
 const installed_default_paths = paths: {
     var count: usize = 0;
