@@ -10,6 +10,20 @@ test "Array literal" {
     try std.testing.expectEqual(3, result.toArrayObject().elements.items.len);
 }
 
+test "Array literal supports more than 65535 elements" {
+    var code: std.ArrayList(u8) = .empty;
+    defer code.deinit(std.testing.allocator);
+    try code.appendSlice(std.testing.allocator, "[0,");
+    for (0..65534) |_| try code.appendSlice(std.testing.allocator, "244,");
+    try code.appendSlice(std.testing.allocator, "2]");
+    const result = try evalCode(code.items);
+    const items = result.toArrayObject().elements.items;
+    try std.testing.expectEqual(@as(usize, 65536), items.len);
+    try std.testing.expectEqual(@as(i64, 0), items[0].toInteger());
+    try std.testing.expectEqual(@as(i64, 244), items[1].toInteger());
+    try std.testing.expectEqual(@as(i64, 2), items[65535].toInteger());
+}
+
 test "Empty array literal" {
     const result = try evalCode("[]");
     try std.testing.expect(result.isArray());

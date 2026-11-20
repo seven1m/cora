@@ -937,7 +937,9 @@ pub const Compiler = struct {
 
             .array => |array_node| {
                 var i: usize = 0;
-                var has_splat = false;
+                // Large literals must be built incrementally because PUSH_ARRAY's
+                // element count is limited to u16.
+                var has_splat = array_node.elements.size > std.math.maxInt(u16);
                 while (i < array_node.elements.size) : (i += 1) {
                     const elem_node = try self.parser.asNode(array_node.elements.nodes[i]);
                     if (elem_node == .splat) {
@@ -947,9 +949,6 @@ pub const Compiler = struct {
                 }
 
                 if (!has_splat) {
-                    if (array_node.elements.size > std.math.maxInt(u16)) {
-                        return error.TooManyArrayElements;
-                    }
                     const element_count: u16 = @intCast(array_node.elements.size);
                     i = 0;
                     while (i < array_node.elements.size) : (i += 1) {

@@ -107,6 +107,7 @@ pub const Chunk = struct {
     code: std.ArrayList(u8) = .empty,
 
     constants: std.ArrayList(Constant) = .empty,
+    integer_constants: std.AutoHashMapUnmanaged(i64, u32) = .empty,
     constant_names: std.StringHashMap(u32),
     line_info: std.ArrayList(LineInfo) = .empty,
     allocator: std.mem.Allocator,
@@ -175,6 +176,7 @@ pub const Chunk = struct {
             }
         }
         self.constants.deinit(self.allocator);
+        self.integer_constants.deinit(self.allocator);
         var constant_name_iter = self.constant_names.keyIterator();
         while (constant_name_iter.next()) |key| {
             self.allocator.free(key.*);
@@ -225,6 +227,9 @@ pub const Chunk = struct {
 
     /// Add a constant to the constant pool, return its index
     pub fn addConstant(self: *Chunk, const_val: Constant) !u32 {
+        if (const_val == .integer) {
+            if (self.integer_constants.get(const_val.integer)) |index| return index;
+        }
         const owned = switch (const_val) {
             .string => |s| Constant{ .string = try self.allocator.dupe(u8, s) },
             .encoded_string => |s| Constant{ .encoded_string = .{
@@ -235,7 +240,9 @@ pub const Chunk = struct {
             else => const_val,
         };
         try self.constants.append(self.allocator, owned);
-        return @intCast(self.constants.items.len - 1);
+        const index: u32 = @intCast(self.constants.items.len - 1);
+        if (const_val == .integer) try self.integer_constants.put(self.allocator, const_val.integer, index);
+        return index;
     }
 
     /// Add a named constant (class, module, etc.)
