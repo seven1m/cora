@@ -58,6 +58,7 @@ extern "c" fn strerror(errnum: c_int) [*:0]const u8;
 
 const MAX_FIBER_STACK_SIZE: usize = 8_192;
 const MAX_FIBER_FRAMES: usize = 2048;
+const SHARED_CALLSITE_CACHE_SIZE: usize = 4096;
 // ENV_DATA_SIZE: number of Value slots per frame above the locals region.
 //   ep[0] = parent ep (raw ptr encoded as Value.raw, or 0 = no parent)
 //   ep[1] = lexical scope, or tagged FrameScopeContext for eval-only metadata
@@ -625,6 +626,9 @@ pub const VM = struct {
     symbols: std.HashMap(EncodedStringKey, *SymbolObject, EncodedStringKeyContext, std.hash_map.default_max_load_percentage),
     globals: std.StringHashMap(*GlobalSlot),
     fstring_cache: std.StringHashMap(Value),
+    // A bounded sharing index; per-site pointers keep evicted payloads alive.
+    shared_callsite_caches: [SHARED_CALLSITE_CACHE_SIZE]?*const CallSiteCache = @splat(null),
+    callsite_cache_chunks: std.AutoHashMap(*Chunk, void),
     regexp_literals: std.AutoHashMap(RegexpLiteralKey, Value),
     canonical_fstrings: std.HashMapUnmanaged(EncodedStringKey, Value, EncodedStringKeyContext, std.hash_map.default_max_load_percentage) = .empty,
     packed_pointer_targets: std.AutoHashMap(*StringObject, PackedPointerTargets),
@@ -876,6 +880,7 @@ pub const VM = struct {
             .symbols = std.HashMap(EncodedStringKey, *SymbolObject, EncodedStringKeyContext, std.hash_map.default_max_load_percentage).init(gc_allocator),
             .globals = std.StringHashMap(*GlobalSlot).init(gc_allocator),
             .fstring_cache = std.StringHashMap(Value).init(gc_allocator),
+            .callsite_cache_chunks = std.AutoHashMap(*Chunk, void).init(allocator),
             .regexp_literals = std.AutoHashMap(RegexpLiteralKey, Value).init(gc_allocator),
             .canonical_fstrings = .empty,
             .packed_pointer_targets = std.AutoHashMap(*StringObject, PackedPointerTargets).init(gc_allocator),
@@ -3084,6 +3089,7 @@ pub const VM = struct {
             self.allocator.free(key.*);
         }
         self.fstring_cache.deinit();
+        self.callsite_cache_chunks.deinit();
         self.regexp_literals.deinit();
         self.canonical_fstrings.deinit(self.gc_allocator);
         var packed_targets_iter = self.packed_pointer_targets.valueIterator();
@@ -3489,39 +3495,18 @@ pub const VM = struct {
         };
     }
 
-    /// Ensure that callsite_caches and callsite_descriptors are large enough to hold
-    /// an entry at the given byte offset (used as callsite key).
-    fn ensureCallsiteArraysForOffset(ch: *Chunk, byte_offset: usize) VMError!void {
-        const needed = byte_offset + 1;
-        if (ch.callsite_caches.items.len < needed) {
-            const old_len = ch.callsite_caches.items.len;
-            ch.callsite_caches.ensureTotalCapacity(ch.allocator, needed) catch return error.Fatal;
-            ch.callsite_caches.items.len = needed;
-            for (old_len..ch.callsite_caches.items.len) |idx| {
-                ch.callsite_caches.items[idx] = null;
-            }
-        }
-
-        if (ch.callsite_descriptors.items.len < needed) {
-            const old_len = ch.callsite_descriptors.items.len;
-            ch.callsite_descriptors.ensureTotalCapacity(ch.allocator, needed) catch return error.Fatal;
-            ch.callsite_descriptors.items.len = needed;
-            for (old_len..ch.callsite_descriptors.items.len) |idx| {
-                ch.callsite_descriptors.items[idx] = null;
-            }
-        }
-    }
-
     /// Decode a CallSiteDescriptor from the operand bytes immediately following a CALL/CALL_KW opcode.
     fn decodeCallSiteDescriptorFromOperands(op: bytecode.OpCode, operands: []const u8) VMError!chunk.CallSiteDescriptor {
         return switch (op) {
             .CALL => .{
+                .initialized = true,
                 .method_idx = readU16At(operands, 0),
                 .argc = readU8At(operands, 2),
                 .call_flags = readU8At(operands, 3),
                 .block_chunk_id = readU16At(operands, 4),
             },
             .CALL_KW => .{
+                .initialized = true,
                 .method_idx = readU16At(operands, 0),
                 .argc = readU8At(operands, 2),
                 .kwargc = readU8At(operands, 3),
@@ -3542,18 +3527,20 @@ pub const VM = struct {
             const operands = ch.code.items[ip + 1 ..];
             switch (op) {
                 .CALL => {
-                    try ensureCallsiteArraysForOffset(ch, ip);
-                    var desc = try decodeCallSiteDescriptorFromOperands(op, operands);
-                    desc.method_sym = try self.callMethodSymbolFromConstant(ch, desc.method_idx);
-                    ch.callsite_descriptors.items[ip] = desc;
-                    ip += 1 + 6; // opcode + method_idx(2) + argc(1) + call_flags(1) + block_chunk_id(2)
+                    const callsite_id = readU16At(operands, 6);
+                    if (callsite_id >= ch.callsite_descriptors.items.len) return error.Fatal;
+                    const desc = try decodeCallSiteDescriptorFromOperands(op, operands);
+                    _ = try self.callMethodSymbolFromConstant(ch, desc.method_idx);
+                    ch.callsite_descriptors.items[callsite_id] = desc;
+                    ip += 1 + bytecode.opcodeOperandSize(op);
                 },
                 .CALL_KW => {
-                    try ensureCallsiteArraysForOffset(ch, ip);
-                    var desc = try decodeCallSiteDescriptorFromOperands(op, operands);
-                    desc.method_sym = try self.callMethodSymbolFromConstant(ch, desc.method_idx);
-                    ch.callsite_descriptors.items[ip] = desc;
-                    ip += 1 + 9; // opcode + method_idx(2) + argc(1) + kwargc(1) + call_flags(1) + kw_metadata_idx(2) + block_chunk_id(2)
+                    const callsite_id = readU16At(operands, 9);
+                    if (callsite_id >= ch.callsite_descriptors.items.len) return error.Fatal;
+                    const desc = try decodeCallSiteDescriptorFromOperands(op, operands);
+                    _ = try self.callMethodSymbolFromConstant(ch, desc.method_idx);
+                    ch.callsite_descriptors.items[callsite_id] = desc;
+                    ip += 1 + bytecode.opcodeOperandSize(op);
                 },
                 else => {
                     ip += 1 + bytecode.opcodeOperandSize(op);
@@ -3610,14 +3597,10 @@ pub const VM = struct {
         self.method_state_version +%= 1;
         if (self.method_state_version == 0) {
             self.method_state_version = 1;
-            var chunk_iter = self.program.child_chunks.valueIterator();
-            while (chunk_iter.next()) |chunk_ptr| {
-                for (chunk_ptr.*.callsite_caches.items) |*entry| {
-                    entry.* = null;
-                }
-            }
-            for (self.program.main_chunk.callsite_caches.items) |*entry| {
-                entry.* = null;
+            @memset(&self.shared_callsite_caches, null);
+            var cache_chunks = self.callsite_cache_chunks.keyIterator();
+            while (cache_chunks.next()) |ptr| {
+                for (ptr.*.callsite_caches.items) |*entry| entry.* = null;
             }
         }
     }
@@ -3635,18 +3618,23 @@ pub const VM = struct {
     fn resolveMethodForCallSite(
         self: *VM,
         frame: *CallFrame,
-        callsite_byte_offset: usize,
+        callsite_id: usize,
         receiver: Value,
         method_name_sym: *SymbolObject,
     ) VMError!?ResolvedMethod {
-        // Fast path: check if cache arrays are already large enough
-        const caches = frame.chunk.callsite_caches.items;
-        if (callsite_byte_offset >= caches.len) {
-            try ensureCallsiteArraysForOffset(frame.chunk, callsite_byte_offset);
+        const ch = frame.chunk;
+        if (callsite_id >= ch.callsite_descriptors.items.len) return error.Fatal;
+        if (ch.callsite_caches.items.len == 0) {
+            const slots = ch.allocator.alloc(?*const CallSiteCache, ch.callsite_descriptors.items.len) catch return error.Fatal;
+            @memset(slots, null);
+            ch.callsite_caches = .{ .items = slots, .capacity = slots.len };
         }
 
-        const dispatch_class = self.getDispatchClass(receiver);
-        const cache_slot = &frame.chunk.callsite_caches.items[callsite_byte_offset];
+        const dispatch_class = if ((receiver.isClass() or receiver.isModule()) and receiver.getSingletonClass() == null)
+            try self.getOrCreateSingletonClass(receiver)
+        else
+            self.getDispatchClass(receiver);
+        const cache_slot = &frame.chunk.callsite_caches.items[callsite_id];
         if (cache_slot.*) |cached| {
             if (cached.receiver_class == dispatch_class and
                 cached.method_name == method_name_sym and
@@ -3661,9 +3649,27 @@ pub const VM = struct {
             }
         }
 
+        const key = [2]usize{ @intFromPtr(dispatch_class), @intFromPtr(method_name_sym) };
+        const index = std.hash.Wyhash.hash(0, std.mem.asBytes(&key)) & (SHARED_CALLSITE_CACHE_SIZE - 1);
+        if (self.shared_callsite_caches[index]) |cached| {
+            if (cached.receiver_class == dispatch_class and
+                cached.method_name == method_name_sym and
+                cached.method_state_version == self.method_state_version)
+            {
+                try self.storeCallsiteCache(frame.chunk, cache_slot, cached);
+                return .{
+                    .name = method_name_sym,
+                    .owner_class = cached.owner_class,
+                    .defining_node = cached.defining_node,
+                    .entry = cached.entry,
+                };
+            }
+        }
+
         const resolved = try self.findMethod(receiver, method_name_sym);
         if (resolved) |r| {
-            cache_slot.* = CallSiteCache{
+            const cached = self.gc_allocator.create(CallSiteCache) catch return error.Fatal;
+            cached.* = CallSiteCache{
                 .receiver_class = dispatch_class,
                 .method_name = method_name_sym,
                 .method_state_version = self.method_state_version,
@@ -3671,29 +3677,37 @@ pub const VM = struct {
                 .defining_node = r.defining_node,
                 .entry = r.entry,
             };
+            self.shared_callsite_caches[index] = cached;
+            try self.storeCallsiteCache(frame.chunk, cache_slot, cached);
         }
         return resolved;
+    }
+
+    inline fn storeCallsiteCache(self: *VM, ch: *Chunk, slot: *?*const CallSiteCache, cached: *const CallSiteCache) VMError!void {
+        self.callsite_cache_chunks.put(ch, {}) catch return error.Fatal;
+        slot.* = cached;
     }
 
     fn getOrDecodeCallSiteDescriptor(
         self: *VM,
         ch: *Chunk,
+        callsite_id: u16,
         callsite_byte_offset: usize,
     ) VMError!*chunk.CallSiteDescriptor {
         if (callsite_byte_offset >= ch.code.items.len) return error.Fatal;
-        try ensureCallsiteArraysForOffset(ch, callsite_byte_offset);
+        if (callsite_id >= ch.callsite_descriptors.items.len) return error.Fatal;
 
-        if (ch.callsite_descriptors.items[callsite_byte_offset]) |*desc| {
-            return desc;
+        if (ch.callsite_descriptors.items[callsite_id].initialized) {
+            return &ch.callsite_descriptors.items[callsite_id];
         }
 
         const op: bytecode.OpCode = @enumFromInt(ch.code.items[callsite_byte_offset]);
         const operands = ch.code.items[callsite_byte_offset + 1 ..];
-        var desc = try decodeCallSiteDescriptorFromOperands(op, operands);
-        desc.method_sym = try self.callMethodSymbolFromConstant(ch, desc.method_idx);
+        const desc = try decodeCallSiteDescriptorFromOperands(op, operands);
+        _ = try self.callMethodSymbolFromConstant(ch, desc.method_idx);
 
-        ch.callsite_descriptors.items[callsite_byte_offset] = desc;
-        return &ch.callsite_descriptors.items[callsite_byte_offset].?;
+        ch.callsite_descriptors.items[callsite_id] = desc;
+        return &ch.callsite_descriptors.items[callsite_id];
     }
 
     fn getOrCreateJitState(self: *VM, ch: *Chunk) VMError!*jit.State {
@@ -3739,19 +3753,6 @@ pub const VM = struct {
         );
         if (ok == 0) return null;
         return Value{ .raw = raw };
-    }
-
-    fn resolveCallMethodSymbolFromDescriptor(
-        self: *VM,
-        ch: *Chunk,
-        desc: *chunk.CallSiteDescriptor,
-    ) VMError!*SymbolObject {
-        if (desc.method_sym) |sym| {
-            return sym;
-        }
-        const sym = try self.callMethodSymbolFromConstant(ch, desc.method_idx);
-        desc.method_sym = sym;
-        return sym;
     }
 
     pub fn addIntegerValues(self: *VM, lhs: Value, rhs: Value) VMError!Value {
@@ -4368,6 +4369,36 @@ pub const VM = struct {
         // prematurely collected.
         if (inside_real_coroutine) {
             self.pushMainStackForGc();
+        }
+
+        // Invalidated results cannot be used again. Drop them during collection
+        // instead of pinning old method/proc graphs until each site runs again.
+        for (&self.shared_callsite_caches) |*slot| {
+            if (slot.*) |cached| {
+                if (cached.method_state_version != self.method_state_version) slot.* = null;
+            }
+        }
+        var cache_chunks = self.callsite_cache_chunks.keyIterator();
+        while (cache_chunks.next()) |ptr| {
+            const ch = ptr.*;
+            const caches = ch.callsite_caches.items;
+            var populated = false;
+            for (caches) |*slot| {
+                if (slot.*) |cached| {
+                    if (cached.method_state_version != self.method_state_version) {
+                        slot.* = null;
+                    } else {
+                        populated = true;
+                    }
+                }
+            }
+            if (!populated) {
+                _ = self.callsite_cache_chunks.remove(ch);
+                continue;
+            }
+            const start: *anyopaque = @ptrCast(caches.ptr);
+            const end: *anyopaque = @ptrFromInt(@intFromPtr(start) + caches.len * @sizeOf(?*const CallSiteCache));
+            bdwgc.c.GC_push_all_eager(start, end);
         }
 
         for (self.finalizers.items) |group| {
@@ -6158,19 +6189,18 @@ pub const VM = struct {
             },
 
             .CALL => {
-                const callsite_byte_offset = instr_idx; // byte offset of the CALL opcode
-                // Advance frame.ip past the 6 CALL operand bytes
-                frame.ip += 6;
-                operand_cursor += 6;
-                const call_desc = if (callsite_byte_offset < frame.chunk.callsite_descriptors.items.len and frame.chunk.callsite_descriptors.items[callsite_byte_offset] != null)
-                    &frame.chunk.callsite_descriptors.items[callsite_byte_offset].?
+                const callsite_id = readU16At(operands, 6);
+                frame.ip += bytecode.opcodeOperandSize(.CALL);
+                operand_cursor += bytecode.opcodeOperandSize(.CALL);
+                const call_desc = if (callsite_id < frame.chunk.callsite_descriptors.items.len and frame.chunk.callsite_descriptors.items[callsite_id].initialized)
+                    &frame.chunk.callsite_descriptors.items[callsite_id]
                 else
-                    try self.getOrDecodeCallSiteDescriptor(frame.chunk, callsite_byte_offset);
+                    try self.getOrDecodeCallSiteDescriptor(frame.chunk, callsite_id, instr_idx);
                 const argc = call_desc.argc;
                 const call_style: ReceiverCallStyle = bytecode.decodeReceiverCallStyle(call_desc.call_flags);
                 const args_array_mode = bytecode.argsArrayMode(call_desc.call_flags);
                 const block_chunk_id = call_desc.block_chunk_id;
-                const method_name_sym = call_desc.method_sym orelse try self.resolveCallMethodSymbolFromDescriptor(frame.chunk, call_desc);
+                const method_name_sym = try self.callMethodSymbolFromConstant(frame.chunk, call_desc.method_idx);
 
                 const block = if (block_chunk_id == 0)
                     null
@@ -6198,8 +6228,8 @@ pub const VM = struct {
                     if (call_style != .explicit) {
                         // Inline cache check: avoid calling resolveMethodForCallSite on cache hit
                         const caches = frame.chunk.callsite_caches.items;
-                        if (callsite_byte_offset < caches.len) {
-                            if (caches[callsite_byte_offset]) |cached| {
+                        if (callsite_id < caches.len) {
+                            if (caches[callsite_id]) |cached| {
                                 const dispatch_class = self.getDispatchClass(receiver);
                                 if (cached.receiver_class == dispatch_class and
                                     cached.method_name == method_name_sym and
@@ -6275,7 +6305,7 @@ pub const VM = struct {
                             }
                         }
                         // Cache miss: full resolution
-                        const resolved = try self.resolveMethodForCallSite(frame, callsite_byte_offset, receiver, method_name_sym);
+                        const resolved = try self.resolveMethodForCallSite(frame, callsite_id, receiver, method_name_sym);
                         if (resolved) |method| {
                             if (try self.isMethodCallable(receiver, method, call_style)) {
                                 switch (method.entry.method) {
@@ -6311,18 +6341,17 @@ pub const VM = struct {
                     self.stack.shrinkRetainingCapacity(receiver_index);
                 }
 
-                try self.callMethodHelperForExecuteInstruction(frame, callsite_byte_offset, method_name_sym, call_style, receiver, args, .{ .args_array_mode = args_array_mode, .block = block });
+                try self.callMethodHelperForExecuteInstruction(frame, callsite_id, method_name_sym, call_style, receiver, args, .{ .args_array_mode = args_array_mode, .block = block });
             },
 
             .CALL_KW => {
-                const callsite_byte_offset = instr_idx; // byte offset of the CALL_KW opcode
-                // Advance frame.ip past the 9 CALL_KW operand bytes
-                frame.ip += 9;
-                operand_cursor += 9;
-                const call_desc = if (callsite_byte_offset < frame.chunk.callsite_descriptors.items.len and frame.chunk.callsite_descriptors.items[callsite_byte_offset] != null)
-                    &frame.chunk.callsite_descriptors.items[callsite_byte_offset].?
+                const callsite_id = readU16At(operands, 9);
+                frame.ip += bytecode.opcodeOperandSize(.CALL_KW);
+                operand_cursor += bytecode.opcodeOperandSize(.CALL_KW);
+                const call_desc = if (callsite_id < frame.chunk.callsite_descriptors.items.len and frame.chunk.callsite_descriptors.items[callsite_id].initialized)
+                    &frame.chunk.callsite_descriptors.items[callsite_id]
                 else
-                    try self.getOrDecodeCallSiteDescriptor(frame.chunk, callsite_byte_offset);
+                    try self.getOrDecodeCallSiteDescriptor(frame.chunk, callsite_id, instr_idx);
                 const argc = call_desc.argc;
                 const kwargc = call_desc.kwargc;
                 const call_style: ReceiverCallStyle = bytecode.decodeReceiverCallStyle(call_desc.call_flags);
@@ -6330,7 +6359,7 @@ pub const VM = struct {
                 const kw_hash_mode = bytecode.kwHashMode(call_desc.call_flags);
                 const kw_metadata_idx = call_desc.kw_metadata_idx;
                 const block_chunk_id = call_desc.block_chunk_id;
-                const method_name_sym = call_desc.method_sym orelse try self.resolveCallMethodSymbolFromDescriptor(frame.chunk, call_desc);
+                const method_name_sym = try self.callMethodSymbolFromConstant(frame.chunk, call_desc.method_idx);
 
                 const block = if (block_chunk_id == 0)
                     null
@@ -6422,13 +6451,14 @@ pub const VM = struct {
                 }
 
                 // Call method with keywords
-                try self.callMethodHelperForExecuteInstruction(frame, callsite_byte_offset, method_name_sym, call_style, receiver, args, .{ .args_array_mode = args_array_mode, .kw_keys = kw_key_slice, .kw_values = kw_value_slice, .block = block });
+                try self.callMethodHelperForExecuteInstruction(frame, callsite_id, method_name_sym, call_style, receiver, args, .{ .args_array_mode = args_array_mode, .kw_keys = kw_key_slice, .kw_values = kw_value_slice, .block = block });
             },
 
             .FORWARD_ARGS_CALL => {
                 const method_idx = readU16From(frame, operands, &operand_cursor);
                 const call_flags = readByteFrom(frame, operands, &operand_cursor);
                 const block_chunk_id = readU16From(frame, operands, &operand_cursor);
+                const callsite_id = readU16From(frame, operands, &operand_cursor);
                 const call_style: ReceiverCallStyle = bytecode.decodeReceiverCallStyle(call_flags);
                 var forwarding_frame = self.forwardingFrame(frame);
 
@@ -6457,7 +6487,7 @@ pub const VM = struct {
                 const method_name_sym = try self.intern(method_name);
 
                 const receiver = self.pop();
-                try self.callMethodHelperForExecuteInstruction(frame, instr_idx, method_name_sym, call_style, receiver, fwd_args, .{ .args_array_mode = true, .kw_keys = kw_keys, .kw_values = kw_values, .block = block });
+                try self.callMethodHelperForExecuteInstruction(frame, callsite_id, method_name_sym, call_style, receiver, fwd_args, .{ .args_array_mode = true, .kw_keys = kw_keys, .kw_values = kw_values, .block = block });
             },
 
             .FORWARD_ARGS_CALL_WITH_PREFIX => {
@@ -6465,6 +6495,7 @@ pub const VM = struct {
                 const call_flags = readByteFrom(frame, operands, &operand_cursor);
                 const block_chunk_id = readU16From(frame, operands, &operand_cursor);
                 const prefix_argc = readByteFrom(frame, operands, &operand_cursor);
+                const callsite_id = readU16From(frame, operands, &operand_cursor);
                 const call_style: ReceiverCallStyle = bytecode.decodeReceiverCallStyle(call_flags);
                 var forwarding_frame = self.forwardingFrame(frame);
 
@@ -6507,7 +6538,7 @@ pub const VM = struct {
                 const method_name_sym = try self.intern(method_name);
 
                 const receiver = self.stack.storage[receiver_idx];
-                try self.callMethodHelperForExecuteInstruction(frame, instr_idx, method_name_sym, call_style, receiver, combined_args, .{ .args_array_mode = true, .kw_keys = kw_keys, .kw_values = kw_values, .block = block });
+                try self.callMethodHelperForExecuteInstruction(frame, callsite_id, method_name_sym, call_style, receiver, combined_args, .{ .args_array_mode = true, .kw_keys = kw_keys, .kw_values = kw_values, .block = block });
             },
 
             .RETURN => {
@@ -7849,7 +7880,8 @@ pub const VM = struct {
                 .CALL => {
                     // Fast path for simple chunk method calls (implicit_self, cache hit, simple sig)
                     const callsite_byte_offset = f.ip;
-                    f.ip += 7; // opcode(1) + method_idx(2) + argc(1) + flags(1) + block_chunk_id(2)
+                    f.ip += 1 + bytecode.opcodeOperandSize(.CALL);
+                    const callsite_id = readU16At(code, callsite_byte_offset + 7);
                     const call_flags = code[callsite_byte_offset + 4];
                     const call_style: ReceiverCallStyle = bytecode.decodeReceiverCallStyle(call_flags);
                     if (call_style != .explicit and !bytecode.argsArrayMode(call_flags)) {
@@ -7860,8 +7892,8 @@ pub const VM = struct {
                         if (block_chunk_id == 0) {
                             const argc: usize = code[callsite_byte_offset + 3];
                             const caches = f.chunk.callsite_caches.items;
-                            if (callsite_byte_offset < caches.len) {
-                                if (caches[callsite_byte_offset]) |cached| {
+                            if (callsite_id < caches.len) {
+                                if (caches[callsite_id]) |cached| {
                                     // Get receiver from stack
                                     const s_len = self.stack.items.len;
                                     const receiver_index = s_len - (argc + 1);
@@ -8046,7 +8078,7 @@ pub const VM = struct {
         return (resolved.entry.original_name orelse resolved.name).name;
     }
 
-    inline fn cachedMethodFrameName(cached: chunk.CallSiteCache) []const u8 {
+    inline fn cachedMethodFrameName(cached: *const chunk.CallSiteCache) []const u8 {
         return (cached.entry.original_name orelse cached.method_name).name;
     }
 
@@ -9365,7 +9397,7 @@ pub const VM = struct {
     fn callMethodHelperForExecuteInstruction(
         self: *VM,
         frame: *CallFrame,
-        callsite_byte_offset: usize,
+        callsite_id: usize,
         method_name_sym: *SymbolObject,
         call_style: ReceiverCallStyle,
         receiver: Value,
@@ -9376,7 +9408,7 @@ pub const VM = struct {
         const kw_keys = opts.kw_keys;
         const kw_values = opts.kw_values;
         const block = opts.block;
-        const resolved = try self.resolveMethodForCallSite(frame, callsite_byte_offset, receiver, method_name_sym);
+        const resolved = try self.resolveMethodForCallSite(frame, callsite_id, receiver, method_name_sym);
         const should_fallback = resolved == null or !(try self.isMethodCallable(receiver, resolved.?, call_style));
         const kwargc: usize = if (kw_values) |vals| vals.len else 0;
         if (should_fallback) {
@@ -13250,7 +13282,8 @@ pub const VM = struct {
         return self.loadFileWrapped(absolute_path, false);
     }
 
-    fn releaseRegexpLiterals(self: *VM, target_chunk: *Chunk) void {
+    fn releaseChunkCaches(self: *VM, target_chunk: *Chunk) void {
+        _ = self.callsite_cache_chunks.remove(target_chunk);
         for (target_chunk.regexp_literal_offsets.items) |byte_offset| {
             _ = self.regexp_literals.remove(.{ .chunk = target_chunk, .byte_offset = byte_offset });
         }
@@ -13270,7 +13303,7 @@ pub const VM = struct {
         defer program.child_chunks.deinit();
         const main_chunk = try self.allocateOwnedMainChunk(&program);
         defer {
-            self.releaseRegexpLiterals(main_chunk);
+            self.releaseChunkCaches(main_chunk);
             main_chunk.deinit();
             self.allocator.destroy(main_chunk);
         }
@@ -13388,7 +13421,7 @@ pub const VM = struct {
         defer eval_program.child_chunks.deinit();
         const eval_main_chunk = try self.allocateOwnedMainChunk(&eval_program);
         defer {
-            self.releaseRegexpLiterals(eval_main_chunk);
+            self.releaseChunkCaches(eval_main_chunk);
             eval_main_chunk.deinit();
             self.allocator.destroy(eval_main_chunk);
         }

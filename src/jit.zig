@@ -177,7 +177,7 @@ pub fn validateChunk(ch: *chunk_mod.Chunk) !void {
                 if (bytecode.decodeReceiverCallStyle(desc.call_flags) != .implicit_self) return error.NotEligible;
                 if (bytecode.argsArrayMode(desc.call_flags) or bytecode.kwHashMode(desc.call_flags)) return error.NotEligible;
                 if (!std.mem.eql(u8, method_name, ch.name)) return error.NotEligible;
-                ip += 7;
+                ip += 1 + bytecode.opcodeOperandSize(.CALL);
             },
             .RETURN => {
                 if (ch.code.items[ip + 1] != 0) return error.NotEligible;
@@ -352,7 +352,7 @@ pub fn generateChunk(allocator: std.mem.Allocator, ch: *chunk_mod.Chunk) !Genera
                 ip += 3;
             },
             .CALL => {
-                const next_ip = ip + 7;
+                const next_ip = ip + 1 + bytecode.opcodeOperandSize(.CALL);
                 try writer.print("  if (stack[sp - {d}] != self_raw) {{\n", .{ch.arity + 1});
                 try writer.writeAll(
                     \\    *ok = 0;
@@ -457,7 +457,7 @@ fn dupeZ(allocator: std.mem.Allocator, owned: []u8) ![:0]u8 {
 }
 
 fn decodeCallDescriptor(ch: *chunk_mod.Chunk, ip: usize) !chunk_mod.CallSiteDescriptor {
-    if (ip + 6 >= ch.code.items.len) return error.NotEligible;
+    if (ip + 1 + bytecode.opcodeOperandSize(.CALL) > ch.code.items.len) return error.NotEligible;
     return .{
         .method_idx = readU16(ch.code.items, ip + 1),
         .argc = ch.code.items[ip + 3],

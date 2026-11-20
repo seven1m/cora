@@ -81,14 +81,16 @@ pub const CallSiteCache = struct {
     entry: MethodEntry,
 };
 
-pub const CallSiteDescriptor = struct {
-    method_idx: u16,
-    method_sym: ?*SymbolObject = null,
-    argc: u8,
-    call_flags: u8,
+// Pointer-free call metadata; method symbols live in the constant pool.
+pub const CallSiteDescriptor = packed struct(u128) {
+    method_idx: u16 = 0,
+    argc: u8 = 0,
+    call_flags: u8 = 0,
     kwargc: u8 = 0,
     kw_metadata_idx: u16 = 0,
-    block_chunk_id: u16,
+    block_chunk_id: u16 = 0,
+    initialized: bool = false,
+    padding: u55 = 0,
 };
 
 pub const BlockCallHandler = struct {
@@ -146,8 +148,8 @@ pub const Chunk = struct {
     max_stack_depth: ?u16 = null,
 
     // Callsite caches indexed by callsite_id
-    callsite_caches: std.ArrayList(?CallSiteCache) = .empty,
-    callsite_descriptors: std.ArrayList(?CallSiteDescriptor) = .empty,
+    callsite_caches: std.ArrayList(?*const CallSiteCache) = .empty,
+    callsite_descriptors: std.ArrayList(CallSiteDescriptor) = .empty,
     // Lets the VM release literal roots when a temporary load/eval chunk ends.
     regexp_literal_offsets: std.ArrayList(usize) = .empty,
     block_call_handlers: std.ArrayList(BlockCallHandler) = .empty,
@@ -375,8 +377,9 @@ pub const Chunk = struct {
         try self.code.append(self.allocator, depth);
     }
 
-    /// Emit CALL: u16 method_idx, u8 argc, u8 call_flags, u16 block_chunk_id
+    /// Emit CALL: u16 method_idx, u8 argc, u8 call_flags, u16 block_chunk_id, u16 callsite_id
     pub fn emitCall(self: *Chunk, method_idx: u16, argc: u8, call_style: u8, block_chunk_id: u16, line: u32) !void {
+        const callsite_id = try self.nextCallsiteId();
         try self.recordLine(line);
         try self.code.append(self.allocator, @intFromEnum(OpCode.CALL));
         try self.code.append(self.allocator, @intCast(method_idx & 0xFF));
@@ -385,10 +388,13 @@ pub const Chunk = struct {
         try self.code.append(self.allocator, call_style);
         try self.code.append(self.allocator, @intCast(block_chunk_id & 0xFF));
         try self.code.append(self.allocator, @intCast(block_chunk_id >> 8));
+        try self.code.append(self.allocator, @intCast(callsite_id & 0xFF));
+        try self.code.append(self.allocator, @intCast(callsite_id >> 8));
     }
 
-    /// Emit CALL_KW: u16 method_idx, u8 argc, u8 kwargc, u8 call_flags, u16 kw_metadata_idx, u16 block_chunk_id
+    /// Emit CALL_KW: u16 method_idx, u8 argc, u8 kwargc, u8 call_flags, u16 kw_metadata_idx, u16 block_chunk_id, u16 callsite_id
     pub fn emitCallKw(self: *Chunk, method_idx: u16, argc: u8, kwargc: u8, call_style: u8, kw_metadata_idx: u16, block_chunk_id: u16, line: u32) !void {
+        const callsite_id = try self.nextCallsiteId();
         try self.recordLine(line);
         try self.code.append(self.allocator, @intFromEnum(OpCode.CALL_KW));
         try self.code.append(self.allocator, @intCast(method_idx & 0xFF));
@@ -400,10 +406,13 @@ pub const Chunk = struct {
         try self.code.append(self.allocator, @intCast(kw_metadata_idx >> 8));
         try self.code.append(self.allocator, @intCast(block_chunk_id & 0xFF));
         try self.code.append(self.allocator, @intCast(block_chunk_id >> 8));
+        try self.code.append(self.allocator, @intCast(callsite_id & 0xFF));
+        try self.code.append(self.allocator, @intCast(callsite_id >> 8));
     }
 
-    /// Emit FORWARD_ARGS_CALL: u16 method_idx, u8 call_flags, u16 block_chunk_id
+    /// Emit FORWARD_ARGS_CALL: u16 method_idx, u8 call_flags, u16 block_chunk_id, u16 callsite_id
     pub fn emitForwardArgsCall(self: *Chunk, method_idx: u16, call_style: u8, block_chunk_id: u16, line: u32) !void {
+        const callsite_id = try self.nextCallsiteId();
         try self.recordLine(line);
         try self.code.append(self.allocator, @intFromEnum(OpCode.FORWARD_ARGS_CALL));
         try self.code.append(self.allocator, @intCast(method_idx & 0xFF));
@@ -411,10 +420,13 @@ pub const Chunk = struct {
         try self.code.append(self.allocator, call_style);
         try self.code.append(self.allocator, @intCast(block_chunk_id & 0xFF));
         try self.code.append(self.allocator, @intCast(block_chunk_id >> 8));
+        try self.code.append(self.allocator, @intCast(callsite_id & 0xFF));
+        try self.code.append(self.allocator, @intCast(callsite_id >> 8));
     }
 
-    /// Emit FORWARD_ARGS_CALL_WITH_PREFIX: u16 method_idx, u8 call_flags, u16 block_chunk_id, u8 prefix_argc
+    /// Emit FORWARD_ARGS_CALL_WITH_PREFIX: u16 method_idx, u8 call_flags, u16 block_chunk_id, u8 prefix_argc, u16 callsite_id
     pub fn emitForwardArgsCallWithPrefix(self: *Chunk, method_idx: u16, call_style: u8, block_chunk_id: u16, prefix_argc: u8, line: u32) !void {
+        const callsite_id = try self.nextCallsiteId();
         try self.recordLine(line);
         try self.code.append(self.allocator, @intFromEnum(OpCode.FORWARD_ARGS_CALL_WITH_PREFIX));
         try self.code.append(self.allocator, @intCast(method_idx & 0xFF));
@@ -423,6 +435,8 @@ pub const Chunk = struct {
         try self.code.append(self.allocator, @intCast(block_chunk_id & 0xFF));
         try self.code.append(self.allocator, @intCast(block_chunk_id >> 8));
         try self.code.append(self.allocator, prefix_argc);
+        try self.code.append(self.allocator, @intCast(callsite_id & 0xFF));
+        try self.code.append(self.allocator, @intCast(callsite_id >> 8));
     }
 
     pub fn emitSuper(self: *Chunk, argc: u8, flags: u8, block_chunk_id: u16, line: u32) !void {
@@ -481,9 +495,8 @@ pub const Chunk = struct {
 
     /// Allocate a new callsite ID and return it.
     pub fn nextCallsiteId(self: *Chunk) !u16 {
-        const id: u16 = @intCast(self.callsite_caches.items.len);
-        try self.callsite_caches.append(self.allocator, null);
-        try self.callsite_descriptors.append(self.allocator, null);
+        const id = std.math.cast(u16, self.callsite_descriptors.items.len) orelse return error.TooManyCallSites;
+        try self.callsite_descriptors.append(self.allocator, .{});
         return id;
     }
 
@@ -662,12 +675,13 @@ pub const Chunk = struct {
                 const call_flags = self.code.items[ip];
                 ip += 1;
                 const block_id = readU16(self.code.items, &ip);
+                const callsite_id = readU16(self.code.items, &ip);
                 try writer.print("CALL {d}", .{method_idx});
                 if (method_idx < self.constants.items.len) {
                     const c = self.constants.items[method_idx];
                     if (c == .string) try writer.print(" (\"{s}\")", .{c.string});
                 }
-                try writer.print(", argc={d}, flags={d}, block={d}\n", .{ argc, call_flags, block_id });
+                try writer.print(", argc={d}, flags={d}, block={d}, site={d}\n", .{ argc, call_flags, block_id, callsite_id });
             },
 
             .CALL_KW => {
@@ -680,7 +694,8 @@ pub const Chunk = struct {
                 ip += 1;
                 const kw_metadata_idx = readU16(self.code.items, &ip);
                 const block_id = readU16(self.code.items, &ip);
-                try writer.print("CALL_KW {d}, {d}, {d}, {d}, {d}, {d}\n", .{ method_idx, argc, kwargc, call_flags, kw_metadata_idx, block_id });
+                const callsite_id = readU16(self.code.items, &ip);
+                try writer.print("CALL_KW {d}, {d}, {d}, {d}, {d}, {d}, site={d}\n", .{ method_idx, argc, kwargc, call_flags, kw_metadata_idx, block_id, callsite_id });
             },
 
             .FORWARD_ARGS_CALL => {
@@ -688,12 +703,13 @@ pub const Chunk = struct {
                 const call_flags = self.code.items[ip];
                 ip += 1;
                 const block_id = readU16(self.code.items, &ip);
+                const callsite_id = readU16(self.code.items, &ip);
                 try writer.print("FORWARD_ARGS_CALL {d}", .{method_idx});
                 if (method_idx < self.constants.items.len) {
                     const c = self.constants.items[method_idx];
                     if (c == .string) try writer.print(" (\"{s}\")", .{c.string});
                 }
-                try writer.print(", flags={d}, block={d}\n", .{ call_flags, block_id });
+                try writer.print(", flags={d}, block={d}, site={d}\n", .{ call_flags, block_id, callsite_id });
             },
 
             .FORWARD_ARGS_CALL_WITH_PREFIX => {
@@ -703,12 +719,13 @@ pub const Chunk = struct {
                 const block_id = readU16(self.code.items, &ip);
                 const prefix_argc = self.code.items[ip];
                 ip += 1;
+                const callsite_id = readU16(self.code.items, &ip);
                 try writer.print("FORWARD_ARGS_CALL_WITH_PREFIX {d}", .{method_idx});
                 if (method_idx < self.constants.items.len) {
                     const c = self.constants.items[method_idx];
                     if (c == .string) try writer.print(" (\"{s}\")", .{c.string});
                 }
-                try writer.print(", flags={d}, block={d}, prefix={d}\n", .{ call_flags, block_id, prefix_argc });
+                try writer.print(", flags={d}, block={d}, prefix={d}, site={d}\n", .{ call_flags, block_id, prefix_argc, callsite_id });
             },
 
             .DEF_METHOD, .DEF_SINGLETON_METHOD, .ALIAS_METHOD, .ALIAS_GLOBAL_VARIABLE, .PUSH_REGEXP, .DEF_MODULE => {

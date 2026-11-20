@@ -48,10 +48,10 @@ pub const OpCode = enum(u8) {
     WHEN_SPLAT, // Operand: u8 (0=truthy any, 1=case match any)
 
     // Method calls
-    CALL, // Operands: u16 (method name index), u8 (argc), u8 (call_flags), u16 (block chunk id)
-    CALL_KW, // Operands: u16 method_idx, u8 argc, u8 kwargc, u8 call_flags, u16 kw_metadata_idx, u16 block_chunk_id
-    FORWARD_ARGS_CALL, // Operands: u16 method_idx, u8 call_flags, u16 block_chunk_id
-    FORWARD_ARGS_CALL_WITH_PREFIX, // Operands: u16 method_idx, u8 call_flags, u16 block_chunk_id, u8 prefix_argc
+    CALL, // Operands: u16 method_idx, u8 argc, u8 call_flags, u16 block_chunk_id, u16 callsite_id
+    CALL_KW, // Operands: u16 method_idx, u8 argc, u8 kwargc, u8 call_flags, u16 kw_metadata_idx, u16 block_chunk_id, u16 callsite_id
+    FORWARD_ARGS_CALL, // Operands: u16 method_idx, u8 call_flags, u16 block_chunk_id, u16 callsite_id
+    FORWARD_ARGS_CALL_WITH_PREFIX, // Operands: u16 method_idx, u8 call_flags, u16 block_chunk_id, u8 prefix_argc, u16 callsite_id
     ENTER_OPTIONAL_DEFAULTS, // No operands
     RETURN, // Operand: u8 (0=implicit, 1=explicit)
 
@@ -303,17 +303,17 @@ pub fn opcodeOperandSize(op: OpCode) usize {
         // ALIAS_GLOBAL_VARIABLE: u16 new_name + u16 old_name = 4 bytes
         .ALIAS_GLOBAL_VARIABLE => 4,
 
-        // CALL: u16 method_idx + u8 argc + u8 call_flags + u16 block_chunk_id = 6 bytes
-        .CALL => 6,
+        // CALL: u16 method_idx + u8 argc + u8 call_flags + u16 block_chunk_id + u16 callsite_id = 8 bytes
+        .CALL => 8,
 
-        // CALL_KW: u16 method_idx + u8 argc + u8 kwargc + u8 call_flags + u16 kw_metadata_idx + u16 block_chunk_id = 9 bytes
-        .CALL_KW => 9,
+        // CALL_KW: u16 method_idx + u8 argc + u8 kwargc + u8 call_flags + u16 kw_metadata_idx + u16 block_chunk_id + u16 callsite_id = 11 bytes
+        .CALL_KW => 11,
 
-        // FORWARD_ARGS_CALL: u16 method_idx + u8 call_flags + u16 block_chunk_id = 5 bytes
-        .FORWARD_ARGS_CALL => 5,
+        // FORWARD_ARGS_CALL: u16 method_idx + u8 call_flags + u16 block_chunk_id + u16 callsite_id = 7 bytes
+        .FORWARD_ARGS_CALL => 7,
 
-        // FORWARD_ARGS_CALL_WITH_PREFIX: u16 method_idx + u8 call_flags + u16 block_chunk_id + u8 prefix_argc = 6 bytes
-        .FORWARD_ARGS_CALL_WITH_PREFIX => 6,
+        // FORWARD_ARGS_CALL_WITH_PREFIX: u16 method_idx + u8 call_flags + u16 block_chunk_id + u8 prefix_argc + u16 callsite_id = 8 bytes
+        .FORWARD_ARGS_CALL_WITH_PREFIX => 8,
     };
 }
 
@@ -358,7 +358,6 @@ pub fn maxStackDepth(allocator: std.mem.Allocator, code: []const u8) !u16 {
                 next_depth -= 1;
             },
             .CALL => {
-                if (ip + 6 >= code.len) return error.InvalidBytecode;
                 const argc: usize = code[ip + 3];
                 const block_chunk_id = @as(u16, code[ip + 5]) | (@as(u16, code[ip + 6]) << 8);
                 const block_arg_count: usize = if (block_chunk_id == std.math.maxInt(u16)) 1 else 0;

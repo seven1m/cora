@@ -31,7 +31,9 @@
 
 Prefer not to add new opcodes when an existing mechanism can be extended. When a new opcode is necessary, keep it general and reusable. For example, prefer adding array-manipulation support plus a call flag over inventing a feature-specific `CALL_*` opcode.
 
-**CALL instruction:** `CALL` operands are `method_idx` (`U16`), `argc` (`U8`), and `block_chunk_id` (`U16`), plus call flags for implicit-self and args-array mode. `CALL_KW` extends that core with keyword count and a keyword metadata index.
+**CALL instruction:** `CALL` operands are `method_idx` (`U16`), `argc` (`U8`), call flags (`U8`), `block_chunk_id` (`U16`), and `callsite_id` (`U16`). `CALL_KW` adds keyword count and a keyword metadata index before the block/site IDs. Forwarding call opcodes also end with a `callsite_id`. IDs are dense within each chunk and index its cache/descriptor arrays; byte offsets are used for control flow and block handlers, not cache allocation.
+
+**Call-site storage:** Descriptors are pointer-free packed 16-byte records; method symbols live in the constant pool. Cache pointer arrays allocate on first use; descriptor buffers are trimmed after compilation. Cache slots point to immutable GC-owned dispatch results. A bounded sharing index reuses results for the same dispatch class, method name, and method-state version. The GC root hook traces populated chunks' cache slots, drops stale versions, and stops tracking emptied chunks; temporary load/eval chunks unregister their slots before destruction.
 
 **CallFrames:** A frame contains `chunk`, `ip`, `stack_base`, `self_value`, `ep` (Environment pointer), optional `block`, and `frame_type` (method/lambda/proc). Local variables are stored in the `Environment`, not directly in the `CallFrame`.
 

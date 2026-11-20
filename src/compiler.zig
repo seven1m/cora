@@ -240,6 +240,7 @@ pub const Compiler = struct {
     }
 
     fn finalizeChunkLocals(self: *Compiler, target_chunk: *Chunk) !void {
+        target_chunk.callsite_descriptors.shrinkAndFree(self.allocator, target_chunk.callsite_descriptors.items.len);
         target_chunk.locals_count = @intCast(self.locals.items.len);
         for (self.locals.items) |local| {
             try target_chunk.local_names.append(
