@@ -701,7 +701,9 @@ fn detachFunction(vm: *VM, args: []Value) VMError!Value {
             return vm.getGlobalValue("$?");
         }
         if (rc == 0) {
-            try vm.threadYield();
+            // Park the waiter so an idle scheduler can sleep, while bounding
+            // child-exit detection latency and still delivering async events.
+            try vm.timedSleepCurrentThread(10);
             continue;
         }
 

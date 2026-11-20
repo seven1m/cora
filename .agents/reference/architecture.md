@@ -76,6 +76,8 @@ hashes, and the current loading file. Suspended native stacks remain GC roots.
 Sleep and I/O waiters become ready when their deadline expires, their descriptor
 is ready, or they are interrupted. When no thread is ready, the scheduler polls
 descriptors and the nearest deadline, with bounded waits for asynchronous events.
+Thread join/value waiters park with a target thread and become ready when that
+target terminates; timed joins also use a sleep deadline.
 Process signal handlers run on the main thread, waking it when necessary.
 
 ## Exception Handling

@@ -548,6 +548,7 @@ pub const ThreadObject = struct {
     call_context: CallContext = .{},
     ops_until_preempt: u32 = 0,
     sleep_deadline_ms: ?i64 = null,
+    joining_thread: ?*ThreadObject = null,
     io_wait: ?IoWait = null,
     args: ?[]Value = null,
     main_fiber: ?*FiberObject = null,

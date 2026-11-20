@@ -4641,6 +4641,7 @@ pub const VM = struct {
         main_thread_obj.call_context = .{};
         main_thread_obj.ops_until_preempt = self.thread_preempt_quantum_ops;
         main_thread_obj.sleep_deadline_ms = null;
+        main_thread_obj.joining_thread = null;
         main_thread_obj.io_wait = null;
         main_thread_obj.args = null;
         main_thread_obj.main_fiber = self.main_fiber;
@@ -4738,6 +4739,7 @@ pub const VM = struct {
         thread_obj.call_context = .{};
         thread_obj.ops_until_preempt = self.thread_preempt_quantum_ops;
         thread_obj.sleep_deadline_ms = null;
+        thread_obj.joining_thread = null;
         thread_obj.io_wait = null;
         thread_obj.args = null;
         const root_fiber = self.gc_allocator.create(value.FiberObject) catch return error.Fatal;
@@ -4937,11 +4939,9 @@ pub const VM = struct {
                             const pending_throw = self.pendingThrow().?;
                             self.setPendingException(try self.createUncaughtThrowError(pending_throw.tag, pending_throw.value));
                         }
-                        thread.state = .terminated;
-                        thread.exception = self.pendingException();
-                        thread.terminated_normally = false;
-                        self.releaseThreadOwnedMutexes(thread);
-                        return;
+                        // Use the shared thread-exit path, including normal
+                        // termination for Thread#kill and abort_on_exception.
+                        return error.UnhandledException;
                     }
                     return err;
                 };
@@ -5068,6 +5068,14 @@ pub const VM = struct {
                 continue;
             }
 
+            if (thread.joining_thread) |target| {
+                if (target.state == .terminated) {
+                    thread.state = .running;
+                    self.addRunnableThreadIfAbsent(thread);
+                    continue;
+                }
+            }
+
             if (thread.sleep_deadline_ms) |deadline_ms| {
                 if (now_ms >= deadline_ms) {
                     thread.sleep_deadline_ms = null;
@@ -5158,6 +5166,21 @@ pub const VM = struct {
         };
 
         thread.sleep_deadline_ms = deadline_ms;
+        defer thread.sleep_deadline_ms = null;
+
+        thread.state = .sleeping;
+        while (thread.state == .sleeping) {
+            try self.threadYield();
+        }
+    }
+
+    /// Park a joiner until its target exits, it is interrupted, or time expires.
+    pub fn waitForThreadTermination(self: *VM, target: *value.ThreadObject, timeout_ms: ?i64) VMError!void {
+        if (target.state == .terminated) return;
+        const thread = self.current_thread orelse return error.Fatal;
+        thread.joining_thread = target;
+        defer thread.joining_thread = null;
+        thread.sleep_deadline_ms = if (timeout_ms) |ms| monotonicMilliseconds() + ms else null;
         defer thread.sleep_deadline_ms = null;
 
         thread.state = .sleeping;

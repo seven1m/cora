@@ -111,6 +111,18 @@ test "Thread#join waits for completion" {
     try std.testing.expectEqual(@as(i64, 1), result.toInteger());
 }
 
+test "Thread join and value park all waiters until their target exits" {
+    const result = try evalCode(
+        \\target = Thread.new { sleep 0.1; 42 }
+        \\joiner = Thread.new { target.join(10).equal?(target) }
+        \\reader = Thread.new { target.value }
+        \\Thread.pass
+        \\parked = joiner.status == "sleep" && reader.status == "sleep"
+        \\parked && joiner.value && reader.value == 42
+    );
+    try std.testing.expect(result.isTruthy());
+}
+
 test "Thread#join timeout waits for elapsed time" {
     const result = try evalCode(
         \\thread = Thread.new { sleep 0.2 }

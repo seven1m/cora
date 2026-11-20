@@ -342,6 +342,53 @@ test "Process.detach from concurrent workers preserves coroutine return contexts
     try std.testing.expect(result.isTruthy());
 }
 
+test "Process.detach parks while waiting and preserves child status" {
+    if (builtin.os.tag == .windows) return;
+
+    const result = try evalCode(
+        \\pid = Process.spawn("/bin/sh", "-c", "sleep 0.15; exit 23")
+        \\waiter = Process.detach(pid)
+        \\Thread.pass
+        \\parked = waiter.status == "sleep"
+        \\worker = Thread.new { 42 }
+        \\status = waiter.value
+        \\parked && worker.value == 42 && status.pid == pid && status.exitstatus == 23
+    );
+    try std.testing.expect(result.isTruthy());
+}
+
+test "Process.detach wait delivers signals on the main thread" {
+    if (builtin.os.tag == .windows) return;
+
+    const result = try evalCode(
+        \\main = Thread.current
+        \\handled = false
+        \\previous = Signal.trap("USR1") { handled = Thread.current.equal?(main) }
+        \\pid = Process.spawn("/bin/sh", "-c", "sleep 0.05; kill -USR1 #{Process.pid}; sleep 0.05; exit 7")
+        \\begin
+        \\  status = Process.detach(pid).value
+        \\  handled && status.pid == pid && status.exitstatus == 7
+        \\ensure
+        \\  Signal.trap("USR1", previous)
+        \\end
+    );
+    try std.testing.expect(result.isTruthy());
+}
+
+test "Process.detach sleeping waiter can be killed" {
+    if (builtin.os.tag == .windows) return;
+
+    const result = try evalCode(
+        \\pid = Process.spawn("/bin/sh", "-c", "sleep 0.15; exit 19")
+        \\waiter = Process.detach(pid)
+        \\Thread.pass
+        \\waiter.kill.join
+        \\Process.wait(pid)
+        \\!waiter.alive? && $?.exitstatus == 19
+    );
+    try std.testing.expect(result.isTruthy());
+}
+
 test "Process.detach raises TypeError for non-integerable arg" {
     if (builtin.os.tag == .windows) return;
 

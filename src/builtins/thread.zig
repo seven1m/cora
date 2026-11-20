@@ -330,7 +330,8 @@ fn builtinThreadJoin(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError
 
         const deadline_ms = @as(f64, @floatFromInt(vm_mod.monotonicMilliseconds())) + seconds * 1000.0;
         while (thread.state != .terminated and @as(f64, @floatFromInt(vm_mod.monotonicMilliseconds())) < deadline_ms) {
-            try vm.threadYield();
+            const remaining_ms = deadline_ms - @as(f64, @floatFromInt(vm_mod.monotonicMilliseconds()));
+            try vm.waitForThreadTermination(thread, @intFromFloat(@ceil(@max(1, @min(remaining_ms, 100)))));
         }
 
         if (thread.state != .terminated) {
@@ -339,7 +340,7 @@ fn builtinThreadJoin(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError
     } else {
         // Wait for thread to finish.
         while (thread.state != .terminated) {
-            try vm.threadYield();
+            try vm.waitForThreadTermination(thread, null);
         }
     }
 
@@ -436,7 +437,7 @@ fn builtinThreadValue(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMErro
 
     // Wait for thread to finish
     while (thread.state != .terminated) {
-        try vm.threadYield();
+        try vm.waitForThreadTermination(thread, null);
     }
 
     // Re-raise exception if thread died with one
