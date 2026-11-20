@@ -4,6 +4,20 @@ const test_helper = @import("../test_helper.zig");
 const evalCode = test_helper.evalCode;
 const evalCodeWithOutput = test_helper.evalCodeWithOutput;
 
+test "Array#replace preserves its elements when replacing itself" {
+    const result = try evalCode(
+        \\a = [1, 2]
+        \\wrapper = Object.new
+        \\wrapper.define_singleton_method(:to_ary) { a }
+        \\a.replace(a)
+        \\a.replace(wrapper)
+    );
+    const items = result.toArrayObject().elements.items;
+    try std.testing.expectEqual(@as(usize, 2), items.len);
+    try std.testing.expectEqual(@as(i64, 1), items[0].toInteger());
+    try std.testing.expectEqual(@as(i64, 2), items[1].toInteger());
+}
+
 test "Array#sample handles a random generator mutating the receiver" {
     const result = try evalCode(
         \\a = [1, 2, 3]

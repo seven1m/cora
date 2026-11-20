@@ -3011,6 +3011,7 @@ pub fn builtinArrayReplace(vm: *VM, receiver: Value, args: []Value, _: ?Block) V
 
     const target = receiver.toArrayObject();
     const source = replacement.toArrayObject();
+    if (target == source) return receiver;
     target.elements.clearRetainingCapacity();
     for (source.elements.items) |elem| {
         target.elements.append(vm.gc_allocator, elem) catch return error.Fatal;
