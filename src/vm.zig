@@ -1917,6 +1917,7 @@ pub const VM = struct {
         self.object_class.module.constants.put(stderr_sym, .{ .value = stderr_obj }) catch return error.Fatal;
         try self.setGlobal("$stdin", stdin_obj);
         try self.setGlobal("$stdout", stdout_obj);
+        try self.aliasGlobalVariable("$>", "$stdout");
         try self.setGlobal("$stderr", stderr_obj);
         try self.setGlobal("$VERBOSE", Value.boolean(false));
         try self.setGlobal("$/", try self.newString("\n", false));
@@ -7176,25 +7177,7 @@ pub const VM = struct {
                 const new_name = constants[new_name_idx].string;
                 const old_name = constants[old_name_idx].string;
 
-                // Find or create the slot that old_name resolves to
-                const old_slot = self.globals.get(old_name) orelse blk: {
-                    const slot = self.gc_allocator.create(GlobalSlot) catch return error.Fatal;
-                    if (self.currentThreadGlobalSlot(old_name)) |_| {
-                        slot.storage = .{ .thread_local = old_name };
-                    } else {
-                        slot.storage = .{ .regular = Value.nil() };
-                        const owned = self.allocator.dupe(u8, old_name) catch return error.Fatal;
-                        self.globals.put(owned, slot) catch return error.Fatal;
-                    }
-                    break :blk slot;
-                };
-
-                // Bind new_name to the same slot
-                if (self.globals.fetchRemove(new_name)) |kv| {
-                    self.allocator.free(kv.key);
-                }
-                const owned_new = self.allocator.dupe(u8, new_name) catch return error.Fatal;
-                self.globals.put(owned_new, old_slot) catch return error.Fatal;
+                try self.aliasGlobalVariable(new_name, old_name);
 
                 // alias returns nil in Ruby
                 try self.push(Value.NIL);
@@ -11182,6 +11165,28 @@ pub const VM = struct {
 
         const name_sym = try self.intern(name);
         obj_ptr.instance_variables.?.put(self.gc_allocator, name_sym, val) catch return error.Fatal;
+    }
+
+    fn aliasGlobalVariable(self: *VM, new_name: []const u8, old_name: []const u8) VMError!void {
+        // Find or create the slot that old_name resolves to
+        const old_slot = self.globals.get(old_name) orelse blk: {
+            const slot = self.gc_allocator.create(GlobalSlot) catch return error.Fatal;
+            if (self.currentThreadGlobalSlot(old_name)) |_| {
+                slot.storage = .{ .thread_local = old_name };
+            } else {
+                slot.storage = .{ .regular = Value.nil() };
+                const owned = self.allocator.dupe(u8, old_name) catch return error.Fatal;
+                self.globals.put(owned, slot) catch return error.Fatal;
+            }
+            break :blk slot;
+        };
+
+        // Bind new_name to the same slot
+        if (self.globals.fetchRemove(new_name)) |kv| {
+            self.allocator.free(kv.key);
+        }
+        const owned_new = self.allocator.dupe(u8, new_name) catch return error.Fatal;
+        self.globals.put(owned_new, old_slot) catch return error.Fatal;
     }
 
     pub fn setGlobal(self: *VM, name: []const u8, val: Value) VMError!void {
