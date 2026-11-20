@@ -4,6 +4,46 @@ const test_helper = @import("../test_helper.zig");
 const evalCode = test_helper.evalCode;
 const evalCodeWithOutput = test_helper.evalCodeWithOutput;
 
+test "Regexp match predicate preserves backreferences and supports capture-dependent patterns" {
+    const result = try evalCode(
+        \\/(saved)/.match("saved")
+        \\previous = $~
+        \\checks = [
+        \\  /(a)\1/.match?("aa"),
+        \\  !/(a)\1/.match?("ab"),
+        \\  /(?<word>ab)\k<word>/.match?("abab"),
+        \\  /(?<=a)b/.match?("ab"),
+        \\  /(x)?y/.match?("y"),
+        \\  "abab".match?(/(ab)\1/),
+        \\  !/x/.match?(nil),
+        \\  !/x/.match?("x", 2)
+        \\]
+        \\checks.all? && $~.equal?(previous) && $1 == "saved" && $& == "saved"
+    );
+    try std.testing.expect(result.isTrue());
+}
+
+test "Regexp match predicate handles character offsets and coerced sources" {
+    const result = try evalCode(
+        \\source = Object.new
+        \\def source.to_str; "éab"; end
+        \\position = Object.new
+        \\def position.to_int; 1; end
+        \\checks = [
+        \\  /a/.match?(source, position),
+        \\  /a/.match?("éab", -2),
+        \\  !/a/.match?("éab", 2),
+        \\  !/a/.match?("éab", -4),
+        \\  /$/.match?("éab", 3),
+        \\  !/$/.match?("éab", 4),
+        \\  /ab/.match?(:abc),
+        \\  /./.match?("\xE9".force_encoding("ISO-8859-1"))
+        \\]
+        \\checks.all?
+    );
+    try std.testing.expect(result.isTrue());
+}
+
 test "Regexp literals reuse identity per site while interpolation stays dynamic" {
     const result = try evalCode(
         \\def literal; /cache-me/i; end

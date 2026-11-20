@@ -40,6 +40,7 @@
   `VM.yieldToBlock` for ordinary raw argument lists; the distinction matters for
   `sort_by` versus `filter_map`, and for zero/multiple yielded values.
 - Use `VM.copyObjectInstanceVariables` for dup/clone-style shallow ivar copying.
+- Regexp predicates use the capture-free `onigmo.searchAt` path. Share source coercion, encoding validation, and character-offset normalization through `prepareRegexpSearch` in `src/builtins/regexp.zig`; only paths needing match details or updating Ruby backreferences should construct capture arrays and MatchData.
 
 ## Array And String Coercion Helpers
 

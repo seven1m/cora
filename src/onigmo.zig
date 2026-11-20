@@ -108,6 +108,16 @@ pub fn search(regex: OnigRegex, text: []const u8) bool {
     return result != c.ONIG_MISMATCH;
 }
 
+/// Boolean search without a capture region or result-offset allocations.
+pub fn searchAt(regex: OnigRegex, text: []const u8, start_offset: usize) error{InvalidByteSequence}!bool {
+    const start_ptr: [*c]const c.OnigUChar = @ptrCast(text.ptr);
+    const end_ptr = start_ptr + text.len;
+    const result = c.onig_search(regex, start_ptr, end_ptr, start_ptr + start_offset, end_ptr, null, 0);
+    if (result == c.ONIG_MISMATCH) return false;
+    if (result < 0) return error.InvalidByteSequence;
+    return true;
+}
+
 pub fn searchWithCaptures(allocator: std.mem.Allocator, regex: OnigRegex, text: []const u8) !SearchCaptures {
     return searchWithCapturesAt(allocator, regex, text, 0);
 }

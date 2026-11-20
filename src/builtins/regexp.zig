@@ -741,16 +741,20 @@ fn regexpForSourceEncoding(vm: *VM, regexp: *value.RegexpObject, encoding: enc.E
     return variant;
 }
 
-fn searchRegexp(
+const PreparedRegexpSearch = struct {
+    source: *value.StringObject,
+    regexp: *value.RegexpObject,
+    start_byte: usize,
+};
+
+fn prepareRegexpSearch(
     vm: *VM,
     regexp_obj: *value.RegexpObject,
     arg: Value,
     start_pos: ?i64,
-    update_last_match: bool,
-) VMError!?RegexpSearchResult {
+) VMError!?PreparedRegexpSearch {
     const source_val_opt = try arg.coerceToMatchSource(vm);
     if (source_val_opt == null) {
-        if (update_last_match) try vm.clearLastMatch();
         return null;
     }
     const source_val = source_val_opt.?;
@@ -770,12 +774,10 @@ fn searchRegexp(
         var normalized_start = raw_start;
         if (normalized_start < 0) normalized_start += char_len_i64;
         if (normalized_start < 0 or normalized_start > char_len_i64) {
-            if (update_last_match) try vm.clearLastMatch();
             return null;
         }
 
         start_byte = source_obj.encoding.byteOffsetForCharIndex(source_obj.str, @intCast(normalized_start)) orelse {
-            if (update_last_match) try vm.clearLastMatch();
             return null;
         };
     }
@@ -785,6 +787,24 @@ fn searchRegexp(
     if (effective_regexp.encoding.isUnicode() and !source_obj.encoding.isValid(source_obj.str)) {
         return vm.raiseExceptionFmt(vm.argument_error_class, "invalid byte sequence in {s}", .{source_obj.encoding.name()});
     }
+
+    return .{ .source = source_obj, .regexp = effective_regexp, .start_byte = start_byte };
+}
+
+fn searchRegexp(
+    vm: *VM,
+    regexp_obj: *value.RegexpObject,
+    arg: Value,
+    start_pos: ?i64,
+    update_last_match: bool,
+) VMError!?RegexpSearchResult {
+    const prepared = (try prepareRegexpSearch(vm, regexp_obj, arg, start_pos)) orelse {
+        if (update_last_match) try vm.clearLastMatch();
+        return null;
+    };
+    const source_obj = prepared.source;
+    const effective_regexp = prepared.regexp;
+    const start_byte = prepared.start_byte;
 
     const search_result = onigmo.searchWithCapturesAt(vm.gc_allocator, effective_regexp.regex, source_obj.str, start_byte) catch |err| switch (err) {
         error.InvalidByteSequence => {
@@ -1157,8 +1177,11 @@ fn builtinRegexpMatchQ(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMErr
     else
         null;
 
-    const result = try searchRegexp(vm, receiver.toRegexpObject(), args[0], start_pos, false);
-    return Value.boolean(result != null);
+    const prepared = (try prepareRegexpSearch(vm, receiver.toRegexpObject(), args[0], start_pos)) orelse return Value.boolean(false);
+    const matched = onigmo.searchAt(prepared.regexp.regex, prepared.source.str, prepared.start_byte) catch |err| switch (err) {
+        error.InvalidByteSequence => return vm.raiseExceptionFmt(vm.argument_error_class, "invalid byte sequence in {s}", .{prepared.source.encoding.name()}),
+    };
+    return Value.boolean(matched);
 }
 
 fn builtinRegexpDup(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
