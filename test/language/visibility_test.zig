@@ -185,6 +185,22 @@ test "protected class methods work through singleton-class ancestry" {
     try std.testing.expectEqual(@as(i64, 5), result.toArrayObject().elements.items[2].toInteger());
 }
 
+test "protected class methods accept subclasses without materialized singleton classes" {
+    const result = try evalCode(
+        \\class ProtectedParent
+        \\  class << self
+        \\    def inherited(child); child.marker; end
+        \\    protected
+        \\    def marker; $protected_calls = ($protected_calls || 0) + 1; end
+        \\  end
+        \\end
+        \\class ProtectedFirst < ProtectedParent; end
+        \\class ProtectedSecond < ProtectedParent; end
+        \\$protected_calls
+    );
+    try std.testing.expectEqual(@as(i64, 2), result.toInteger());
+}
+
 test "define_method respects current default visibility" {
     const ok = try evalCode(
         \\class C

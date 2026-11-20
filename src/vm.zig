@@ -6252,7 +6252,7 @@ pub const VM = struct {
                         // Cache miss: full resolution
                         const resolved = try self.resolveMethodForCallSite(frame, callsite_byte_offset, receiver, method_name_sym);
                         if (resolved) |method| {
-                            if (self.isMethodCallable(receiver, method, call_style)) {
+                            if (try self.isMethodCallable(receiver, method, call_style)) {
                                 switch (method.entry.method) {
                                     .chunk => |method_chunk| {
                                         if (try self.maybeCallJittedChunk(method_chunk, receiver, self.stack.items[(receiver_index + 1)..(receiver_index + 1 + argc)])) |jit_result| {
@@ -7940,14 +7940,18 @@ pub const VM = struct {
         return false;
     }
 
-    fn hasDispatchAncestor(self: *VM, receiver: Value, candidate_ancestor: *ClassObject) bool {
-        if (receiver.getSingletonClass()) |singleton_class| {
+    fn hasDispatchAncestor(self: *VM, receiver: Value, candidate_ancestor: *ClassObject) VMError!bool {
+        const singleton = if (receiver.getSingletonClass()) |existing| existing else if (receiver.isClass() or receiver.isModule())
+            self.getOrCreateSingletonClass(receiver) catch return error.Fatal
+        else
+            null;
+        if (singleton) |singleton_class| {
             if (self.isClassOrSubclassOf(singleton_class, candidate_ancestor)) return true;
         }
         return self.isClassOrSubclassOf(self.getClass(receiver), candidate_ancestor);
     }
 
-    fn isMethodCallable(self: *VM, receiver: Value, resolved: ResolvedMethod, call_style: ReceiverCallStyle) bool {
+    fn isMethodCallable(self: *VM, receiver: Value, resolved: ResolvedMethod, call_style: ReceiverCallStyle) VMError!bool {
         switch (resolved.entry.visibility) {
             .public => return true,
             .private => return call_style != .explicit or
@@ -7955,8 +7959,8 @@ pub const VM = struct {
             .protected => {
                 if (self.frames.items.len == 0) return false;
                 const caller_self = self.currentFrame().self_value;
-                return self.hasDispatchAncestor(caller_self, resolved.owner_class) and
-                    self.hasDispatchAncestor(receiver, resolved.owner_class);
+                return (try self.hasDispatchAncestor(caller_self, resolved.owner_class)) and
+                    (try self.hasDispatchAncestor(receiver, resolved.owner_class));
             },
         }
     }
@@ -9321,7 +9325,7 @@ pub const VM = struct {
         const kw_values = opts.kw_values;
         const block = opts.block;
         const resolved = try self.resolveMethodForCallSite(frame, callsite_byte_offset, receiver, method_name_sym);
-        const should_fallback = resolved == null or !self.isMethodCallable(receiver, resolved.?, call_style);
+        const should_fallback = resolved == null or !(try self.isMethodCallable(receiver, resolved.?, call_style));
         const kwargc: usize = if (kw_values) |vals| vals.len else 0;
         if (should_fallback) {
             if (resolved) |inaccessible| {
