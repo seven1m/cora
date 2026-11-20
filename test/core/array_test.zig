@@ -79,6 +79,223 @@ test "Enumerable internal iteration preserves nested searches and user control f
     try std.testing.expect(result.isTruthy());
 }
 
+test "Enumerable collectors use internal iteration in the caller fiber" {
+    const result = try evalCode(
+        \\class CollectSource
+        \\  include Enumerable
+        \\  attr_reader :events
+        \\  def initialize
+        \\    @events = []
+        \\  end
+        \\  def each
+        \\    @events << (Fiber.current.equal?($collect_fiber) ? :same : :other)
+        \\    GC.start
+        \\    yield 2
+        \\    yield 1
+        \\    yield 3
+        \\    :ignored_each_result
+        \\  ensure
+        \\    @events << :ensured
+        \\  end
+        \\end
+        \\$collect_fiber = Fiber.current
+        \\checks = [:filter_map, :each_with_object, :sort_by].map do |name|
+        \\  source = CollectSource.new
+        \\  memo = []
+        \\  result = case name
+        \\  when :filter_map
+        \\    source.filter_map { |n| n * 10 if n.even? }
+        \\  when :each_with_object
+        \\    source.each_with_object(memo) { |n, out| out << n }
+        \\  else
+        \\    source.sort_by { |n| -n }
+        \\  end
+        \\  expected = {filter_map: [20], each_with_object: [2, 1, 3], sort_by: [3, 2, 1]}[name]
+        \\  result == expected && source.events == [:same, :ensured] &&
+        \\    (name != :each_with_object || result.equal?(memo))
+        \\end
+        \\checks.all?
+    );
+    try std.testing.expect(result.isTrue());
+}
+
+test "Enumerable collectors preserve yield packing and callback return values" {
+    const result = try evalCode(
+        \\class CollectYields
+        \\  include Enumerable
+        \\  attr_reader :results
+        \\  def each
+        \\    @results = []
+        \\    @results << (yield)
+        \\    @results << (yield 1, 2)
+        \\    :ignored
+        \\  end
+        \\end
+        \\filtered = CollectYields.new
+        \\values = filtered.filter_map { |*args| args.empty? ? :empty : args }
+        \\sorted = CollectYields.new
+        \\seen = []
+        \\order = sorted.sort_by { |*args| seen << args; args.length }
+        \\with_object = CollectYields.new
+        \\memo = []
+        \\returned = with_object.each_with_object(memo) { |element, out| out << element; :from_block }
+        \\values == [:empty, [1, 2]] && filtered.results == [nil, nil] &&
+        \\  order == [nil, [1, 2]] && seen == [[], [[1, 2]]] && sorted.results == [nil, nil] &&
+        \\  returned.equal?(memo) && memo == [nil, [1, 2]] && with_object.results == [:from_block, :from_block]
+    );
+    try std.testing.expect(result.isTrue());
+}
+
+test "Enumerable collectors handle strict lambda yield arity" {
+    const result = try evalCode(
+        \\class CollectPair
+        \\  include Enumerable
+        \\  def each
+        \\    yield 1, 2
+        \\  end
+        \\end
+        \\class CollectZero
+        \\  include Enumerable
+        \\  def each
+        \\    yield
+        \\  end
+        \\end
+        \\class CollectSingleArray
+        \\  include Enumerable
+        \\  def each
+        \\    yield [1, 2]
+        \\  end
+        \\end
+        \\pair = CollectPair.new
+        \\seen = []
+        \\sorted = pair.sort_by(&->(a, b) { a + b })
+        \\rest_sorted = pair.sort_by(&->(*args) { seen << args; 0 })
+        \\filtered = pair.filter_map(&->(a, b) { a + b })
+        \\raw = pair.filter_map(&->(*args) { args })
+        \\filter_error = begin pair.filter_map(&->(one) { one }); false; rescue ArgumentError; true; end
+        \\single_error = begin CollectSingleArray.new.sort_by(&->(a, b) { 0 }); false; rescue ArgumentError; true; end
+        \\sorted == [[1, 2]] && rest_sorted == [[1, 2]] && seen == [[[1, 2]]] &&
+        \\  filtered == [3] && raw == [[1, 2]] && filter_error && single_error &&
+        \\  CollectZero.new.sort_by(&-> { 0 }) == [nil] && CollectZero.new.filter_map(&-> { :zero }) == [:zero]
+    );
+    try std.testing.expect(result.isTrue());
+}
+
+test "Enumerable collectors unwind each ensures for break return and throw" {
+    const result = try evalCode(
+        \\class CollectUnwind
+        \\  include Enumerable
+        \\  attr_reader :ensures
+        \\  def initialize
+        \\    @ensures = 0
+        \\  end
+        \\  def each
+        \\    yield 1
+        \\    yield 2
+        \\  ensure
+        \\    @ensures += 1
+        \\  end
+        \\end
+        \\def collect_method_return(source, name, args)
+        \\  source.public_send(name, *args) { return :returned }
+        \\  :unreachable
+        \\end
+        \\checks = [:filter_map, :each_with_object, :sort_by].map do |name|
+        \\  args = name == :each_with_object ? [[]] : []
+        \\  source = CollectUnwind.new
+        \\  broken = source.public_send(name, *args) { break :broken }
+        \\  returned = collect_method_return(source, name, args)
+        \\  thrown = catch(:collect_done) { source.public_send(name, *args) { throw :collect_done, :thrown } }
+        \\  broken == :broken && returned == :returned && thrown == :thrown && source.ensures == 3
+        \\end
+        \\checks.all?
+    );
+    try std.testing.expect(result.isTrue());
+}
+
+test "Enumerable collectors propagate source StopIteration and block failures" {
+    const result = try evalCode(
+        \\class CollectFailure
+        \\  include Enumerable
+        \\  attr_reader :ensures
+        \\  def initialize(failure)
+        \\    @failure = failure
+        \\    @ensures = 0
+        \\  end
+        \\  def each
+        \\    yield 1
+        \\    raise @failure if @failure
+        \\  ensure
+        \\    @ensures += 1
+        \\  end
+        \\end
+        \\checks = [:filter_map, :each_with_object, :sort_by].map do |name|
+        \\  args = name == :each_with_object ? [[]] : []
+        \\  failure = StopIteration.new("from source")
+        \\  source = CollectFailure.new(failure)
+        \\  caught = begin source.public_send(name, *args) { 1 }; rescue StopIteration => error; error; end
+        \\  block_failure = RuntimeError.new("from block")
+        \\  second = CollectFailure.new(nil)
+        \\  block_caught = begin second.public_send(name, *args) { raise block_failure }; rescue RuntimeError => error; error; end
+        \\  caught.equal?(failure) && source.ensures == 1 && block_caught.equal?(block_failure) && second.ensures == 1
+        \\end
+        \\checks.all?
+    );
+    try std.testing.expect(result.isTrue());
+}
+
+test "Enumerable collectors retain nested callback state across Fiber yield and GC" {
+    const result = try evalCode(
+        \\fiber = Fiber.new do
+        \\  mapped = [3, 1, 2].filter_map do |n|
+        \\    Fiber.yield [:map, n]
+        \\    GC.start
+        \\    [n].filter_map { |inner| inner * 2 }.first
+        \\  end
+        \\  sorted = mapped.sort_by do |n|
+        \\    Fiber.yield [:key, n]
+        \\    -n
+        \\  end
+        \\  sorted.each_with_object([]) do |n, out|
+        \\    Fiber.yield [:memo, n]
+        \\    GC.start
+        \\    out << n
+        \\  end
+        \\end
+        \\seen = []
+        \\while fiber.alive?
+        \\  seen << fiber.resume
+        \\  GC.start
+        \\end
+        \\seen == [[:map, 3], [:map, 1], [:map, 2], [:key, 6], [:key, 2], [:key, 4],
+        \\         [:memo, 6], [:memo, 4], [:memo, 2], [6, 4, 2]]
+    );
+    try std.testing.expect(result.isTrue());
+}
+
+test "Enumerable collectors preserve enumerator fallback sizes and overridden each" {
+    const result = try evalCode(
+        \\array = [99]
+        \\def array.each
+        \\  yield 4
+        \\  yield 2
+        \\  :ignored
+        \\end
+        \\memo = []
+        \\filtered = array.filter_map { |n| n }
+        \\sorted = array.sort_by { |n| n }
+        \\returned = array.each_with_object(memo) { |n, out| out << n }
+        \\filter_enum = [2, 1].filter_map
+        \\sort_enum = [2, 1].sort_by
+        \\object_enum = [2, 1].each_with_object([])
+        \\filtered == [4, 2] && sorted == [2, 4] && returned.equal?(memo) && memo == [4, 2] &&
+        \\  [filter_enum.size, sort_enum.size, object_enum.size] == [2, 2, 2] &&
+        \\  filter_enum.each { |n| n * 2 } == [4, 2] && sort_enum.each { |n| n } == [1, 2] &&
+        \\  object_enum.each { |n, out| out << n } == [2, 1]
+    );
+    try std.testing.expect(result.isTrue());
+}
+
 test "Array#replace preserves its elements when replacing itself" {
     const result = try evalCode(
         \\a = [1, 2]

@@ -27,6 +27,13 @@
   path is shared by Enumerable predicates, prefix methods such as `take`, and
   C extension `rb_block_call`.
   External iteration through `Enumerator#next` remains fiber-backed.
+- Internal collection callbacks for `filter_map`, `each_with_object`, and
+  `sort_by` dispatch directly to `each` in the caller's fiber. Promote captured
+  user blocks before retaining them in GC-owned callback contexts.
+- Use `VM.yieldPackedToBlock` for a packed multi-value entry that Ruby yields
+  with forced block-argument destructuring (including strict lambdas). Use
+  `VM.yieldToBlock` for ordinary raw argument lists; the distinction matters for
+  `sort_by` versus `filter_map`, and for zero/multiple yielded values.
 - Use `VM.copyObjectInstanceVariables` for dup/clone-style shallow ivar copying.
 
 ## Array And String Coercion Helpers

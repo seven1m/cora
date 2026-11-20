@@ -352,24 +352,61 @@ fn builtinEnumerableFilterMap(vm: *VM, receiver: Value, args: []Value, block: ?B
         return vm.createMethodEnumerator(receiver, method_name, &.{});
     };
 
-    const enum_value = try vm.createMethodEnumerator(receiver, try vm.intern("each"), &.{});
     const out = try vm.createArray();
+    return iterateCollect(vm, receiver, .filter_map, blk, Value.fromObject(&out.object));
+}
 
-    while (true) {
-        const next_values = vm.callMethodByName(enum_value, "next_values", &.{}, null) catch |err| {
-            if (err == error.Unwind and vm.pendingException() != null and vm.pendingException().?.object.class == vm.stop_iteration_class) {
-                vm.setPendingException(null);
-                break;
+const CollectMode = enum { filter_map, each_with_object, sort_by };
+
+const CollectContext = struct {
+    mode: CollectMode,
+    block: Block,
+    result: Value,
+    index: i64 = 0,
+};
+
+fn iterateCollect(vm: *VM, receiver: Value, mode: CollectMode, block: Block, result: Value) VMError!Value {
+    const context = vm.gc_allocator.create(CollectContext) catch return error.Fatal;
+    context.* = .{
+        .mode = mode,
+        .block = (try vm.procValueForBlock(block)).toProcObject().block,
+        .result = result,
+    };
+    const each_block = Block{ .kind = .{ .receiver_builtin = .{
+        .receiver = .{ .raw = @intFromPtr(context) },
+        .func = &collectEach,
+        .arity = -1,
+    } } };
+    _ = try vm.callMethodByName(receiver, "each", &.{}, each_block);
+    return result;
+}
+
+fn collectEach(vm: *VM, receiver: Value, args: []Value) VMError!Value {
+    const context: *CollectContext = @ptrFromInt(receiver.raw);
+    switch (context.mode) {
+        .filter_map => {
+            const result = try vm.yieldToBlock(context.block, args);
+            if (result.isTruthy()) {
+                context.result.toArrayObject().elements.append(vm.gc_allocator, result) catch return error.Fatal;
             }
-            return err;
-        };
-        const result = try enumerableYieldCollapsed(vm, blk, next_values.toArrayObject());
-        if (result.isTruthy()) {
-            out.elements.append(vm.gc_allocator, result) catch return error.Fatal;
-        }
+        },
+        .each_with_object => {
+            const element = try packYieldValues(vm, args);
+            return vm.yieldToBlock(context.block, &.{ element, context.result });
+        },
+        .sort_by => {
+            const element = try packYieldValues(vm, args);
+            const key = if (args.len > 1)
+                try vm.yieldPackedToBlock(context.block, element)
+            else
+                try vm.yieldToBlock(context.block, args);
+            const entry = try vm.createArray();
+            entry.elements.appendSlice(vm.gc_allocator, &.{ key, Value.integer(context.index), element }) catch return error.Fatal;
+            context.result.toArrayObject().elements.append(vm.gc_allocator, Value.fromObject(&entry.object)) catch return error.Fatal;
+            context.index += 1;
+        },
     }
-
-    return Value.fromObject(&out.object);
+    return Value.nil();
 }
 
 const PredicateMode = enum { any, all, one, find, find_index, include };
@@ -550,13 +587,7 @@ fn builtinEnumerableEachWithObject(vm: *VM, receiver: Value, args: []Value, bloc
         return vm.createMethodEnumerator(receiver, method_name, args);
     };
 
-    const enum_value = try vm.createMethodEnumerator(receiver, try vm.intern("each"), &.{});
-    while (try enumerableNextElement(vm, enum_value)) |element| {
-        const yield_args = [_]Value{ element, memo };
-        _ = try vm.yieldToBlock(blk, &yield_args);
-    }
-
-    return memo;
+    return iterateCollect(vm, receiver, .each_with_object, blk, memo);
 }
 
 fn builtinEnumerableEachSlice(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
@@ -1403,21 +1434,8 @@ fn builtinEnumerableSortBy(vm: *VM, receiver: Value, args: []Value, block: ?Bloc
         return vm.createMethodEnumerator(receiver, method_name, &.{});
     };
 
-    const enum_value = try vm.createMethodEnumerator(receiver, try vm.intern("each"), &.{});
     const decorated = try vm.createArray();
-    var index: i64 = 0;
-
-    while (try enumerableNextElement(vm, enum_value)) |element| {
-        const yield_args = [_]Value{element};
-        const result = try vm.yieldToBlock(blk, &yield_args);
-
-        const entry = try vm.createArray();
-        entry.elements.append(vm.gc_allocator, result) catch return error.Fatal;
-        entry.elements.append(vm.gc_allocator, Value.integer(index)) catch return error.Fatal;
-        entry.elements.append(vm.gc_allocator, element) catch return error.Fatal;
-        decorated.elements.append(vm.gc_allocator, Value.fromObject(&entry.object)) catch return error.Fatal;
-        index += 1;
-    }
+    _ = try iterateCollect(vm, receiver, .sort_by, blk, Value.fromObject(&decorated.object));
 
     const sorted = try vm.callMethodByName(Value.fromObject(&decorated.object), "sort", &.{}, null);
     const out = try vm.createArray();

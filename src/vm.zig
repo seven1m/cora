@@ -9279,6 +9279,16 @@ pub const VM = struct {
     /// Yield to a block with arguments. Normal completion, including `next`,
     /// returns a value; unresolved non-local control flow returns error.Unwind.
     pub fn yieldToBlock(self: *VM, block: Block, yield_args: []const Value) VMError!Value {
+        return self.yieldToBlockInternal(block, yield_args, false);
+    }
+
+    /// Yield a packed multi-value entry using MRI's forced block-argument
+    /// destructuring, including for lambdas that take multiple parameters.
+    pub fn yieldPackedToBlock(self: *VM, block: Block, entry: Value) VMError!Value {
+        return self.yieldToBlockInternal(block, &.{entry}, true);
+    }
+
+    fn yieldToBlockInternal(self: *VM, block: Block, yield_args: []const Value, destructure: bool) VMError!Value {
         return switch (block.kind) {
             .receiver_builtin => |builtin_data| builtin_data.func(self, builtin_data.receiver, @constCast(yield_args)),
             .symbol => |sym| self.invokeSymbolProc(sym, yield_args, null),
@@ -9309,7 +9319,12 @@ pub const VM = struct {
                     .block = if (chunk_blk.enclosing_block_proc) |proc_obj| proc_obj.block else null,
                 });
 
-                const arity_mode: ArityMode = if (chunk_blk.chunk.is_lambda) .strict else .lenient;
+                const arity_mode: ArityMode = if (!chunk_blk.chunk.is_lambda)
+                    .lenient
+                else if (destructure)
+                    .strict_destructure
+                else
+                    .strict;
                 const block_frame = self.currentFrame();
                 try self.copyArgumentsWithRestParam(chunk_blk.chunk, block_frame, yield_args, arity_mode);
                 if (chunkAcceptsKeywords(chunk_blk.chunk)) {
@@ -13784,7 +13799,7 @@ pub const VM = struct {
         return copies;
     }
 
-    pub const ArityMode = enum { strict, lenient };
+    pub const ArityMode = enum { strict, strict_destructure, lenient };
 
     pub fn copyArgumentsWithRestParam(
         self: *VM,
@@ -13808,7 +13823,7 @@ pub const VM = struct {
         }.call;
 
         var effective_args = args;
-        if (mode == .lenient and args.len == 1 and args[0].isArray()) {
+        if (mode != .strict and args.len == 1 and args[0].isArray()) {
             const positional_slots = target_chunk.arity + target_chunk.optional_params.items.len + target_chunk.post_required_count;
             const wants_destructuring =
                 positional_slots > 1 or
@@ -13828,7 +13843,7 @@ pub const VM = struct {
         else
             max_without_rest;
 
-        if (mode == .strict) {
+        if (mode != .lenient) {
             if (effective_args.len < min_args) {
                 return self.raiseArgumentErrorWrongArgCountAtLeast(effective_args.len, min_args);
             }
