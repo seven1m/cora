@@ -1,0 +1,18 @@
+GEM
+  remote: https://rubygems.org/
+  specs:
+    fake_gem (0.1.0)
+
+PLATFORMS
+  arm64-darwin
+  ruby
+  x86_64-linux
+
+DEPENDENCIES
+  fake_gem (= 0.1.0)
+
+CHECKSUMS
+  fake_gem (0.1.0)
+
+BUNDLED WITH
+  4.1.0.dev

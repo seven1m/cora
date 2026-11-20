@@ -6,6 +6,7 @@ module Cora
 
     @patches = []
     @applied = {}
+    @applying = {}
 
     class << self
       def register(gem_name, requirement, feature = nil, &loader)
@@ -27,16 +28,21 @@ module Cora
           next unless patch.requirement.satisfied_by?(spec.version)
 
           key = [spec.full_name, index]
-          next if @applied[key]
+          next if @applied[key] || @applying[key]
 
-          if patch.loader
-            patch.loader.call(spec)
-          else
-            require patch.feature
+          @applying[key] = true
+          begin
+            if patch.loader
+              patch.loader.call(spec)
+            else
+              require patch.feature
+            end
+
+            @applied[key] = true
+            warn "cora: applied compatibility patch for #{spec.full_name}"
+          ensure
+            @applying.delete(key)
           end
-
-          @applied[key] = true
-          warn "cora: applied compatibility patch for #{spec.full_name}"
         end
       end
     end

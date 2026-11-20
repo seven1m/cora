@@ -75,6 +75,54 @@ test "RubyGems applies matching Cora gem patches once after activation" {
     try std.testing.expectEqualSlices(u8, "cora: applied compatibility patch for fake_gem-0.1.0\n", result.stderr);
 }
 
+test "Bundler applies Cora gem patches after load paths are ready without recursion" {
+    var gpa: std.heap.DebugAllocator(.{}) = .init;
+    defer _ = gpa.deinit();
+    const allocator = gpa.allocator();
+    var threaded: std.Io.Threaded = .init(allocator, .{});
+    defer threaded.deinit();
+
+    const gem_home = try std.Io.Dir.cwd().realPathFileAlloc(threaded.io(), "test/gem", allocator);
+    defer allocator.free(gem_home);
+
+    var env_map = std.process.Environ.Map.init(allocator);
+    defer env_map.deinit();
+    try env_map.put("GEM_HOME", gem_home);
+    try env_map.put("GEM_PATH", gem_home);
+
+    const gemfile = try std.Io.Dir.cwd().realPathFileAlloc(threaded.io(), "test/support/bundled_gems/Gemfile.patches", allocator);
+    defer allocator.free(gemfile);
+    try env_map.put("BUNDLE_GEMFILE", gemfile);
+
+    const code =
+        \\require "rubygems"
+        \\$patch_count = 0
+        \\Cora::GemPatches.register("fake_gem", "~> 0.1") do |spec|
+        \\  raise "patch ran before activation" unless Gem.loaded_specs[spec.name].equal?(spec)
+        \\  require "fake_gem"
+        \\  Gem.add_to_load_path
+        \\  $patch_count += 1
+        \\end
+        \\Cora::GemPatches.register("fake_gem", ">= 1.0") { $patch_count += 100 }
+        \\require "bundler/setup"
+        \\Bundler.setup
+        \\p [$patch_count, FakeGem]
+    ;
+
+    const result = try std.process.run(allocator, threaded.io(), .{
+        .argv = &.{ "build/bin/cora", "-e", code },
+        .environ_map = &env_map,
+        .stdout_limit = .limited(1024 * 1024),
+        .stderr_limit = .limited(1024 * 1024),
+    });
+    defer allocator.free(result.stdout);
+    defer allocator.free(result.stderr);
+
+    try std.testing.expect(result.term == .exited and result.term.exited == 0);
+    try std.testing.expectEqualSlices(u8, "[1, FakeGem]\n", result.stdout);
+    try std.testing.expectEqualSlices(u8, "cora: applied compatibility patch for fake_gem-0.1.0\n", result.stderr);
+}
+
 test "require rubygems/gem_runner avoids circular require warning" {
     var gpa: std.heap.DebugAllocator(.{}) = .init;
     defer _ = gpa.deinit();
