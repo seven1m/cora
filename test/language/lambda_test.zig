@@ -51,6 +51,47 @@ test "lambda: strict arity - too many arguments raises ArgumentError" {
     try std.testing.expectError(error.UnhandledException, evalCode("l = lambda { |x, y| x + y }; l.call(3, 5, 7)"));
 }
 
+test "lambda: rescued argument binding errors do not execute builtin caller handlers" {
+    const result = try evalCode(
+        \\events = []
+        \\rows = [{a: 1}, {b: 2}].map do |object|
+        \\  events << :entered
+        \\  failed = begin
+        \\    object.each_pair(&->(key, value) { events << :lambda_body })
+        \\    false
+        \\  rescue ArgumentError
+        \\    events << :rescued
+        \\    true
+        \\  ensure
+        \\    events << :ensured
+        \\  end
+        \\  events << failed
+        \\  failed
+        \\end
+        \\rows == [true, true] && events == [:entered, :rescued, :ensured, true, :entered, :rescued, :ensured, true]
+    );
+    try std.testing.expect(result.isTrue());
+}
+
+test "lambda: missing keyword errors unwind native iterators without repeating ensure" {
+    const result = try evalCode(
+        \\events = []
+        \\rows = [1, 2].map do |item|
+        \\  begin
+        \\    [item].each(&->(value, required:) { events << :lambda_body })
+        \\    false
+        \\  rescue ArgumentError
+        \\    events << :rescued
+        \\    true
+        \\  ensure
+        \\    events << :ensured
+        \\  end
+        \\end
+        \\rows == [true, true] && events == [:rescued, :ensured, :rescued, :ensured]
+    );
+    try std.testing.expect(result.isTrue());
+}
+
 test "proc: lenient arity - too few arguments fills with nil" {
     const result = try evalCode("p = proc { |x, y| x }; p.call(5)");
     try std.testing.expectEqual(@as(i64, 5), result.toInteger());

@@ -14545,6 +14545,9 @@ pub const VM = struct {
 
     fn findEnsureHandler(self: *VM, frame_idx: usize, include_try: bool) VMError!?usize {
         const frame = &self.frames.items[frame_idx];
+        // Builtins borrow their caller's chunk/IP for backtraces, but do not
+        // execute its Ruby rescue or ensure bodies when unwinding.
+        if (frame.frame_type == .builtin) return null;
         const ip = frame.ip;
 
         for (frame.chunk.exception_handlers.items) |*handler| {
@@ -14674,6 +14677,7 @@ pub const VM = struct {
         rescue_idx: ?usize,
     } {
         const frame = self.frames.items[frame_idx];
+        if (frame.frame_type == .builtin) return null;
         const ip = frame.ip;
         const frame_ep = frame.ep;
         const frame_self = frame.self_value;
