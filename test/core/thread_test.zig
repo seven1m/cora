@@ -6,6 +6,61 @@ const test_helper = @import("../test_helper.zig");
 const evalCode = test_helper.evalCode;
 const evalCodeWithOutput = test_helper.evalCodeWithOutput;
 
+test "Execution buffers allocate on first use and detach after completion" {
+    bdwgc.init();
+    defer bdwgc.deinit();
+    const allocator = std.testing.allocator;
+    var parser = try cora.prism.Parser.init(allocator,
+        \\cold = Fiber.new { :unused }
+        \\suspended = Fiber.new do
+        \\  payload = ["kept"]
+        \\  Fiber.yield -> { payload }
+        \\  payload
+        \\end
+        \\capture = suspended.resume
+        \\finished = Fiber.new { -> { ["done"] } }
+        \\answer = finished.resume
+        \\failed = Fiber.new { raise "expected" }
+        \\begin failed.resume; rescue RuntimeError; end
+        \\worker = Thread.new { Thread.stop }
+        \\Thread.pass until worker.stop?
+        \\GC.start
+        \\raise "lost captures" unless capture.call == ["kept"] && answer.call == ["done"]
+        \\[cold, suspended, finished, failed, worker]
+    , null);
+    defer parser.deinit();
+    var program = try cora.compiler.Compiler.compile(allocator, &parser, 1);
+    defer program.deinit();
+    var vm = cora.vm.VM.initEmpty(allocator, cora.gc_allocator.scanned, cora.gc_allocator.atomic, std.testing.io, std.testing.environ);
+    defer vm.deinit();
+    try vm.prepare(&program);
+    const objects = (try vm.run()).toArrayObject().elements.items;
+    const cold = objects[0].toFiberObject();
+    try std.testing.expectEqual(@as(usize, 0), cold.stack.storage.len);
+    try std.testing.expectEqual(@as(usize, 0), cold.frames.storage.len);
+    const suspended = objects[1].toFiberObject();
+    try std.testing.expect(suspended.stack.storage.len > 0);
+    try std.testing.expect(suspended.frames.storage.len > 0);
+    for (objects[2..4]) |object| {
+        const fiber = object.toFiberObject();
+        try std.testing.expectEqual(@as(usize, 0), fiber.stack.storage.len);
+        try std.testing.expectEqual(@as(usize, 0), fiber.frames.storage.len);
+    }
+    const worker = objects[4].toThreadObject();
+    try std.testing.expect(worker.stack.storage.len > 0);
+    try std.testing.expect(worker.frames.storage.len > 0);
+    try std.testing.expectEqual(@as(usize, 0), worker.main_fiber.?.stack.storage.len);
+    try std.testing.expectEqual(@as(usize, 0), worker.main_fiber.?.frames.storage.len);
+    // The main thread likewise uses its main fiber's buffers, not a second pair.
+    try std.testing.expectEqual(@as(usize, 0), vm.main_thread.?.stack.storage.len);
+    try std.testing.expectEqual(@as(usize, 0), vm.main_thread.?.frames.storage.len);
+    const unstarted = try vm.newThreadUnstarted(vm.thread_class);
+    try std.testing.expectEqual(@as(usize, 0), unstarted.stack.storage.len);
+    try std.testing.expectEqual(@as(usize, 0), unstarted.frames.storage.len);
+    try std.testing.expectEqual(@as(usize, 0), unstarted.main_fiber.?.stack.storage.len);
+    try std.testing.expectEqual(@as(usize, 0), unstarted.main_fiber.?.frames.storage.len);
+}
+
 test "Thread retirement releases scheduler roots and suspended coroutine stacks" {
     bdwgc.init();
     defer bdwgc.deinit();

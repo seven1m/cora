@@ -37,6 +37,8 @@ Prefer not to add new opcodes when an existing mechanism can be extended. When a
 
 **CallFrames:** A frame contains `chunk`, `ip`, `stack_base`, `self_value`, `ep` (Environment pointer), optional `block`, and `frame_type` (method/lambda/proc). Local variables are stored in the `Environment`, not directly in the `CallFrame`.
 
+**Execution buffers:** Fiber/Thread objects hold small descriptors for separate GC-scanned value and frame buffers. The main fiber allocates them during VM setup; workers and ordinary fibers allocate them on first execution. A worker root fiber uses its thread's buffers, and the main thread uses its main fiber's buffers, without a duplicate pair. Buffer capacities remain fixed and addresses never move while executing. Completed fibers and retired threads detach their buffers; interior environment/frame references can keep detached buffers alive through GC.
+
 **Symbol interning:** `VM.intern(str)` creates a GC-allocated `SymbolObject` with canonical string storage and caches it in a HashMap. The same symbol string should map to the same symbol object identity.
 
 **Classes/modules:** Classes store module-like method tables plus superclass and prepended/included module lists. Method lookup walks prepended modules -> class methods -> included modules -> superclass. `Class#new` consults `ClassObject.cext_alloc_func` first when present, so a C extension can install its own allocator for the Ruby wrapper.
@@ -85,7 +87,7 @@ Process signal handlers run on the main thread, waking it when necessary.
 Terminated workers are retired after ownership transfers to another native stack,
 either at a new thread entrypoint or when `schedulerYield` resumes. Retirement
 unregisters their thread and fiber coroutines before freeing native stacks, drops
-scheduler/group roots and per-thread bookkeeping, and clears execution buffers.
+scheduler/group roots and per-thread bookkeeping, and detaches execution buffers.
 Results, exceptions, escaped closures/bindings, and observable thread/fiber locals
 remain available through retained Ruby objects. Removed GC-owned list slots are
 cleared even outside `items.len`, since the collector scans the whole allocation.

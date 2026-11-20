@@ -4,16 +4,21 @@ pub fn FixedBufferList(comptime T: type, comptime N: usize) type {
     return struct {
         const Self = @This();
 
-        storage: [N]T = undefined,
-        items: []T = undefined,
-        capacity: usize = N,
+        // Allocate once, before execution. Live frames/environments can point
+        // into this buffer, so its address must remain stable until detached.
+        storage: []T = &.{},
+        items: []T = &.{},
+        capacity: usize = 0,
 
         pub fn init() Self {
-            var self: Self = undefined;
-            self.storage = undefined;
+            return .{};
+        }
+
+        pub fn ensureAllocated(self: *Self, allocator: std.mem.Allocator) !void {
+            if (self.storage.len != 0) return;
+            self.storage = try allocator.alloc(T, N);
             self.items = self.storage[0..0];
             self.capacity = N;
-            return self;
         }
 
         pub fn append(self: *Self, _: std.mem.Allocator, item: T) !void {

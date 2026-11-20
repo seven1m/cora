@@ -2126,8 +2126,8 @@ pub const VM = struct {
         main_fiber_obj.rescued_exceptions = .empty;
         main_fiber_obj.state = .running;
         main_fiber_obj.block = null;
-        initFiberValueStackInPlace(&main_fiber_obj.stack);
-        initFiberFrameStackInPlace(&main_fiber_obj.frames);
+        main_fiber_obj.stack = .init();
+        main_fiber_obj.frames = .init();
         main_fiber_obj.pending_unwind = null;
         main_fiber_obj.current_lexical_scope = self.current_lexical_scope;
         main_fiber_obj.caller = null;
@@ -2143,6 +2143,7 @@ pub const VM = struct {
         main_fiber_obj.owner_vm = self;
         self.main_fiber = main_fiber_obj;
         self.current_fiber = main_fiber_obj;
+        try self.ensureExecutionStacks(&main_fiber_obj.stack, &main_fiber_obj.frames);
         self.restoreFiberState(main_fiber_obj);
         self.zio_main_context = std.mem.zeroes(FiberCoroContext);
         _ = try self.ensureMainThread();
@@ -4130,16 +4131,9 @@ pub const VM = struct {
         }
     }
 
-    inline fn initFiberValueStackInPlace(stack: *FiberValueStack) void {
-        stack.storage = undefined;
-        stack.items = stack.storage[0..0];
-        stack.capacity = MAX_FIBER_STACK_SIZE;
-    }
-
-    inline fn initFiberFrameStackInPlace(frames: *FiberFrameStack) void {
-        frames.storage = undefined;
-        frames.items = frames.storage[0..0];
-        frames.capacity = MAX_FIBER_FRAMES;
+    fn ensureExecutionStacks(self: *VM, stack: *FiberValueStack, frames: *FiberFrameStack) VMError!void {
+        stack.ensureAllocated(self.gc_allocator) catch return error.Fatal;
+        frames.ensureAllocated(self.gc_allocator) catch return error.Fatal;
     }
 
     fn ensureThreadCatchStack(self: *VM, thread: *ThreadObject) VMError!void {
@@ -4528,6 +4522,7 @@ pub const VM = struct {
 
     fn ensureFiberCoroutine(self: *VM, fiber: *FiberObject) VMError!void {
         if (fiber.coro != null) return;
+        try self.ensureExecutionStacks(&fiber.stack, &fiber.frames);
 
         const coro_obj = self.allocator.create(FiberCoro) catch return error.Fatal;
         coro_obj.* = .{
@@ -4558,6 +4553,7 @@ pub const VM = struct {
         const coro_obj = fiber.coro orelse return;
         fiber.coro = null;
         self.releaseCoroutine(coro_obj);
+        detachExecutionStacks(&fiber.stack, &fiber.frames);
     }
 
     pub fn fiberYield(self: *VM, yield_value: Value) VMError!Value {
@@ -4673,8 +4669,8 @@ pub const VM = struct {
         main_thread_obj.object = .{ .type_tag = .thread, .flags = 0, .class = self.thread_class, .singleton_class = null, .instance_variables = null };
         main_thread_obj.state = .running;
         main_thread_obj.block = null;
-        initFiberValueStackInPlace(&main_thread_obj.stack);
-        initFiberFrameStackInPlace(&main_thread_obj.frames);
+        main_thread_obj.stack = .init();
+        main_thread_obj.frames = .init();
         main_thread_obj.pending_unwind = null;
         main_thread_obj.current_lexical_scope = null;
         main_thread_obj.coro = null;
@@ -4771,8 +4767,8 @@ pub const VM = struct {
         thread_obj.object = .{ .type_tag = .thread, .flags = 0, .class = class_obj, .singleton_class = null, .instance_variables = null };
         thread_obj.state = .created;
         thread_obj.block = null;
-        initFiberValueStackInPlace(&thread_obj.stack);
-        initFiberFrameStackInPlace(&thread_obj.frames);
+        thread_obj.stack = .init();
+        thread_obj.frames = .init();
         thread_obj.pending_unwind = null;
         thread_obj.current_lexical_scope = self.current_lexical_scope;
         thread_obj.coro = null;
@@ -4809,8 +4805,8 @@ pub const VM = struct {
         root_fiber.rescued_exceptions = .empty;
         root_fiber.state = .running;
         root_fiber.block = null;
-        initFiberValueStackInPlace(&root_fiber.stack);
-        initFiberFrameStackInPlace(&root_fiber.frames);
+        root_fiber.stack = .init();
+        root_fiber.frames = .init();
         root_fiber.pending_unwind = null;
         root_fiber.current_lexical_scope = thread_obj.current_lexical_scope;
         root_fiber.caller = null;
@@ -4917,15 +4913,15 @@ pub const VM = struct {
         list.clearRetainingCapacity();
     }
 
-    fn clearExecutionStacks(stack: *FiberValueStack, frames: *FiberFrameStack) void {
-        @memset(&stack.storage, Value.nil());
-        stack.items = stack.storage[0..0];
-        @memset(std.mem.asBytes(&frames.storage), 0);
-        frames.items = frames.storage[0..0];
+    fn detachExecutionStacks(stack: *FiberValueStack, frames: *FiberFrameStack) void {
+        // Detach GC-owned buffers without freeing them manually: an interior
+        // environment pointer can still keep a detached value buffer alive.
+        stack.* = .init();
+        frames.* = .init();
     }
 
     fn clearRetiredFiberExecution(fiber: *FiberObject) void {
-        clearExecutionStacks(&fiber.stack, &fiber.frames);
+        detachExecutionStacks(&fiber.stack, &fiber.frames);
         fiber.block = null;
         fiber.pending_unwind = null;
         fiber.current_lexical_scope = null;
@@ -4978,7 +4974,7 @@ pub const VM = struct {
             thread.joining_thread = null;
             thread.sleep_deadline_ms = null;
             thread.io_wait = null;
-            clearExecutionStacks(&thread.stack, &thread.frames);
+            detachExecutionStacks(&thread.stack, &thread.frames);
             if (thread.main_fiber) |fiber| {
                 clearRetiredFiberExecution(fiber);
                 fiber.state = .terminated;
@@ -5021,6 +5017,7 @@ pub const VM = struct {
 
     fn ensureThreadCoroutine(self: *VM, thread: *value.ThreadObject) VMError!void {
         if (thread.coro != null) return;
+        try self.ensureExecutionStacks(&thread.stack, &thread.frames);
 
         const coro_obj = self.allocator.create(FiberCoro) catch return error.Fatal;
         coro_obj.* = .{
@@ -10675,8 +10672,8 @@ pub const VM = struct {
         fiber_obj.rescued_exceptions = .empty;
         fiber_obj.state = .created;
         fiber_obj.block = block;
-        initFiberValueStackInPlace(&fiber_obj.stack);
-        initFiberFrameStackInPlace(&fiber_obj.frames);
+        fiber_obj.stack = .init();
+        fiber_obj.frames = .init();
         fiber_obj.pending_unwind = null;
         fiber_obj.current_lexical_scope = null;
         fiber_obj.caller = null;
