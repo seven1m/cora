@@ -167,6 +167,19 @@ test "Enumerator#inspect for method-based" {
     try std.testing.expect(std.mem.indexOf(u8, str, "each") != null);
 }
 
+test "ArithmeticSequence exposes range bounds and step and inspects its origin" {
+    var stdout_buf: [8192]u8 = undefined;
+    var stderr_buf: [8192]u8 = undefined;
+    const result = evalCodeWithOutput(
+        \\a = (1..10).step(2)
+        \\p [a.begin, a.end, a.step, a.inspect]
+        \\b = (1..).step
+        \\p [b.begin, b.end, b.step, b.inspect]
+    , &stdout_buf, &stderr_buf);
+    try std.testing.expect(result.err == null);
+    try std.testing.expectEqualStrings("[1, 10, 2, \"((1..10).step(2))\"]\n[1, nil, 1, \"((1..).step)\"]\n", result.stdout);
+}
+
 test "Array#each Enumerator#size returns enumerable size" {
     const result = try evalCode("[1, 2, 3].each.size");
     try std.testing.expect(result.isInteger());

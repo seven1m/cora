@@ -46,6 +46,10 @@ pub fn register(vm: *VM) !void {
 
     const inspect_sym = try vm.intern("inspect");
     try vm.enumerator_class.module.methods.put(inspect_sym, MethodEntry.builtin(&builtinEnumeratorInspect, .{ .exact = 0 }));
+    try vm.enumerator_arithmetic_sequence_class.module.methods.put(inspect_sym, MethodEntry.builtin(&builtinArithmeticSequenceInspect, .{ .exact = 0 }));
+    try vm.enumerator_arithmetic_sequence_class.module.methods.put(try vm.intern("begin"), MethodEntry.builtin(&builtinArithmeticSequenceBegin, .{ .exact = 0 }));
+    try vm.enumerator_arithmetic_sequence_class.module.methods.put(try vm.intern("end"), MethodEntry.builtin(&builtinArithmeticSequenceEnd, .{ .exact = 0 }));
+    try vm.enumerator_arithmetic_sequence_class.module.methods.put(try vm.intern("step"), MethodEntry.builtin(&builtinArithmeticSequenceStep, .{ .exact = 0 }));
 
     const size_sym = try vm.intern("size");
     try vm.enumerator_class.module.methods.put(size_sym, MethodEntry.builtin(&builtinEnumeratorSize, .{ .exact = 0 }));
@@ -249,6 +253,54 @@ fn builtinEnumeratorRewind(vm: *VM, receiver: Value, args: []Value, _: ?Block) V
     enum_obj.has_lookahead_values = false;
     enum_obj.lookahead_values = null;
     return receiver;
+}
+
+fn arithmeticSequenceRange(vm: *VM, receiver: Value) VMError!*value.RangeObject {
+    const method = switch (receiver.toEnumeratorObject().kind) {
+        .method => |method| method,
+        else => return vm.raiseExceptionFmt(vm.type_error_class, "invalid arithmetic sequence", .{}),
+    };
+    if (!method.receiver.isRange()) return vm.raiseExceptionFmt(vm.type_error_class, "invalid arithmetic sequence", .{});
+    return method.receiver.toRangeObject();
+}
+
+fn builtinArithmeticSequenceBegin(vm: *VM, receiver: Value, _: []Value, _: ?Block) VMError!Value {
+    return (try arithmeticSequenceRange(vm, receiver)).begin;
+}
+
+fn builtinArithmeticSequenceEnd(vm: *VM, receiver: Value, _: []Value, _: ?Block) VMError!Value {
+    return (try arithmeticSequenceRange(vm, receiver)).end;
+}
+
+fn builtinArithmeticSequenceStep(_: *VM, receiver: Value, _: []Value, _: ?Block) VMError!Value {
+    if (receiver.toEnumeratorObject().method_args) |args| {
+        if (args.elements.items.len > 0) return args.elements.items[0];
+    }
+    return Value.integer(1);
+}
+
+fn builtinArithmeticSequenceInspect(vm: *VM, receiver: Value, _: []Value, _: ?Block) VMError!Value {
+    const sequence = receiver.toEnumeratorObject();
+    const method = switch (sequence.kind) {
+        .method => |method| method,
+        else => return builtinEnumeratorInspect(vm, receiver, &.{}, null),
+    };
+    const inspected = try method.receiver.inspect(vm);
+    var buf: std.Io.Writer.Allocating = .init(vm.allocator);
+    defer buf.deinit();
+    const writer = &buf.writer;
+    writer.print("(({s}).{s}", .{ inspected.toStringObject().str, method.method_name.name }) catch return error.Fatal;
+    if (sequence.method_args) |args| {
+        writer.writeAll("(") catch return error.Fatal;
+        for (args.elements.items, 0..) |arg, i| {
+            if (i > 0) writer.writeAll(", ") catch return error.Fatal;
+            const arg_inspected = try arg.inspect(vm);
+            writer.writeAll(arg_inspected.toStringObject().str) catch return error.Fatal;
+        }
+        writer.writeAll(")") catch return error.Fatal;
+    }
+    writer.writeAll(")") catch return error.Fatal;
+    return vm.newString(buf.written(), false);
 }
 
 fn builtinEnumeratorInspect(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
