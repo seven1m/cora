@@ -15,6 +15,8 @@ const value = @import("value.zig");
 const prism = @import("prism.zig");
 const builtins = @import("builtins/builtins.zig");
 const comparable_builtin = @import("builtins/comparable.zig");
+const basic_object_builtin = @import("builtins/basic_object.zig");
+const kernel_builtin = @import("builtins/kernel.zig");
 const warning_builtin = @import("builtins/warning.zig");
 const thread_builtin = @import("builtins/thread.zig");
 const zio = @import("zio");
@@ -9142,6 +9144,23 @@ pub const VM = struct {
         return responds.isTruthy();
     }
 
+    fn isBuiltinMethod(resolved: ResolvedMethod, function: @FieldType(BuiltinMethod, "function")) bool {
+        return resolved.entry.method == .builtin and resolved.entry.method.builtin.function == function;
+    }
+
+    fn hasDefaultMissingProbeHandlers(self: *VM, receiver: Value, respond_to_method: ?ResolvedMethod) VMError!bool {
+        if (respond_to_method) |resolved| {
+            if (!isBuiltinMethod(resolved, &kernel_builtin.builtinKernelRespondTo)) return false;
+        }
+        if (try self.findMethod(receiver, try self.intern("respond_to_missing?"))) |resolved| {
+            if (!isBuiltinMethod(resolved, &kernel_builtin.builtinKernelRespondToMissing)) return false;
+        }
+        if (try self.findMethod(receiver, try self.intern("method_missing"))) |resolved| {
+            if (!isBuiltinMethod(resolved, &basic_object_builtin.builtinBasicObjectMethodMissing)) return false;
+        }
+        return true;
+    }
+
     /// MRI-like check-call helper for optional conversion/probe calls.
     /// Returns null when receiver does not respond to the method.
     /// If receiver responds, performs a normal call (including method_missing behavior).
@@ -9155,6 +9174,11 @@ pub const VM = struct {
         if (direct_method != null) {
             return try self.callMethodByName(receiver, method_name, args, block);
         }
+
+        // Default hooks cannot supply a missing method. Avoid constructing and
+        // rescuing NoMethodError (including its backtrace) for an ordinary miss.
+        // Custom hooks retain normal dispatch: they can mutate method tables.
+        if (try self.hasDefaultMissingProbeHandlers(receiver, respond_to_method)) return null;
 
         if (has_respond_to) {
             if (try self.respondsToMethodByName(receiver, method_name, include_private)) {

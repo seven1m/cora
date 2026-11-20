@@ -12,6 +12,9 @@
 - Always use VM argument-count helpers such as `requireArgCount` and `requireArgCountRange` instead of hand-constructing wrong-arity exceptions.
 - After `VM.yieldToBlock`, use `YieldResult.controlFlowValue()` when a builtin should propagate either block `break` or non-local `return` by returning the yielded control-flow value.
 - Prefer `VM.checkCallMethodByName(receiver, "method", include_private, args, block)` for optional conversion/probe calls where a missing method should behave like "not supported".
+  Ordinary misses with default response/missing handlers return without constructing
+  NoMethodError or a backtrace. Handler identity is checked by builtin function,
+  so aliases are recognized and custom/redefined/prepended hooks keep normal dispatch.
 - Pass `include_private = true` to `checkCallMethodByName` only when Ruby semantics require private methods to count for the probe.
 - Do not parse exception messages such as `"undefined method 'to_str'"` to detect missing methods.
 - Use `VM.callMethodByName` when the call must always happen or its side effects must be preserved.

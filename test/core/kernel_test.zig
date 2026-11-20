@@ -1,4 +1,6 @@
 const std = @import("std");
+const cora = @import("cora");
+const bdwgc = @import("bdwgc");
 const test_helper = @import("../test_helper.zig");
 
 const evalCode = test_helper.evalCode;
@@ -358,6 +360,188 @@ test "Kernel#respond_to? coerces method name via to_str" {
     );
     try std.testing.expect(result.isBool());
     try std.testing.expectEqual(true, result.toBool());
+}
+
+test "Optional method probes allocate no exceptions for default missing handlers" {
+    bdwgc.init();
+    defer bdwgc.deinit();
+    const allocator = std.testing.allocator;
+    var parser = try cora.prism.Parser.init(allocator, "[Object.new, \"path\", 123, BasicObject.new]", null);
+    defer parser.deinit();
+    var program = try cora.compiler.Compiler.compile(allocator, &parser, 1);
+    defer program.deinit();
+    var vm = cora.vm.VM.initEmpty(allocator, cora.gc_allocator.scanned, cora.gc_allocator.atomic, std.testing.io, std.testing.environ);
+    defer vm.deinit();
+    try vm.prepare(&program);
+    const receivers = (try vm.run()).toArrayObject().elements.items;
+    // Prime interned symbols and lookup before measuring the recurring miss.
+    for (receivers) |receiver| {
+        try std.testing.expect(try vm.checkCallMethodByName(receiver, "to_path", false, &.{}, null) == null);
+    }
+    const original = try vm.createException(vm.runtime_error_class, "original");
+    vm.setPendingException(original);
+    const before = bdwgc.c.GC_get_total_bytes();
+    for (0..500) |_| {
+        for (receivers) |receiver| {
+            try std.testing.expect(try vm.checkCallMethodByName(receiver, "to_path", false, &.{}, null) == null);
+        }
+    }
+    const allocated = bdwgc.c.GC_get_total_bytes() - before;
+    try std.testing.expect(allocated < 4096);
+    try std.testing.expect(vm.pendingException() == original);
+}
+
+test "Optional conversion probes preserve custom missing and response hooks" {
+    const result = try evalCode(
+        \\class OptionalMissingConversion
+        \\  attr_reader :calls
+        \\  def method_missing(name, *args)
+        \\    (@calls ||= []) << name
+        \\    return [:dynamic] if name == :to_ary
+        \\    super
+        \\  end
+        \\end
+        \\missing = OptionalMissingConversion.new
+        \\first = Array.try_convert(missing)
+        \\claimed = Object.new
+        \\def claimed.respond_to_missing?(name, include_private = false)
+        \\  name == :to_ary
+        \\end
+        \\def claimed.method_missing(name, *args)
+        \\  return [:claimed] if name == :to_ary
+        \\  super
+        \\end
+        \\second = Array.try_convert(claimed)
+        \\class OptionalFalseResponse
+        \\  attr_reader :calls
+        \\  def respond_to?(name, include_private = false)
+        \\    (@calls ||= []) << name
+        \\    false
+        \\  end
+        \\  def method_missing(name, *args)
+        \\    raise "unexpected missing hook"
+        \\  end
+        \\end
+        \\negative = OptionalFalseResponse.new
+        \\third = Array.try_convert(negative)
+        \\first == [:dynamic] && missing.calls == [:to_ary] && second == [:claimed] &&
+        \\  third.nil? && negative.calls == [:to_ary]
+    );
+    try std.testing.expect(result.isTrue());
+}
+
+test "Optional conversion probes preserve hook side effects and failures" {
+    const result = try evalCode(
+        \\hook = Object.new
+        \\def hook.respond_to_missing?(name, include_private = false)
+        \\  (@calls ||= []) << name
+        \\  false
+        \\end
+        \\absent = Array.try_convert(hook)
+        \\failure = RuntimeError.new("hook failed")
+        \\raising = Object.new
+        \\raising.instance_variable_set(:@failure, failure)
+        \\def raising.respond_to_missing?(name, include_private = false)
+        \\  raise @failure
+        \\end
+        \\seen = begin Array.try_convert(raising); rescue RuntimeError => e; e; end
+        \\missing = Object.new
+        \\missing.instance_variable_set(:@failure, failure)
+        \\def missing.method_missing(name, *args)
+        \\  raise @failure
+        \\end
+        \\missing_seen = begin Array.try_convert(missing); rescue RuntimeError => e; e; end
+        \\conversion = Object.new
+        \\conversion.instance_variable_set(:@failure, failure)
+        \\def conversion.to_ary
+        \\  raise @failure
+        \\end
+        \\real_seen = begin Array.try_convert(conversion); rescue RuntimeError => e; e; end
+        \\absent.nil? && hook.instance_variable_get(:@calls) == [:to_ary] &&
+        \\  seen.equal?(failure) && missing_seen.equal?(failure) && real_seen.equal?(failure)
+    );
+    try std.testing.expect(result.isTrue());
+}
+
+test "Optional conversion probes propagate claimed and real NoMethodErrors" {
+    const result = try evalCode(
+        \\claimed = Object.new
+        \\def claimed.respond_to?(name, include_private = false)
+        \\  name == :to_ary || super
+        \\end
+        \\def claimed.method_missing(name, *args)
+        \\  super
+        \\end
+        \\missing = begin Array.try_convert(claimed); rescue NoMethodError => error; error; end
+        \\failure = NoMethodError.new("inside real conversion")
+        \\real = Object.new
+        \\real.instance_variable_set(:@failure, failure)
+        \\def real.to_ary
+        \\  raise @failure
+        \\end
+        \\actual = begin Array.try_convert(real); rescue NoMethodError => error; error; end
+        \\missing.is_a?(NoMethodError) && missing.name == :to_ary && actual.equal?(failure)
+    );
+    try std.testing.expect(result.isTrue());
+}
+
+test "Optional conversion probes follow redefined and prepended missing handlers" {
+    const result = try evalCode(
+        \\receiver = Object.new
+        \\before = Array.try_convert(receiver)
+        \\def receiver.method_missing(name, *args)
+        \\  return [:first] if name == :to_ary
+        \\  super
+        \\end
+        \\first = Array.try_convert(receiver)
+        \\def receiver.method_missing(name, *args)
+        \\  return [:second] if name == :to_ary
+        \\  super
+        \\end
+        \\second = Array.try_convert(receiver)
+        \\receiver.singleton_class.send(:remove_method, :method_missing)
+        \\after = Array.try_convert(receiver)
+        \\wrapper = Module.new do
+        \\  def method_missing(name, *args)
+        \\    (@calls ||= []) << name
+        \\    super
+        \\  end
+        \\end
+        \\receiver.singleton_class.prepend(wrapper)
+        \\wrapped = Array.try_convert(receiver)
+        \\before.nil? && first == [:first] && second == [:second] && after.nil? &&
+        \\  wrapped.nil? && receiver.instance_variable_get(:@calls) == [:to_ary]
+    );
+    try std.testing.expect(result.isTrue());
+}
+
+test "Optional conversion probes handle aliased defaults private conversions and absent hooks" {
+    const result = try evalCode(
+        \\class OptionalAliasedDefaults
+        \\  alias_method :respond_to?, :respond_to?
+        \\  alias_method :respond_to_missing?, :respond_to_missing?
+        \\  alias_method :method_missing, :method_missing
+        \\end
+        \\class OptionalUndefinedMissing
+        \\  undef_method :method_missing
+        \\end
+        \\class OptionalUndefinedResponses
+        \\  undef_method :respond_to?
+        \\  undef_method :respond_to_missing?
+        \\end
+        \\class OptionalPrivateConversion
+        \\  private
+        \\  def to_ary
+        \\    [:private_conversion]
+        \\  end
+        \\end
+        \\Array.try_convert(OptionalAliasedDefaults.new).nil? &&
+        \\  Array.try_convert(OptionalUndefinedMissing.new).nil? &&
+        \\  Array.try_convert(OptionalUndefinedResponses.new).nil? &&
+        \\  Array.try_convert(BasicObject.new).nil? &&
+        \\  Array(OptionalPrivateConversion.new) == [:private_conversion]
+    );
+    try std.testing.expect(result.isTrue());
 }
 
 test "Kernel#respond_to? consults respond_to_missing? for missing methods" {
