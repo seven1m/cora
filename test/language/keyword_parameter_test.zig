@@ -241,3 +241,48 @@ test "Keyword dispatch handles proc methods and no-keyword blocks" {
     try std.testing.expect(values[0].isHash());
     try std.testing.expect(values[1].isTrue());
 }
+
+test "Builtin keywords survive nested calls and GC across suspended fibers" {
+    const result = try evalCode(
+        \\class KeywordRandom
+        \\  def rand(limit)
+        \\    Fiber.yield :waiting
+        \\    GC.start
+        \\    Object.new.clone(freeze: false)
+        \\    0
+        \\  end
+        \\end
+        \\fibers = [7, 9].map do |value|
+        \\  Fiber.new { [value, value + 1].sample(random: KeywordRandom.new) }
+        \\end
+        \\waiting = fibers.map(&:resume)
+        \\GC.start
+        \\waiting == [:waiting, :waiting] && fibers.map(&:resume) == [7, 9]
+    );
+    try std.testing.expect(result.isTrue());
+}
+
+test "Builtin keyword forwarding handles varying keyword counts" {
+    const result = try evalCode(
+        \\[1, 4, 32, 128].all? do |count|
+        \\  names = (1..count).map { |i| "key#{i}".to_sym }
+        \\  keywords = {}
+        \\  names.each_with_index { |name, index| keywords[name] = index }
+        \\  base = Struct.new(*names, keyword_init: true)
+        \\  named = Class.new(base) do
+        \\    def initialize(**keywords)
+        \\      GC.start
+        \\      super
+        \\    end
+        \\  end
+        \\  forwarded = Class.new(base) do
+        \\    def initialize(...)
+        \\      GC.start
+        \\      super
+        \\    end
+        \\  end
+        \\  [base, named, forwarded].all? { |klass| klass.new(**keywords).to_h == keywords }
+        \\end
+    );
+    try std.testing.expect(result.isTrue());
+}

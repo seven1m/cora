@@ -45,6 +45,8 @@ Prefer not to add new opcodes when an existing mechanism can be extended. When a
 
 **Method entries:** A `MethodEntry.method` is one of `.undefined`, `.builtin`, or `.cext` (`{ func: *anyopaque, argc: c_int }`). C extension methods are registered by `rb_define_method`/`rb_define_module_function`/etc. in `src/cext.zig`, bump `VM.method_state_version` so JIT/lookup caches invalidate, and dispatch goes through `cext_method` arms in `src/vm.zig` and `src/builtins/method_common.zig`. Explicit keywords reach C methods as a trailing hash that `rb_scan_args` can extract with its `:` format directive. See `.agents/reference/native-extensions.md` for the supported C ABI surface and the cext fixture.
 
+**Builtin keyword contexts:** The context header, copied keyword keys/values, and consumption flags share one GC-scanned allocation sized to the actual keyword count. Contexts can survive nested callbacks and coroutine suspension through saved call state; their storage must not borrow temporary argument buffers.
+
 **Value types:** Primitives include integer, float, boolean, and nil. Heap-allocated types include object instances, symbols, strings, modules, classes, arrays, hashes, ranges, exceptions, procs, fibers, regexps, and encodings.
 
 **Blocks, procs, and lambdas:** All are compiled into separate bytecode chunks with arity and parameter metadata. `is_lambda` distinguishes lambda versus proc/block semantics. `YIELD` executes the block passed to the current method. `PUSH_LAMBDA` creates a `ProcObject` wrapping a `Block` (`chunk` + `defining_ep`). Blocks capture through the environment parent chain. Escaping blocks promote captured environments from stack to heap.

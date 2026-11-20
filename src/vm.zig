@@ -437,11 +437,9 @@ const DefinitionTarget = struct {
 };
 
 pub const BuiltinKeywordContext = struct {
-    kw_keys_storage: [256]Value = undefined,
-    kw_values_storage: [256]Value = undefined,
-    kw_keys: []const Value = &.{},
-    kw_values: []const Value = &.{},
-    consumed: [MAX_BUILTIN_KEYWORDS]bool = [_]bool{false} ** MAX_BUILTIN_KEYWORDS,
+    kw_keys: []Value,
+    kw_values: []Value,
+    consumed: []bool,
     cached_hash: ?Value = null,
     hash_materialized: bool = false,
 };
@@ -8746,6 +8744,27 @@ pub const VM = struct {
         return self.nearestRubyFrame(self.frames.items.len - 1);
     }
 
+    fn allocateKeywordContext(self: *VM, len: usize) VMError!*BuiltinKeywordContext {
+        if (len > MAX_BUILTIN_KEYWORDS) return error.Fatal;
+
+        // Keep the header and its exact-sized storage together in one scanned
+        // allocation. Contexts can survive callbacks and coroutine handoffs.
+        const pairs_offset = comptime std.mem.alignForward(usize, @sizeOf(BuiltinKeywordContext), @alignOf(Value));
+        const consumed_offset = pairs_offset + 2 * len * @sizeOf(Value);
+        const alignment: std.mem.Alignment = comptime .fromByteUnits(@max(@alignOf(BuiltinKeywordContext), @alignOf(Value)));
+        const storage = self.gc_allocator.alignedAlloc(u8, alignment, consumed_offset + len) catch return error.Fatal;
+        const ctx: *BuiltinKeywordContext = @ptrCast(storage.ptr);
+        const pairs: [*]Value = @ptrCast(@alignCast(storage.ptr + pairs_offset));
+        const consumed: [*]bool = @ptrCast(storage.ptr + consumed_offset);
+        ctx.* = .{
+            .kw_keys = pairs[0..len],
+            .kw_values = pairs[len .. 2 * len],
+            .consumed = consumed[0..len],
+        };
+        @memset(ctx.consumed, false);
+        return ctx;
+    }
+
     fn copyKeywordContext(
         self: *VM,
         kw_keys: []const Value,
@@ -8754,15 +8773,9 @@ pub const VM = struct {
         if (kw_keys.len != kw_values.len) return error.Fatal;
         if (kw_keys.len == 0) return null;
 
-        const keyword_ctx = self.gc_allocator.create(BuiltinKeywordContext) catch return error.Fatal;
-        keyword_ctx.* = .{
-            .kw_keys_storage = undefined,
-            .kw_values_storage = undefined,
-        };
-        @memcpy(keyword_ctx.kw_keys_storage[0..kw_keys.len], kw_keys);
-        @memcpy(keyword_ctx.kw_values_storage[0..kw_values.len], kw_values);
-        keyword_ctx.kw_keys = keyword_ctx.kw_keys_storage[0..kw_keys.len];
-        keyword_ctx.kw_values = keyword_ctx.kw_values_storage[0..kw_values.len];
+        const keyword_ctx = try self.allocateKeywordContext(kw_keys.len);
+        @memcpy(keyword_ctx.kw_keys, kw_keys);
+        @memcpy(keyword_ctx.kw_values, kw_values);
         return keyword_ctx;
     }
 
@@ -10189,11 +10202,8 @@ pub const VM = struct {
             const len = kw_hash_val.toHashObject().entries.items.len;
             if (len == 0) return null;
 
-            const ctx = self.gc_allocator.create(BuiltinKeywordContext) catch return error.Fatal;
-            ctx.* = .{};
-            _ = try self.extractKeywordPairsFromHash(kw_hash_val, ctx.kw_keys_storage[0..len], ctx.kw_values_storage[0..len]);
-            ctx.kw_keys = ctx.kw_keys_storage[0..len];
-            ctx.kw_values = ctx.kw_values_storage[0..len];
+            const ctx = try self.allocateKeywordContext(len);
+            _ = try self.extractKeywordPairsFromHash(kw_hash_val, ctx.kw_keys, ctx.kw_values);
             return ctx;
         }
 
@@ -10204,10 +10214,7 @@ pub const VM = struct {
         } else 0;
         const total = named_total + kwrest_len;
         if (total == 0) return null;
-        if (total > MAX_BUILTIN_KEYWORDS) return error.Fatal;
-
-        const ctx = self.gc_allocator.create(BuiltinKeywordContext) catch return error.Fatal;
-        ctx.* = .{};
+        const ctx = try self.allocateKeywordContext(total);
 
         const ep = frame.ep;
         const lc = ch.locals_count;
@@ -10219,8 +10226,8 @@ pub const VM = struct {
                 .symbol => |sym| sym.name,
                 else => return error.Fatal,
             };
-            ctx.kw_keys_storage[i] = Value.fromObject(&(try self.intern(name_str)).object);
-            ctx.kw_values_storage[i] = localSlot(ep, lc, kw.param_slot).*;
+            ctx.kw_keys[i] = Value.fromObject(&(try self.intern(name_str)).object);
+            ctx.kw_values[i] = localSlot(ep, lc, kw.param_slot).*;
             i += 1;
         }
         for (ch.optional_keywords.items) |kw| {
@@ -10229,8 +10236,8 @@ pub const VM = struct {
                 .symbol => |sym| sym.name,
                 else => return error.Fatal,
             };
-            ctx.kw_keys_storage[i] = Value.fromObject(&(try self.intern(name_str)).object);
-            ctx.kw_values_storage[i] = localSlot(ep, lc, kw.param_slot).*;
+            ctx.kw_keys[i] = Value.fromObject(&(try self.intern(name_str)).object);
+            ctx.kw_values[i] = localSlot(ep, lc, kw.param_slot).*;
             i += 1;
         }
 
@@ -10239,14 +10246,12 @@ pub const VM = struct {
             if (rest.isHash() and kwrest_len > 0) {
                 _ = try self.extractKeywordPairsFromHash(
                     rest,
-                    ctx.kw_keys_storage[i..total],
-                    ctx.kw_values_storage[i..total],
+                    ctx.kw_keys[i..total],
+                    ctx.kw_values[i..total],
                 );
             }
         }
 
-        ctx.kw_keys = ctx.kw_keys_storage[0..total];
-        ctx.kw_values = ctx.kw_values_storage[0..total];
         return ctx;
     }
 
