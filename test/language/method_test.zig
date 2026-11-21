@@ -301,3 +301,9 @@ test "UnboundMethod binding relocates included module super lookup" {
     );
     try std.testing.expect(result.isTruthy());
 }
+
+test "capturing an ordinary method does not allocate a singleton class" {
+    const result = try evalCode("Object.new.method(:to_s)");
+    try std.testing.expect(result.toMethodObject().receiver.getSingletonClass() == null);
+    try std.testing.expectEqualStrings("Kernel", result.toMethodObject().owner.toModuleObject().name.name);
+}

@@ -267,7 +267,9 @@ const ReceiverCallStyle = bytecode.ReceiverCallStyle;
 pub const ResolvedMethod = struct {
     name: *SymbolObject,
     owner_class: *ClassObject,
-    defining_node: ?*ModuleObject = null,
+    // Null only for synthetic respond_to_missing? method handles.
+    // Concrete lookup producers must always provide their definition node.
+    defining_node: ?*ModuleObject,
     entry: MethodEntry,
 };
 
@@ -8542,7 +8544,7 @@ pub const VM = struct {
             .protected => {
                 if (self.frames.items.len == 0) return false;
                 const caller_self = self.currentFrame().self_value;
-                const owner = if (resolved.defining_node) |node| ancestry.visibleModule(node) else &resolved.owner_class.module;
+                const owner = ancestry.visibleModule(resolved.defining_node.?);
                 return (try self.hasDispatchAncestor(caller_self, owner)) and
                     (try self.hasDispatchAncestor(receiver, owner));
             },

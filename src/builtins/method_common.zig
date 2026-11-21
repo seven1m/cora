@@ -95,22 +95,7 @@ pub const UnboundMethodBuiltins = struct {
     source_location: BuiltinMethodFn,
 };
 
-fn resolveMethodEntry(
-    method_name: *SymbolObject,
-    owner_class: *ClassObject,
-    entry: MethodEntry,
-) ?vm_mod.ResolvedMethod {
-    return switch (entry.method) {
-        .undefined => null,
-        else => .{
-            .name = method_name,
-            .owner_class = owner_class,
-            .entry = entry,
-        },
-    };
-}
-
-pub fn resolveMethodOwnerValue(vm: *VM, receiver: Value, method_name_sym: *SymbolObject) VMError!?Value {
+pub fn resolveMethodOwnerValue(vm: *VM, receiver: Value, method_name_sym: *SymbolObject) ?Value {
     const scanClass = struct {
         fn run(class_obj: *ClassObject, name_sym: *SymbolObject) ?Value {
             var current: ?*value.ModuleObject = &class_obj.module;
@@ -125,39 +110,11 @@ pub fn resolveMethodOwnerValue(vm: *VM, receiver: Value, method_name_sym: *Symbo
         }
     }.run;
 
-    if (receiver.getObjectPointer() != null) {
-        const singleton_class = try vm.getOrCreateSingletonClass(receiver);
+    if (receiver.getSingletonClass()) |singleton_class| {
         if (scanClass(singleton_class, method_name_sym)) |owner| return owner;
     }
 
     return scanClass(vm.getClass(receiver), method_name_sym);
-}
-
-fn scanClassForExactMethod(
-    start_class: *ClassObject,
-    owner: Value,
-    method_name_sym: *SymbolObject,
-) ?vm_mod.ResolvedMethod {
-    var current: ?*value.ModuleObject = &start_class.module;
-    var owner_class = start_class;
-    while (current) |node| : (current = node.super) {
-        if (node.object.type_tag == .class) owner_class = @fieldParentPtr("module", node);
-        const node_owner = ancestry.visibleValue(node);
-        if (node_owner.raw != owner.raw) continue;
-        if (ancestry.methodTableOwner(node).methods.get(method_name_sym)) |entry| {
-            return resolveMethodEntry(method_name_sym, owner_class, entry);
-        }
-        return null;
-    }
-
-    return null;
-}
-
-pub fn resolveExactMethodForReceiver(vm: *VM, receiver: Value, owner: Value, method_name_sym: *SymbolObject) VMError!?vm_mod.ResolvedMethod {
-    if (receiver.getSingletonClass()) |singleton_class| {
-        if (scanClassForExactMethod(singleton_class, owner, method_name_sym)) |resolved| return resolved;
-    }
-    return scanClassForExactMethod(vm.getClass(receiver), owner, method_name_sym);
 }
 
 pub fn ownerDisplayName(owner: Value) []const u8 {
@@ -182,8 +139,8 @@ pub fn raiseUndefinedMethodName(vm: *VM, name_sym: *SymbolObject) VMError!Value 
     return vm.raiseNameErrorFmt(name_sym, "undefined method '{s}'", .{name_sym.name});
 }
 
-pub fn sourceLocationForResolvedMethod(vm: *VM, resolved: vm_mod.ResolvedMethod) VMError!Value {
-    const method_chunk = switch (resolved.entry.method) {
+pub fn sourceLocationForMethod(vm: *VM, method: vm_mod.Method) VMError!Value {
+    const method_chunk = switch (method) {
         .chunk => |method_chunk| method_chunk,
         .proc => |proc_obj| switch (proc_obj.block.kind) {
             .chunk => |chunk_block| chunk_block.chunk,
@@ -216,10 +173,10 @@ fn chunkParameterName(method_chunk: *const Chunk, slot: usize) ?[]const u8 {
     return if (name.len == 0) null else name;
 }
 
-pub fn parametersForResolvedMethod(vm: *VM, resolved: vm_mod.ResolvedMethod) VMError!Value {
+pub fn parametersForMethod(vm: *VM, method: vm_mod.Method) VMError!Value {
     const out = try vm.createArray();
 
-    switch (resolved.entry.method) {
+    switch (method) {
         .chunk => |method_chunk| {
             for (0..method_chunk.arity) |slot| {
                 try appendParameterDescriptor(vm, out, "req", chunkParameterName(method_chunk, slot));
@@ -255,12 +212,7 @@ pub fn parametersForResolvedMethod(vm: *VM, resolved: vm_mod.ResolvedMethod) VME
         },
         .proc => |proc_obj| switch (proc_obj.block.kind) {
             .chunk => |chunk_blk| {
-                const chunk_method: vm_mod.ResolvedMethod = .{
-                    .name = resolved.name,
-                    .owner_class = resolved.owner_class,
-                    .entry = .{ .method = .{ .chunk = chunk_blk.chunk }, .visibility = resolved.entry.visibility },
-                };
-                return parametersForResolvedMethod(vm, chunk_method);
+                return parametersForMethod(vm, .{ .chunk = chunk_blk.chunk });
             },
             .receiver_builtin => |builtin_data| {
                 for (0..@intCast(builtin_data.arity)) |_| {
@@ -472,7 +424,9 @@ pub fn registerUnboundMethodBuiltins(vm: *VM, builtins: UnboundMethodBuiltins) V
 }
 
 pub fn methodOwnerForResolved(resolved: vm_mod.ResolvedMethod) Value {
-    return if (resolved.defining_node) |node| ancestry.visibleValue(node) else Value.fromObject(&resolved.owner_class.module.object);
+    // Only concrete lookup results reach super_method; synthetic missing
+    // method handles return nil before looking for a successor.
+    return ancestry.visibleValue(resolved.defining_node.?);
 }
 
 // An included module has a separate ancestor node in each including class.

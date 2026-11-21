@@ -2229,12 +2229,13 @@ pub fn builtinKernelMethod(vm: *VM, receiver: Value, args: []Value, _: ?Block) V
         const missing_resolved: vm_mod.ResolvedMethod = .{
             .name = method_name,
             .owner_class = owner_class,
+            .defining_node = null,
             .entry = .{ .method = .{ .missing = method_name } },
         };
         return createBoundMethodObject(vm, receiver, method_name, missing_resolved, Value.fromObject(&owner_class.module.object));
     };
 
-    const owner = (try method_common.resolveMethodOwnerValue(vm, receiver, method_name)) orelse Value.fromObject(&resolved.owner_class.module.object);
+    const owner = method_common.resolveMethodOwnerValue(vm, receiver, method_name).?;
     return createBoundMethodObject(vm, receiver, method_name, resolved, owner);
 }
 

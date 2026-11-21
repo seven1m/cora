@@ -43,6 +43,15 @@ Prefer not to add new opcodes when an existing mechanism can be extended. When a
 
 **Classes/modules:** Classes store module-like method tables plus superclass and prepended/included module lists. Method lookup walks prepended modules -> class methods -> included modules -> superclass. `Class#new` consults `ClassObject.cext_alloc_func` first when present, so a C extension can install its own allocator for the Ruby wrapper.
 
+**Resolved methods:** Concrete lookups always record a definition node, including
+cache hits and copied method handles. A null node is explicit and reserved for
+synthetic handles returned through `respond_to_missing?`; those handles have no
+`super_method`. `owner_class` is a class-chain search anchor, not necessarily the
+Ruby-visible owner of an included module method. Reflection finds the physical
+owner without materializing an ordinary object's singleton class; aliases can
+retain a different implementation origin. Parameter and source-location helpers
+accept the implementation directly, without manufacturing lookup metadata.
+
 **Method entries:** A `MethodEntry.method` is one of `.undefined`, `.builtin`, or `.cext` (`{ func: *anyopaque, argc: c_int }`). C extension methods are registered by `rb_define_method`/`rb_define_module_function`/etc. in `src/cext.zig`, bump `VM.method_state_version` so JIT/lookup caches invalidate, and dispatch goes through `cext_method` arms in `src/vm.zig` and `src/builtins/method_common.zig`. Explicit keywords reach C methods as a trailing hash that `rb_scan_args` can extract with its `:` format directive. See `.agents/reference/native-extensions.md` for the supported C ABI surface and the cext fixture.
 
 **Builtin keyword contexts:** The context header, copied keyword keys/values, and consumption flags share one GC-scanned allocation sized to the actual keyword count. Contexts can survive nested callbacks and coroutine suspension through saved call state; their storage must not borrow temporary argument buffers.

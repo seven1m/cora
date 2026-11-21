@@ -445,7 +445,7 @@ pub const ExceptionObject = struct {
 
 pub const MethodObject = struct {
     object: Object,
-    defining_node: ?*ModuleObject = null,
+    defining_node: ?*ModuleObject,
     receiver: Value,
     name: *SymbolObject,
     arity: Value,
@@ -456,7 +456,7 @@ pub const MethodObject = struct {
 
 pub const UnboundMethodObject = struct {
     object: Object,
-    defining_node: ?*ModuleObject = null,
+    defining_node: ?*ModuleObject,
     name: *SymbolObject,
     arity: Value,
     owner: Value,

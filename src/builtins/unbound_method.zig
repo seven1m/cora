@@ -82,13 +82,7 @@ fn builtinUnboundMethodArity(vm: *VM, receiver: Value, args: []Value, _: ?Block)
 fn builtinUnboundMethodParameters(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
 
-    const method_obj = unboundMethodObject(receiver);
-    return common.parametersForResolvedMethod(vm, .{
-        .name = method_obj.name,
-        .defining_node = method_obj.defining_node,
-        .owner_class = if (method_obj.owner.isClass()) method_obj.owner.toClassObject() else vm.getClass(method_obj.owner),
-        .entry = method_obj.entry,
-    });
+    return common.parametersForMethod(vm, unboundMethodObject(receiver).entry.method);
 }
 
 fn builtinUnboundMethodBind(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
@@ -164,13 +158,7 @@ fn builtinUnboundMethodEqual(vm: *VM, receiver: Value, args: []Value, _: ?Block)
 fn builtinUnboundMethodSourceLocation(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
 
-    const method_obj = unboundMethodObject(receiver);
-    return common.sourceLocationForResolvedMethod(vm, .{
-        .name = method_obj.name,
-        .defining_node = method_obj.defining_node,
-        .owner_class = if (method_obj.owner.isClass()) method_obj.owner.toClassObject() else vm.getClass(method_obj.owner),
-        .entry = method_obj.entry,
-    });
+    return common.sourceLocationForMethod(vm, unboundMethodObject(receiver).entry.method);
 }
 
 pub fn createUnboundMethodObject(

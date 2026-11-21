@@ -103,14 +103,7 @@ fn builtinMethodArity(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMErro
 fn builtinMethodParameters(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
 
-    const method_obj = boundMethodObject(receiver);
-    const resolved: vm_mod.ResolvedMethod = .{
-        .name = method_obj.name,
-        .defining_node = method_obj.defining_node,
-        .owner_class = method_obj.owner_class,
-        .entry = method_obj.entry,
-    };
-    return common.parametersForResolvedMethod(vm, resolved);
+    return common.parametersForMethod(vm, boundMethodObject(receiver).entry.method);
 }
 
 fn builtinMethodUnbind(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
@@ -129,14 +122,7 @@ fn builtinMethodUnbind(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMErr
 fn builtinMethodSourceLocation(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
 
-    const method_obj = boundMethodObject(receiver);
-    const resolved: vm_mod.ResolvedMethod = .{
-        .name = method_obj.name,
-        .defining_node = method_obj.defining_node,
-        .owner_class = method_obj.owner_class,
-        .entry = method_obj.entry,
-    };
-    return common.sourceLocationForResolvedMethod(vm, resolved);
+    return common.sourceLocationForMethod(vm, boundMethodObject(receiver).entry.method);
 }
 
 pub fn createBoundMethodObject(

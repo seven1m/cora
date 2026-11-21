@@ -77,7 +77,7 @@ pub const CallSiteCache = struct {
     method_name: *SymbolObject,
     method_state_version: u64,
     owner_class: *ClassObject,
-    defining_node: ?*ModuleObject = null,
+    defining_node: ?*ModuleObject,
     entry: MethodEntry,
 };
 

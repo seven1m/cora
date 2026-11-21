@@ -92,6 +92,11 @@
 
 - Use `VM.guardNotFrozen(receiver)` to check if an object is frozen and raise `FrozenError("can't modify frozen ...")` if so. It includes the inspected receiver when available and guards recursive inspection. This replaces the repetitive `if (receiver.isFrozen()) { return vm.raiseExceptionFmt(...); }` pattern.
 
+## Method Reflection
+
+- Use `method_common.parametersForMethod` and `sourceLocationForMethod` with the method implementation. They do not require a fabricated `ResolvedMethod` or an owner-class fallback.
+- A concrete lookup's visible owner must exist. Synthetic `respond_to_missing?` handles are created explicitly with no definition node; do not treat missing metadata on ordinary methods as that synthetic case.
+
 ## Builtin Naming Conventions
 
 - For Ruby `!` methods, use a `Bang` suffix in the Zig handler name, for example `builtinStringUpcaseBang`.
