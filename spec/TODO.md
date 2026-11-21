@@ -2252,7 +2252,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] core/thread/stop_spec.rb
 - [x] core/thread/terminate_spec.rb
 - [x] core/thread/thread_variable_get_spec.rb
-- [-] core/thread/thread_variable_set_spec.rb
+- [x] core/thread/thread_variable_set_spec.rb
 - [-] core/thread/thread_variable_spec.rb
 - [x] core/thread/thread_variables_spec.rb
 - [ ] core/thread/to_s_spec.rb
