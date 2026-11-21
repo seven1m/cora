@@ -7810,7 +7810,7 @@ pub const VM = struct {
                 const method_chunk = if (environment) |env| env.context.chunk else fallback.chunk;
                 const name_sym = try self.intern(name);
                 const resolved = if (defining_node) |node|
-                    self.lookupMethodAfterDefiningNode(frame.self_value, node, name_sym)
+                    self.lookupSuperMethodFromDefinition(frame.self_value, node, name_sym)
                 else if (method_chunk.lexical_scope) |scope| switch (scope.scope_module) {
                     .module => |mod| self.lookupMethodForSuperFromScope(self.getDispatchClass(frame.self_value), .{ .module = mod }, name_sym),
                     .class => |cls| self.lookupMethodForSuperFromScope(self.getDispatchClass(frame.self_value), .{ .class = cls }, name_sym),
@@ -10472,6 +10472,32 @@ pub const VM = struct {
         return null;
     }
 
+    fn lookupSuperMethodFromDefinition(
+        self: *VM,
+        receiver: Value,
+        defining_node: *ModuleObject,
+        method_name: *value.SymbolObject,
+    ) ?ResolvedMethod {
+        const start_class = self.getDispatchClass(receiver);
+        const owner = ancestry.visibleModule(defining_node);
+        var owner_node: ?*ModuleObject = null;
+        var current: ?*ModuleObject = &start_class.module;
+        while (current) |node| : (current = node.super) {
+            if (node == defining_node) return self.lookupMethodAfterNode(node, method_name);
+            // Captured module methods can retain the original module rather
+            // than this receiver's inclusion node. Prefer an exact node above.
+            const origin_shell = node.object.type_tag != .iclass and node.origin != node;
+            if (owner_node == null and !origin_shell and ancestry.visibleModule(node) == owner) owner_node = node;
+        }
+        if (owner_node) |node| return self.lookupMethodAfterNode(node, method_name);
+
+        // Unbound module methods may be bound to objects that do not include
+        // the module at all. Their super chain starts at the receiver's class.
+        // This is distinct from a miss after an existing definition node.
+        if (owner.object.type_tag == .module) return self.lookupMethod(start_class, method_name);
+        return null;
+    }
+
     pub fn blockArity(self: *VM, block: Block) VMError!i64 {
         return switch (block.kind) {
             .receiver_builtin => |builtin_data| builtin_data.arity,
@@ -10763,16 +10789,18 @@ pub const VM = struct {
 
         const lexical_scope = defining_method_chunk.lexical_scope;
         var maybe_resolved = if (explicit_defining_node) |defining_node|
-            self.lookupMethodAfterDefiningNode(receiver, defining_node, method_name_sym)
+            self.lookupSuperMethodFromDefinition(receiver, defining_node, method_name_sym)
         else
             null;
-        if (maybe_resolved == null) {
+        // A known definition node is authoritative: a miss after that node
+        // means there is no super method, not that lookup should restart.
+        if (explicit_defining_node == null) {
             maybe_resolved = if (lexical_scope) |scope| switch (scope.scope_module) {
                 .module => |defining_module| self.lookupMethodForSuperFromScope(
                     self.getClass(receiver),
                     .{ .module = defining_module },
                     method_name_sym,
-                ) orelse self.lookupMethod(self.getClass(receiver), method_name_sym),
+                ),
                 .class => |defining_class| self.lookupMethodForSuperFromScope(
                     defining_class,
                     .{ .class = defining_class },

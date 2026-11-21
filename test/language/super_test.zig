@@ -545,3 +545,45 @@ test "super reaches included module after defining class" {
     try std.testing.expect(result.isInteger());
     try std.testing.expectEqual(42, result.toInteger());
 }
+
+test "module super misses do not restart method lookup" {
+    const result = try evalCode(
+        \\module MissingModuleSuper
+        \\  def missing; [defined?(super), super]; end
+        \\  def blocked; [defined?(super), super]; end
+        \\end
+        \\class MissingModuleSuperBase
+        \\  def blocked; :must_not_run; end
+        \\end
+        \\class MissingModuleSuperMiddle < MissingModuleSuperBase
+        \\  undef_method :blocked
+        \\end
+        \\class MissingModuleSuperChild < MissingModuleSuperMiddle
+        \\  include MissingModuleSuper
+        \\  def method_missing(name); name; end
+        \\end
+        \\object = MissingModuleSuperChild.new
+        \\[object.missing, object.blocked]
+    );
+    const methods = result.toArrayObject().elements.items;
+    for (methods, [_][]const u8{ "missing", "blocked" }) |method, name| {
+        const values = method.toArrayObject().elements.items;
+        try std.testing.expect(values[0].isNil());
+        try std.testing.expectEqualStrings(name, values[1].toSymbolObject().name);
+    }
+}
+
+test "detached module binding shares super lookup with defined super" {
+    const result = try evalCode(
+        \\module DetachedSuper
+        \\  def answer; [defined?(super), super]; end
+        \\end
+        \\class DetachedSuperTarget
+        \\  def answer; :target; end
+        \\end
+        \\DetachedSuper.instance_method(:answer).bind(DetachedSuperTarget.new).call
+    );
+    const values = result.toArrayObject().elements.items;
+    try std.testing.expectEqualStrings("super", values[0].toStringObject().str);
+    try std.testing.expectEqualStrings("target", values[1].toSymbolObject().name);
+}

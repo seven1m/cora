@@ -60,6 +60,14 @@ Prefer not to add new opcodes when an existing mechanism can be extended. When a
 
 **Environments:** Frames store locals in stack slots plus a small `env_data` trailer addressed by `ep`. `ep[0]` is the parent environment pointer, `ep[1]` stores lexical-scope/frame context, and `ep[2]` stores `locals_count`. When a closure escapes, that environment is promoted to a heap `HeapEnv` whose layout mirrors the stack layout.
 
+**Super lookup:** A recorded definition node is authoritative. A missing next
+method (including an `undef_method` barrier) must reach `method_missing`, without
+restarting ordinary lookup. `lookupSuperMethodFromDefinition` maps a captured
+module owner to the receiver's inclusion node when necessary. A module method
+bound to an unrelated hierarchy has no inclusion node; Ruby explicitly starts
+its super chain at that receiver's dispatch class instead. Method#super_method
+uses the captured definition node strictly; it does not relocate that node.
+
 **Lexical scopes:** Lexical scope chains track module/class context for constant lookup.
 
 **Backtrace labels:** Chunks record the lexical base label and block nesting depth.
