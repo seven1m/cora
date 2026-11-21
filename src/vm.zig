@@ -405,6 +405,7 @@ fn sameControlFlowIdentity(lhs: PendingControlFlow, rhs: PendingControlFlow) boo
 
 fn samePendingUnwindIdentity(lhs: PendingUnwind, rhs: PendingUnwind) bool {
     return switch (lhs) {
+        .fiber_kill => rhs == .fiber_kill,
         .exception => |lhs_exception| switch (rhs) {
             .exception => |rhs_exception| lhs_exception == rhs_exception,
             else => false,
@@ -421,6 +422,7 @@ fn samePendingUnwindIdentity(lhs: PendingUnwind, rhs: PendingUnwind) bool {
 }
 
 pub const PendingUnwind = union(enum) {
+    fiber_kill,
     exception: *value.ExceptionObject,
     throw_: PendingThrow,
     control_flow: PendingControlFlow,
@@ -2133,6 +2135,7 @@ pub const VM = struct {
         main_fiber_obj.caller = null;
         main_fiber_obj.resuming_fiber = null;
         main_fiber_obj.yielding = false;
+        main_fiber_obj.killed = false;
         main_fiber_obj.call_context = .{};
         main_fiber_obj.coro = null;
         main_fiber_obj.coro_event = .none;
@@ -4603,6 +4606,12 @@ pub const VM = struct {
     // Finish on the resumer, or on the deepest active resume chain rooted in
     // this thread. Transfers never introduce a new return relationship.
     fn finishFiber(self: *VM, fiber: *FiberObject) VMError!void {
+        if (self.pending_unwind != null and self.pending_unwind.? == .fiber_kill) {
+            self.pending_unwind = null;
+            fiber.coro_event = .returned;
+            fiber.coro_result = Value.nil();
+            fiber.coro_exception = null;
+        }
         const target = if (fiber.caller) |caller| blk: {
             fiber.caller = null;
             caller.resuming_fiber = null;
@@ -4639,6 +4648,10 @@ pub const VM = struct {
         zio.coro.switchContext(source_context, target_context);
         std.debug.assert(self.current_fiber == source);
         self.reapTerminatedFibers();
+        if (source.killed) {
+            self.pending_unwind = .fiber_kill;
+            return error.Unwind;
+        }
         if (source.coro_event == .raised) {
             source.coro_event = .none;
             const exception = source.coro_exception orelse return error.Fatal;
@@ -4671,6 +4684,31 @@ pub const VM = struct {
         caller.resuming_fiber = fiber;
         fiber.yielding = false;
         return self.switchFiber(fiber, args, resume_value);
+    }
+
+    pub fn killFiber(self: *VM, fiber: *FiberObject) VMError!Value {
+        if (fiber.owner_thread != self.current_thread) return self.raiseExceptionFmt(self.fiber_error_class, "fiber called across threads", .{});
+        if (fiber.killed) return Value.FALSE;
+        fiber.killed = true;
+        const result = Value.fromObject(&fiber.object);
+        if (fiber.state == .created) {
+            fiber.state = .terminated;
+            return result;
+        }
+        if (fiber.state == .terminated) return result;
+        if (fiber == self.current_fiber) {
+            self.pending_unwind = .fiber_kill;
+            return error.Unwind;
+        }
+        // A parent suspended in resume must wait for its child to yield or
+        // finish. The child remains alive and keeps running independently.
+        if (fiber.resuming_fiber != null) return result;
+        if (fiber.yielding) {
+            _ = try self.resumeFiber(fiber, &.{}, Value.nil());
+        } else {
+            _ = try self.transferFiber(fiber, &.{}, Value.nil());
+        }
+        return result;
     }
 
     pub fn raiseInFiber(self: *VM, target: *FiberObject, exception: *value.ExceptionObject) VMError!Value {
@@ -4849,6 +4887,7 @@ pub const VM = struct {
         root_fiber.caller = null;
         root_fiber.resuming_fiber = null;
         root_fiber.yielding = false;
+        root_fiber.killed = false;
         root_fiber.call_context = .{};
         root_fiber.coro = null;
         root_fiber.coro_event = .none;
@@ -10793,6 +10832,7 @@ pub const VM = struct {
         fiber_obj.caller = null;
         fiber_obj.resuming_fiber = null;
         fiber_obj.yielding = false;
+        fiber_obj.killed = false;
         fiber_obj.call_context = .{};
         fiber_obj.coro = null;
         fiber_obj.coro_event = .none;
@@ -14644,7 +14684,7 @@ pub const VM = struct {
                     try setFrameIp(&self.frames.items[frame_idx], ensure_byte_offset);
                     return true;
                 }
-            } else if (self.pendingThrow() != null) {
+            } else if (self.pendingThrow() != null or (self.pending_unwind != null and self.pending_unwind.? == .fiber_kill)) {
                 if (try self.findEnsureHandler(frame_idx, true)) |ensure_byte_offset| {
                     try setFrameIp(&self.frames.items[frame_idx], ensure_byte_offset);
                     return true;

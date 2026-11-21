@@ -444,3 +444,52 @@ test "Fiber raise replaces a pending return while suspended in ensure" {
     );
     try std.testing.expect(result.isTruthy());
 }
+
+test "Fiber kill interrupts native iteration in a transferring fiber" {
+    const result = try evalCode(
+        \\root = Fiber.current
+        \\events = []
+        \\fiber = Fiber.new do
+        \\  [1, 2].each do |index|
+        \\    begin
+        \\      root.transfer(index)
+        \\    rescue Exception
+        \\      events << :rescued
+        \\    ensure
+        \\      events << index
+        \\    end
+        \\  end
+        \\  events << :continued
+        \\end
+        \\first = fiber.transfer
+        \\GC.start
+        \\killed = fiber.kill
+        \\first == 1 && killed.equal?(fiber) && !fiber.alive? && events == [1]
+    );
+    try std.testing.expect(result.isTruthy());
+}
+
+test "Fiber kill remains pending after ensure yields" {
+    const result = try evalCode(
+        \\events = []
+        \\fiber = Fiber.new do
+        \\  begin
+        \\    begin
+        \\      Fiber.yield :body
+        \\    ensure
+        \\      Fiber.yield :cleanup
+        \\      events << :unreachable
+        \\    end
+        \\  ensure
+        \\    events << :outer_cleanup
+        \\  end
+        \\end
+        \\first = fiber.resume
+        \\killed = fiber.kill
+        \\still_alive = fiber.alive?
+        \\last = fiber.resume
+        \\first == :body && killed.equal?(fiber) && still_alive && last.nil? &&
+        \\  !fiber.alive? && events == [:outer_cleanup] && fiber.kill == false
+    );
+    try std.testing.expect(result.isTruthy());
+}

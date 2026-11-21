@@ -33,6 +33,8 @@ pub fn register(vm: *VM) !void {
 
     try vm.fiber_class.module.methods.put(try vm.intern("raise"), value.MethodEntry.keywordBuiltin(&builtinFiberRaise, .{ .variadic = 0 }));
 
+    try vm.fiber_class.module.methods.put(try vm.intern("kill"), value.MethodEntry.builtin(&builtinFiberKill, .{ .exact = 0 }));
+
     const alive_sym = try vm.intern("alive?");
     try vm.fiber_class.module.methods.put(alive_sym, value.MethodEntry.builtin(&builtinFiberAlive, .{ .exact = 0 }));
 
@@ -168,4 +170,8 @@ fn builtinFiberTransfer(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMEr
 fn builtinFiberRaise(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     const exception = try vm.prepareRaisedException(args);
     return vm.raiseInFiber(receiver.toFiberObject(), exception);
+}
+
+fn builtinFiberKill(vm: *VM, receiver: Value, _: []Value, _: ?Block) VMError!Value {
+    return vm.killFiber(receiver.toFiberObject());
 }

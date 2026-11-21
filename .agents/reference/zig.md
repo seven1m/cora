@@ -98,3 +98,7 @@ const w: *TestWriter = @alignCast(@fieldParentPtr("interface", io_w));
 ```
 
 If a cast chain starts getting clever, split it into locals so alignment and constness stay readable.
+
+## Heap Object Layout
+
+Zig may reorder ordinary struct fields when their types change. Convert a Ruby object header back to its containing heap object with `@fieldParentPtr("object", header)` rather than assuming the header has offset zero.

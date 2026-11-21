@@ -483,6 +483,7 @@ pub const FiberObject = struct {
     caller: ?*FiberObject = null,
     resuming_fiber: ?*FiberObject = null,
     yielding: bool = false,
+    killed: bool = false,
     call_context: ThreadObject.CallContext = .{},
     coro: ?*FiberCoro = null,
     coro_event: CoroEvent = .none,
@@ -992,7 +993,7 @@ pub const Value = struct {
     }
 
     pub inline fn toFiberObject(self: Value) *FiberObject {
-        return @ptrFromInt(self.raw);
+        return @fieldParentPtr("object", self.getObjectPointer().?);
     }
 
     pub inline fn toExceptionObject(self: Value) *ExceptionObject {
