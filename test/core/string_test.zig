@@ -353,6 +353,27 @@ test "String#upcase" {
     try std.testing.expectEqualSlices(u8, "A1B!", result.toStringObject().str);
 }
 
+test "String security regressions expand sharp s across case mapping buffers" {
+    const result = try evalCode(
+        \\# GHSA-34m4-m9fh-gqp5: expansions must respect output boundaries,
+        \\# including when caseMap grows its buffer through several sizes.
+        \\%w[ISO-8859-1 ISO-8859-9 ISO-8859-15 Windows-1252].all? do |name|
+        \\  encoding = Encoding.find(name)
+        \\  (1..64).all? do |n|
+        \\    string = ("\xDF".b * n).force_encoding(encoding)
+        \\    capitalized = ("Ss".b + "\xDF".b * (n - 1)).bytes
+        \\    ("SS" * n).bytes == string.upcase.bytes &&
+        \\      ("ss" * n).bytes == string.downcase(:fold).bytes &&
+        \\      ("SS" * n).bytes == string.swapcase.bytes &&
+        \\      capitalized == string.capitalize.bytes &&
+        \\      ("SS" * n).bytes == ("a".b + "\xDF".b * n).force_encoding(encoding).upcase[1..].bytes &&
+        \\      string.casecmp?(("ss" * n).force_encoding(encoding))
+        \\  end
+        \\end
+    );
+    try std.testing.expect(result.isTrue());
+}
+
 test "String#to_i" {
     var result = try evalCode("'123abc'.to_i");
     try std.testing.expect(result.isInteger());

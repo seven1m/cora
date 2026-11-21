@@ -230,6 +230,14 @@ test "Regexp to_s with ignorecase flag" {
     try std.testing.expectEqualStrings("(?i-mx:hello)", result.toStringObject().str);
 }
 
+test "Regexp to_s preserves comments inside character classes" {
+    // GHSA-7whj-cfh7-xgm4: keep the source form intact when comments alter
+    // how Onigmo would interpret a character class during trial compilation.
+    const result = try evalCode("Regexp.new('(?:[](?#x)])').to_s");
+    try std.testing.expect(result.isString());
+    try std.testing.expectEqualStrings("(?-mix:[](?#x)])", result.toStringObject().str);
+}
+
 test "Regexp =~ returns match index" {
     const result = try evalCode("/a/ =~ \"cat\"");
     try std.testing.expect(result.isInteger());
@@ -365,7 +373,8 @@ test "Regexp === updates match globals in case expressions" {
 
 test "Regexp security regressions reject oversized compilation and class intersections" {
     const result = try evalCode(
-        \\# MRI 0b276cd405 (double free) and 75ce2eed24 (program length overflow).
+        \\# GHSA-7x2q-68qv-6p8x (MRI 0b276cd405) and GHSA-3p8q-wmhx-vm2w
+        \\# (MRI ed72ef8a61 and 75ce2eed24).
         \\chars = (0...9999).map { |i| (0x4e00 + 2 * i).chr("UTF-8") }.join
         \\cc = "[[:^ascii:][^#{chars}]&&[^\u9fff]&&x]"
         \\patterns = [cc, "[x&&#{cc}]", cc.encode("UTF-16LE")]
@@ -392,7 +401,8 @@ test "Regexp security regressions reject oversized compilation and class interse
 
 test "Regexp security regressions bound case-insensitive operands and backreferences" {
     const result = try evalCode(
-        \\# MRI e3591b3d5d and 9a6ccf70d5: case-fold lengths can differ.
+        \\# GHSA-wpqw-5qxg-m68r and GHSA-pvgc-g7gj-pv6h (MRI e3591b3d5d
+        \\# and 9a6ccf70d5): case-fold lengths can differ.
         \\%w[UTF-16LE UTF-16BE UTF-32LE UTF-32BE].each do |enc|
         \\  tail = "\u0103\u3042\u3044"
         \\  subject = ("x" * 16 + "\u1E98" + "y" * 8).encode(enc)
@@ -401,6 +411,15 @@ test "Regexp security regressions bound case-insensitive operands and backrefere
         \\    raise "lost valid match" unless re.match?(("x" * 16 + "W" + tail).encode(enc))
         \\    raise "matched beyond operand" if re.match?(subject)
         \\  end
+        \\  re = Regexp.new("(?-i:xyz)t(?-i:\u0103)".encode(enc), Regexp::IGNORECASE)
+        \\  raise "lost option-scoped match" unless re.match?("xyzT\u0103".encode(enc))
+        \\  raise "matched folded option-scoped operand" if re.match?("xyz\u1E97".encode(enc))
+        \\  re = Regexp.new("(?i:w)\u6203AB".encode(enc))
+        \\  raise "lost short exact match" unless re.match?("W\u6203AB".encode(enc))
+        \\  raise "matched beyond short exact operand" if re.match?("\u1E98\u6203AB".encode(enc))
+        \\  re = Regexp.new("(?i:xw)\u6203AB".encode(enc))
+        \\  raise "lost long exact match" unless re.match?("xW\u6203AB".encode(enc))
+        \\  raise "matched beyond long exact operand" if re.match?("x\u1E98\u6203AB".encode(enc))
         \\end
         \\!/(k\0)\1/i.match?("k\0\u212a") &&
         \\  /(k)\1/i.match?("k\u212a") && /(k\0)\1/i.match?("k\0\u212a\0")
