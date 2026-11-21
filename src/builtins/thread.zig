@@ -888,7 +888,8 @@ fn raiseNotSymbolTypeError(vm: *VM, arg: Value) VMError!*value.SymbolObject {
         defer vm.allocator.free(value_str);
         return vm.raiseExceptionFmt(vm.type_error_class, "{s} is not a symbol", .{value_str});
     }
-    return vm.raiseExceptionFmt(vm.type_error_class, "is not a symbol", .{});
+    const inspected = try arg.inspect(vm);
+    return vm.raiseExceptionFmt(vm.type_error_class, "{s} is not a symbol", .{inspected.toStringObject().str});
 }
 
 fn fiberLocalTarget(vm: *VM, thread: *value.ThreadObject) VMError!*value.FiberObject {
