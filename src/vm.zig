@@ -1677,6 +1677,7 @@ pub const VM = struct {
         // --- Stage 4: Register constants in Object ---
         self.object_class.module.constants.put(class_name_sym, .{ .value = class_class_val }) catch return error.Fatal;
         self.object_class.module.constants.put(basic_object_name_sym, .{ .value = basic_object_class_val }) catch return error.Fatal;
+        self.basic_object_class.module.constants.put(basic_object_name_sym, .{ .value = basic_object_class_val }) catch return error.Fatal;
         self.object_class.module.constants.put(object_name_sym, .{ .value = object_class_val }) catch return error.Fatal;
         self.object_class.module.constants.put(module_name_sym, .{ .value = module_class_val }) catch return error.Fatal;
         self.object_class.module.constants.put(numeric_name_sym, .{ .value = numeric_class_val }) catch return error.Fatal;
@@ -2653,6 +2654,7 @@ pub const VM = struct {
     const LexicalConstantLookupResult = struct {
         value: ?Value = null,
         object_autoload_attempted: bool = false,
+        object_fallback_allowed: bool = true,
     };
 
     fn raiseUninitializedLexicalConstant(self: *VM, scope: ?*LexicalScope, name_sym: *value.SymbolObject) VMError {
@@ -2700,7 +2702,14 @@ pub const VM = struct {
     }
 
     fn findConstantInLexicalScope(self: *VM, scope: *LexicalScope, name: *value.SymbolObject) VMError!LexicalConstantLookupResult {
-        var result = LexicalConstantLookupResult{};
+        // Classes search their ancestry, which includes Object only when they
+        // inherit from it. Modules additionally search the top-level namespace.
+        var result = LexicalConstantLookupResult{
+            .object_fallback_allowed = switch (scope.scope_module) {
+                .class => false,
+                .module => true,
+            },
+        };
         var current_scope: ?*LexicalScope = scope;
         while (current_scope) |s| {
             // The implicit top-level Object scope is searched after the
@@ -6202,6 +6211,13 @@ pub const VM = struct {
                     }
                 }
 
+                if (!lexical_lookup.object_fallback_allowed) {
+                    const owner = lexical_scope.?.getModule();
+                    var missing_args = [_]Value{Value.fromObject(&name_sym.object)};
+                    try self.push(try self.callMethodByName(Value.fromObject(&owner.object), "const_missing", &missing_args, null));
+                    return;
+                }
+
                 // Fallback: top-level Object constants
                 if (self.object_class.module.constants.get(name_sym)) |entry| {
                     try self.warnDeprecatedConstant(&self.object_class.module, name_sym);
@@ -6238,6 +6254,11 @@ pub const VM = struct {
                         try self.push(val);
                         return;
                     }
+                }
+
+                if (!lexical_lookup.object_fallback_allowed) {
+                    try self.push(Value.nil());
+                    return;
                 }
 
                 if (self.object_class.module.constants.get(name_sym)) |entry| {
@@ -10255,6 +10276,7 @@ pub const VM = struct {
                 if (start_scope) |scope| {
                     const lexical_lookup = try self.findConstantInLexicalScope(scope, first_sym);
                     if (lexical_lookup.value) |val| break :blk val;
+                    if (!lexical_lookup.object_fallback_allowed) return null;
                 }
             }
             break :blk (self.object_class.module.constants.get(first_sym) orelse return null).value;

@@ -219,7 +219,7 @@ Source baseline: ../ruby_spec compared to local spec/
 ### core/basicobject
 - [x] core/basicobject/__id__spec.rb
 - [x] core/basicobject/__send___spec.rb
-- [ ] core/basicobject/basicobject_spec.rb
+- [x] core/basicobject/basicobject_spec.rb
 - [x] core/basicobject/equal_spec.rb
 - [x] core/basicobject/equal_value_spec.rb
 - [x] core/basicobject/initialize_spec.rb
