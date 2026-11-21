@@ -123,6 +123,48 @@ test "Thread retirement preserves retained values bindings locals and group" {
     try std.testing.expect(result.isTrue());
 }
 
+test "Thread diagnostics retain the original failure across yielding stderr callbacks and GC" {
+    const result = try evalCode(
+        \\class YieldingThreadDiagnostics
+        \\  attr_reader :started, :buffer
+        \\  def initialize
+        \\    @buffer = ''
+        \\  end
+        \\  def write(message)
+        \\    @started = true
+        \\    Thread.pass
+        \\    GC.start
+        \\    @buffer << message
+        \\  end
+        \\  def flush; end
+        \\end
+        \\saved_stderr = $stderr
+        \\writer = YieldingThreadDiagnostics.new
+        \\begin
+        \\  $stderr = writer
+        \\  Thread.report_on_exception = false
+        \\  original = RuntimeError.new('original failure')
+        \\  worker = Thread.new do
+        \\    Thread.current.report_on_exception = true
+        \\    raise original
+        \\  end
+        \\  Thread.pass until writer.started
+        \\  worker.kill
+        \\  worker.raise 'late failure'
+        \\  caught = begin worker.join; rescue RuntimeError => error; error; end
+        \\  quiet = Thread.new { raise 'quiet failure' }
+        \\  begin quiet.join; rescue RuntimeError; end
+        \\  caught.equal?(original) && writer.buffer.include?('original failure') &&
+        \\    !writer.buffer.include?('late failure') && !writer.buffer.include?('quiet failure') &&
+        \\    !quiet.report_on_exception && Thread.main.report_on_exception
+        \\ensure
+        \\  $stderr = saved_stderr
+        \\  Thread.report_on_exception = true
+        \\end
+    );
+    try std.testing.expect(result.isTrue());
+}
+
 test "Thread retirement preserves exceptions and cross-thread fiber errors" {
     const result = try evalCode(
         \\worker = Thread.new { raise "retained failure" }

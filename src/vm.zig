@@ -715,6 +715,7 @@ pub const VM = struct {
     thread_list: std.ArrayList(*value.ThreadObject) = .empty,
     runnable_queue: std.ArrayList(*value.ThreadObject) = .empty,
     thread_abort_on_exception: bool = false,
+    thread_report_on_exception: bool = true,
     thread_owned_mutexes: std.AutoHashMap(*value.ThreadObject, std.ArrayList(*value.MutexObject)) = undefined,
     mutex_waiters: std.AutoHashMap(*value.MutexObject, std.ArrayList(*value.ThreadObject)) = undefined,
     thread_active_catches: std.AutoHashMap(*value.ThreadObject, std.ArrayList(Value)) = undefined,
@@ -966,6 +967,7 @@ pub const VM = struct {
             .thread_list = .empty,
             .runnable_queue = .empty,
             .thread_abort_on_exception = false,
+            .thread_report_on_exception = true,
             .thread_owned_mutexes = std.AutoHashMap(*value.ThreadObject, std.ArrayList(*value.MutexObject)).init(allocator),
             .mutex_waiters = std.AutoHashMap(*value.MutexObject, std.ArrayList(*value.ThreadObject)).init(allocator),
             .thread_active_catches = std.AutoHashMap(*value.ThreadObject, std.ArrayList(Value)).init(allocator),
@@ -3229,7 +3231,7 @@ pub const VM = struct {
     }
 
     fn nextThreadInterruptIndex(self: *VM, thread: *ThreadObject, blocking: bool) ?usize {
-        if (thread.delivering_interrupt) return null;
+        if (thread.delivering_interrupt or thread.finishing) return null;
         for (thread.pending_interrupts.items, 0..) |event, index| {
             switch (self.threadInterruptTiming(thread, event)) {
                 .never => {},
@@ -3243,7 +3245,7 @@ pub const VM = struct {
     }
 
     pub fn enqueueThreadInterrupt(self: *VM, thread: *ThreadObject, event: value.ThreadInterrupt) VMError!void {
-        if (thread.state == .terminated) return;
+        if (thread.state == .terminated or thread.finishing) return;
         thread.pending_interrupts.append(self.gc_allocator, event) catch return error.Fatal;
         if (thread.state == .sleeping and self.nextThreadInterruptIndex(thread, true) != null) {
             thread.state = .running;
@@ -4869,6 +4871,7 @@ pub const VM = struct {
         main_thread_obj.fiber_join_waiters = .empty;
         main_thread_obj.delivering_interrupt = false;
         main_thread_obj.terminating = false;
+        main_thread_obj.finishing = false;
         main_thread_obj.terminated_normally = false;
         main_thread_obj.regexp_last_match = Value.nil();
         main_thread_obj.regexp_last_match_full = Value.nil();
@@ -4971,6 +4974,7 @@ pub const VM = struct {
         thread_obj.fiber_join_waiters = .empty;
         thread_obj.delivering_interrupt = false;
         thread_obj.terminating = false;
+        thread_obj.finishing = false;
         if (self.current_thread) |parent| {
             thread_obj.interrupt_masks.appendSlice(self.gc_allocator, parent.interrupt_masks.items) catch return error.Fatal;
         }
@@ -4984,7 +4988,7 @@ pub const VM = struct {
         thread_obj.thread_variables = null;
         thread_obj.name = null;
         thread_obj.priority = 0;
-        thread_obj.report_on_exception = true;
+        thread_obj.report_on_exception = self.thread_report_on_exception;
         thread_obj.abort_on_exception = false;
         thread_obj.waiting_on_queue = false;
         thread_obj.waiting_on_require = false;
@@ -5255,6 +5259,7 @@ pub const VM = struct {
         thread.owner_vm.reapTerminatedThreads() catch @panic("failed to retire terminated thread");
         const self = thread.owner_vm;
         runThreadWithScheduler(thread) catch |err| self.recordThreadFailure(thread, err);
+        finishThreadBody(thread);
         while (thread.fiber_join_waiters.items.len != 0) {
             self.notifyFiberJoinWaiter(thread) catch |err| self.recordThreadFailure(thread, err);
         }
@@ -5262,7 +5267,14 @@ pub const VM = struct {
         @panic("terminated thread resumed");
     }
 
+    fn finishThreadBody(thread: *ThreadObject) void {
+        thread.finishing = true;
+        @memset(std.mem.sliceAsBytes(thread.pending_interrupts.items), 0);
+        thread.pending_interrupts.clearRetainingCapacity();
+    }
+
     fn recordThreadFailure(self: *VM, thread: *ThreadObject, err: VMError) void {
+        finishThreadBody(thread);
         thread.state = .terminated;
         self.releaseThreadOwnedMutexes(thread);
         switch (err) {
@@ -5275,7 +5287,9 @@ pub const VM = struct {
                 } else if (self.pendingException()) |exc| {
                     thread.terminated_normally = false;
                     thread.exception = exc;
-                    if (thread.abort_on_exception or self.thread_abort_on_exception) {
+                    const exiting = self.isClassOrSubclassOf(exc.object.class.?, self.system_exit_class);
+                    if (!exiting and thread.report_on_exception) self.reportThreadException(thread, exc) catch {};
+                    if (exiting or thread.abort_on_exception or self.thread_abort_on_exception) {
                         if (self.main_thread) |main_thread| {
                             if (main_thread != thread) self.enqueueThreadInterrupt(main_thread, .{ .exception = .{ .object = exc } }) catch @panic("failed to propagate thread exception");
                         }
@@ -5289,6 +5303,31 @@ pub const VM = struct {
                 thread.terminated_normally = true;
             },
         }
+    }
+
+    pub fn writeStderr(self: *VM, message: []const u8) VMError!void {
+        const target = self.getGlobalValue("$stderr");
+        if (target.isNil()) return;
+        var args = [_]Value{try self.newString(message, false)};
+        _ = try self.callMethodByName(target, "write", &args, null);
+        _ = try self.callMethodByName(target, "flush", &.{}, null);
+    }
+
+    fn reportThreadException(self: *VM, thread: *ThreadObject, exception: *value.ExceptionObject) VMError!void {
+        const pending = self.pending_unwind;
+        self.pending_unwind = null;
+        // Diagnostics can call Ruby and yield; retain the native stack until done.
+        thread.state = .running;
+        defer {
+            self.pending_unwind = pending;
+            thread.state = .terminated;
+        }
+        const description = try thread_builtin.threadDescription(self, thread);
+        const details = try self.exceptionFullMessage(exception);
+        const message = std.fmt.allocPrint(self.gc_allocator, "{s} terminated with exception (report_on_exception is true):\n{s}", .{
+            description.toStringObject().str, details.toStringObject().str,
+        }) catch return error.Fatal;
+        try self.writeStderr(message);
     }
 
     fn removeFiberJoinWaiter(target: *ThreadObject, index: usize) *value.ThreadJoinWaiter {
@@ -14747,15 +14786,6 @@ pub const VM = struct {
         };
     }
 
-    /// Capture current call stack as a backtrace
-    fn backtraceMethodLabel(self: *VM, frame: *const CallFrame, method_name: []const u8) VMError![]const u8 {
-        if (frame.frame_type == .builtin) return method_name;
-        if (self.publicModuleName(frame.self_value)) |owner_name| {
-            return std.fmt.allocPrint(self.gc_allocator, "{s}.{s}", .{ owner_name, method_name }) catch return error.Fatal;
-        }
-        return std.fmt.allocPrint(self.gc_allocator, "{s}#{s}", .{ self.getClass(frame.self_value).module.name.name, method_name }) catch return error.Fatal;
-    }
-
     fn captureBacktraceFromFrames(self: *VM, frames: []const CallFrame) VMError!?*value.ArrayObject {
         const array_obj = self.gc_allocator.create(value.ArrayObject) catch return error.Fatal;
         array_obj.* = .{
@@ -14777,31 +14807,11 @@ pub const VM = struct {
 
             const frame_line = self.backtraceLineForFrame(frame);
             const frame_source = frame.chunk.source_file orelse frame.chunk.name;
-            const backtrace_str = if (frame.method_name) |method_name|
-                std.fmt.allocPrint(
-                    self.gc_allocator,
-                    "{s}:{d}:in '{s}'",
-                    .{ frame_source, frame_line, try self.backtraceMethodLabel(frame, method_name) },
-                ) catch return error.Fatal
-            else if (frame.frame_type == .proc or frame.frame_type == .lambda)
-                if (enclosingMethodEnvironment(frame)) |environment|
-                    std.fmt.allocPrint(
-                        self.gc_allocator,
-                        "{s}:{d}:in 'block in {s}#{s}'",
-                        .{ frame_source, frame_line, self.getClass(frame.self_value).module.name.name, environment.context.method_name },
-                    ) catch return error.Fatal
-                else
-                    std.fmt.allocPrint(
-                        self.gc_allocator,
-                        "{s}:{d}:in '<main>'",
-                        .{ frame_source, frame_line },
-                    ) catch return error.Fatal
-            else
-                std.fmt.allocPrint(
-                    self.gc_allocator,
-                    "{s}:{d}:in '<main>'",
-                    .{ frame_source, frame_line },
-                ) catch return error.Fatal;
+            const backtrace_str = std.fmt.allocPrint(
+                self.gc_allocator,
+                "{s}:{d}:in '{s}'",
+                .{ frame_source, frame_line, try self.frameBacktraceLabel(frame) },
+            ) catch return error.Fatal;
 
             const str_val = try self.newString(backtrace_str, false);
             array_obj.elements.append(self.gc_allocator, str_val) catch return error.Fatal;
@@ -14823,15 +14833,7 @@ pub const VM = struct {
             i -= 1;
             const frame = &self.frames.items[i];
             const source = frame.chunk.source_file orelse frame.chunk.name;
-            const label = if (frame.method_name) |method_name|
-                try self.backtraceMethodLabel(frame, method_name)
-            else if (frame.frame_type == .proc or frame.frame_type == .lambda)
-                if (enclosingMethodEnvironment(frame)) |environment|
-                    std.fmt.allocPrint(self.gc_allocator, "block in {s}#{s}", .{ self.getClass(frame.self_value).module.name.name, environment.context.method_name }) catch return error.Fatal
-                else
-                    "<main>"
-            else
-                "<main>";
+            const label = try self.frameBacktraceLabel(frame);
             const location = try self.newBacktraceLocation(source, frame.chunk.source_absolute_path, self.backtraceLineForFrame(frame), label, try self.frameBacktraceBaseLabel(frame));
             result.elements.append(self.gc_allocator, location) catch return error.Fatal;
         }

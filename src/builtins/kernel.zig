@@ -1592,10 +1592,7 @@ fn appendCallerEntry(
     result: *value.ArrayObject,
     entry: BacktraceLocation,
 ) VMError!void {
-    const label = if (entry.frame.frame_type == .builtin)
-        entry.frame.method_name orelse entry.frame.chunk.name
-    else
-        try vm.frameBacktraceLabel(entry.frame);
+    const label = try vm.frameBacktraceLabel(entry.frame);
 
     const backtrace_str = std.fmt.allocPrint(
         vm.gc_allocator,

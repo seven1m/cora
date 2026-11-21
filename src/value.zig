@@ -556,6 +556,7 @@ pub const ThreadObject = struct {
     fiber_join_waiters: std.ArrayList(*ThreadJoinWaiter) = .empty,
     delivering_interrupt: bool = false,
     terminating: bool = false,
+    finishing: bool = false,
     terminated_normally: bool = false,
     regexp_last_match: Value = Value.nil(),
     regexp_last_match_full: Value = Value.nil(),

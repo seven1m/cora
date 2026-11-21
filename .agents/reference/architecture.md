@@ -101,6 +101,12 @@ Thread join/value waiters park with a target thread and become ready when that
 target terminates; timed joins also use a sleep deadline.
 Process signal handlers run on the main thread, waking it when necessary.
 
+New workers inherit `Thread.report_on_exception` when created. Unhandled worker
+exceptions are reported through Ruby `$stderr` before abort-on-exception delivery
+to the main thread. Once the body has finished, queued interrupts are discarded;
+diagnostic and scheduler callbacks keep the native stack runnable until they
+return. SystemExit propagates to the main thread without a thread-error report.
+
 Each thread has an ordered interrupt queue for raises and termination, plus a
 stack of inherited interrupt masks. `Thread.handle_interrupt` snapshots its hash
 and applies the innermost matching mask, preferring the most specific ancestor.

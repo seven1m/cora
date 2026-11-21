@@ -57,6 +57,11 @@ pub fn register(vm: *VM) !void {
     const class_abort_on_exception_set_sym = try vm.intern("abort_on_exception=");
     try thread_singleton.module.methods.put(class_abort_on_exception_set_sym, value.MethodEntry.builtin(&builtinThreadClassAbortOnExceptionSet, .{ .exact = 1 }));
 
+    const class_report_on_exception_sym = try vm.intern("report_on_exception");
+    try thread_singleton.module.methods.put(class_report_on_exception_sym, value.MethodEntry.builtin(&builtinThreadClassReportOnException, .{ .exact = 0 }));
+    const class_report_on_exception_set_sym = try vm.intern("report_on_exception=");
+    try thread_singleton.module.methods.put(class_report_on_exception_set_sym, value.MethodEntry.builtin(&builtinThreadClassReportOnExceptionSet, .{ .exact = 1 }));
+
     // Instance methods
     const join_sym = try vm.intern("join");
     try vm.thread_class.module.methods.put(join_sym, value.MethodEntry.builtin(&builtinThreadJoin, .{ .variadic = 0 }));
@@ -242,6 +247,17 @@ fn builtinThreadPass(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value 
     try vm.requireArgCount(args, 0);
     try vm.threadYield();
     return Value.nil();
+}
+
+fn builtinThreadClassReportOnException(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    return Value.boolean(vm.thread_report_on_exception);
+}
+
+fn builtinThreadClassReportOnExceptionSet(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    vm.thread_report_on_exception = args[0].isTruthy();
+    return args[0];
 }
 
 fn builtinThreadClassAbortOnException(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
@@ -516,7 +532,7 @@ fn builtinThreadKill(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError
     try vm.requireArgCount(args, 0);
     const thread = receiver.toThreadObject();
 
-    if (thread.state == .terminated or thread.terminating) return receiver;
+    if (thread.state == .terminated or thread.terminating or thread.finishing) return receiver;
     // MRI self-kill is immediate even inside an interrupt mask.
     if (vm.current_thread == thread) {
         vm.setPendingThreadKill();
@@ -529,11 +545,11 @@ fn builtinThreadKill(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError
 
 fn builtinThreadRaise(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     const thread = receiver.toThreadObject();
-    if (thread.state == .terminated) return Value.nil();
+    if (thread.state == .terminated or thread.finishing) return Value.nil();
 
     const exc = try vm.prepareRaisedException(args);
     // Exception conversion may execute Ruby and allow the target to finish.
-    if (thread.state == .terminated) return Value.nil();
+    if (thread.state == .terminated or thread.finishing) return Value.nil();
 
     try vm.enqueueThreadInterrupt(thread, .{ .exception = .{
         .object = exc,
@@ -734,7 +750,10 @@ fn builtinThreadPrioritySet(vm: *VM, receiver: Value, args: []Value, _: ?Block) 
 
 fn builtinThreadInspect(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
-    const thread = receiver.toThreadObject();
+    return threadDescription(vm, receiver.toThreadObject());
+}
+
+pub fn threadDescription(vm: *VM, thread: *value.ThreadObject) VMError!Value {
     const state_str = if (thread.waiting_on_queue)
         "sleep"
     else switch (thread.state) {

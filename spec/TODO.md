@@ -2244,7 +2244,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] core/thread/pending_interrupt_spec.rb
 - [x] core/thread/priority_spec.rb
 - [x] core/thread/raise_spec.rb
-- [ ] core/thread/report_on_exception_spec.rb
+- [x] core/thread/report_on_exception_spec.rb
 - [x] core/thread/run_spec.rb
 - [x] core/thread/set_trace_func_spec.rb
 - [x] core/thread/start_spec.rb

@@ -68,6 +68,7 @@
 ## Encoding And Warning Helpers
 
 - Use `VM.raiseEncodingCompatibilityError` for the common `Encoding::CompatibilityError` format of `"incompatible character encodings: ..."`.
+- Use `VM.writeStderr` for diagnostics that must honor Ruby `$stderr`, including custom writers.
 - Prefer shared warning helpers in `src/builtins/warning.zig`, such as `writeWarning` and `warnBlockUnused`, over builtin-specific `$stderr` writers.
 
 ## Exception Raising Helpers
