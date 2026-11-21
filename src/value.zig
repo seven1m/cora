@@ -484,6 +484,7 @@ pub const FiberObject = struct {
     resuming_fiber: ?*FiberObject = null,
     yielding: bool = false,
     killed: bool = false,
+    blocking: bool = false,
     call_context: ThreadObject.CallContext = .{},
     coro: ?*FiberCoro = null,
     coro_event: CoroEvent = .none,

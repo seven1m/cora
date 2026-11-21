@@ -521,3 +521,22 @@ test "Fiber storage setter and thread inheritance take separate snapshots" {
     );
     try std.testing.expect(result.isTruthy());
 }
+
+test "Fiber blocking restores mode across suspension and injected exceptions" {
+    const result = try evalCode(
+        \\fiber = Fiber.new do
+        \\  begin
+        \\    Fiber.blocking do |current|
+        \\      Fiber.yield [current.equal?(Fiber.current), current.blocking?, Fiber.blocking?]
+        \\    end
+        \\  rescue RuntimeError
+        \\    [Fiber.current.blocking?, Fiber.blocking?]
+        \\  end
+        \\end
+        \\inside = fiber.resume
+        \\outside = [Fiber.current.blocking?, Fiber.blocking?]
+        \\after = fiber.raise("interrupt")
+        \\inside == [true, true, 1] && outside == [true, 1] && after == [false, false]
+    );
+    try std.testing.expect(result.isTruthy());
+}

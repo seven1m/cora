@@ -16,6 +16,10 @@ pub fn register(vm: *VM) !void {
     const new_sym = try vm.intern("new");
     try fiber_singleton.module.methods.put(new_sym, value.MethodEntry.keywordBuiltin(&builtinFiberNew, .{ .variadic = 0 }));
 
+    try fiber_singleton.module.methods.put(try vm.intern("blocking?"), value.MethodEntry.builtin(&builtinFiberBlockingQ, .{ .exact = 0 }));
+    try fiber_singleton.module.methods.put(try vm.intern("blocking"), value.MethodEntry.builtin(&builtinFiberBlocking, .{ .exact = 0 }));
+    try vm.fiber_class.module.methods.put(try vm.intern("blocking?"), value.MethodEntry.builtin(&builtinFiberInstanceBlockingQ, .{ .exact = 0 }));
+
     const current_sym = try vm.intern("current");
     try fiber_singleton.module.methods.put(current_sym, value.MethodEntry.builtin(&builtinFiberCurrent, .{ .exact = 0 }));
 
@@ -68,9 +72,12 @@ pub fn builtinFiberNew(vm: *VM, receiver: Value, args: []Value, block: ?Block) V
     try vm.requireArgCount(args, 0);
 
     const storage = try vm.consumeKeywordArg("storage");
+    const blocking = try vm.consumeKeywordArg("blocking");
     try vm.validateKeywordArgsConsumed();
     const blk = try vm.requireBlock(block);
-    return vm.newFiberWithStorage(receiver.toClassObject(), blk, storage);
+    const fiber = try vm.newFiberWithStorage(receiver.toClassObject(), blk, storage);
+    fiber.toFiberObject().blocking = if (blocking) |setting| setting.isTruthy() else false;
+    return fiber;
 }
 
 pub fn builtinFiberCurrent(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
@@ -195,4 +202,21 @@ fn builtinFiberRaise(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError
 
 fn builtinFiberKill(vm: *VM, receiver: Value, _: []Value, _: ?Block) VMError!Value {
     return vm.killFiber(receiver.toFiberObject());
+}
+
+fn builtinFiberBlockingQ(vm: *VM, _: Value, _: []Value, _: ?Block) VMError!Value {
+    return if (vm.current_fiber.blocking) Value.integer(1) else Value.FALSE;
+}
+
+fn builtinFiberInstanceBlockingQ(_: *VM, receiver: Value, _: []Value, _: ?Block) VMError!Value {
+    return Value.boolean(receiver.toFiberObject().blocking);
+}
+
+fn builtinFiberBlocking(vm: *VM, _: Value, _: []Value, block: ?Block) VMError!Value {
+    const blk = try vm.requireYieldBlock(block);
+    const fiber = vm.current_fiber;
+    const previous = fiber.blocking;
+    fiber.blocking = true;
+    defer fiber.blocking = previous;
+    return vm.yieldToBlock(blk, &.{Value.fromObject(&fiber.object)});
 }

@@ -2136,6 +2136,7 @@ pub const VM = struct {
         main_fiber_obj.resuming_fiber = null;
         main_fiber_obj.yielding = false;
         main_fiber_obj.killed = false;
+        main_fiber_obj.blocking = true;
         main_fiber_obj.call_context = .{};
         main_fiber_obj.coro = null;
         main_fiber_obj.coro_event = .none;
@@ -4888,6 +4889,7 @@ pub const VM = struct {
         root_fiber.resuming_fiber = null;
         root_fiber.yielding = false;
         root_fiber.killed = false;
+        root_fiber.blocking = true;
         root_fiber.call_context = .{};
         root_fiber.coro = null;
         root_fiber.coro_event = .none;
@@ -9652,7 +9654,7 @@ pub const VM = struct {
         return block orelse return self.raiseExceptionFmt(self.argument_error_class, "no block given", .{});
     }
 
-    fn requireYieldBlock(self: *VM, block: ?Block) VMError!Block {
+    pub fn requireYieldBlock(self: *VM, block: ?Block) VMError!Block {
         return block orelse return self.raiseLocalJumpError("no block given (yield)", Value.nil(), "noreason");
     }
 
@@ -10848,6 +10850,7 @@ pub const VM = struct {
         fiber_obj.resuming_fiber = null;
         fiber_obj.yielding = false;
         fiber_obj.killed = false;
+        fiber_obj.blocking = false;
         fiber_obj.call_context = .{};
         fiber_obj.coro = null;
         fiber_obj.coro_event = .none;
