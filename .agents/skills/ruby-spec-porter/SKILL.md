@@ -56,8 +56,8 @@ cp ../ruby_spec/shared/string/start_with.rb spec/shared/string/start_with.rb
 
 3. Run the spec and classify failures.
 - Run the copied spec directly first.
-- For spec-only ports that pass unchanged, or tracker-only updates, skip the full suite and ruby/spec aggregate run. Running the target spec and checking upstream alignment is sufficient for a spec-only port; tracker-only updates need no test run.
-- If runtime/compiler/parser or harness behavior changes, run relevant focused tests, the ruby/spec aggregate filter, and the full suite to check for regressions.
+- For spec-only ports that pass unchanged, or tracker-only updates, skip the full suite run. Running the target spec and checking upstream alignment is sufficient for a spec-only port; tracker-only updates need no test run.
+- If runtime/compiler/parser or harness behavior changes, run relevant focused tests and the full suite to check for regressions.
 ```bash
 zig build run -- spec/core/string/<name>_spec.rb
 # When runtime/compiler/parser or harness behavior changes:
@@ -92,7 +92,7 @@ end
 5. Re-run and tighten.
 - Re-run target spec until green.
 - Remove any local Zig tests that now duplicate the same behavior covered by the ported Ruby spec.
-- When runtime/compiler/parser or harness behavior changes, re-run focused regression tests (language/core tests affected by the change) and the ruby/spec aggregate filter.
+- When runtime/compiler/parser or harness behavior changes, re-run focused regression tests (language/core tests affected by the change) and the full test suite.
 - If new helper code is generated, verify it's not reinventing a helper we already have.
   Combine or generalize (and co-locate) helpers when possible.
   Helper placement rules:
@@ -138,7 +138,7 @@ When asked “what next spec should we port?”, prefer this order:
 A ported spec is “done” when:
 - Copied files exist locally and match upstream text.
 - The spec passes via `zig build run -- spec/...`.
-- If runtime/compiler/parser or harness behavior changed, relevant focused tests, the ruby/spec aggregate filter, and `zig build test` pass. Skip these broader runs for unchanged, passing spec-only ports and tracker-only updates.
+- If runtime/compiler/parser or harness behavior changed, relevant focused tests and `zig build test` pass. Skip these broader runs for unchanged, passing spec-only ports and tracker-only updates.
 - The corresponding `spec/TODO.md` entry is marked `[x]`.
 
 ## Commit Style
