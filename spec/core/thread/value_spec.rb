@@ -11,7 +11,7 @@ describe "Thread#value" do
       Thread.current.report_on_exception = false
       raise "Hello"
     }
-    -> { t.value }.should raise_error(RuntimeError, "Hello")
+    -> { t.value }.should.raise(RuntimeError, "Hello")
   end
 
   it "is nil for a killed thread" do
@@ -24,7 +24,7 @@ describe "Thread#value" do
     t = Thread.new {
       q.pop
     }
-    t.join(0).should == nil
+    -> { t.value }.should block_caller
     q.push :result
     t.value.should == :result
   end
