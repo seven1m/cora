@@ -81,7 +81,7 @@ pub fn arrayPack(vm: *VM, items: []Value, format: []const u8, buffer: ?Value) VM
             'E' => try packFloatDirective(vm, items, &arg_index, token, &out, 8, .little),
             'g' => try packFloatDirective(vm, items, &arg_index, token, &out, 4, .big),
             'G' => try packFloatDirective(vm, items, &arg_index, token, &out, 8, .big),
-            'm' => try packBase64Directive(vm, items, &arg_index, token, &out),
+            'm', 'u' => try packEncodedTextDirective(vm, items, &arg_index, token, &out),
             'U' => try packUnicodeDirective(vm, items, &arg_index, token, &out),
             'p', 'P' => try packPointerDirective(vm, items, &arg_index, token, &out, &packed_pointer_entries),
             'x' => {
@@ -176,7 +176,7 @@ fn packUnicodeDirective(
     }
 }
 
-fn packBase64Directive(
+fn packEncodedTextDirective(
     vm: *VM,
     items: []Value,
     arg_index: *usize,
@@ -192,7 +192,7 @@ fn packBase64Directive(
     if (bytes.len == 0) return;
 
     const count = token.count orelse 1;
-    if (!token.star and count == 0) {
+    if (token.directive == 'm' and !token.star and count == 0) {
         const encoded_len = std.base64.standard.Encoder.calcSize(bytes.len);
         const encoded = vm.allocator.alloc(u8, encoded_len) catch return error.Fatal;
         defer vm.allocator.free(encoded);
@@ -201,19 +201,41 @@ fn packBase64Directive(
         return;
     }
 
-    const bytes_per_line = if (token.star or count < 3) 45 else (count / 3) * 3;
+    const requested_width = if (token.star or count < 3) 45 else (count / 3) * 3;
+    const bytes_per_line = if (token.directive == 'u') @min(63, requested_width) else requested_width;
     var offset: usize = 0;
     while (offset < bytes.len) {
         const end = @min(offset + bytes_per_line, bytes.len);
         const chunk = bytes[offset..end];
-        const encoded_len = std.base64.standard.Encoder.calcSize(chunk.len);
-        const encoded = vm.allocator.alloc(u8, encoded_len) catch return error.Fatal;
-        defer vm.allocator.free(encoded);
-        _ = std.base64.standard.Encoder.encode(encoded, chunk);
-        out.appendSlice(vm.allocator, encoded) catch return error.Fatal;
+        if (token.directive == 'u') {
+            out.append(vm.allocator, @as(u8, @intCast(chunk.len)) + 32) catch return error.Fatal;
+            var i: usize = 0;
+            while (i < chunk.len) : (i += 3) {
+                const a = chunk[i];
+                const b = if (i + 1 < chunk.len) chunk[i + 1] else 0;
+                const c = if (i + 2 < chunk.len) chunk[i + 2] else 0;
+                const encoded = [_]u8{
+                    uuCharacter(a >> 2),
+                    uuCharacter(((a & 3) << 4) | (b >> 4)),
+                    uuCharacter(((b & 15) << 2) | (c >> 6)),
+                    uuCharacter(c & 63),
+                };
+                out.appendSlice(vm.allocator, &encoded) catch return error.Fatal;
+            }
+        } else {
+            const encoded_len = std.base64.standard.Encoder.calcSize(chunk.len);
+            const encoded = vm.allocator.alloc(u8, encoded_len) catch return error.Fatal;
+            defer vm.allocator.free(encoded);
+            _ = std.base64.standard.Encoder.encode(encoded, chunk);
+            out.appendSlice(vm.allocator, encoded) catch return error.Fatal;
+        }
         out.append(vm.allocator, '\n') catch return error.Fatal;
         offset = end;
     }
+}
+
+fn uuCharacter(bits: u8) u8 {
+    return if (bits == 0) '`' else bits + 32;
 }
 
 pub fn stringUnpack(vm: *VM, source: *value.StringObject, base_offset: usize, format: []const u8) VMError!Value {
