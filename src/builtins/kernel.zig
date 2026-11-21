@@ -898,7 +898,7 @@ pub fn builtinKernelRequireRelative(vm: *VM, _: Value, args: []Value, _: ?Block)
 
     const current_file = blk: {
         if (vm.frames.items.len > 0) {
-            if (vm.currentFrame().chunk.source_file) |source_file| break :blk source_file;
+            if (vm.currentFrame().chunk.source_absolute_path orelse vm.currentFrame().chunk.source_file) |source_file| break :blk source_file;
         }
         break :blk vm.current_loading_file orelse {
             return vm.raiseExceptionFmt(vm.load_error_class, "cannot infer basepath", .{});
@@ -998,7 +998,7 @@ pub fn builtinKernelLoad(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Va
 
     if (std.fs.path.isAbsolute(filename)) {
         if (vm.fileExists(filename)) {
-            absolute_path = vm.resolveAbsolutePath(filename) catch return error.Fatal;
+            absolute_path = vm.expandPathLexical(filename) catch return error.Fatal;
         }
     } else {
         if (vm.current_loading_file) |current_file| {
@@ -1007,12 +1007,12 @@ pub fn builtinKernelLoad(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Va
             defer vm.allocator.free(full_path);
 
             if (vm.fileExists(full_path)) {
-                absolute_path = vm.resolveAbsolutePath(full_path) catch return error.Fatal;
+                absolute_path = vm.expandPathLexical(full_path) catch return error.Fatal;
             }
         }
 
         if (absolute_path == null and vm.fileExists(filename)) {
-            absolute_path = vm.resolveAbsolutePath(filename) catch return error.Fatal;
+            absolute_path = vm.expandPathLexical(filename) catch return error.Fatal;
         }
     }
 
@@ -1021,7 +1021,7 @@ pub fn builtinKernelLoad(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Va
         defer vm.allocator.free(with_rb);
 
         if (vm.fileExists(with_rb)) {
-            absolute_path = vm.resolveAbsolutePath(with_rb) catch return error.Fatal;
+            absolute_path = vm.expandPathLexical(with_rb) catch return error.Fatal;
         }
     }
 
@@ -1409,6 +1409,7 @@ const WarningLocation = struct {
 const BacktraceLocation = struct {
     frame: *const vm_mod.CallFrame,
     source: []const u8,
+    absolute_path: ?[]const u8,
     line: u32,
 };
 
@@ -1433,6 +1434,7 @@ fn backtraceLocationForFrame(vm: *VM, source_frames: []const vm_mod.CallFrame, i
                 return .{
                     .frame = frame,
                     .source = candidate.chunk.source_file orelse candidate.chunk.name,
+                    .absolute_path = candidate.chunk.source_absolute_path,
                     .line = vm.backtraceLineForFrame(candidate),
                 };
             }
@@ -1442,6 +1444,7 @@ fn backtraceLocationForFrame(vm: *VM, source_frames: []const vm_mod.CallFrame, i
     return .{
         .frame = frame,
         .source = frame.chunk.source_file orelse frame.chunk.name,
+        .absolute_path = frame.chunk.source_absolute_path,
         .line = vm.backtraceLineForFrame(frame),
     };
 }
@@ -1609,7 +1612,7 @@ fn appendCallerLocationEntry(
     entry: BacktraceLocation,
 ) VMError!void {
     const label = try vm.frameBacktraceLabel(entry.frame);
-    const location = try vm.newBacktraceLocation(entry.source, entry.line, label, try vm.frameBacktraceBaseLabel(entry.frame));
+    const location = try vm.newBacktraceLocation(entry.source, entry.absolute_path, entry.line, label, try vm.frameBacktraceBaseLabel(entry.frame));
     result.elements.append(vm.gc_allocator, location) catch return error.Fatal;
 }
 
@@ -2888,6 +2891,11 @@ pub fn builtinKernelDir(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Val
 
     if (vm.frames.items.len > 0 and vm.currentFrame().dir_returns_nil) {
         return Value.nil();
+    }
+
+    if (vm.frames.items.len > 0) {
+        if (vm.currentFrame().chunk.source_absolute_path) |absolute_path|
+            return vm.newString(std.fs.path.dirname(absolute_path) orelse ".", false);
     }
 
     const current_file = if (vm.frames.items.len > 0)

@@ -138,6 +138,7 @@ pub const Chunk = struct {
     lexical_scope: ?*LexicalScope = null,
     exception_handlers: std.ArrayList(ExceptionHandler) = .empty,
     source_file: ?[]const u8 = null,
+    source_absolute_path: ?[]const u8 = null,
     source_file_owned: bool = false,
     source_encoding: enc.Encoding = .{ .utf8 = .{} },
     required_keywords: std.ArrayList(RequiredKeyword) = .empty,
@@ -180,6 +181,7 @@ pub const Chunk = struct {
         if (self.name_owned) {
             self.allocator.free(self.name);
         }
+        if (self.source_absolute_path) |path| self.allocator.free(path);
         if (self.source_file_owned) {
             if (self.source_file) |source_file| {
                 self.allocator.free(source_file);
@@ -241,6 +243,12 @@ pub const Chunk = struct {
         self.backtrace_context.name = name;
         self.backtrace_context.base_name = base_name;
         self.backtrace_name_owned = true;
+    }
+
+    pub fn setSourceAbsolutePath(self: *Chunk, path: ?[]const u8) !void {
+        const copied = if (path) |bytes| try self.allocator.dupe(u8, bytes) else null;
+        if (self.source_absolute_path) |old_path| self.allocator.free(old_path);
+        self.source_absolute_path = copied;
     }
 
     pub fn setSourceFile(self: *Chunk, source_file: ?[]const u8) !void {

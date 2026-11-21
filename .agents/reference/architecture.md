@@ -71,6 +71,11 @@ GC-owned label context for later evals, independently of temporary eval chunks.
 Ruby core methods are embedded from `src/builtins/kernel.rb`;
 their source locations use `<internal:kernel>` while caller locations borrow the
 user call site, matching MRI's treatment of internal Ruby methods.
+File-backed chunks also retain the canonical absolute path captured before
+execution. `__FILE__` and location `path` preserve the logical source filename;
+location `absolute_path`, `__dir__`, and `require_relative` use the saved identity
+so directory changes or removed symlinks cannot change the file's origin.
+Eval chunks keep a nil canonical path even when given a display filename.
 
 ## Thread Scheduling
 

@@ -3681,10 +3681,14 @@ pub const VM = struct {
     }
 
     fn prepareProgramChunks(self: *VM) VMError!void {
+        const absolute_path = if (self.program.main_chunk.source_file) |path| try self.resolveAbsolutePath(path) else null;
+        defer if (absolute_path) |path| self.allocator.free(path);
+        self.program.main_chunk.setSourceAbsolutePath(absolute_path) catch return error.Fatal;
         try self.prepareCompiledChunk(&self.program.main_chunk);
 
         var chunk_iter = self.program.child_chunks.valueIterator();
         while (chunk_iter.next()) |chunk_ptr| {
+            chunk_ptr.*.setSourceAbsolutePath(absolute_path) catch return error.Fatal;
             try self.prepareCompiledChunk(chunk_ptr.*);
         }
     }
@@ -11575,6 +11579,7 @@ pub const VM = struct {
     pub fn newBacktraceLocation(
         self: *VM,
         path: []const u8,
+        absolute_path: ?[]const u8,
         lineno: u32,
         label: []const u8,
         base_label: []const u8,
@@ -11589,7 +11594,7 @@ pub const VM = struct {
         ) catch return error.Fatal;
         const rendered_value = try self.newString(rendered, false);
         try self.setInstanceVariable(location, "@path", path_value);
-        try self.setInstanceVariable(location, "@absolute_path", path_value);
+        try self.setInstanceVariable(location, "@absolute_path", if (absolute_path) |bytes| try self.newString(bytes, false) else Value.nil());
         try self.setInstanceVariable(location, "@label", label_value);
         try self.setInstanceVariable(location, "@base_label", try self.newString(base_label, false));
         try self.setInstanceVariable(location, "@lineno", Value.integer(@intCast(lineno)));
@@ -12566,6 +12571,8 @@ pub const VM = struct {
             break :blk self.current_loading_file orelse self.program.main_chunk.source_file;
         };
         chunk_ptr.setSourceFile(source_file) catch return error.Fatal;
+        if (self.currentRubyCallerFrame()) |frame|
+            chunk_ptr.setSourceAbsolutePath(frame.chunk.source_absolute_path) catch return error.Fatal;
         chunk_ptr.lexical_scope = self.current_lexical_scope;
         chunk_ptr.arity = if (kind == .reader) 0 else 1;
         chunk_ptr.locals_count = if (kind == .reader) 0 else 1;
@@ -13863,6 +13870,9 @@ pub const VM = struct {
             return self.loadCExtFile(absolute_path);
         }
 
+        const canonical_path = try self.resolveAbsolutePath(absolute_path);
+        defer self.allocator.free(canonical_path);
+
         const code_buffer = std.Io.Dir.cwd().readFileAlloc(self.io, absolute_path, self.gc_allocator_atomic, .limited(std.math.maxInt(usize))) catch return error.Fatal;
 
         var parser = prism.Parser.init(self.allocator, code_buffer, absolute_path) catch return error.Fatal;
@@ -13878,9 +13888,11 @@ pub const VM = struct {
         }
 
         self.next_chunk_id = program.next_chunk_id;
+        main_chunk.setSourceAbsolutePath(canonical_path) catch return error.Fatal;
         try self.prepareCompiledChunk(main_chunk);
         var loaded_iter = program.child_chunks.valueIterator();
         while (loaded_iter.next()) |chunk_ptr| {
+            chunk_ptr.*.setSourceAbsolutePath(canonical_path) catch return error.Fatal;
             try self.prepareCompiledChunk(chunk_ptr.*);
         }
 
@@ -14820,7 +14832,7 @@ pub const VM = struct {
                     "<main>"
             else
                 "<main>";
-            const location = try self.newBacktraceLocation(source, self.backtraceLineForFrame(frame), label, try self.frameBacktraceBaseLabel(frame));
+            const location = try self.newBacktraceLocation(source, frame.chunk.source_absolute_path, self.backtraceLineForFrame(frame), label, try self.frameBacktraceBaseLabel(frame));
             result.elements.append(self.gc_allocator, location) catch return error.Fatal;
         }
         return result;
