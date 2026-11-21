@@ -73,6 +73,7 @@ pub fn register(vm: *VM) !void {
     try vm.thread_class.module.methods.put(kill_sym, value.MethodEntry.builtin(&builtinThreadKill, .{ .exact = 0 }));
 
     const exit_sym = try vm.intern("exit");
+    try thread_singleton.module.methods.put(exit_sym, value.MethodEntry.builtin(&builtinThreadExit, .{ .exact = 0 }));
     try vm.thread_class.module.methods.put(exit_sym, value.MethodEntry.builtin(&builtinThreadKill, .{ .exact = 0 }));
 
     const terminate_sym = try vm.intern("terminate");
@@ -474,6 +475,11 @@ fn builtinThreadStatus(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMErr
         .aborting => try vm.newString("aborting", false),
         .terminated => if (thread.terminated_normally) Value.boolean(false) else Value.nil(),
     };
+}
+
+fn builtinThreadExit(vm: *VM, _: Value, args: []Value, block: ?Block) VMError!Value {
+    const thread = vm.current_thread orelse try vm.ensureMainThread();
+    return builtinThreadKill(vm, Value.fromObject(&thread.object), args, block);
 }
 
 fn builtinThreadKill(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {

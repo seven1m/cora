@@ -2223,7 +2223,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] core/thread/each_caller_location_spec.rb
 - [x] core/thread/element_reference_spec.rb
 - [x] core/thread/element_set_spec.rb
-- [ ] core/thread/exit_spec.rb
+- [x] core/thread/exit_spec.rb
 - [ ] core/thread/fetch_spec.rb
 - [x] core/thread/fork_spec.rb
 - [x] core/thread/group_spec.rb
