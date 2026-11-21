@@ -433,6 +433,9 @@ pub const PendingUnwind = union(enum) {
 };
 
 pub const SavedUnwind = struct {
+    frame_depth: usize,
+    ensure_start_ip: usize,
+    ensure_end_ip: usize,
     pending_unwind: ?PendingUnwind = null,
 };
 
@@ -4244,6 +4247,11 @@ pub const VM = struct {
 
     fn popFrame(self: *VM) VMError!void {
         if (self.frames.items.len > 0) {
+            const frame_depth = self.frames.items.len;
+            const saved_unwinds = self.currentEnsureSavedUnwinds();
+            while (saved_unwinds.items.len > 0 and saved_unwinds.items[saved_unwinds.items.len - 1].frame_depth >= frame_depth) {
+                _ = saved_unwinds.pop();
+            }
             const frame = self.frames.pop().?;
             const rescued_exceptions = self.currentRescuedExceptions();
             if (frame.active_rescue_exceptions > rescued_exceptions.items.len) return error.Fatal;
@@ -7885,8 +7893,15 @@ pub const VM = struct {
             },
 
             .ENSURE_START => {
+                const ensure_start_ip = frame.ip - 1;
+                const ensure_end_ip = for (frame.chunk.exception_handlers.items) |handler| {
+                    if (handler.ensure_byte_offset == ensure_start_ip) break handler.ensure_end_byte_offset orelse return error.Fatal;
+                } else return error.Fatal;
                 const ensure_saved_unwinds = self.currentEnsureSavedUnwinds();
                 ensure_saved_unwinds.append(self.currentFiberStateAllocator(), .{
+                    .frame_depth = self.frames.items.len,
+                    .ensure_start_ip = ensure_start_ip,
+                    .ensure_end_ip = ensure_end_ip,
                     .pending_unwind = self.pending_unwind,
                 }) catch return error.Fatal;
             },
@@ -7911,7 +7926,8 @@ pub const VM = struct {
                 const saved = if (ensure_saved_unwinds.items.len > 0)
                     ensure_saved_unwinds.pop().?
                 else
-                    SavedUnwind{};
+                    return error.Fatal;
+                if (saved.frame_depth != self.frames.items.len) return error.Fatal;
 
                 if (self.hasPendingUnwind()) {
                     return error.Unwind;
@@ -15003,6 +15019,19 @@ pub const VM = struct {
         return error.UnhandledException;
     }
 
+    fn setUnwindFrameIp(self: *VM, frame_idx: usize, ip: usize) VMError!void {
+        // An abrupt exit skips ENSURE_END. Drop only the ensure scopes that the
+        // destination leaves, preserving outer scopes and their saved unwinds.
+        const saved_unwinds = self.currentEnsureSavedUnwinds();
+        while (saved_unwinds.items.len > 0) {
+            const saved = saved_unwinds.items[saved_unwinds.items.len - 1];
+            if (saved.frame_depth != frame_idx + 1) break;
+            if (ip >= saved.ensure_start_ip and ip < saved.ensure_end_ip) break;
+            _ = saved_unwinds.pop();
+        }
+        try setFrameIp(&self.frames.items[frame_idx], ip);
+    }
+
     fn unwindStackUntilFrameDepth(self: *VM, min_frame_len: usize) VMError!bool {
         while (self.frames.items.len > min_frame_len) {
             const frame_idx = self.frames.items.len - 1;
@@ -15010,7 +15039,7 @@ pub const VM = struct {
             if (self.pendingControlFlow()) |cf| {
                 if (cf.kind == .break_ and cf.target_frame == &self.frames.items[frame_idx]) {
                     const target_ip = cf.target_ip orelse return error.Fatal;
-                    try setFrameIp(&self.frames.items[frame_idx], target_ip);
+                    try self.setUnwindFrameIp(frame_idx, target_ip);
                     try self.push(cf.value);
                     self.setPendingControlFlow(null);
                     return true;
@@ -15019,24 +15048,24 @@ pub const VM = struct {
 
             if (self.pendingControlFlow() != null) {
                 if (try self.findEnsureHandler(frame_idx, true)) |ensure_byte_offset| {
-                    try setFrameIp(&self.frames.items[frame_idx], ensure_byte_offset);
+                    try self.setUnwindFrameIp(frame_idx, ensure_byte_offset);
                     return true;
                 }
             } else if (self.pendingThrow() != null or (self.pending_unwind != null and (self.pending_unwind.? == .fiber_kill or self.pending_unwind.? == .thread_kill))) {
                 if (try self.findEnsureHandler(frame_idx, true)) |ensure_byte_offset| {
-                    try setFrameIp(&self.frames.items[frame_idx], ensure_byte_offset);
+                    try self.setUnwindFrameIp(frame_idx, ensure_byte_offset);
                     return true;
                 }
             } else if (try self.findEnsureHandler(frame_idx, false)) |ensure_byte_offset| {
-                try setFrameIp(&self.frames.items[frame_idx], ensure_byte_offset);
+                try self.setUnwindFrameIp(frame_idx, ensure_byte_offset);
                 return true;
             } else if (try self.findExceptionHandler(frame_idx)) |handler_info| {
                 if (handler_info.rescue_idx) |rescue_idx| {
                     const rescue_handler = &handler_info.handler.rescue_handlers.items[rescue_idx];
-                    try setFrameIp(&self.frames.items[frame_idx], rescue_handler.catch_byte_offset);
+                    try self.setUnwindFrameIp(frame_idx, rescue_handler.catch_byte_offset);
                     return true;
                 } else if (handler_info.handler.ensure_byte_offset) |ensure_byte_offset| {
-                    try setFrameIp(&self.frames.items[frame_idx], ensure_byte_offset);
+                    try self.setUnwindFrameIp(frame_idx, ensure_byte_offset);
                     return true;
                 }
             }
@@ -15046,7 +15075,7 @@ pub const VM = struct {
                     .redo_, .retry_ => {
                         if (cf.target_frame == &self.frames.items[frame_idx]) {
                             const target_ip = cf.target_ip orelse return error.Fatal;
-                            try setFrameIp(&self.frames.items[frame_idx], target_ip);
+                            try self.setUnwindFrameIp(frame_idx, target_ip);
                             self.setPendingControlFlow(null);
                             return true;
                         }

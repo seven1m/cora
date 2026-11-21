@@ -231,3 +231,72 @@ test "non-local return from keyword default inside ensure overrides original exc
     try std.testing.expect(result.isString());
     try std.testing.expectEqualStrings("proc_return", result.toStringObject().str);
 }
+
+test "Ensure discards saved return when a nested ensure returns early" {
+    const result = try evalCode(
+        \\def cleanup
+        \\  begin
+        \\    return :original
+        \\  ensure
+        \\    return :replacement
+        \\  end
+        \\end
+        \\def work
+        \\  begin
+        \\    :result
+        \\  ensure
+        \\    cleanup
+        \\  end
+        \\end
+        \\[work, work]
+    );
+    const items = result.toArrayObject().elements.items;
+    try std.testing.expectEqual(@as(usize, 2), items.len);
+    for (items) |item| try std.testing.expectEqualStrings("result", item.toSymbolObject().name);
+}
+
+test "Ensure discards abandoned nested scopes when rescuing in the same frame" {
+    const result = try evalCode(
+        \\def work
+        \\  begin
+        \\    :result
+        \\  ensure
+        \\    begin
+        \\      begin
+        \\        raise "original"
+        \\      ensure
+        \\        raise "replacement"
+        \\      end
+        \\    rescue
+        \\      :rescued
+        \\    end
+        \\  end
+        \\end
+        \\[work, work]
+    );
+    const items = result.toArrayObject().elements.items;
+    try std.testing.expectEqual(@as(usize, 2), items.len);
+    for (items) |item| try std.testing.expectEqualStrings("result", item.toSymbolObject().name);
+}
+
+test "Ensure discards abandoned nested scopes on a loop break" {
+    const result = try evalCode(
+        \\def work
+        \\  begin
+        \\    :result
+        \\  ensure
+        \\    loop do
+        \\      begin
+        \\        raise "original"
+        \\      ensure
+        \\        break
+        \\      end
+        \\    end
+        \\  end
+        \\end
+        \\[work, work]
+    );
+    const items = result.toArrayObject().elements.items;
+    try std.testing.expectEqual(@as(usize, 2), items.len);
+    for (items) |item| try std.testing.expectEqualStrings("result", item.toSymbolObject().name);
+}
