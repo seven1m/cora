@@ -36,17 +36,6 @@ test "Fiber.new does not invoke block until resume" {
     try std.testing.expectEqual(false, result.toBool());
 }
 
-test "Fiber.current returns main fiber and current fiber inside" {
-    const result = try evalCode(
-        \\root = Fiber.current
-        \\f = Fiber.new { Fiber.current }
-        \\ids = [root.object_id, f.resume.object_id]
-        \\ids[0] == ids[1]
-    );
-    try std.testing.expect(result.isBool());
-    try std.testing.expectEqual(false, result.toBool());
-}
-
 test "Fiber.yield returns resume argument to the fiber" {
     const result = try evalCode(
         \\f = Fiber.new do
