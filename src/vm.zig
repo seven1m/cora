@@ -76,7 +76,7 @@ const MAX_BUILTIN_KEYWORDS: usize = 256;
 const SMALL_CALL_VALUES: usize = 16;
 const DEFAULT_THREAD_PREEMPT_QUANTUM_OPS: u32 = 10_000;
 const MAX_QUEUED_SIGNALS: usize = 128;
-var queued_signal_counts: [MAX_QUEUED_SIGNALS]u32 = [_]u32{0} ** MAX_QUEUED_SIGNALS;
+var queued_signal_counts: [MAX_QUEUED_SIGNALS]u32 = @splat(0);
 var queued_signals_pending: u32 = 0;
 
 pub const SignalTrapMode = enum {
@@ -133,7 +133,7 @@ fn initOwnedEnvMap(vm: *VM) VMError!std.process.Environ.Map {
 }
 
 fn signalHandler(sig: std.posix.SIG) callconv(.c) void {
-    const signo: usize = @intCast(@intFromEnum(sig));
+    const signo: usize = @intCast(@backingInt(sig));
     if (signo < MAX_QUEUED_SIGNALS) {
         _ = @atomicRmw(u32, &queued_signal_counts[signo], .Add, 1, .seq_cst);
         _ = @atomicRmw(u32, &queued_signals_pending, .Xchg, 1, .release);
@@ -151,7 +151,7 @@ fn installSignalHandler(sig: std.posix.SIG) void {
 
 fn setOsSignalMode(signo: c_int, mode: SignalTrapMode) void {
     if (std.posix.Sigaction == void or signo <= 0) return;
-    const sig: std.posix.SIG = @enumFromInt(signo);
+    const sig: std.posix.SIG = @fromBackingInt(@intCast(signo));
     const handler = switch (mode) {
         .system_default => std.posix.SIG.DFL,
         .ignore, .ignore_nil => std.posix.SIG.IGN,
@@ -824,8 +824,8 @@ pub const VM = struct {
     skip_at_exit_handlers: bool = false,
     io_objects: std.ArrayList(*value.IoObject) = .empty,
     closed_fds: std.ArrayList(i32) = .empty,
-    signal_trap_modes: [MAX_QUEUED_SIGNALS]SignalTrapMode = [_]SignalTrapMode{.system_default} ** MAX_QUEUED_SIGNALS,
-    signal_trap_callables: [MAX_QUEUED_SIGNALS]Value = [_]Value{Value.nil()} ** MAX_QUEUED_SIGNALS,
+    signal_trap_modes: [MAX_QUEUED_SIGNALS]SignalTrapMode = @splat(.system_default),
+    signal_trap_callables: [MAX_QUEUED_SIGNALS]Value = @splat(Value.nil()),
     exit_signal_trap_mode: SignalTrapMode = .system_default,
     exit_signal_trap_callable: Value = Value.nil(),
 
@@ -1663,7 +1663,7 @@ pub const VM = struct {
         self.encoding_utf32le = try self.createEncodingObject(.{ .utf32le = .{} });
         self.encoding_utf32be = try self.createEncodingObject(.{ .utf32be = .{} });
         for (&self.encoding_legacy, 0..) |*legacy_obj, index| {
-            legacy_obj.* = try self.createEncodingObject(.{ .legacy = .{ .id = @enumFromInt(index) } });
+            legacy_obj.* = try self.createEncodingObject(.{ .legacy = .{ .id = @fromBackingInt(@intCast(index)) } });
         }
         self.default_external_encoding = self.encoding_utf8;
 
@@ -2284,12 +2284,12 @@ pub const VM = struct {
     }
 
     fn setEpEnvironmentRole(ep: [*]Value, role: EnvironmentRole) void {
-        ep[3] = Value.integer(@intFromEnum(role));
+        ep[3] = Value.integer(@backingInt(role));
         ep[4] = .{ .raw = 0 };
     }
 
     fn epEnvironmentRole(ep: [*]Value) EnvironmentRole {
-        return @enumFromInt(ep[3].toInteger());
+        return @fromBackingInt(@intCast(ep[3].toInteger()));
     }
 
     fn setMethodEnvironmentContext(self: *VM, frame: *CallFrame) VMError!void {
@@ -3340,7 +3340,7 @@ pub const VM = struct {
     }
 
     fn createSignalException(self: *VM, signo: c_int) VMError!*value.ExceptionObject {
-        const class = if (signo == @as(c_int, @intCast(@intFromEnum(std.posix.SIG.INT))))
+        const class = if (signo == @as(c_int, @intCast(@backingInt(std.posix.SIG.INT))))
             self.interrupt_class
         else
             self.signal_exception_class;
@@ -3658,7 +3658,7 @@ pub const VM = struct {
 
         var ip: usize = 0;
         while (ip < ch.code.items.len) {
-            const op: bytecode.OpCode = @enumFromInt(ch.code.items[ip]);
+            const op: bytecode.OpCode = @fromBackingInt(@intCast(ch.code.items[ip]));
             const operands = ch.code.items[ip + 1 ..];
             switch (op) {
                 .CALL => {
@@ -3707,7 +3707,7 @@ pub const VM = struct {
 
         var ip: usize = 0;
         while (ip < ch.code.items.len) {
-            const op: bytecode.OpCode = @enumFromInt(ch.code.items[ip]);
+            const op: bytecode.OpCode = @fromBackingInt(@intCast(ch.code.items[ip]));
             const operands = ch.code.items[ip + 1 ..];
             if (op == .PUSH_SYMBOL) {
                 const idx = readU16At(operands, 0);
@@ -3762,7 +3762,7 @@ pub const VM = struct {
         if (ch.callsite_caches.items.len == 0) {
             const slots = ch.allocator.alloc(?*const CallSiteCache, ch.callsite_descriptors.items.len) catch return error.Fatal;
             @memset(slots, null);
-            ch.callsite_caches = .{ .items = slots, .capacity = slots.len };
+            ch.callsite_caches = .fromOwnedSlice(slots);
         }
 
         const dispatch_class = if ((receiver.isClass() or receiver.isModule()) and receiver.getSingletonClass() == null)
@@ -3836,7 +3836,7 @@ pub const VM = struct {
             return &ch.callsite_descriptors.items[callsite_id];
         }
 
-        const op: bytecode.OpCode = @enumFromInt(ch.code.items[callsite_byte_offset]);
+        const op: bytecode.OpCode = @fromBackingInt(@intCast(ch.code.items[callsite_byte_offset]));
         const operands = ch.code.items[callsite_byte_offset + 1 ..];
         const desc = try decodeCallSiteDescriptorFromOperands(op, operands);
         _ = try self.callMethodSymbolFromConstant(ch, desc.method_idx);
@@ -4661,7 +4661,7 @@ pub const VM = struct {
         const coro_obj = self.allocator.create(FiberCoro) catch return error.Fatal;
         coro_obj.* = .{
             .context = undefined,
-            .parent_context_ptr = .init(&self.zio_main_context),
+            .parent_context_ptr = &self.zio_main_context,
         };
         errdefer self.allocator.destroy(coro_obj);
         zio.coro.stackAlloc(&coro_obj.context.stack_info, 8 * 1024 * 1024, 256 * 1024) catch return error.Fatal;
@@ -5265,7 +5265,7 @@ pub const VM = struct {
         const coro_obj = self.allocator.create(FiberCoro) catch return error.Fatal;
         coro_obj.* = .{
             .context = undefined,
-            .parent_context_ptr = .init(&self.zio_main_context),
+            .parent_context_ptr = &self.zio_main_context,
         };
         errdefer self.allocator.destroy(coro_obj);
         zio.coro.stackAlloc(&coro_obj.context.stack_info, 8 * 1024 * 1024, 256 * 1024) catch return error.Fatal;
@@ -5659,7 +5659,7 @@ pub const VM = struct {
         const poll_ptr: [*]std.posix.pollfd = if (fds.items.len == 0) @ptrCast(&no_fds) else fds.items.ptr;
         const rc = std.c.poll(poll_ptr, @intCast(fds.items.len), @intCast(timeout_ms));
         if (rc < 0) {
-            const errno_code: std.posix.E = @enumFromInt(std.c._errno().*);
+            const errno_code: std.posix.E = @fromBackingInt(@intCast(std.c._errno().*));
             if (errno_code != .INTR) return self.raiseErrnoFmt(errno_code, "poll failed", .{});
         }
         try self.checkAsyncEvents();
@@ -5918,7 +5918,7 @@ pub const VM = struct {
         if (frame.ip >= frame.chunk.code.items.len) return error.Fatal;
 
         const instr_idx = frame.ip;
-        const op: bytecode.OpCode = @enumFromInt(frame.chunk.code.items[instr_idx]);
+        const op: bytecode.OpCode = @fromBackingInt(@intCast(frame.chunk.code.items[instr_idx]));
         if (preempt) try self.maybePreemptCurrentThread(isThreadPreemptSafePoint(op));
         // ip now points just past the opcode byte; operands start here
         frame.ip = instr_idx + 1;
@@ -7924,7 +7924,7 @@ pub const VM = struct {
             },
 
             .CATCH_START => {
-                const binding_kind: bytecode.CatchBinding = @enumFromInt(readByteFrom(frame, operands, &operand_cursor));
+                const binding_kind: bytecode.CatchBinding = @fromBackingInt(@intCast(readByteFrom(frame, operands, &operand_cursor)));
                 const binding_operand = readU16From(frame, operands, &operand_cursor);
                 const binding_depth = readByteFrom(frame, operands, &operand_cursor);
 
@@ -8139,7 +8139,7 @@ pub const VM = struct {
                 continue;
             }
 
-            const op: bytecode.OpCode = @enumFromInt(code[f.ip]);
+            const op: bytecode.OpCode = @fromBackingInt(@intCast(code[f.ip]));
             self.maybePreemptCurrentThread(isThreadPreemptSafePoint(op)) catch |err| switch (err) {
                 error.Unwind => {
                     if (bounded) {
@@ -9213,7 +9213,7 @@ pub const VM = struct {
                 @compileError("consumeKeywordArgs out_ptrs must be a tuple of pointers");
             }
 
-            if (names_info.@"struct".fields.len != outs_info.@"struct".fields.len) {
+            if (names_info.@"struct".field_names.len != outs_info.@"struct".field_names.len) {
                 @compileError("consumeKeywordArgs requires equal counts for names and output pointers");
             }
         }
@@ -10978,7 +10978,7 @@ pub const VM = struct {
             return symbol_obj;
         }
 
-        const key_bytes = self.gc_allocator_atomic.dupeZ(u8, str) catch return error.Fatal;
+        const key_bytes = self.gc_allocator_atomic.dupeSentinel(u8, str, 0) catch return error.Fatal;
         const map_key = EncodedStringKey{
             .bytes = key_bytes,
             .encoding_tag = canonical_encoding.encodingIndex(),
@@ -11003,7 +11003,7 @@ pub const VM = struct {
     }
 
     fn registerErrnoClass(self: *VM, errno_code: std.posix.E, class_obj: *ClassObject) VMError!void {
-        self.errno_classes.put(@intCast(@intFromEnum(errno_code)), class_obj) catch return error.Fatal;
+        self.errno_classes.put(@intCast(@backingInt(errno_code)), class_obj) catch return error.Fatal;
     }
 
     pub fn newModule(self: *VM, name: *SymbolObject) VMError!Value {
@@ -12284,7 +12284,7 @@ pub const VM = struct {
             .utf16be => Value.fromObject(&self.encoding_utf16be.object),
             .utf32le => Value.fromObject(&self.encoding_utf32le.object),
             .utf32be => Value.fromObject(&self.encoding_utf32be.object),
-            .legacy => |legacy| Value.fromObject(&self.encoding_legacy[@intFromEnum(legacy.id)].object),
+            .legacy => |legacy| Value.fromObject(&self.encoding_legacy[@backingInt(legacy.id)].object),
         };
     }
 
@@ -13215,7 +13215,7 @@ pub const VM = struct {
     }
 
     pub fn raiseErrnoFmt(self: *VM, errno_code: std.posix.E, comptime fmt: []const u8, args: anytype) VMError {
-        return self.raiseExceptionFmt(self.errnoClass(@intCast(@intFromEnum(errno_code))), fmt, args);
+        return self.raiseExceptionFmt(self.errnoClass(@intCast(@backingInt(errno_code))), fmt, args);
     }
 
     pub fn raiseLastErrnoFmt(self: *VM, comptime fmt: []const u8, args: anytype) VMError {
@@ -14024,7 +14024,7 @@ pub const VM = struct {
         const stem = std.fs.path.stem(basename);
         const init_name_fmt = std.fmt.allocPrint(self.allocator, "Init_{s}", .{stem}) catch return error.Fatal;
         defer self.allocator.free(init_name_fmt);
-        const init_name: [:0]const u8 = self.allocator.dupeZ(u8, init_name_fmt) catch return error.Fatal;
+        const init_name: [:0]const u8 = self.allocator.dupeSentinel(u8, init_name_fmt, 0) catch return error.Fatal;
         defer self.allocator.free(init_name);
 
         var lib = std.DynLib.open(absolute_path) catch {
@@ -15365,6 +15365,6 @@ pub const VM = struct {
         if (!status.isInteger()) return null;
         const signo = status.toInteger();
         if (signo <= 0 or signo > 127) return null;
-        return @enumFromInt(signo);
+        return @fromBackingInt(@intCast(signo));
     }
 };

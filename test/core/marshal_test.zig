@@ -147,7 +147,7 @@ test "Marshal round trips exceptions" {
 
 test "Marshal round trips RubyGems Requirement defaults" {
     const result = try evalCode(
-        \\$LOAD_PATH.unshift(File.expand_path("build/ext/rubygems/lib", Dir.pwd))
+        \\$LOAD_PATH.unshift(File.expand_path("zig-out/ext/rubygems/lib", Dir.pwd))
         \\require "rubygems/requirement"
         \\req = Gem::Requirement.new(">= 0")
         \\copy = Marshal.load(Marshal.dump(req))

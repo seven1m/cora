@@ -1773,7 +1773,7 @@ pub const Compiler = struct {
                 const jump_over_rescue = try self.current_chunk.emitJump(.JUMP, line);
 
                 const catch_byte_offset = self.current_chunk.currentOffset();
-                try self.current_chunk.emitCatchStart(@intFromEnum(bytecode.CatchBinding.none), 0, 0, line);
+                try self.current_chunk.emitCatchStart(@backingInt(bytecode.CatchBinding.none), 0, 0, line);
                 try self.current_chunk.emitOp(.PUSH_NIL, line);
                 try self.current_chunk.emitOp(.CATCH_END, line);
                 const catch_end_byte_offset = self.current_chunk.currentOffset();
@@ -1898,7 +1898,7 @@ pub const Compiler = struct {
         const jump_over_rescue = try self.current_chunk.emitJump(.JUMP, line);
 
         const catch_byte_offset = self.current_chunk.currentOffset();
-        try self.current_chunk.emitCatchStart(@intFromEnum(bytecode.CatchBinding.none), 0, 0, line);
+        try self.current_chunk.emitCatchStart(@backingInt(bytecode.CatchBinding.none), 0, 0, line);
         try self.current_chunk.emitOp(.PUSH_NIL, line);
         try self.current_chunk.emitOp(.CATCH_END, line);
         const catch_end_byte_offset = self.current_chunk.currentOffset();
@@ -2715,7 +2715,7 @@ pub const Compiler = struct {
 
                 // Call []=(index, value)
                 const bracket_eq = try self.current_chunk.addConstant(.{ .string = "[]=" });
-                const receiver_style: u8 = @intFromEnum(bytecode.ReceiverCallStyle.explicit);
+                const receiver_style: u8 = @backingInt(bytecode.ReceiverCallStyle.explicit);
                 try self.current_chunk.emitCall(@intCast(bracket_eq), @intCast(argc + 1), receiver_style, 0, line);
                 // Stack: [array, return_value]
                 try self.current_chunk.emitOp(.POP, line);
@@ -2738,7 +2738,7 @@ pub const Compiler = struct {
                 const setter_name = try self.parser.getConstantName(@intCast(call_target.name));
 
                 const setter_idx = try self.current_chunk.addConstant(.{ .string = setter_name });
-                const receiver_style: u8 = @intFromEnum(bytecode.ReceiverCallStyle.explicit);
+                const receiver_style: u8 = @backingInt(bytecode.ReceiverCallStyle.explicit);
                 try self.current_chunk.emitCall(@intCast(setter_idx), 1, receiver_style, 0, line);
                 // Stack: [array, return_value]
                 try self.current_chunk.emitOp(.POP, line);
@@ -2817,7 +2817,7 @@ pub const Compiler = struct {
         try self.current_chunk.emitOpU16(.PUSH_CONST, @intCast(idx_const), line);
 
         const bracket_sym = try self.current_chunk.addConstant(.{ .string = "[]" });
-        const receiver_style: u8 = @intFromEnum(bytecode.ReceiverCallStyle.explicit);
+        const receiver_style: u8 = @backingInt(bytecode.ReceiverCallStyle.explicit);
         try self.current_chunk.emitCall(@intCast(bracket_sym), 1, receiver_style, 0, line);
     }
 
@@ -2827,7 +2827,7 @@ pub const Compiler = struct {
         // Goal: array[left_count, array.length - left_count - right_count]
         // Contract: leaves original array on stack (same as extractArrayElement)
 
-        const receiver_style: u8 = @intFromEnum(bytecode.ReceiverCallStyle.explicit);
+        const receiver_style: u8 = @backingInt(bytecode.ReceiverCallStyle.explicit);
 
         // DUP the array so the [] call consumes this copy, not the original
         try self.current_chunk.emitOp(.DUP, line);
@@ -2924,7 +2924,7 @@ pub const Compiler = struct {
 
                 // Call []=(index, result_array)
                 const bracket_eq = try self.current_chunk.addConstant(.{ .string = "[]=" });
-                const rs: u8 = @intFromEnum(bytecode.ReceiverCallStyle.explicit);
+                const rs: u8 = @backingInt(bytecode.ReceiverCallStyle.explicit);
                 try self.current_chunk.emitCall(@intCast(bracket_eq), @intCast(argc + 1), rs, 0, line);
                 try self.current_chunk.emitOp(.POP, line);
             },
@@ -2944,7 +2944,7 @@ pub const Compiler = struct {
                 const setter_name = try self.parser.getConstantName(@intCast(call_target.name));
 
                 const setter_idx = try self.current_chunk.addConstant(.{ .string = setter_name });
-                const rs: u8 = @intFromEnum(bytecode.ReceiverCallStyle.explicit);
+                const rs: u8 = @backingInt(bytecode.ReceiverCallStyle.explicit);
                 try self.current_chunk.emitCall(@intCast(setter_idx), 1, rs, 0, line);
                 try self.current_chunk.emitOp(.POP, line);
             },
@@ -2998,7 +2998,7 @@ pub const Compiler = struct {
 
         const read_name = try self.parser.getConstantName(call_write.read_name);
         const read_idx = try self.current_chunk.addConstant(.{ .string = read_name });
-        try self.current_chunk.emitCall(@intCast(read_idx), 0, @intFromEnum(receiver_style), 0, line);
+        try self.current_chunk.emitCall(@intCast(read_idx), 0, @backingInt(receiver_style), 0, line);
 
         try self.current_chunk.emitOp(.DUP, line);
         const jump_existing = try self.current_chunk.emitJump(.JUMP_IF_FALSE, line);
@@ -3010,7 +3010,7 @@ pub const Compiler = struct {
 
         const write_name = try self.parser.getConstantName(call_write.write_name);
         const write_idx = try self.current_chunk.addConstant(.{ .string = write_name });
-        try self.current_chunk.emitCall(@intCast(write_idx), 1, @intFromEnum(receiver_style), 0, line);
+        try self.current_chunk.emitCall(@intCast(write_idx), 1, @backingInt(receiver_style), 0, line);
         try self.current_chunk.emitOp(.POP, line);
         const jump_end = try self.current_chunk.emitJump(.JUMP, line);
 
@@ -3053,7 +3053,7 @@ pub const Compiler = struct {
 
         const read_name = try self.parser.getConstantName(call_write.read_name);
         const read_idx = try self.current_chunk.addConstant(.{ .string = read_name });
-        try self.current_chunk.emitCall(@intCast(read_idx), 0, @intFromEnum(receiver_style), 0, line);
+        try self.current_chunk.emitCall(@intCast(read_idx), 0, @backingInt(receiver_style), 0, line);
 
         try self.current_chunk.emitOp(.DUP, line);
         const jump_existing = try self.current_chunk.emitJump(.JUMP_IF_TRUE, line);
@@ -3065,7 +3065,7 @@ pub const Compiler = struct {
 
         const write_name = try self.parser.getConstantName(call_write.write_name);
         const write_idx = try self.current_chunk.addConstant(.{ .string = write_name });
-        try self.current_chunk.emitCall(@intCast(write_idx), 1, @intFromEnum(receiver_style), 0, line);
+        try self.current_chunk.emitCall(@intCast(write_idx), 1, @backingInt(receiver_style), 0, line);
         try self.current_chunk.emitOp(.POP, line);
         const jump_end = try self.current_chunk.emitJump(.JUMP, line);
 
@@ -3092,20 +3092,20 @@ pub const Compiler = struct {
 
         const read_name = try self.parser.getConstantName(call_write.read_name);
         const read_idx = try self.current_chunk.addConstant(.{ .string = read_name });
-        try self.current_chunk.emitCall(@intCast(read_idx), 0, @intFromEnum(receiver_style), 0, line);
+        try self.current_chunk.emitCall(@intCast(read_idx), 0, @backingInt(receiver_style), 0, line);
 
         const value_node = try self.parser.asNode(@ptrCast(call_write.value));
         try self.compileNode(value_node, line);
 
         const operator_name = try self.parser.getConstantName(@intCast(call_write.binary_operator));
         const operator_idx = try self.current_chunk.addConstant(.{ .string = operator_name });
-        const explicit_receiver_style: u8 = @intFromEnum(bytecode.ReceiverCallStyle.explicit);
+        const explicit_receiver_style: u8 = @backingInt(bytecode.ReceiverCallStyle.explicit);
         try self.current_chunk.emitCall(@intCast(operator_idx), 1, explicit_receiver_style, 0, line);
         try self.current_chunk.emitOpU8(.SETN, 2, line);
 
         const write_name = try self.parser.getConstantName(call_write.write_name);
         const write_idx = try self.current_chunk.addConstant(.{ .string = write_name });
-        try self.current_chunk.emitCall(@intCast(write_idx), 1, @intFromEnum(receiver_style), 0, line);
+        try self.current_chunk.emitCall(@intCast(write_idx), 1, @backingInt(receiver_style), 0, line);
         try self.current_chunk.emitOp(.POP, line);
     }
 
@@ -3137,7 +3137,7 @@ pub const Compiler = struct {
             const minus_one_idx = try self.current_chunk.addConstant(.{ .integer = -1 });
             try self.current_chunk.emitOpU16(.PUSH_CONST, @intCast(minus_one_idx), line);
             const bracket_idx = try self.current_chunk.addConstant(.{ .string = "[]" });
-            const explicit_receiver_style: u8 = @intFromEnum(bytecode.ReceiverCallStyle.explicit);
+            const explicit_receiver_style: u8 = @backingInt(bytecode.ReceiverCallStyle.explicit);
             try self.current_chunk.emitCall(@intCast(bracket_idx), 1, explicit_receiver_style, 0, line);
             try self.current_chunk.emitOpU8(.SETN, 3, line);
             try self.current_chunk.emitOp(.POP, line);
@@ -3188,7 +3188,7 @@ pub const Compiler = struct {
 
         const operator_name = try self.parser.getConstantName(@intCast(var_write.binary_operator));
         const method_idx = try self.current_chunk.addConstant(.{ .string = operator_name });
-        const receiver_style: u8 = @intFromEnum(bytecode.ReceiverCallStyle.explicit);
+        const receiver_style: u8 = @backingInt(bytecode.ReceiverCallStyle.explicit);
         try self.current_chunk.emitCall(@intCast(method_idx), 1, receiver_style, 0, line);
 
         try self.emitSetLocalSlot(slot, line);
@@ -3237,7 +3237,7 @@ pub const Compiler = struct {
 
         const operator_name = try self.parser.getConstantName(@intCast(var_write.binary_operator));
         const method_idx = try self.current_chunk.addConstant(.{ .string = operator_name });
-        const receiver_style: u8 = @intFromEnum(bytecode.ReceiverCallStyle.explicit);
+        const receiver_style: u8 = @backingInt(bytecode.ReceiverCallStyle.explicit);
         try self.current_chunk.emitCall(@intCast(method_idx), 1, receiver_style, 0, line);
 
         try self.current_chunk.emitOpU16(.SET_CVAR, @intCast(name_idx), line);
@@ -3254,7 +3254,7 @@ pub const Compiler = struct {
 
         const operator_name = try self.parser.getConstantName(@intCast(var_write.binary_operator));
         const method_idx = try self.current_chunk.addConstant(.{ .string = operator_name });
-        const receiver_style: u8 = @intFromEnum(bytecode.ReceiverCallStyle.explicit);
+        const receiver_style: u8 = @backingInt(bytecode.ReceiverCallStyle.explicit);
         try self.current_chunk.emitCall(@intCast(method_idx), 1, receiver_style, 0, line);
 
         try self.current_chunk.emitOpU16(.SET_IVAR, @intCast(name_idx), line);
@@ -3287,7 +3287,7 @@ pub const Compiler = struct {
         try self.current_chunk.emitOpU8(.DUP_N, tuple_size, line);
 
         const bracket_idx = try self.current_chunk.addConstant(.{ .string = "[]" });
-        const receiver_style: u8 = @intFromEnum(bytecode.ReceiverCallStyle.explicit);
+        const receiver_style: u8 = @backingInt(bytecode.ReceiverCallStyle.explicit);
         const read_call_flags = bytecode.encodeCallFlags(.explicit, compiled_args.args_array_mode);
         try self.current_chunk.emitCall(@intCast(bracket_idx), compiled_args.argc, read_call_flags, 0, line);
 
@@ -3464,7 +3464,7 @@ pub const Compiler = struct {
 
         const operator_name = try self.parser.getConstantName(@intCast(var_write.binary_operator));
         const method_idx = try self.current_chunk.addConstant(.{ .string = operator_name });
-        const receiver_style: u8 = @intFromEnum(bytecode.ReceiverCallStyle.explicit);
+        const receiver_style: u8 = @backingInt(bytecode.ReceiverCallStyle.explicit);
         try self.current_chunk.emitCall(@intCast(method_idx), 1, receiver_style, 0, line);
 
         try self.current_chunk.emitOpU16(.SET_GLOBAL, @intCast(name_idx), line);
@@ -4764,7 +4764,7 @@ pub const Compiler = struct {
             }
 
             try self.current_chunk.emitCatchStart(
-                @intFromEnum(binding_kind),
+                @backingInt(binding_kind),
                 binding_operand,
                 binding_depth,
                 line,
@@ -4907,7 +4907,7 @@ pub const Compiler = struct {
 
         // No variable binding for rescue modifier
         // Emit CATCH_START with no variable binding
-        try self.current_chunk.emitCatchStart(@intFromEnum(bytecode.CatchBinding.none), 0, 0, line);
+        try self.current_chunk.emitCatchStart(@backingInt(bytecode.CatchBinding.none), 0, 0, line);
 
         // Compile the rescue expression (fallback value)
         {

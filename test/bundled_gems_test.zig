@@ -34,7 +34,7 @@ test "standard libraries are available as default gems without installed gems" {
         \\puts :ok
     ;
     const result = try std.process.run(allocator, threaded.io(), .{
-        .argv = &.{ "build/bin/cora", "-e", code },
+        .argv = &.{ "zig-out/bin/cora", "-e", code },
         .environ_map = &env_map,
         .stdout_limit = .limited(1024 * 1024),
         .stderr_limit = .limited(1024 * 1024),
@@ -56,7 +56,7 @@ test "standard libraries are available as default gems without installed gems" {
         \\puts [Net::HTTP.name, Resolv.name, URI.respond_to?(:open)].join(":")
     ;
     const no_gems = try std.process.run(allocator, threaded.io(), .{
-        .argv = &.{ "build/bin/cora", "--disable-gems", "-e", no_gems_code },
+        .argv = &.{ "zig-out/bin/cora", "--disable-gems", "-e", no_gems_code },
         .environ_map = &env_map,
         .stdout_limit = .limited(1024 * 1024),
         .stderr_limit = .limited(1024 * 1024),
@@ -92,7 +92,7 @@ test "bundled gems activate through RubyGems and are not default gems" {
         \\p ObjectSpace.each_object(Class).any? { |klass| klass == Class }
     ;
     const result = try std.process.run(allocator, threaded.io(), .{
-        .argv = &.{ "build/bin/cora", "-r", "test/unit", "-e", code },
+        .argv = &.{ "zig-out/bin/cora", "-r", "test/unit", "-e", code },
         .environ_map = &env_map,
         .stdout_limit = .limited(1024 * 1024),
         .stderr_limit = .limited(1024 * 1024),
@@ -130,7 +130,7 @@ test "bundled test-unit runs a test case" {
         \\end
     ;
     const result = try std.process.run(allocator, threaded.io(), .{
-        .argv = &.{ "build/bin/cora", "-e", code },
+        .argv = &.{ "zig-out/bin/cora", "-e", code },
         .environ_map = &env_map,
         .stdout_limit = .limited(1024 * 1024),
         .stderr_limit = .limited(1024 * 1024),
@@ -162,7 +162,7 @@ test "bundled gems obey explicit GEM_PATH and disable-gems" {
         defer allocator.free(expected_error);
 
         const isolated = try std.process.run(allocator, threaded.io(), .{
-            .argv = &.{ "build/bin/cora", "-r", library, "-e", "nil" },
+            .argv = &.{ "zig-out/bin/cora", "-r", library, "-e", "nil" },
             .environ_map = &env_map,
             .stdout_limit = .limited(1024 * 1024),
             .stderr_limit = .limited(1024 * 1024),
@@ -173,7 +173,7 @@ test "bundled gems obey explicit GEM_PATH and disable-gems" {
         try std.testing.expect(std.mem.indexOf(u8, isolated.stderr, expected_error) != null);
 
         const no_gems = try std.process.run(allocator, threaded.io(), .{
-            .argv = &.{ "build/bin/cora", "--disable-gems", "-r", library, "-e", "nil" },
+            .argv = &.{ "zig-out/bin/cora", "--disable-gems", "-r", library, "-e", "nil" },
             .environ_map = &env_map,
             .stdout_limit = .limited(1024 * 1024),
             .stderr_limit = .limited(1024 * 1024),
@@ -211,7 +211,7 @@ test "Bundler resolves bundled test-unit from a Gemfile" {
         \\p [Gem.loaded_specs["test-unit"].version.to_s, Gem.loaded_specs["power_assert"].version.to_s]
     ;
     const result = try std.process.run(allocator, threaded.io(), .{
-        .argv = &.{ "build/bin/cora", "-e", code },
+        .argv = &.{ "zig-out/bin/cora", "-e", code },
         .environ_map = &env_map,
         .stdout_limit = .limited(1024 * 1024),
         .stderr_limit = .limited(1024 * 1024),

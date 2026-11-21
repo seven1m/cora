@@ -2,7 +2,7 @@
 bindir=$(cd "${0%/*}" && pwd -P)
 cora="${bindir}/cora"
 if [ ! -x "${cora}" ]; then
-  cora="${bindir}/../build/bin/cora"
+  cora="${bindir}/../zig-out/bin/cora"
 fi
 if [ ! -x "${cora}" ]; then
   cora="cora"
@@ -13,7 +13,7 @@ exec "${cora}" -x "$0" "$@"
 # frozen_string_literal: true
 
 bindir = File.dirname(File.expand_path(__FILE__))
-rubygems_lib = File.join(bindir, "..", "build", "ext", "rubygems", "lib")
+rubygems_lib = File.join(bindir, "..", "zig-out", "ext", "rubygems", "lib")
 $LOAD_PATH.unshift(rubygems_lib) if rubygems_lib
 
 require "thread"

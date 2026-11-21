@@ -1,20 +1,21 @@
 const std = @import("std");
+const Translator = @import("translate_c").Translator;
 const builtin = @import("builtin");
 const rbconfig = @import("src/rbconfig/config.zig");
 const default_gems = @import("src/default_gems.zig");
 const native_extension_suffix = "." ++ rbconfig.nativeExtension();
 
-const optimize_state_path = "build/build-mode";
-const runtime_prefix = "build";
+const optimize_state_path = "zig-out/build-mode";
+const build_work_dir = "zig-out";
 const ruby_gem_api_version = "4.1.0";
-const rubygems_build_root = "build/rubygems";
-const psych_build_root = "build/psych";
-const strscan_build_root = "build/strscan";
-const json_build_root = "build/json";
-const prism_build_root = "build/prism";
-const tinycc_build_root = "build/tinycc";
-const cext_build_root = "build/cext";
-const ffi_build_root = "build/ffi";
+const rubygems_build_root = "zig-out/rubygems";
+const psych_build_root = "zig-out/psych";
+const strscan_build_root = "zig-out/strscan";
+const json_build_root = "zig-out/json";
+const prism_build_root = "zig-out/prism";
+const tinycc_build_root = "zig-out/tinycc";
+const cext_build_root = "zig-out/cext";
+const ffi_build_root = "zig-out/ffi";
 const bundled_gems = [_]struct { name: []const u8, version: []const u8 }{
     .{ .name = "csv", .version = "3.3.6" },
     .{ .name = "power_assert", .version = "3.0.1" },
@@ -123,18 +124,18 @@ fn addWriteGemSpec(
     install_steps: []const *std.Build.Step,
 ) *std.Build.Step {
     const spec_subdir = if (kind == .default) "specifications/default" else "specifications";
-    const gemspec_path = b.fmt("build/lib/gems/{s}/{s}/{s}-{s}.gemspec", .{
+    const gemspec_path = b.fmt("zig-out/lib/gems/{s}/{s}/{s}-{s}.gemspec", .{
         ruby_gem_api_version, spec_subdir, name, version,
     });
     const script = b.fmt(
-        "test -f '{s}' || build/bin/cora -e '{s}'",
+        "test -f '{s}' || zig-out/bin/cora -e '{s}'",
         .{
             gemspec_path,
             b.fmt(
                 \\require "rubygems"
                 \\require "fileutils"
                 \\root = Dir.pwd
-                \\spec_dir = File.join(root, "build/lib/gems/{s}/{s}")
+                \\spec_dir = File.join(root, "zig-out/lib/gems/{s}/{s}")
                 \\FileUtils.mkdir_p(spec_dir)
                 \\Dir.chdir("{s}") do
                 \\  gemspec_name = File.basename(Dir.pwd) + ".gemspec"
@@ -155,19 +156,19 @@ fn addWriteGemSpec(
 
 fn optimizeModeName(mode: std.builtin.OptimizeMode) []const u8 {
     return switch (mode) {
-        .Debug => "Debug",
-        .ReleaseSafe => "ReleaseSafe",
-        .ReleaseFast => "ReleaseFast",
-        .ReleaseSmall => "ReleaseSmall",
+        .debug => "debug",
+        .safe => "safe",
+        .fast => "fast",
+        .small => "small",
     };
 }
 
 fn parseOptimizeMode(raw: []const u8) ?std.builtin.OptimizeMode {
     const trimmed = std.mem.trim(u8, raw, " \t\r\n");
-    if (std.mem.eql(u8, trimmed, "Debug")) return .Debug;
-    if (std.mem.eql(u8, trimmed, "ReleaseSafe")) return .ReleaseSafe;
-    if (std.mem.eql(u8, trimmed, "ReleaseFast")) return .ReleaseFast;
-    if (std.mem.eql(u8, trimmed, "ReleaseSmall")) return .ReleaseSmall;
+    if (std.mem.eql(u8, trimmed, "Debug") or std.mem.eql(u8, trimmed, "debug")) return .debug;
+    if (std.mem.eql(u8, trimmed, "ReleaseSafe") or std.mem.eql(u8, trimmed, "safe")) return .safe;
+    if (std.mem.eql(u8, trimmed, "ReleaseFast") or std.mem.eql(u8, trimmed, "fast")) return .fast;
+    if (std.mem.eql(u8, trimmed, "ReleaseSmall") or std.mem.eql(u8, trimmed, "small")) return .small;
     return null;
 }
 
@@ -186,8 +187,8 @@ fn readSavedOptimizeMode(b: *std.Build) ?std.builtin.OptimizeMode {
 fn writeSavedOptimizeMode(b: *std.Build, mode: std.builtin.OptimizeMode) void {
     const io = b.graph.io;
     const cwd: std.Io.Dir = .cwd();
-    cwd.createDirPath(io, runtime_prefix) catch |err| {
-        std.debug.panic("failed to create {s}: {s}", .{ runtime_prefix, @errorName(err) });
+    cwd.createDirPath(io, build_work_dir) catch |err| {
+        std.debug.panic("failed to create {s}: {s}", .{ build_work_dir, @errorName(err) });
     };
     cwd.writeFile(io, .{
         .sub_path = optimize_state_path,
@@ -207,6 +208,7 @@ fn buildOnigmo(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.bu
     module.addIncludePath(b.path("ext/onigmo"));
     module.addIncludePath(b.path("ext/onigmo/compat"));
     module.addIncludePath(b.path("ext/onigmo/enc/unicode/17.0.0"));
+    // Use Onigmo's memcpy-based reads; direct unaligned loads trip C safety checks.
     module.addCSourceFiles(.{ .root = b.path("ext/onigmo"), .files = &.{
         "enc/ascii.c",
         "enc/big5.c",
@@ -252,7 +254,7 @@ fn buildOnigmo(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.bu
         "regparse.c",
         "regsyntax.c",
         "st.c",
-    }, .flags = &.{ "-std=gnu17", "-DNOT_RUBY" } });
+    }, .flags = &.{ "-std=gnu17", "-DNOT_RUBY", "-DUNALIGNED_WORD_ACCESS=0" } });
     const library = b.addLibrary(.{
         .name = "onigmo",
         .linkage = .static,
@@ -268,21 +270,21 @@ fn buildPrism(b: *std.Build, submodule_update_step: ?*std.Build.Step) *std.Build
         "sh", "-c",
         \\changed=false
         \\for source in ext/prism/src/*.c ext/prism/include/prism/*.h; do
-        \\  cmp -s "$source" "build/prism/${source#ext/prism/}" || changed=true
+        \\  cmp -s "$source" "zig-out/prism/${source#ext/prism/}" || changed=true
         \\done
         \\for source in ext/prism-templates/include/prism/*.h ext/prism-templates/src/*.c; do
-        \\  cmp -s "$source" "build/prism/${source#ext/prism-templates/}" || changed=true
+        \\  cmp -s "$source" "zig-out/prism/${source#ext/prism-templates/}" || changed=true
         \\done
         \\if [ "$changed" = true ]; then
-        \\  rm -rf build/prism
-        \\  mkdir -p build/prism
-        \\  cp -r ext/prism/* build/prism/
-        \\  cp -r ext/prism-templates/* build/prism/
+        \\  rm -rf zig-out/prism
+        \\  mkdir -p zig-out/prism
+        \\  cp -r ext/prism/* zig-out/prism/
+        \\  cp -r ext/prism-templates/* zig-out/prism/
         \\fi
     });
     if (submodule_update_step) |step| source_step.step.dependOn(step);
 
-    const make_step = b.addSystemCommand(&.{ "make", "-C", "build/prism", "static", "shared", b.fmt("SOEXT={s}", .{rbconfig.sharedLibraryExtension()}) });
+    const make_step = b.addSystemCommand(&.{ "make", "-C", "zig-out/prism", "static", "shared", b.fmt("SOEXT={s}", .{rbconfig.sharedLibraryExtension()}) });
     make_step.step.dependOn(&source_step.step);
     prism_build_step.dependOn(&make_step.step);
 
@@ -297,14 +299,14 @@ fn buildTinyCC(b: *std.Build) *std.Build.Step {
     const libtcc_exists = pathExists(b, libtcc_path);
 
     if (!libtcc_exists) {
-        const copy_step = b.addSystemCommand(&.{ "sh", "-c", "mkdir -p build/tinycc && cp -r ext/tinycc/* build/tinycc/" });
+        const copy_step = b.addSystemCommand(&.{ "sh", "-c", "mkdir -p zig-out/tinycc && cp -r ext/tinycc/* zig-out/tinycc/" });
         tinycc_build_step.dependOn(&copy_step.step);
 
-        const configure_step = b.addSystemCommand(&.{ "sh", "-c", "cd build/tinycc && ./configure --with-pic" });
+        const configure_step = b.addSystemCommand(&.{ "sh", "-c", "cd zig-out/tinycc && ./configure --with-pic" });
         configure_step.step.dependOn(&copy_step.step);
         tinycc_build_step.dependOn(&configure_step.step);
 
-        const make_step = b.addSystemCommand(&.{ "make", "-C", "build/tinycc" });
+        const make_step = b.addSystemCommand(&.{ "make", "-C", "zig-out/tinycc" });
         make_step.step.dependOn(&configure_step.step);
         tinycc_build_step.dependOn(&make_step.step);
     }
@@ -339,7 +341,7 @@ fn buildPsych(b: *std.Build) PsychBuild {
         const extconf_step = b.addSystemCommand(&.{
             "sh",
             "-c",
-            "repo_root=\"$PWD\" && cd build/psych/ext && \"$repo_root\"/build/bin/cora \"$repo_root\"/ext/psych/ext/psych/extconf.rb",
+            "repo_root=\"$PWD\" && cd zig-out/psych/ext && \"$repo_root\"/zig-out/bin/cora \"$repo_root\"/ext/psych/ext/psych/extconf.rb",
         });
         extconf_step.step.dependOn(&mkdir_step.step);
         psych_build_step.dependOn(&extconf_step.step);
@@ -365,17 +367,17 @@ fn buildStrscan(b: *std.Build) StrscanBuild {
     const strscan_so_path = strscan_build_root ++ "/ext/strscan/strscan" ++ native_extension_suffix;
 
     if (!pathExists(b, strscan_so_path)) {
-        const copy_step = b.addSystemCommand(&.{ "sh", "-c", "mkdir -p build/strscan && cp -r ext/strscan/. build/strscan/" });
+        const copy_step = b.addSystemCommand(&.{ "sh", "-c", "mkdir -p zig-out/strscan && cp -r ext/strscan/. zig-out/strscan/" });
         strscan_build_step.dependOn(&copy_step.step);
 
-        const patch_step = b.addSystemCommand(&.{ "sh", "-c", "cd build/strscan && patch -p1 < ../../ext/strscan.patch" });
+        const patch_step = b.addSystemCommand(&.{ "sh", "-c", "cd zig-out/strscan && patch -p1 < ../../ext/strscan.patch" });
         patch_step.step.dependOn(&copy_step.step);
         strscan_build_step.dependOn(&patch_step.step);
 
         const extconf_step = b.addSystemCommand(&.{
             "sh",
             "-c",
-            "repo_root=\"$PWD\" && cd build/strscan/ext/strscan && \"$repo_root\"/build/bin/cora extconf.rb",
+            "repo_root=\"$PWD\" && cd zig-out/strscan/ext/strscan && \"$repo_root\"/zig-out/bin/cora extconf.rb",
         });
         extconf_step.step.dependOn(&patch_step.step);
         strscan_build_step.dependOn(&extconf_step.step);
@@ -402,13 +404,13 @@ fn buildJson(b: *std.Build) JsonBuild {
     const generator_so_path = json_build_root ++ "/ext/json/ext/generator/generator" ++ native_extension_suffix;
 
     if (!pathExists(b, parser_so_path) or !pathExists(b, generator_so_path)) {
-        const copy_step = b.addSystemCommand(&.{ "sh", "-c", "mkdir -p build/json && cp -r ext/json/. build/json/" });
+        const copy_step = b.addSystemCommand(&.{ "sh", "-c", "mkdir -p zig-out/json && cp -r ext/json/. zig-out/json/" });
         json_build_step.dependOn(&copy_step.step);
 
         const parser_extconf_step = b.addSystemCommand(&.{
             "sh",
             "-c",
-            "repo_root=\"$PWD\" && cd build/json/ext/json/ext/parser && \"$repo_root\"/build/bin/cora extconf.rb",
+            "repo_root=\"$PWD\" && cd zig-out/json/ext/json/ext/parser && \"$repo_root\"/zig-out/bin/cora extconf.rb",
         });
         parser_extconf_step.step.dependOn(&copy_step.step);
         json_build_step.dependOn(&parser_extconf_step.step);
@@ -420,7 +422,7 @@ fn buildJson(b: *std.Build) JsonBuild {
         const generator_extconf_step = b.addSystemCommand(&.{
             "sh",
             "-c",
-            "repo_root=\"$PWD\" && cd build/json/ext/json/ext/generator && \"$repo_root\"/build/bin/cora extconf.rb",
+            "repo_root=\"$PWD\" && cd zig-out/json/ext/json/ext/generator && \"$repo_root\"/zig-out/bin/cora extconf.rb",
         });
         generator_extconf_step.step.dependOn(&copy_step.step);
         json_build_step.dependOn(&generator_extconf_step.step);
@@ -466,7 +468,7 @@ fn buildFFI(b: *std.Build) *std.Build.Step {
     ffi_build_step.dependOn(&mkdir_step.step);
 
     const dynamic_lookup = if (builtin.os.tag.isDarwin()) " -undefined dynamic_lookup" else "";
-    const compile_step = b.addSystemCommand(&.{ "sh", "-c", (if (builtin.os.tag.isDarwin()) "gcc -bundle" else "gcc -shared") ++ " -fPIC -I include/cora $(pkg-config --cflags libffi) ext/cora_ffi.c -o build/ffi/cora_ffi" ++ native_extension_suffix ++ " $(pkg-config --libs libffi) -ldl" ++ dynamic_lookup });
+    const compile_step = b.addSystemCommand(&.{ "sh", "-c", (if (builtin.os.tag.isDarwin()) "gcc -bundle" else "gcc -shared") ++ " -fPIC -I include/cora $(pkg-config --cflags libffi) ext/cora_ffi.c -o zig-out/ffi/cora_ffi" ++ native_extension_suffix ++ " $(pkg-config --libs libffi) -ldl" ++ dynamic_lookup });
     compile_step.step.dependOn(&mkdir_step.step);
     ffi_build_step.dependOn(&compile_step.step);
 
@@ -489,7 +491,7 @@ fn optimizeOptionDefaultReleaseFast(b: *std.Build) std.builtin.OptimizeMode {
         return mode;
     }
 
-    return .ReleaseFast;
+    return .fast;
 }
 
 fn buildSizeofRb(b: *std.Build) []const u8 {
@@ -599,9 +601,43 @@ fn appendRubyHashStringKey(out: *std.ArrayList(u8), b: *std.Build, key: []const 
     out.appendSlice(b.allocator, "\"") catch @panic("OOM building sizeof.rb");
 }
 
-pub fn build(b: *std.Build) void {
-    b.resolveInstallPrefix(runtime_prefix, .{});
+fn buildCBindings(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.builtin.OptimizeMode, prism_step: *std.Build.Step, tinycc_step: *std.Build.Step) []const std.Build.Module.Import {
+    const dep = b.dependency("translate_c", .{});
+    const headers = b.addWriteFiles();
+    const bindings = [_]struct { name: []const u8, header: []const u8, libs: []const Translator.LinkSystemLib = &.{} }{
+        .{ .name = "prism_c", .header = "#include <prism.h>\n" },
+        .{ .name = "onigmo_c", .header = "#include <onigmo.h>\n" },
+        .{ .name = "tcc_c", .header = "#define _GNU_SOURCE 1\n#include <libtcc.h>\n#ifdef __linux__\n#include <dlfcn.h>\n#include <stdlib.h>\n#endif\n" },
+        .{ .name = "openssl_c", .header = "#include <openssl/err.h>\n#include <openssl/evp.h>\n#include <openssl/pem.h>\n#include <openssl/rand.h>\n#include <openssl/ssl.h>\n#include <openssl/x509_vfy.h>\n", .libs = &.{ .{ .name = "ssl" }, .{ .name = "crypto" } } },
+        .{ .name = "zlib_c", .header = "#include <zlib.h>\n", .libs = &.{.{ .name = "z" }} },
+        .{ .name = "stat_c", .header = "#include <sys/stat.h>\n" },
+    };
+    const imports = b.allocator.alloc(std.Build.Module.Import, bindings.len) catch @panic("OOM");
+    for (bindings, imports) |binding, *import| {
+        const t: Translator = .init(dep, .{
+            .name = binding.name,
+            .c_source_file = headers.add(b.fmt("{s}.h", .{binding.name}), binding.header),
+            .target = target,
+            .optimize = optimize,
+            .link_system_libs = binding.libs,
+        });
+        if (std.mem.eql(u8, binding.name, "prism_c")) {
+            t.addIncludePath(b.path(prism_build_root ++ "/include"));
+            t.run.step.dependOn(prism_step);
+        } else if (std.mem.eql(u8, binding.name, "onigmo_c")) {
+            t.addIncludePath(b.path("ext/onigmo"));
+        } else if (std.mem.eql(u8, binding.name, "tcc_c")) {
+            t.addIncludePath(b.path(tinycc_build_root));
+            t.run.step.dependOn(tinycc_step);
+        }
+        import.* = .{ .name = binding.name, .module = t.mod };
+    }
+    return imports;
+}
 
+pub fn build(b: *std.Build) void {
+    // Configuration reads generated files and persists the selected build mode.
+    b.graph.poisonCache();
     const target = b.standardTargetOptions(.{});
     const optimize = optimizeOptionDefaultReleaseFast(b);
     const test_verbose = b.option(bool, "test-verbose", "Print each test name") orelse false;
@@ -610,7 +646,7 @@ pub fn build(b: *std.Build) void {
     const test_jobs = b.option(i32, "test-jobs", "Number of test worker processes (<=0 auto)") orelse 0;
     const test_timeout = b.option(u32, "test-timeout", "Per-test-file wall-clock timeout in seconds (0 = disabled)") orelse 0;
     const coverage = b.option(bool, "coverage", "Run tests under kcov and generate an HTML coverage report") orelse false;
-    const coverage_output_dir = b.option([]const u8, "coverage-output-dir", "Directory for kcov output") orelse "build/kcov";
+    const coverage_output_dir = b.option([]const u8, "coverage-output-dir", "Directory for kcov output") orelse "zig-out/kcov";
     const submodule_update = b.option(bool, "submodule-update", "Run `git submodule update --init` before building") orelse true;
 
     const submodule_update_step = if (submodule_update) blk: {
@@ -638,6 +674,7 @@ pub fn build(b: *std.Build) void {
     const tinycc_build_step = buildTinyCC(b);
     const cext_fixture_step = buildCExtFixture(b);
     const ffi_build_step = buildFFI(b);
+    const c_bindings = buildCBindings(b, target, optimize, prism_build_step, tinycc_build_step);
 
     if (submodule_update_step) |s| {
         prism_build_step.dependOn(s);
@@ -693,6 +730,7 @@ pub fn build(b: *std.Build) void {
     exe.root_module.addImport("bdwgc", bdwgc.module("bdwgc"));
     exe.root_module.addImport("build_options", build_options_mod);
     exe.root_module.addImport("zio", zio.module("zio"));
+    for (c_bindings) |binding| exe.root_module.addImport(binding.name, binding.module);
 
     const install_exe = b.addInstallArtifact(exe, .{});
     b.getInstallStep().dependOn(&install_exe.step);
@@ -700,7 +738,7 @@ pub fn build(b: *std.Build) void {
     const prepare_rubygems = b.addSystemCommand(&.{
         "sh",
         "-c",
-        "rm -rf build/rubygems && mkdir -p build/rubygems && cp -r ext/rubygems/. build/rubygems/ && cd build/rubygems && patch -p1 < ../../ext/rubygems.patch",
+        "rm -rf zig-out/rubygems && mkdir -p zig-out/rubygems && cp -r ext/rubygems/. zig-out/rubygems/ && cd zig-out/rubygems && patch -p1 < ../../ext/rubygems.patch",
     });
 
     for (runtime_ext_dirs) |dir_name| {
@@ -735,10 +773,12 @@ pub fn build(b: *std.Build) void {
     const install_ffi = b.addInstallFile(b.path(ffi_build_root ++ "/cora_ffi" ++ native_extension_suffix), "lib/stdlib/cora_ffi" ++ native_extension_suffix);
     install_ffi.step.dependOn(ffi_build_step);
     b.getInstallStep().dependOn(&install_ffi.step);
-    const remove_legacy_json_stdlib = b.addSystemCommand(&.{ "rm", "-f", b.getInstallPath(.prefix, "lib/stdlib/json.rb") });
+    const remove_legacy_json_stdlib = b.addSystemCommand(&.{ "rm", "-f" });
+    remove_legacy_json_stdlib.addFileArg(.{ .relative = .{ .base = .install_prefix, .sub_path = "lib/stdlib/json.rb" } });
     remove_legacy_json_stdlib.step.dependOn(&install_stdlib.step);
     b.getInstallStep().dependOn(&remove_legacy_json_stdlib.step);
-    const remove_legacy_json_ext_stdlib = b.addSystemCommand(&.{ "rm", "-f", b.getInstallPath(.prefix, "lib/stdlib/json/ext.rb") });
+    const remove_legacy_json_ext_stdlib = b.addSystemCommand(&.{ "rm", "-f" });
+    remove_legacy_json_ext_stdlib.addFileArg(.{ .relative = .{ .base = .install_prefix, .sub_path = "lib/stdlib/json/ext.rb" } });
     remove_legacy_json_ext_stdlib.step.dependOn(&install_stdlib.step);
     b.getInstallStep().dependOn(&remove_legacy_json_ext_stdlib.step);
 
@@ -793,7 +833,7 @@ pub fn build(b: *std.Build) void {
     const install_oniguruma_header = b.addInstallFile(b.path("ext/onigmo/onigmo.h"), "include/cora/ruby/oniguruma.h");
     b.getInstallStep().dependOn(&install_oniguruma_header.step);
 
-    // Generate build/lib/stdlib/rbconfig/sizeof.rb at build time.
+    // Generate zig-out/lib/stdlib/rbconfig/sizeof.rb at build time.
     const sizeof_rb_content = buildSizeofRb(b);
     const sizeof_rb_write = b.addWriteFiles();
     const sizeof_rb_file = sizeof_rb_write.add("rbconfig/sizeof.rb", sizeof_rb_content);
@@ -803,7 +843,8 @@ pub fn build(b: *std.Build) void {
     // Copy bin/gem (polyglot sh+ruby) alongside the cora binary.
     const install_gem = b.addInstallFile(b.path("bin/gem"), "bin/gem");
     install_gem.step.dependOn(&install_exe.step);
-    const chmod_gem = b.addSystemCommand(&.{ "chmod", "+x", b.getInstallPath(.bin, "gem") });
+    const chmod_gem = b.addSystemCommand(&.{ "chmod", "+x" });
+    chmod_gem.addFileArg(.{ .relative = .{ .base = .install_prefix, .sub_path = "bin/gem" } });
     chmod_gem.step.dependOn(&install_gem.step);
     b.getInstallStep().dependOn(&chmod_gem.step);
     const native_gem_env_steps = [_]*std.Build.Step{
@@ -861,7 +902,8 @@ pub fn build(b: *std.Build) void {
         }
         _ = addWriteGemSpec(b, gem_dir, gem.name, gem.version, .default, deps.items);
     }
-    const remove_legacy_csv_default_spec = b.addSystemCommand(&.{ "rm", "-f", b.getInstallPath(.prefix, "lib/gems/4.1.0/specifications/default/csv-3.3.6.gemspec") });
+    const remove_legacy_csv_default_spec = b.addSystemCommand(&.{ "rm", "-f" });
+    remove_legacy_csv_default_spec.addFileArg(.{ .relative = .{ .base = .install_prefix, .sub_path = "lib/gems/4.1.0/specifications/default/csv-3.3.6.gemspec" } });
     b.getInstallStep().dependOn(&remove_legacy_csv_default_spec.step);
 
     const install_cext_fixture = b.addInstallFile(b.path(cext_build_root ++ "/fixture" ++ native_extension_suffix), "cext/fixture" ++ native_extension_suffix);
@@ -871,9 +913,7 @@ pub fn build(b: *std.Build) void {
     const run_cmd = b.addRunArtifact(exe);
     run_cmd.step.dependOn(b.getInstallStep());
 
-    if (b.args) |args| {
-        run_cmd.addArgs(args);
-    }
+    run_cmd.addPassthruArgs();
 
     const run_step = b.step("run", "Run the VM");
     run_step.dependOn(&run_cmd.step);
@@ -920,6 +960,7 @@ pub fn build(b: *std.Build) void {
     test_exe.root_module.addImport("bdwgc", bdwgc.module("bdwgc"));
     test_exe.root_module.addImport("build_options", build_options_mod);
     test_exe.root_module.addImport("zio", zio.module("zio"));
+    for (c_bindings) |binding| test_exe.root_module.addImport(binding.name, binding.module);
     const cora_mod = b.createModule(.{
         .root_source_file = b.path("src/lib.zig"),
         .target = target,
@@ -928,6 +969,7 @@ pub fn build(b: *std.Build) void {
     cora_mod.addImport("bdwgc", bdwgc.module("bdwgc"));
     cora_mod.addImport("build_options", build_options_mod);
     cora_mod.addImport("zio", zio.module("zio"));
+    for (c_bindings) |binding| cora_mod.addImport(binding.name, binding.module);
     cora_mod.addIncludePath(b.path(prism_build_root ++ "/include"));
     cora_mod.addIncludePath(b.path("ext/onigmo"));
     cora_mod.linkLibrary(onigmo);
@@ -947,25 +989,23 @@ pub fn build(b: *std.Build) void {
 
     const test_run = blk: {
         if (coverage) {
-            const include_pattern = b.fmt("{s}/", .{b.build_root.path orelse "."});
+            const include_pattern = b.fmt("{s}/", .{b.root.toString(b.allocator) catch @panic("OOM")});
             const run = b.addSystemCommand(&.{
                 "kcov",
                 "--clean",
-                "--exclude-pattern=/nix/store,.zig-cache,build/ext,build/prism,build/tinycc",
+                "--exclude-pattern=/nix/store,.zig-cache,zig-out/ext,zig-out/prism,zig-out/tinycc",
                 b.fmt("--include-pattern={s}", .{include_pattern}),
                 coverage_output_dir,
             });
             run.setName("kcov test");
             run.addArtifactArg(test_exe);
-            if (b.args) |args| {
-                run.addArgs(args);
-            }
+            run.addPassthruArgs();
             break :blk run;
         }
 
         break :blk b.addRunArtifact(test_exe);
     };
-    const test_gem_home = b.pathFromRoot("build/lib/gems/" ++ ruby_gem_api_version);
+    const test_gem_home = b.root.joinString(b.allocator, "zig-out/lib/gems/" ++ ruby_gem_api_version) catch @panic("OOM");
     test_run.setEnvironmentVariable("GEM_HOME", test_gem_home);
     test_run.setEnvironmentVariable("GEM_PATH", test_gem_home);
     test_run.step.dependOn(prism_build_step);
@@ -978,7 +1018,7 @@ pub fn build(b: *std.Build) void {
     const watch_cmd = b.addSystemCommand(&.{
         "sh",
         "-c",
-        "find . \\( -path ./build -o -path ./ext \\) -prune -o \\( -name '*.zig' -o -name '*.rb' \\) -print | entr -c -s 'zig build test'",
+        "find . \\( -path ./zig-out -o -path ./ext \\) -prune -o \\( -name '*.zig' -o -name '*.rb' \\) -print | entr -c -s 'zig build test'",
     });
     const watch_step = b.step("watch", "Watch source files and rebuild/test on changes (requires entr)");
     watch_step.dependOn(&watch_cmd.step);

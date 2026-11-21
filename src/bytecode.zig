@@ -334,7 +334,7 @@ pub fn maxStackDepth(allocator: std.mem.Allocator, code: []const u8) !u16 {
         const depth = depths[ip] orelse return error.InvalidBytecode;
         if (ip == code.len) continue;
 
-        const op: OpCode = @enumFromInt(code[ip]);
+        const op: OpCode = @fromBackingInt(@intCast(code[ip]));
         const operand_size = opcodeOperandSize(op);
         const next_ip = ip + 1 + operand_size;
         if (next_ip > code.len) return error.InvalidBytecode;

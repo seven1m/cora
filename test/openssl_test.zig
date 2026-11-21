@@ -186,8 +186,8 @@ test "require loads RubyGems security with OpenSSL cipher defaults" {
 
     const result = try std.process.run(allocator, threaded.io(), .{
         .argv = &.{
-            "build/bin/cora",
-            "-Ibuild/ext/rubygems/lib",
+            "zig-out/bin/cora",
+            "-Izig-out/ext/rubygems/lib",
             "-e",
             "require \"rubygems\"; require \"rubygems/security\"; puts Gem::Security::KEY_CIPHER.name",
         },

@@ -17,7 +17,7 @@ test "require lazily loads rubygems and activates fake gem from GEM_HOME" {
 
     const result = try std.process.run(allocator, threaded.io(), .{
         .argv = &.{
-            "build/bin/cora",
+            "zig-out/bin/cora",
             "-e",
             "require \"fake_gem\"; p FakeGem",
         },
@@ -62,7 +62,7 @@ test "RubyGems applies matching Cora gem patches once after activation" {
     ;
 
     const result = try std.process.run(allocator, threaded.io(), .{
-        .argv = &.{ "build/bin/cora", "-e", code },
+        .argv = &.{ "zig-out/bin/cora", "-e", code },
         .environ_map = &env_map,
         .stdout_limit = .limited(1024 * 1024),
         .stderr_limit = .limited(1024 * 1024),
@@ -110,7 +110,7 @@ test "Bundler applies Cora gem patches after load paths are ready without recurs
     ;
 
     const result = try std.process.run(allocator, threaded.io(), .{
-        .argv = &.{ "build/bin/cora", "-e", code },
+        .argv = &.{ "zig-out/bin/cora", "-e", code },
         .environ_map = &env_map,
         .stdout_limit = .limited(1024 * 1024),
         .stderr_limit = .limited(1024 * 1024),
@@ -132,8 +132,8 @@ test "require rubygems/gem_runner avoids circular require warning" {
 
     const result = try std.process.run(allocator, threaded.io(), .{
         .argv = &.{
-            "build/bin/cora",
-            "-Ibuild/ext/rubygems/lib",
+            "zig-out/bin/cora",
+            "-Izig-out/ext/rubygems/lib",
             "-e",
             "require \"rubygems/gem_runner\"; puts :ok",
         },
@@ -167,7 +167,7 @@ test "RubyGems prefers source gems for Cora" {
     ;
 
     const result = try std.process.run(allocator, threaded.io(), .{
-        .argv = &.{ "build/bin/cora", "-e", code },
+        .argv = &.{ "zig-out/bin/cora", "-e", code },
         .stdout_limit = .limited(1024 * 1024),
         .stderr_limit = .limited(1024 * 1024),
     });
@@ -211,7 +211,7 @@ test "__send__ preserves call state across Bundler plugin autoload" {
     ;
 
     const result = try std.process.run(allocator, threaded.io(), .{
-        .argv = &.{ "build/bin/cora", "-Ibuild/ext/rubygems/bundler/lib", "-e", code },
+        .argv = &.{ "zig-out/bin/cora", "-Izig-out/ext/rubygems/bundler/lib", "-e", code },
         .environ_map = &env_map,
         .stdout_limit = .limited(1024 * 1024),
         .stderr_limit = .limited(1024 * 1024),
@@ -255,7 +255,7 @@ test "Method#call preserves call state across Bundler plugin autoload" {
     ;
 
     const result = try std.process.run(allocator, threaded.io(), .{
-        .argv = &.{ "build/bin/cora", "-Ibuild/ext/rubygems/bundler/lib", "-e", code },
+        .argv = &.{ "zig-out/bin/cora", "-Izig-out/ext/rubygems/bundler/lib", "-e", code },
         .environ_map = &env_map,
         .stdout_limit = .limited(1024 * 1024),
         .stderr_limit = .limited(1024 * 1024),
@@ -289,7 +289,7 @@ test "Bundler activates a default gemspec matching its shipped code" {
         \\puts "ok"
     ;
     const result = try std.process.run(allocator, threaded.io(), .{
-        .argv = &.{ "build/bin/cora", "-e", code },
+        .argv = &.{ "zig-out/bin/cora", "-e", code },
         .environ_map = &env_map,
         .stdout_limit = .limited(1024 * 1024),
         .stderr_limit = .limited(1024 * 1024),

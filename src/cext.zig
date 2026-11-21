@@ -304,14 +304,14 @@ pub fn setupGlobals(vm: *VM) void {
 }
 
 const encoding_instances = blk: {
-    const fields = std.meta.fields(enc.Encoding);
+    const fields = @typeInfo(enc.Encoding).@"union".field_names;
     var instances: [enc.encoding_index_count]enc.Encoding = undefined;
-    for (fields, 0..) |field, i| {
-        if (std.mem.eql(u8, field.name, "legacy")) continue;
-        instances[i] = @unionInit(enc.Encoding, field.name, .{});
+    for (fields, 0..) |field_name, i| {
+        if (std.mem.eql(u8, field_name, "legacy")) continue;
+        instances[i] = @unionInit(enc.Encoding, field_name, .{});
     }
     for (0..enc.legacy_encoding_count) |id| {
-        instances[enc.encoding_legacy_index_base + id] = .{ .legacy = .{ .id = @enumFromInt(id) } };
+        instances[enc.encoding_legacy_index_base + id] = .{ .legacy = .{ .id = @fromBackingInt(@intCast(id)) } };
     }
     break :blk instances;
 };
@@ -687,7 +687,7 @@ export fn rb_str_conv_enc(str_raw: VALUE, from_ptr: ?*anyopaque, to_ptr: ?*anyop
     if (source == 0) return 0;
     if (from_ptr) |ptr| {
         const from: *const enc.Encoding = @ptrCast(@alignCast(ptr));
-        source = rb_enc_associate_index(source, @intCast(@intFromEnum(from.*)));
+        source = rb_enc_associate_index(source, @intCast(@backingInt(from.*)));
     }
     if (to_ptr == null) return source;
     return rb_str_export_to_enc(source, to_ptr);
@@ -1766,15 +1766,15 @@ fn scanArgs(kw_mode: c_int, argc: c_int, argv: [*c]const VALUE, fmt: [*c]const u
 // ─── Encoding ───────────────────────────────────────────────────────────────
 
 export fn rb_utf8_encoding() ?*anyopaque {
-    return @constCast(&encoding_instances[@intFromEnum(enc.Encoding.utf8)]);
+    return @constCast(&encoding_instances[@backingInt(enc.Encoding.utf8)]);
 }
 
 export fn rb_usascii_encoding() ?*anyopaque {
-    return @constCast(&encoding_instances[@intFromEnum(enc.Encoding.us_ascii)]);
+    return @constCast(&encoding_instances[@backingInt(enc.Encoding.us_ascii)]);
 }
 
 export fn rb_ascii8bit_encoding() ?*anyopaque {
-    return @constCast(&encoding_instances[@intFromEnum(enc.Encoding.ascii_8bit)]);
+    return @constCast(&encoding_instances[@backingInt(enc.Encoding.ascii_8bit)]);
 }
 
 export fn rb_default_internal_encoding() ?*anyopaque {
@@ -1792,15 +1792,15 @@ export fn rb_default_external_encoding() ?*anyopaque {
 }
 
 export fn rb_utf8_encindex() c_int {
-    return @intFromEnum(enc.Encoding.utf8);
+    return @backingInt(enc.Encoding.utf8);
 }
 
 export fn rb_usascii_encindex() c_int {
-    return @intFromEnum(enc.Encoding.us_ascii);
+    return @backingInt(enc.Encoding.us_ascii);
 }
 
 export fn rb_ascii8bit_encindex() c_int {
-    return @intFromEnum(enc.Encoding.ascii_8bit);
+    return @backingInt(enc.Encoding.ascii_8bit);
 }
 
 export fn rb_enc_get_index(obj_raw: VALUE) c_int {
@@ -1808,7 +1808,7 @@ export fn rb_enc_get_index(obj_raw: VALUE) c_int {
     if (val.isString()) {
         return @intCast(val.toStringObject().encoding.encodingIndex());
     }
-    return @intFromEnum(enc.Encoding.us_ascii);
+    return @backingInt(enc.Encoding.us_ascii);
 }
 
 export fn rb_to_encoding_index(enc_val: VALUE) c_int {
@@ -1816,7 +1816,7 @@ export fn rb_to_encoding_index(enc_val: VALUE) c_int {
     if (val.isEncoding()) {
         return @intCast(val.toEncodingObject().encoding.encodingIndex());
     }
-    return @intFromEnum(enc.Encoding.us_ascii);
+    return @backingInt(enc.Encoding.us_ascii);
 }
 
 export fn rb_to_encoding(enc_val: VALUE) ?*anyopaque {

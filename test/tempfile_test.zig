@@ -9,7 +9,7 @@ test "require tempfile and create a temp file with Tempfile.create" {
 
     const result = try std.process.run(allocator, threaded.io(), .{
         .argv = &.{
-            "build/bin/cora",
+            "zig-out/bin/cora",
             "-e",
             \\require 'tempfile'
             \\Tempfile.create('cora-test') do |f|
@@ -39,7 +39,7 @@ test "Tempfile.create cleans up file after block" {
 
     const result = try std.process.run(allocator, threaded.io(), .{
         .argv = &.{
-            "build/bin/cora",
+            "zig-out/bin/cora",
             "-e",
             \\require 'tempfile'
             \\path = nil

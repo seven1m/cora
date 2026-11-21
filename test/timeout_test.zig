@@ -9,7 +9,7 @@ test "require timeout from default load path" {
 
     const result = try std.process.run(allocator, threaded.io(), .{
         .argv = &.{
-            "build/bin/cora",
+            "zig-out/bin/cora",
             "-e",
             \\require 'timeout'
             \\puts Timeout::VERSION

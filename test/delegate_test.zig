@@ -9,7 +9,7 @@ test "require delegate and use SimpleDelegator" {
 
     const result = try std.process.run(allocator, threaded.io(), .{
         .argv = &.{
-            "build/bin/cora",
+            "zig-out/bin/cora",
             "-e",
             \\require "delegate"
             \\class Greeter

@@ -1,14 +1,19 @@
 .{
     .name = .cora,
     .version = "0.1.0",
+    .minimum_zig_version = "0.17.0",
     .dependencies = .{
         .bdwgc_zig = .{
-            .url = "git+https://github.com/bdwgc/bdwgc-zig#1cfcd9ea8947e172f20b028fbc52e778632fa407",
-            .hash = "bdwgc_zig-0.1.0-ffcEgVh8AAAhDLt3oykzvhRx_WDGdHCoqmswDTnmei6b",
+            .url = "git+https://github.com/bdwgc/bdwgc-zig#a172686a2da78ad30f21f4ff1f11e9576a3ecf5f",
+            .hash = "bdwgc_zig-0.1.0-ffcEgYp7AABR90M8sophVIu5c4eoaaJIdP3nnWOkoJa2",
         },
         .zio = .{
-            .url = "git+https://github.com/lalinsky/zio#76a4090ddd9e0ab524d434394557cb3a3654e81e",
-            .hash = "zio-0.7.0-xHbVVD7FGQDXMyxvzreZF98sQuKyhEsBTgKZv6gVfVRx",
+            .url = "git+https://github.com/lalinsky/zio#6c718b87adeb5d58287a2cc95ea402e78b454d1c",
+            .hash = "zio-0.20.1-xHbVVJ16LwC6fCeaEuJe_6nUj5zMRmohsWLqJIF4ljBr",
+        },
+        .translate_c = .{
+            .url = "git+https://codeberg.org/ziglang/translate-c#0da7a16c3235b935b82421646076e0657cda21f6",
+            .hash = "translate_c-2.0.0-Q_BUWltOBwA0229IE8wwSxxGzOxyRso3hvcb1nN8oJX_",
         },
     },
     .paths = .{""},

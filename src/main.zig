@@ -219,7 +219,7 @@ fn requireLibraries(virtual_machine: *vm.VM, libraries: []const []const u8) !voi
 
 pub fn main(init: std.process.Init) !void {
     bdwgc.init();
-    if (builtin.mode != .Debug) bdwgc.disableWarnings();
+    if (builtin.mode != .debug) bdwgc.disableWarnings();
     defer bdwgc.deinit();
 
     const allocator = init.gpa;

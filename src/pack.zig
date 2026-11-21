@@ -451,7 +451,7 @@ fn packIntegerDirective(
         const int_val = try coerceToInt(vm, items[arg_index.*]);
         arg_index.* += 1;
 
-        var raw: [8]u8 = [_]u8{0} ** 8;
+        var raw: [8]u8 = @splat(0);
         const bits: u64 = @bitCast(int_val);
         std.mem.writeInt(u64, &raw, bits, .little);
 
@@ -489,7 +489,7 @@ fn packFloatDirective(
         const f = try coerceToFloat(vm, items[arg_index.*]);
         arg_index.* += 1;
 
-        var tmp: [8]u8 = [_]u8{0} ** 8;
+        var tmp: [8]u8 = @splat(0);
         if (byte_size == 4) {
             const f32_val: f32 = @floatCast(f);
             const bits: u32 = @bitCast(f32_val);
@@ -784,7 +784,7 @@ fn unpackFloat(
         const slice = bytes[index.* .. index.* + byte_size];
         index.* += byte_size;
 
-        var tmp: [8]u8 = [_]u8{0} ** 8;
+        var tmp: [8]u8 = @splat(0);
         if (endian == .big) {
             var j: usize = 0;
             while (j < byte_size) : (j += 1) {
@@ -1223,7 +1223,7 @@ fn raiseUnknownUnpackDirective(vm: *VM, directive: u8, format: []const u8) VMErr
 }
 
 fn decodeUnsignedInteger(slice: []const u8, endian: Endianness) u64 {
-    var buf: [8]u8 = [_]u8{0} ** 8;
+    var buf: [8]u8 = @splat(0);
 
     if (endian == .big) {
         var j: usize = 0;

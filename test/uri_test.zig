@@ -9,7 +9,7 @@ test "require uri, parse an https URL, and build HTTP URLs" {
 
     const result = try std.process.run(allocator, threaded.io(), .{
         .argv = &.{
-            "build/bin/cora",
+            "zig-out/bin/cora",
             "-e",
             \\require "uri"
             \\uri = URI.parse("https://example.com:8443/path?q=1")

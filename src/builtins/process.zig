@@ -83,10 +83,10 @@ pub fn register(vm: *VM) !void {
     try process_singleton.module.methods.put(spawn_sym, value.MethodEntry.keywordBuiltin(&builtinProcessSpawn, .{ .variadic = 1 }));
 
     const clock_realtime_sym = try vm.intern("CLOCK_REALTIME");
-    try vm.process_module.constants.put(clock_realtime_sym, .{ .value = Value.integer(@intCast(@intFromEnum(std.posix.CLOCK.REALTIME))) });
+    try vm.process_module.constants.put(clock_realtime_sym, .{ .value = Value.integer(@intCast(@backingInt(std.posix.CLOCK.REALTIME))) });
 
     const clock_monotonic_sym = try vm.intern("CLOCK_MONOTONIC");
-    try vm.process_module.constants.put(clock_monotonic_sym, .{ .value = Value.integer(@intCast(@intFromEnum(std.posix.CLOCK.MONOTONIC))) });
+    try vm.process_module.constants.put(clock_monotonic_sym, .{ .value = Value.integer(@intCast(@backingInt(std.posix.CLOCK.MONOTONIC))) });
 
     const wnohang_sym = try vm.intern("WNOHANG");
     try vm.process_module.constants.put(wnohang_sym, .{ .value = Value.integer(std.posix.W.NOHANG) });
@@ -280,7 +280,7 @@ pub fn builtinProcessGetpriority(vm: *VM, _: Value, args: []Value, _: ?Block) VM
     std.c._errno().* = 0;
     const priority = getpriority(which, who);
     if (priority == -1 and std.c._errno().* != 0) {
-        return vm.raiseErrnoFmt(@enumFromInt(std.c._errno().*), "getpriority failed", .{});
+        return vm.raiseErrnoFmt(@fromBackingInt(@intCast(std.c._errno().*)), "getpriority failed", .{});
     }
     return Value.integer(@intCast(priority));
 }
@@ -299,9 +299,9 @@ pub fn builtinProcessClockGettime(vm: *VM, _: Value, args: []Value, _: ?Block) V
     }
 
     const clock_id_raw = try args[0].integerArgToI64(vm, "no implicit conversion into Integer", "clock id out of range");
-    const clock_id: std.posix.CLOCK = if (clock_id_raw == @intFromEnum(std.posix.CLOCK.REALTIME))
+    const clock_id: std.posix.CLOCK = if (clock_id_raw == @backingInt(std.posix.CLOCK.REALTIME))
         .REALTIME
-    else if (clock_id_raw == @intFromEnum(std.posix.CLOCK.MONOTONIC))
+    else if (clock_id_raw == @backingInt(std.posix.CLOCK.MONOTONIC))
         .MONOTONIC
     else
         return vm.raiseExceptionFmt(vm.argument_error_class, "invalid clock id", .{});
@@ -365,9 +365,9 @@ pub fn builtinProcessClockGetres(vm: *VM, _: Value, args: []Value, _: ?Block) VM
     }
 
     const clock_id_raw = try args[0].integerArgToI64(vm, "no implicit conversion into Integer", "clock id out of range");
-    const clock_id: std.posix.CLOCK = if (clock_id_raw == @intFromEnum(std.posix.CLOCK.REALTIME))
+    const clock_id: std.posix.CLOCK = if (clock_id_raw == @backingInt(std.posix.CLOCK.REALTIME))
         .REALTIME
-    else if (clock_id_raw == @intFromEnum(std.posix.CLOCK.MONOTONIC))
+    else if (clock_id_raw == @backingInt(std.posix.CLOCK.MONOTONIC))
         .MONOTONIC
     else
         return vm.raiseExceptionFmt(vm.argument_error_class, "invalid clock id", .{});
@@ -730,7 +730,7 @@ pub fn builtinProcessKill(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!V
 
     for (args[1..]) |pid_value| {
         const pid: i32 = @intCast(try pid_value.integerArgToI64(vm, "no implicit conversion into Integer", "pid out of range"));
-        const rc = std.c.kill(pid, @enumFromInt(signo));
+        const rc = std.c.kill(pid, @fromBackingInt(@intCast(signo)));
         if (rc != 0) {
             return vm.raiseErrnoFmt(std.posix.errno(rc), "kill failed", .{});
         }

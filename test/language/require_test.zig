@@ -130,8 +130,8 @@ test "require loads RubyGems after extending $LOAD_PATH" {
 
     const result = try std.process.run(allocator, threaded.io(), .{
         .argv = &.{
-            "build/bin/cora",
-            "-Ibuild/ext/rubygems/lib",
+            "zig-out/bin/cora",
+            "-Izig-out/ext/rubygems/lib",
             "-e",
             "require \"rubygems/version\"; require \"rubygems/requirement\"; puts Gem::Requirement.default.to_s",
         },
@@ -154,10 +154,10 @@ test "require runs Ruby files at top level lexical scope" {
 
     const result = try std.process.run(allocator, threaded.io(), .{
         .argv = &.{
-            "build/bin/cora",
-            "-Ibuild/ext/rubygems/lib",
+            "zig-out/bin/cora",
+            "-Izig-out/ext/rubygems/lib",
             "-e",
-            "require \"rubygems/version\"; class ScopeCarrier; require File.expand_path(\"build/ext/rubygems/lib/rubygems/requirement\", Dir.pwd); end; puts Gem::Requirement.default.to_s",
+            "require \"rubygems/version\"; class ScopeCarrier; require File.expand_path(\"zig-out/ext/rubygems/lib/rubygems/requirement\", Dir.pwd); end; puts Gem::Requirement.default.to_s",
         },
         .stdout_limit = .limited(1024 * 1024),
         .stderr_limit = .limited(1024 * 1024),
@@ -177,7 +177,7 @@ test "stdlib require loads monitor by default" {
     defer threaded.deinit();
 
     const result = try std.process.run(allocator, threaded.io(), .{
-        .argv = &.{ "build/bin/cora", "-e", "require \"monitor\"; puts Monitor.new.synchronize { 1 }" },
+        .argv = &.{ "zig-out/bin/cora", "-e", "require \"monitor\"; puts Monitor.new.synchronize { 1 }" },
         .stdout_limit = .limited(1024 * 1024),
         .stderr_limit = .limited(1024 * 1024),
     });
@@ -197,7 +197,7 @@ test "MonitorMixin initializes included classes and extended objects" {
 
     const result = try std.process.run(allocator, threaded.io(), .{
         .argv = &.{
-            "build/bin/cora",
+            "zig-out/bin/cora",
             "-e",
             "require \"monitor\"; klass = Class.new { include MonitorMixin }; puts klass.new.synchronize { 1 }; object = Object.new; object.extend(MonitorMixin); puts object.synchronize { 2 }",
         },
@@ -219,7 +219,7 @@ test "dash r with separate argument requires library before eval" {
     defer threaded.deinit();
 
     const result = try std.process.run(allocator, threaded.io(), .{
-        .argv = &.{ "build/bin/cora", "-r", "set", "-e", "puts Set.new([1, 2, 2]).size" },
+        .argv = &.{ "zig-out/bin/cora", "-r", "set", "-e", "puts Set.new([1, 2, 2]).size" },
         .stdout_limit = .limited(1024 * 1024),
         .stderr_limit = .limited(1024 * 1024),
     });
@@ -238,7 +238,7 @@ test "dash r attached argument requires library before eval" {
     defer threaded.deinit();
 
     const result = try std.process.run(allocator, threaded.io(), .{
-        .argv = &.{ "build/bin/cora", "-rset", "-e", "puts Set.new([1, 2, 2]).size" },
+        .argv = &.{ "zig-out/bin/cora", "-rset", "-e", "puts Set.new([1, 2, 2]).size" },
         .stdout_limit = .limited(1024 * 1024),
         .stderr_limit = .limited(1024 * 1024),
     });
@@ -258,7 +258,7 @@ test "stdlib require loads set by default" {
 
     const result = try std.process.run(allocator, threaded.io(), .{
         .argv = &.{
-            "build/bin/cora",
+            "zig-out/bin/cora",
             "-e",
             "require \"set\"; s = Set.new([1, 2, 2]); s.add(3); puts [s.include?(2), s.size, (s & [2, 4]).to_a[0]].inspect",
         },
@@ -280,7 +280,7 @@ test "top level Set autoloads stdlib set" {
     defer threaded.deinit();
 
     const result = try std.process.run(allocator, threaded.io(), .{
-        .argv = &.{ "build/bin/cora", "-e", "puts Set.new([1, 2, 2]).size" },
+        .argv = &.{ "zig-out/bin/cora", "-e", "puts Set.new([1, 2, 2]).size" },
         .stdout_limit = .limited(1024 * 1024),
         .stderr_limit = .limited(1024 * 1024),
     });
@@ -300,7 +300,7 @@ test "stdlib require loads thread condition variable" {
 
     const result = try std.process.run(allocator, threaded.io(), .{
         .argv = &.{
-            "build/bin/cora",
+            "zig-out/bin/cora",
             "-e",
             \\require "thread"
             \\mutex = Thread::Mutex.new

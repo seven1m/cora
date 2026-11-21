@@ -10,7 +10,7 @@ pub fn reraiseDefault(signal: std.posix.SIG) noreturn {
         std.posix.sigaction(signal, &action, null);
         std.posix.raise(signal) catch {};
     }
-    std.c._exit(128 + @as(c_int, @intCast(@intFromEnum(signal))));
+    std.c._exit(128 + @as(c_int, @intCast(@backingInt(signal))));
 }
 
 pub const SignalInfo = struct {
@@ -36,7 +36,7 @@ fn signalInfo(
     return .{
         .short_name = short_name,
         .full_name = full_name,
-        .signo = @intCast(@intFromEnum(@field(std.posix.SIG, field_name))),
+        .signo = @intCast(@backingInt(@field(std.posix.SIG, field_name))),
         .can_trap = options.can_trap,
         .ruby_reserved = options.ruby_reserved,
         .vm_default = options.vm_default,

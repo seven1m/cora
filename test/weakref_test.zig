@@ -9,7 +9,7 @@ test "require weakref and delegate to a live object" {
 
     const result = try std.process.run(allocator, threaded.io(), .{
         .argv = &.{
-            "build/bin/cora",
+            "zig-out/bin/cora",
             "-e",
             \\require "weakref"
             \\ref = WeakRef.new("hello")

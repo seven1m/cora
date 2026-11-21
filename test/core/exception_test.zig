@@ -11,7 +11,7 @@ test "Interrupt accepts optional messages and defaults to SIGINT" {
     );
     const values = result.toArrayObject().elements.items;
     try std.testing.expectEqualStrings("Interrupt", values[0].toStringObject().str);
-    try std.testing.expectEqual(@as(i64, @intCast(@intFromEnum(std.posix.SIG.INT))), values[1].toInteger());
+    try std.testing.expectEqual(@as(i64, @intCast(@backingInt(std.posix.SIG.INT))), values[1].toInteger());
     try std.testing.expectEqualStrings("custom", values[2].toStringObject().str);
     try std.testing.expectEqualStrings("Interrupt", values[3].toStringObject().str);
 }
@@ -188,7 +188,7 @@ test "Errno class exception builds default errno message" {
 }
 
 test "pending SIGINT raises Interrupt and explicit rescue catches it" {
-    cora.vm.requestSignal(@intCast(@intFromEnum(std.posix.SIG.INT)));
+    cora.vm.requestSignal(@intCast(@backingInt(std.posix.SIG.INT)));
     const result = try evalCode(
         \\begin
         \\  1 + 1
@@ -213,7 +213,7 @@ test "pending SIGINT is not caught by bare rescue" {
     var stdout_buf: [8192]u8 = undefined;
     var stderr_buf: [8192]u8 = undefined;
 
-    cora.vm.requestSignal(@intCast(@intFromEnum(std.posix.SIG.INT)));
+    cora.vm.requestSignal(@intCast(@backingInt(std.posix.SIG.INT)));
     const result = evalCodeWithOutput(
         \\begin
         \\  1 + 1

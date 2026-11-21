@@ -79,7 +79,7 @@ fn appendNanosecondDigits(out: *std.ArrayList(u8), allocator: std.mem.Allocator,
     var buffer: [16]u8 = undefined;
     const digits = std.fmt.bufPrint(&buffer, "{d}", .{nanoseconds}) catch return error.Fatal;
     const pad = if (digits.len < 9) 9 - digits.len else 0;
-    var full: [9]u8 = [_]u8{'0'} ** 9;
+    var full: [9]u8 = @splat('0');
     @memcpy(full[pad..], digits[0 .. 9 - pad]);
 
     if (width <= 9) {

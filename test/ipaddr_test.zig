@@ -9,7 +9,7 @@ test "require ipaddr and inspect an IPv4 network" {
 
     const result = try std.process.run(allocator, threaded.io(), .{
         .argv = &.{
-            "build/bin/cora",
+            "zig-out/bin/cora",
             "-e",
             \\require "ipaddr"
             \\network = IPAddr.new("192.168.2.0/24")

@@ -50,7 +50,7 @@ zig build test -Dtest-filter="Proc" -Dtest-verbose -Dtest-timing
 zig build test -Dtest-filter="Proc" -Dtest-verbose -Dtest-timing -Dtest-timeout=10
 zig build test -Dtest-jobs=1       # run tests serially
 zig build run -- [flags] [filename]
-build/bin/cora [flags] [filename]
+zig-out/bin/cora [flags] [filename]
 bin/gem [gem-args]                  # polyglot sh+Ruby wrapper; uses bin/cora
 ```
 

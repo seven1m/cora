@@ -9,7 +9,7 @@ test "require singleton from default load path" {
 
     const result = try std.process.run(allocator, threaded.io(), .{
         .argv = &.{
-            "build/bin/cora",
+            "zig-out/bin/cora",
             "-e",
             \\require "singleton"
             \\class SmokeSingleton

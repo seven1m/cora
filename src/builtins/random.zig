@@ -7,7 +7,7 @@ const VMError = vm_mod.VMError;
 const Block = vm_mod.Block;
 const Value = value.Value;
 
-const U53 = std.meta.Int(.unsigned, 53);
+const U53 = u53;
 
 pub fn register(vm: *VM) !void {
     const formatter_name = try vm.intern("Formatter");
@@ -236,7 +236,7 @@ fn randomNumberFromReceiverBytes(vm: *VM, receiver: Value, args: []Value) VMErro
             return vm.raiseExceptionFmt(vm.type_error_class, "bytes must return String", .{});
         }
         const str = byte_string.toStringObject().str;
-        var buf: [8]u8 = [_]u8{0} ** 8;
+        var buf: [8]u8 = @splat(0);
         const copy_len = @min(str.len, buf.len);
         @memcpy(buf[0..copy_len], str[0..copy_len]);
         const raw = std.mem.readInt(u64, &buf, .little);
@@ -259,7 +259,7 @@ fn randomNumberFromReceiverBytes(vm: *VM, receiver: Value, args: []Value) VMErro
         return vm.raiseExceptionFmt(vm.type_error_class, "bytes must return String", .{});
     }
     const str = byte_string.toStringObject().str;
-    var buf: [8]u8 = [_]u8{0} ** 8;
+    var buf: [8]u8 = @splat(0);
     const copy_len = @min(str.len, buf.len);
     @memcpy(buf[0..copy_len], str[0..copy_len]);
     const raw = std.mem.readInt(u64, &buf, .little);

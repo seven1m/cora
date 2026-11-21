@@ -1460,7 +1460,7 @@ pub const Value = struct {
                 combined_hash = std.hash.Wyhash.hash(combined_hash, std.mem.asBytes(&part));
                 part = dateComponentHash(date.calendar_start);
                 combined_hash = std.hash.Wyhash.hash(combined_hash, std.mem.asBytes(&part));
-                const kind: u8 = @intFromEnum(date.kind);
+                const kind: u8 = @backingInt(date.kind);
                 break :blk std.hash.Wyhash.hash(combined_hash, std.mem.asBytes(&kind));
             },
             else => self.raw,

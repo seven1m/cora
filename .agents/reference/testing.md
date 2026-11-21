@@ -38,7 +38,7 @@ locally installed gems cannot override the implementations under test. Tests
 that exercise custom gem paths set their own subprocess environments.
 
 The `test` step automatically builds the Prism static lib, Onigmo, TinyCC, and
-the C extension fixture (`build/cext/fixture.so`).
+the C extension fixture (`zig-out/cext/fixture.so`).
 
 ## Focused/Skipped Specs
 
@@ -54,10 +54,10 @@ will run exclusively, while skipped specs will be ignored.
 zig build run -- [flags] [filename]
 
 # or, after a build has produced the binary
-build/bin/cora [flags] [filename]
+zig-out/bin/cora [flags] [filename]
 ```
 
-The `bin/cora` and `bin/gem` shims in the repo root locate `build/bin/cora`
+The `bin/cora` and `bin/gem` shims in the repo root locate `zig-out/bin/cora`
 for you and re-exec it; `bin/gem` is a polyglot sh+Ruby script that adds
 `ext/rubygems/lib` to `$LOAD_PATH` and dispatches to `Gem::GemRunner`.
 
@@ -101,14 +101,14 @@ zig build prism              # build Prism only
 zig build psych              # build the psych native extension only
 zig build strscan            # build the strscan native extension only
 zig build tinycc             # build TinyCC only
-zig build cext-fixture       # build build/cext/fixture.so for the cext test suite
+zig build cext-fixture       # build zig-out/cext/fixture.so for the cext test suite
 ```
 
 Options that change what gets built:
 
-- `-Doptimize=ReleaseFast` (default), `-Doptimize=Debug`,
-  `-Doptimize=ReleaseSafe`, `-Doptimize=ReleaseSmall` - optimization mode
-  (persisted to `build/build-mode` between runs).
+- `-Doptimize=fast` (default), `-Doptimize=debug`,
+  `-Doptimize=safe`, `-Doptimize=small` - optimization mode
+  (persisted to `zig-out/build-mode` between runs).
 - `-Dsubmodule-update=false` - skip the auto-run of `git submodule update
   --init` at the start of the build.
 - `-Dtest-verbose`, `-Dtest-timing`, `-Dtest-jobs=N`, `-Dtest-timeout=N`,

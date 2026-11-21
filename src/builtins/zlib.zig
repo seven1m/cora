@@ -1,7 +1,5 @@
 const std = @import("std");
-const c = @cImport({
-    @cInclude("zlib.h");
-});
+const c = @import("zlib_c");
 const enc = @import("../encoding.zig");
 const vm_mod = @import("../vm.zig");
 const value = @import("../value.zig");
@@ -250,7 +248,7 @@ fn coerceIntegerArg(vm: *VM, arg: Value, message: []const u8) VMError!i64 {
 fn coerceContainerKind(vm: *VM, arg: Value) VMError!ContainerKind {
     const raw = try coerceIntegerArg(vm, arg, "container kind must be an Integer");
     return switch (raw) {
-        0...3 => @enumFromInt(raw),
+        0...3 => @fromBackingInt(@intCast(raw)),
         else => vm.raiseExceptionFmt(vm.argument_error_class, "unsupported zlib container kind {d}", .{raw}),
     };
 }

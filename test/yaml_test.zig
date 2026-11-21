@@ -9,7 +9,7 @@ test "require yaml loads psych by default" {
 
     const result = try std.process.run(allocator, threaded.io(), .{
         .argv = &.{
-            "build/bin/cora",
+            "zig-out/bin/cora",
             "-e",
             "require \"yaml\"; puts [YAML == Psych, YAML.load(\"---\\na: 1\\n\")[\"a\"]].inspect",
         },
@@ -32,7 +32,7 @@ test "YAML.load_file parses file contents" {
 
     const result = try std.process.run(allocator, threaded.io(), .{
         .argv = &.{
-            "build/bin/cora",
+            "zig-out/bin/cora",
             "-e",
             "require \"yaml\"; p YAML.load_file(\"test/support/load_file.yml\")[\"dist\"]",
         },

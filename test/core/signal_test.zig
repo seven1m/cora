@@ -82,13 +82,13 @@ test "Signal.trap dispatches queued signal to Ruby handler" {
     try vm.prepare(&program);
     _ = try vm.run();
 
-    cora.vm.requestSignal(@intCast(@intFromEnum(std.posix.SIG.INT)));
+    cora.vm.requestSignal(@intCast(@backingInt(std.posix.SIG.INT)));
     try vm.checkAsyncEvents();
 
     const handled = vm.getGlobalValue("$handled");
     const last_signo = vm.getGlobalValue("$last_signo");
     try std.testing.expectEqual(@as(i64, 1), handled.toInteger());
-    try std.testing.expectEqual(@as(i64, @intCast(@intFromEnum(std.posix.SIG.INT))), last_signo.toInteger());
+    try std.testing.expectEqual(@as(i64, @intCast(@backingInt(std.posix.SIG.INT))), last_signo.toInteger());
 }
 
 test "Signal.trap dispatches while IO.gets waits on a pipe" {
@@ -132,7 +132,7 @@ test "Signal.trap dispatches while IO.gets waits on a pipe" {
 
         fn run(fd: std.posix.fd_t) void {
             sleepMs(50);
-            cora.vm.requestSignal(@intCast(@intFromEnum(std.posix.SIG.INT)));
+            cora.vm.requestSignal(@intCast(@backingInt(std.posix.SIG.INT)));
             sleepMs(50);
             _ = std.c.write(fd, "x\n", 2);
         }

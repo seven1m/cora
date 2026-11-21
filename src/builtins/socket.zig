@@ -327,14 +327,14 @@ fn socketAddressInfo(
     var service_buffer: [16]u8 = undefined;
 
     const numeric_flags = std.c.NI{ .NUMERICHOST = true, .NUMERICSERV = true };
-    if (@intFromEnum(std.c.getnameinfo(addr, addr_len, ip_buffer[0..].ptr, @intCast(ip_buffer.len), service_buffer[0..].ptr, @intCast(service_buffer.len), numeric_flags)) != 0) {
+    if (@backingInt(std.c.getnameinfo(addr, addr_len, ip_buffer[0..].ptr, @intCast(ip_buffer.len), service_buffer[0..].ptr, @intCast(service_buffer.len), numeric_flags)) != 0) {
         return raiseSocketErrorFmt(vm, "getnameinfo failed", .{});
     }
 
     const hostname_flags = std.c.NI{ .NUMERICSERV = true };
     if (numeric) {
         @memcpy(host_buffer[0..ip_buffer.len], ip_buffer[0..ip_buffer.len]);
-    } else if (@intFromEnum(std.c.getnameinfo(addr, addr_len, host_buffer[0..].ptr, @intCast(host_buffer.len), null, 0, hostname_flags)) != 0) {
+    } else if (@backingInt(std.c.getnameinfo(addr, addr_len, host_buffer[0..].ptr, @intCast(host_buffer.len), null, 0, hostname_flags)) != 0) {
         @memcpy(host_buffer[0..ip_buffer.len], ip_buffer[0..ip_buffer.len]);
     }
 
@@ -522,7 +522,7 @@ fn createTcpListeners(vm: *VM, args: []Value, class_obj: *ClassObject, all_match
         &hints,
         &addrinfo_result,
     );
-    if (@intFromEnum(gai) != 0) {
+    if (@backingInt(gai) != 0) {
         return raiseSocketErrorFmt(vm, "getaddrinfo failed for {s}:{s}", .{ config.host orelse "", service });
     }
     defer if (addrinfo_result) |result| std.c.freeaddrinfo(result);
@@ -585,7 +585,7 @@ fn connectTCPSocket(vm: *VM, class_obj: *ClassObject, host_value: Value, port_va
 
     var addrinfo_result: ?*std.c.addrinfo = null;
     const gai = std.c.getaddrinfo(host_z.ptr, service_z.ptr, &hints, &addrinfo_result);
-    if (@intFromEnum(gai) != 0) {
+    if (@backingInt(gai) != 0) {
         return raiseSocketErrorFmt(vm, "getaddrinfo failed for {s}:{s}", .{ host, service });
     }
     defer if (addrinfo_result) |result| std.c.freeaddrinfo(result);
@@ -826,7 +826,7 @@ pub fn builtinSocketGetaddrinfo(vm: *VM, _: Value, args: []Value, _: ?Block) VME
 
     var addrinfo_result: ?*std.c.addrinfo = null;
     const gai = std.c.getaddrinfo(host_z.ptr, if (service.len == 0) null else service_z.ptr, &hints, &addrinfo_result);
-    if (@intFromEnum(gai) != 0) {
+    if (@backingInt(gai) != 0) {
         return raiseSocketErrorFmt(vm, "getaddrinfo failed for {s}:{s}", .{ host, service });
     }
     defer if (addrinfo_result) |result| std.c.freeaddrinfo(result);
@@ -840,18 +840,18 @@ pub fn builtinSocketGetaddrinfo(vm: *VM, _: Value, args: []Value, _: ?Block) VME
         var service_buffer: [16]u8 = undefined;
 
         const numeric_flags = std.c.NI{ .NUMERICHOST = true, .NUMERICSERV = true };
-        if (@intFromEnum(std.c.getnameinfo(addr, addrinfo.addrlen, ip_buffer[0..].ptr, @intCast(ip_buffer.len), service_buffer[0..].ptr, @intCast(service_buffer.len), numeric_flags)) != 0) {
+        if (@backingInt(std.c.getnameinfo(addr, addrinfo.addrlen, ip_buffer[0..].ptr, @intCast(ip_buffer.len), service_buffer[0..].ptr, @intCast(service_buffer.len), numeric_flags)) != 0) {
             continue;
         }
 
         if (reverse_lookup) {
             const hostname_flags = std.c.NI{ .NUMERICSERV = true };
-            if (@intFromEnum(std.c.getnameinfo(addr, addrinfo.addrlen, host_buffer[0..].ptr, @intCast(host_buffer.len), null, 0, hostname_flags)) != 0) {
+            if (@backingInt(std.c.getnameinfo(addr, addrinfo.addrlen, host_buffer[0..].ptr, @intCast(host_buffer.len), null, 0, hostname_flags)) != 0) {
                 @memcpy(host_buffer[0..ip_buffer.len], ip_buffer[0..ip_buffer.len]);
             }
         } else {
             const hostname_flags = std.c.NI{ .NUMERICSERV = true };
-            if (@intFromEnum(std.c.getnameinfo(addr, addrinfo.addrlen, host_buffer[0..].ptr, @intCast(host_buffer.len), null, 0, hostname_flags)) != 0) {
+            if (@backingInt(std.c.getnameinfo(addr, addrinfo.addrlen, host_buffer[0..].ptr, @intCast(host_buffer.len), null, 0, hostname_flags)) != 0) {
                 @memcpy(host_buffer[0..ip_buffer.len], ip_buffer[0..ip_buffer.len]);
             }
         }

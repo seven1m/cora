@@ -9,7 +9,7 @@ test "require forwardable and delegate a method" {
 
     const result = try std.process.run(allocator, threaded.io(), .{
         .argv = &.{
-            "build/bin/cora",
+            "zig-out/bin/cora",
             "-e",
             \\require "forwardable"
             \\class Bag

@@ -9,7 +9,7 @@ test "require optparse and parse a named option" {
 
     const result = try std.process.run(allocator, threaded.io(), .{
         .argv = &.{
-            "build/bin/cora",
+            "zig-out/bin/cora",
             "-e",
             \\require "optparse"
             \\name = nil

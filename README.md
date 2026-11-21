@@ -45,7 +45,7 @@ Cora passes over 15,000 ruby/spec examples, about 43% of the 34,724 passing in a
 
 To build Cora, you'll need:
 
-- Zig 0.16.x
+- Zig 0.17.x
 - GNU make
 - a C toolchain
 
@@ -63,16 +63,17 @@ If you have [direnv](https://direnv.net/), it will automatically load the dev sh
 zig build
 ```
 
-This installs the main CLI at:
+Generated libraries, native extension builds, and the saved build mode all live
+under `zig-out/`. The main CLI is installed at:
 
 ```bash
-build/bin/cora
+zig-out/bin/cora
 ```
 
 To run:
 
 ```bash
-build/bin/cora [flags] [filename]
+zig-out/bin/cora [flags] [filename]
 ```
 
 Useful CLI flags:
@@ -88,7 +89,7 @@ Useful CLI flags:
 Package a Ruby application as a single executable with `--pack`:
 
 ```bash
-build/bin/cora --pack -o my-app path/to/main.rb
+zig-out/bin/cora --pack -o my-app path/to/main.rb
 ./my-app [args]
 ```
 
@@ -103,14 +104,14 @@ prefixes.
 For local development with full safety checks and debug info, build with:
 
 ```bash
-zig build -Doptimize=Debug
+zig build -Doptimize=debug
 ```
 
-`ReleaseSafe` is also available if you want runtime safety checks without the
+`safe` is also available if you want runtime safety checks without the
 debug-build performance hit:
 
 ```bash
-zig build -Doptimize=ReleaseSafe
+zig build -Doptimize=safe
 ```
 
 ### TinyCC JIT
@@ -118,8 +119,8 @@ zig build -Doptimize=ReleaseSafe
 Enable the experimental TinyCC-based JIT compiler at runtime with `--jit`:
 
 ```bash
-zig build -Doptimize=ReleaseFast
-build/bin/cora --jit examples/fib.rb
+zig build -Doptimize=fast
+zig-out/bin/cora --jit examples/fib.rb
 ```
 
 ## Testing

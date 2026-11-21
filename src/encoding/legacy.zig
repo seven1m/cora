@@ -51,7 +51,7 @@ pub const Id = enum {
     euc_kr,
 };
 
-pub const count = @typeInfo(Id).@"enum".fields.len;
+pub const count = @typeInfo(Id).@"enum".field_names.len;
 
 pub const LegacyEncoding = struct {
     id: Id,

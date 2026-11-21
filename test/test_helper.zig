@@ -13,12 +13,12 @@ pub fn getAllocator() std.mem.Allocator {
     return gpa.allocator();
 }
 
-pub const cora_executable_path = "build/bin/cora";
-pub const cext_fixture_dir = "build/cext";
+pub const cora_executable_path = "zig-out/bin/cora";
+pub const cext_fixture_dir = "zig-out/cext";
 
 pub fn appendRuntimeLoadPath(virtual_machine: *VM, io: std.Io, relative_path: []const u8) !void {
     var rel_path_buffer: [4096]u8 = undefined;
-    const runtime_path = std.fmt.bufPrint(&rel_path_buffer, "build/{s}", .{relative_path}) catch return error.NameTooLong;
+    const runtime_path = std.fmt.bufPrint(&rel_path_buffer, "zig-out/{s}", .{relative_path}) catch return error.NameTooLong;
 
     var abs_path_buffer: [4096]u8 = undefined;
     const abs_len = std.Io.Dir.cwd().realPathFile(io, runtime_path, &abs_path_buffer) catch return error.FileNotFound;
@@ -123,7 +123,7 @@ pub fn evalFile(path: []const u8, stdout_buf: []u8, stderr_buf: []u8) EvalResult
 
 pub fn evalCodeWithOutputAndPath(ruby_code: []const u8, stdout_buf: []u8, stderr_buf: []u8, source_path: ?[]const u8) EvalResult {
     bdwgc.init();
-    if (builtin.mode != .Debug) bdwgc.disableWarnings();
+    if (builtin.mode != .debug) bdwgc.disableWarnings();
     defer bdwgc.deinit();
 
     const allocator = getAllocator();

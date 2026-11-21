@@ -151,7 +151,7 @@ pub fn validateChunk(ch: *chunk_mod.Chunk) !void {
 
     var ip: usize = 0;
     while (ip < ch.code.items.len) {
-        const op: bytecode.OpCode = @enumFromInt(ch.code.items[ip]);
+        const op: bytecode.OpCode = @fromBackingInt(@intCast(ch.code.items[ip]));
         switch (op) {
             .GET_LOCAL => {
                 const ep_offset = readU16(ch.code.items, ip + 1);
@@ -227,7 +227,7 @@ pub fn generateChunk(allocator: std.mem.Allocator, ch: *chunk_mod.Chunk) !Genera
 
     var ip: usize = 0;
     while (ip < ch.code.items.len) {
-        const op: bytecode.OpCode = @enumFromInt(ch.code.items[ip]);
+        const op: bytecode.OpCode = @fromBackingInt(@intCast(ch.code.items[ip]));
         try writer.print("L{d}:\n", .{ip});
         switch (op) {
             .GET_LOCAL => {
@@ -428,7 +428,7 @@ pub fn compileState(
         .{ .name = "cora_jit_ge", .ptr = @ptrCast(&cora_jit_ge) },
     };
 
-    state.compilation = tcc.compile("build/tinycc", generated.source_code, generated.symbol_name, &symbols, &errors) catch |err| {
+    state.compilation = tcc.compile("zig-out/tinycc", generated.source_code, generated.symbol_name, &symbols, &errors) catch |err| {
         const message = if (errors.slice().len != 0) errors.slice() else @errorName(err);
         state.last_error = try allocator.dupe(u8, message);
         state.failed_method_state_version = method_state_version;
@@ -453,7 +453,7 @@ fn jumpDestination(code: []const u8, ip: usize) usize {
 
 fn dupeZ(allocator: std.mem.Allocator, owned: []u8) ![:0]u8 {
     defer allocator.free(owned);
-    return allocator.dupeZ(u8, owned);
+    return allocator.dupeSentinel(u8, owned, 0);
 }
 
 fn decodeCallDescriptor(ch: *chunk_mod.Chunk, ip: usize) !chunk_mod.CallSiteDescriptor {

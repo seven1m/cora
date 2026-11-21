@@ -95,14 +95,14 @@ fn builtinEtcConfstr(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value 
     std.c._errno().* = 0;
     const size = confstr(name, &probe, 0);
     if (size == 0) {
-        return vm.raiseErrnoFmt(@enumFromInt(std.c._errno().*), "confstr failed", .{});
+        return vm.raiseErrnoFmt(@fromBackingInt(@intCast(std.c._errno().*)), "confstr failed", .{});
     }
 
     const buf = vm.allocator.alloc(u8, size) catch return error.Fatal;
     defer vm.allocator.free(buf);
     const written = confstr(name, buf.ptr, buf.len);
     if (written == 0 or written > buf.len) {
-        return vm.raiseErrnoFmt(@enumFromInt(std.c._errno().*), "confstr failed", .{});
+        return vm.raiseErrnoFmt(@fromBackingInt(@intCast(std.c._errno().*)), "confstr failed", .{});
     }
     return vm.newString(buf[0 .. written - 1], false);
 }

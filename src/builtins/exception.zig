@@ -252,7 +252,7 @@ pub fn builtinInterruptInitialize(vm: *VM, receiver: Value, args: []Value, _: ?B
     try vm.requireArgCountRange(args, 0, 1);
     const message_args = if (args.len == 1 and !args[0].isNil()) args else args[0..0];
     _ = try builtinExceptionInitialize(vm, receiver, message_args, null);
-    try vm.setInstanceVariable(receiver, "@signo", Value.integer(@intCast(@intFromEnum(std.posix.SIG.INT))));
+    try vm.setInstanceVariable(receiver, "@signo", Value.integer(@intCast(@backingInt(std.posix.SIG.INT))));
     return receiver;
 }
 
@@ -387,7 +387,7 @@ pub fn builtinSignalExceptionSigno(vm: *VM, receiver: Value, args: []Value, _: ?
     const signo = try vm.getInstanceVariable(receiver, "@signo");
     if (!signo.isNil()) return signo;
     if (receiver.toExceptionObject().object.class == vm.interrupt_class) {
-        return Value.integer(@intCast(@intFromEnum(std.posix.SIG.INT)));
+        return Value.integer(@intCast(@backingInt(std.posix.SIG.INT)));
     }
     return Value.nil();
 }

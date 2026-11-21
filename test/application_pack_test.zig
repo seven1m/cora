@@ -8,7 +8,7 @@ test "--pack creates an executable that extracts and runs a Ruby application" {
     const allocator = std.testing.allocator;
     const root = try std.fmt.allocPrint(allocator, "/tmp/cora-pack-test-{d}", .{uniqueId()});
     defer allocator.free(root);
-    try std.Io.Dir.createDirAbsolute(std.testing.io, root, @enumFromInt(0o700));
+    try std.Io.Dir.createDirAbsolute(std.testing.io, root, @fromBackingInt(@intCast(0o700)));
     defer std.Io.Dir.cwd().deleteTree(std.testing.io, root) catch {};
 
     const lib_dir = try std.fs.path.join(allocator, &.{ root, "lib" });
@@ -35,7 +35,7 @@ test "--pack creates an executable that extracts and runs a Ruby application" {
     var threaded: std.Io.Threaded = .init(allocator, .{});
     defer threaded.deinit();
     const pack_result = try std.process.run(allocator, threaded.io(), .{
-        .argv = &.{ "build/bin/cora", "--pack", "-o", output_path, main_path },
+        .argv = &.{ "zig-out/bin/cora", "--pack", "-o", output_path, main_path },
         .stdout_limit = .limited(1024 * 1024),
         .stderr_limit = .limited(1024 * 1024),
     });

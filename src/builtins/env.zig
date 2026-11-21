@@ -339,7 +339,7 @@ pub fn builtinEnvRejectBang(vm: *VM, env_receiver: Value, args: []Value, block: 
     var env_map = try vm.currentEnvMap();
     defer env_map.deinit();
 
-    var keys_to_delete = std.ArrayListUnmanaged([]const u8){ .items = &.{}, .capacity = 0 };
+    var keys_to_delete = @as(std.ArrayListUnmanaged([]const u8), .empty);
     defer {
         for (keys_to_delete.items) |key| vm.allocator.free(key);
         keys_to_delete.deinit(vm.allocator);
@@ -381,7 +381,7 @@ pub fn builtinEnvDeleteIf(vm: *VM, env_receiver: Value, args: []Value, block: ?B
     var env_map = try vm.currentEnvMap();
     defer env_map.deinit();
 
-    var keys_to_delete = std.ArrayListUnmanaged([]const u8){ .items = &.{}, .capacity = 0 };
+    var keys_to_delete = @as(std.ArrayListUnmanaged([]const u8), .empty);
     defer {
         for (keys_to_delete.items) |key| vm.allocator.free(key);
         keys_to_delete.deinit(vm.allocator);
@@ -420,7 +420,7 @@ pub fn builtinEnvKeepIf(vm: *VM, env_receiver: Value, args: []Value, block: ?Blo
     var env_map = try vm.currentEnvMap();
     defer env_map.deinit();
 
-    var keys_to_delete = std.ArrayListUnmanaged([]const u8){ .items = &.{}, .capacity = 0 };
+    var keys_to_delete = @as(std.ArrayListUnmanaged([]const u8), .empty);
     defer {
         for (keys_to_delete.items) |key| vm.allocator.free(key);
         keys_to_delete.deinit(vm.allocator);
@@ -501,7 +501,7 @@ pub fn builtinEnvSelectBang(vm: *VM, env_receiver: Value, args: []Value, block: 
     var env_map = try vm.currentEnvMap();
     defer env_map.deinit();
 
-    var keys_to_delete = std.ArrayListUnmanaged([]const u8){ .items = &.{}, .capacity = 0 };
+    var keys_to_delete = @as(std.ArrayListUnmanaged([]const u8), .empty);
     defer {
         for (keys_to_delete.items) |key| vm.allocator.free(key);
         keys_to_delete.deinit(vm.allocator);
@@ -793,7 +793,7 @@ fn clearCurrentEnv(vm: *VM) VMError!void {
     var env_map = try vm.currentEnvMap();
     defer env_map.deinit();
 
-    var keys = std.ArrayListUnmanaged([]const u8){ .items = &.{}, .capacity = 0 };
+    var keys = @as(std.ArrayListUnmanaged([]const u8), .empty);
     defer {
         for (keys.items) |key| vm.allocator.free(key);
         keys.deinit(vm.allocator);
@@ -850,7 +850,7 @@ pub fn builtinEnvReplace(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Va
     // Validate and coerce everything before mutating so a failed
     // replace leaves ENV unchanged.
     const Pair = struct { key: []const u8, value: []const u8 };
-    var pairs = std.ArrayListUnmanaged(Pair){ .items = &.{}, .capacity = 0 };
+    var pairs = @as(std.ArrayListUnmanaged(Pair), .empty);
     defer {
         for (pairs.items) |pair| {
             vm.allocator.free(pair.key);

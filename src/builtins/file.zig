@@ -1744,7 +1744,7 @@ fn raiseEncodedPathErrno(vm: *VM, errno_code: std.posix.E, path_obj: *value.Stri
     message_bytes.appendSlice(vm.allocator, "No such file or directory @ stat - ") catch return error.Fatal;
     message_bytes.appendSlice(vm.allocator, path_obj.str) catch return error.Fatal;
 
-    const exc = try vm.createException(vm.errnoClass(@intCast(@intFromEnum(errno_code))), "");
+    const exc = try vm.createException(vm.errnoClass(@intCast(@backingInt(errno_code))), "");
     const msg_val = try vm.newStringWithEncoding(message_bytes.items, false, path_obj.encoding);
     exc.message = msg_val.toStringObject();
     vm.setPendingException(exc);
@@ -1939,7 +1939,7 @@ pub fn builtinFileBinread(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!V
         if (offset < 0) {
             _ = std.c.lseek(fd, offset, 0);
             const errno_val = std.c._errno().*;
-            return vm.raiseErrnoFmt(@enumFromInt(errno_val), "invalid argument", .{});
+            return vm.raiseErrnoFmt(@fromBackingInt(@intCast(errno_val)), "invalid argument", .{});
         }
         const result = std.c.lseek(fd, offset, 0);
         if (result < 0) {

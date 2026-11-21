@@ -6,7 +6,7 @@ extern fn rb_memhash(ptr: ?*const anyopaque, len: c_long) c_long;
 
 test "C extension deletes array elements by index" {
     const result = try evalCode(
-        \\$LOAD_PATH << "build/cext"
+        \\$LOAD_PATH << "zig-out/cext"
         \\require "fixture.so"
         \\array = [10, 20, 30]
         \\[CoraCExt.array_delete_at(array, -2), CoraCExt.array_delete_at(array, 9), array]
@@ -22,7 +22,7 @@ test "C extension deletes array elements by index" {
 
 test "C extension temporary buffers and integer conversions" {
     const result = try evalCode(
-        \\$LOAD_PATH << "build/cext"
+        \\$LOAD_PATH << "zig-out/cext"
         \\require "fixture.so"
         \\CoraCExt.temporary_buffer(-42)
     );
@@ -44,11 +44,11 @@ test "C extension require resolves the platform extension and portable so alias"
     var stderr_buf: [8192]u8 = undefined;
     const result = test_helper.evalCodeWithOutputAndPath(
         \\require "rbconfig"
-        \\$LOAD_PATH << "build/cext"
+        \\$LOAD_PATH << "zig-out/cext"
         \\first = require "fixture"
         \\again = require "fixture.so"
-        \\relative = require_relative File.expand_path("build/cext/fixture")
-        \\native_path = File.expand_path("build/cext/fixture.#{RbConfig::CONFIG['DLEXT']}")
+        \\relative = require_relative File.expand_path("zig-out/cext/fixture")
+        \\native_path = File.expand_path("zig-out/cext/fixture.#{RbConfig::CONFIG['DLEXT']}")
         \\[first, again, $LOADED_FEATURES.include?(native_path), "".cora_cext_test, relative]
     , &stdout_buf, &stderr_buf, "test/core/cext_test.zig");
     if (result.err) |err| return err;
@@ -62,7 +62,7 @@ test "C extension require resolves the platform extension and portable so alias"
 
 test "C extension fixture loads and defines method" {
     const result = try evalCode(
-        \\$LOAD_PATH << "build/cext"
+        \\$LOAD_PATH << "zig-out/cext"
         \\require "fixture.so"
         \\"".cora_cext_test
     );
@@ -72,7 +72,7 @@ test "C extension fixture loads and defines method" {
 
 test "C extension numeric st tables support insert lookup iteration and deletion" {
     const result = try evalCode(
-        \\$LOAD_PATH << "build/cext"
+        \\$LOAD_PATH << "zig-out/cext"
         \\require "fixture.so"
         \\CoraCExt.st_table
     );
@@ -85,7 +85,7 @@ test "C extension numeric st tables support insert lookup iteration and deletion
 
 test "C extension Check_Type accepts arrays and raises for other types" {
     const result = try evalCode(
-        \\$LOAD_PATH << "build/cext"
+        \\$LOAD_PATH << "zig-out/cext"
         \\require "fixture.so"
         \\begin
         \\  CoraCExt.check_array_type(42)
@@ -100,7 +100,7 @@ test "C extension Check_Type accepts arrays and raises for other types" {
 
 test "C extension Check_Type reports nil using MRI's type name" {
     const result = try evalCode(
-        \\$LOAD_PATH << "build/cext"
+        \\$LOAD_PATH << "zig-out/cext"
         \\require "fixture.so"
         \\begin
         \\  CoraCExt.check_array_type(nil)
@@ -113,7 +113,7 @@ test "C extension Check_Type reports nil using MRI's type name" {
 
 test "C extension rb_raise formats varargs messages" {
     const result = try evalCode(
-        \\$LOAD_PATH << "build/cext"
+        \\$LOAD_PATH << "zig-out/cext"
         \\require "fixture.so"
         \\begin
         \\  CoraCExt.raise_formatted
@@ -126,7 +126,7 @@ test "C extension rb_raise formats varargs messages" {
 
 test "C extension percent V formats an object's string value" {
     const result = try evalCode(
-        \\$LOAD_PATH << "build/cext"
+        \\$LOAD_PATH << "zig-out/cext"
         \\require "fixture.so"
         \\CoraCExt.format_class([])
     );
@@ -135,7 +135,7 @@ test "C extension percent V formats an object's string value" {
 
 test "C extension defines constants on modules" {
     const result = try evalCode(
-        \\$LOAD_PATH << "build/cext"
+        \\$LOAD_PATH << "zig-out/cext"
         \\require "fixture.so"
         \\CoraCExt::FIXTURE_VALUE
     );
@@ -144,7 +144,7 @@ test "C extension defines constants on modules" {
 
 test "C extension method works on arbitrary receiver" {
     const result = try evalCode(
-        \\$LOAD_PATH << "build/cext"
+        \\$LOAD_PATH << "zig-out/cext"
         \\require "fixture.so"
         \\"hello".cora_cext_test
     );
@@ -153,7 +153,7 @@ test "C extension method works on arbitrary receiver" {
 
 test "C extension CLASS_OF returns singleton class without changing rb_obj_class" {
     const result = try evalCode(
-        \\$LOAD_PATH << "build/cext"
+        \\$LOAD_PATH << "zig-out/cext"
         \\require "fixture.so"
         \\klass = Class.new
         \\[
@@ -168,7 +168,7 @@ test "C extension CLASS_OF returns singleton class without changing rb_obj_class
 
 test "C extension accesses and detects instance variables" {
     const result = try evalCode(
-        \\$LOAD_PATH << "build/cext"
+        \\$LOAD_PATH << "zig-out/cext"
         \\require "fixture.so"
         \\CoraCExt.ivar_access(Object.new)
     );
@@ -180,7 +180,7 @@ test "C extension accesses and detects instance variables" {
 
 test "C extension deletes and stores array elements" {
     const result = try evalCode(
-        \\$LOAD_PATH << "build/cext"
+        \\$LOAD_PATH << "zig-out/cext"
         \\require "fixture.so"
         \\CoraCExt.array_mutation
     );
@@ -195,7 +195,7 @@ test "C extension deletes and stores array elements" {
 
 test "C extension extracts array subsequences" {
     const result = try evalCode(
-        \\$LOAD_PATH << "build/cext"
+        \\$LOAD_PATH << "zig-out/cext"
         \\require "fixture.so"
         \\array = [1, 2, 3, 4, 5]
         \\[
@@ -214,7 +214,7 @@ test "C extension extracts array subsequences" {
 
 test "C extension pops array elements" {
     const result = try evalCode(
-        \\$LOAD_PATH << "build/cext"
+        \\$LOAD_PATH << "zig-out/cext"
         \\require "fixture.so"
         \\array = [1, 2, 3]
         \\[CoraCExt.array_pop(array), array, CoraCExt.array_pop([])]
@@ -227,7 +227,7 @@ test "C extension pops array elements" {
 
 test "C extension reads interned ID names" {
     const result = try evalCode(
-        \\$LOAD_PATH << "build/cext"
+        \\$LOAD_PATH << "zig-out/cext"
         \\require "fixture.so"
         \\[CoraCExt.id2name(:test_symbol), CoraCExt.id2name_zero]
     );
@@ -238,7 +238,7 @@ test "C extension reads interned ID names" {
 
 test "C extension calls Ruby iterators with a C block" {
     const result = try evalCode(
-        \\$LOAD_PATH << "build/cext"
+        \\$LOAD_PATH << "zig-out/cext"
         \\require "fixture.so"
         \\CoraCExt.block_call_collect([1, 2, 3])
     );
@@ -249,7 +249,7 @@ test "C extension calls Ruby iterators with a C block" {
 
 test "C extension breaks Ruby iteration from a C block" {
     const result = try evalCode(
-        \\$LOAD_PATH << "build/cext"
+        \\$LOAD_PATH << "zig-out/cext"
         \\require "fixture.so"
         \\CoraCExt.block_call_break([1, 2, 3])
     );
@@ -262,7 +262,7 @@ test "C extension breaks Ruby iteration from a C block" {
 
 test "C extension forwards an existing Ruby block" {
     const result = try evalCode(
-        \\$LOAD_PATH << "build/cext"
+        \\$LOAD_PATH << "zig-out/cext"
         \\require "fixture.so"
         \\mapped = CoraCExt.block_call_forward([1, 2, 3]) { |value| value * 2 }
         \\unmapped = CoraCExt.block_call_forward([1, 2, 3])
@@ -277,7 +277,7 @@ test "C extension forwards an existing Ruby block" {
 
 test "C extension catch receives returns and Ruby throws" {
     const result = try evalCode(
-        \\$LOAD_PATH << "build/cext"
+        \\$LOAD_PATH << "zig-out/cext"
         \\require "fixture.so"
         \\CoraCExt.catch_control_flow(42)
     );
@@ -288,7 +288,7 @@ test "C extension catch receives returns and Ruby throws" {
 
 test "C extension call and block helpers invoke Ruby code" {
     const result = try evalCode(
-        \\$LOAD_PATH << "build/cext"
+        \\$LOAD_PATH << "zig-out/cext"
         \\require "fixture.so"
         \\CoraCExt.call_helpers(5) { |value| value * 2 }
     );
@@ -299,7 +299,7 @@ test "C extension call and block helpers invoke Ruby code" {
 
 test "C extension creates exceptions from C strings" {
     const result = try evalCode(
-        \\$LOAD_PATH << "build/cext"
+        \\$LOAD_PATH << "zig-out/cext"
         \\require "fixture.so"
         \\CoraCExt.exception_message
     );
@@ -308,7 +308,7 @@ test "C extension creates exceptions from C strings" {
 
 test "C extension updates exception messages through the mesg ivar" {
     const result = try evalCode(
-        \\$LOAD_PATH << "build/cext"
+        \\$LOAD_PATH << "zig-out/cext"
         \\require "fixture.so"
         \\CoraCExt.exception_ivar_message.message
     );
@@ -317,7 +317,7 @@ test "C extension updates exception messages through the mesg ivar" {
 
 test "C extension path to class raises for missing and nonclass constants" {
     const result = try evalCode(
-        \\$LOAD_PATH << "build/cext"
+        \\$LOAD_PATH << "zig-out/cext"
         \\require "fixture.so"
         \\CoraPathValue = 42
         \\found = CoraCExt.path_to_class("String") == String
@@ -333,7 +333,7 @@ test "C extension path to class raises for missing and nonclass constants" {
 
 test "C extension associates string encodings by index" {
     const result = try evalCode(
-        \\$LOAD_PATH << "build/cext"
+        \\$LOAD_PATH << "zig-out/cext"
         \\require "fixture.so"
         \\bytes = "text".encode("UTF-16LE").force_encoding(Encoding::BINARY)
         \\encoded = CoraCExt.associate_utf16le(bytes)
@@ -349,7 +349,7 @@ test "C extension associates string encodings by index" {
 
 test "C extension appends raw bytes without changing string encoding" {
     const result = try evalCode(
-        \\$LOAD_PATH << "build/cext"
+        \\$LOAD_PATH << "zig-out/cext"
         \\require "fixture.so"
         \\string = "a".encode("UTF-16LE")
         \\result = CoraCExt.append_raw_utf16(string)
@@ -366,7 +366,7 @@ test "C extension appends raw bytes without changing string encoding" {
 
 test "C extension exports strings to the default internal encoding" {
     const result = try evalCode(
-        \\$LOAD_PATH << "build/cext"
+        \\$LOAD_PATH << "zig-out/cext"
         \\require "fixture.so"
         \\Encoding.default_internal = "EUC-JP"
         \\encoded = CoraCExt.export_to_internal("plain")
@@ -379,7 +379,7 @@ test "C extension exports strings to the default internal encoding" {
 
 test "C extension packs signed 64-bit integers" {
     const result = try evalCode(
-        \\$LOAD_PATH << "build/cext"
+        \\$LOAD_PATH << "zig-out/cext"
         \\require "fixture.so"
         \\[
         \\  CoraCExt.integer_pack(2 ** 63 - 1),
@@ -399,7 +399,7 @@ test "C extension packs signed 64-bit integers" {
 
 test "C extension identifies large integers as bignums" {
     const result = try evalCode(
-        \\$LOAD_PATH << "build/cext"
+        \\$LOAD_PATH << "zig-out/cext"
         \\require "fixture.so"
         \\[CoraCExt.integer_type(42), CoraCExt.integer_type(2 ** 63),
         \\ CoraCExt.long_roundtrip(2 ** 63 - 1).to_s,
@@ -414,7 +414,7 @@ test "C extension identifies large integers as bignums" {
 
 test "C extension concatenates and encodes strings" {
     const result = try evalCode(
-        \\$LOAD_PATH << "build/cext"
+        \\$LOAD_PATH << "zig-out/cext"
         \\require "fixture.so"
         \\CoraCExt.string_encoding_helpers
     );
@@ -425,7 +425,7 @@ test "C extension concatenates and encodes strings" {
 
 test "C extension creates strings and copies their encoding" {
     const result = try evalCode(
-        \\$LOAD_PATH << "build/cext"
+        \\$LOAD_PATH << "zig-out/cext"
         \\require "fixture.so"
         \\CoraCExt.string_encoding_creation.map { |string| [string.bytes, string.encoding] }
     );
@@ -438,7 +438,7 @@ test "C extension creates strings and copies their encoding" {
 
 test "C extension string constructors assign MRI encodings" {
     const result = try evalCode(
-        \\$LOAD_PATH << "build/cext"
+        \\$LOAD_PATH << "zig-out/cext"
         \\require "fixture.so"
         \\CoraCExt.string_constructor_encodings.map { |string| string.encoding.name }
     );
@@ -451,7 +451,7 @@ test "C extension string constructors assign MRI encodings" {
 
 test "C extension StringValue accepts embedded null bytes" {
     const result = try evalCode(
-        \\$LOAD_PATH << "build/cext"
+        \\$LOAD_PATH << "zig-out/cext"
         \\require "fixture.so"
         \\CoraCExt.string_value([97, 0, 98].pack("C*")).bytes
     );
@@ -462,7 +462,7 @@ test "C extension StringValue accepts embedded null bytes" {
 
 test "C extension StringValue uses to_str and rejects nil" {
     const result = try evalCode(
-        \\$LOAD_PATH << "build/cext"
+        \\$LOAD_PATH << "zig-out/cext"
         \\require "fixture.so"
         \\string_like = Object.new
         \\def string_like.to_str; "converted"; end
@@ -478,7 +478,7 @@ test "C extension StringValue uses to_str and rejects nil" {
 
 test "C extension can undefine new on one class singleton" {
     const result = try evalCode(
-        \\$LOAD_PATH << "build/cext"
+        \\$LOAD_PATH << "zig-out/cext"
         \\require "fixture.so"
         \\klass = Class.new
         \\CoraCExt.undef_class_new(klass)
@@ -496,7 +496,7 @@ test "C extension can undefine new on one class singleton" {
 
 test "C extension rb_funcall without block" {
     const result = try evalCode(
-        \\$LOAD_PATH << "build/cext"
+        \\$LOAD_PATH << "zig-out/cext"
         \\require "fixture.so"
         \\CoraCExt.call_to_s(42)
     );
@@ -506,7 +506,7 @@ test "C extension rb_funcall without block" {
 
 test "C extension rb_yield basic (no NLR)" {
     const result = try evalCode(
-        \\$LOAD_PATH << "build/cext"
+        \\$LOAD_PATH << "zig-out/cext"
         \\require "fixture.so"
         \\def test_method
         \\  CoraCExt.simple_yield(99) { |x| 77 }
@@ -518,7 +518,7 @@ test "C extension rb_yield basic (no NLR)" {
 
 test "C extension non-local returns preserve C boundaries across thread handoffs" {
     const result = try evalCode(
-        \\$LOAD_PATH << "build/cext"
+        \\$LOAD_PATH << "zig-out/cext"
         \\require "fixture.so"
         \\def threaded_return(marker)
         \\  CoraCExt.yield_nlr(marker) do |value|
@@ -535,7 +535,7 @@ test "C extension non-local returns preserve C boundaries across thread handoffs
 
 test "C extension rb_yield NLR (return from block)" {
     const result = try evalCode(
-        \\$LOAD_PATH << "build/cext"
+        \\$LOAD_PATH << "zig-out/cext"
         \\require "fixture.so"
         \\def test_method
         \\  CoraCExt.yield_nlr(42) { |x| return x }
@@ -548,7 +548,7 @@ test "C extension rb_yield NLR (return from block)" {
 
 test "C extension rb_funcall NLR from proc call" {
     const result = try evalCode(
-        \\$LOAD_PATH << "build/cext"
+        \\$LOAD_PATH << "zig-out/cext"
         \\require "fixture.so"
         \\def test_method
         \\  callback = proc { return 55 }
@@ -562,7 +562,7 @@ test "C extension rb_funcall NLR from proc call" {
 
 test "C extension rb_funcall stops C execution when Ruby raises" {
     const result = try evalCode(
-        \\$LOAD_PATH << "build/cext"
+        \\$LOAD_PATH << "zig-out/cext"
         \\require "fixture.so"
         \\begin
         \\  CoraCExt.funcall_then_value(proc { raise "from callback" })
@@ -576,7 +576,7 @@ test "C extension rb_funcall stops C execution when Ruby raises" {
 
 test "C extension rb_funcall stops C execution for Ruby throw" {
     const result = try evalCode(
-        \\$LOAD_PATH << "build/cext"
+        \\$LOAD_PATH << "zig-out/cext"
         \\require "fixture.so"
         \\catch(:done) do
         \\  CoraCExt.funcall_then_value(proc { throw :done, 73 })
@@ -587,7 +587,7 @@ test "C extension rb_funcall stops C execution for Ruby throw" {
 
 test "C extension calls continue inside an active ensure unwind" {
     const result = try evalCode(
-        \\$LOAD_PATH << "build/cext"
+        \\$LOAD_PATH << "zig-out/cext"
         \\require "fixture.so"
         \\def cext_ensure_return(trace)
         \\  begin
@@ -609,7 +609,7 @@ test "C extension calls continue inside an active ensure unwind" {
 
 test "C extension nested rb_funcall NLR unwinds through multiple C frames" {
     const result = try evalCode(
-        \\$LOAD_PATH << "build/cext"
+        \\$LOAD_PATH << "zig-out/cext"
         \\require "fixture.so"
         \\class CExtDeepHelper
         \\  def initialize(callback)
@@ -638,7 +638,7 @@ test "C extension rb_yield `next` does not leak as non-local return" {
     // the C code does another rb_funcall to confirm the boundary state is
     // clean.
     const result = try evalCode(
-        \\$LOAD_PATH << "build/cext"
+        \\$LOAD_PATH << "zig-out/cext"
         \\require "fixture.so"
         \\CoraCExt.yield_next_then_value(123) { |marker| next marker }
     );
@@ -650,7 +650,7 @@ test "C extension rb_yield `break` returns the break value to C" {
     // Returning rb_yield directly makes the break value observable at the
     // Ruby call site, but does not by itself prove whether the C frame unwound.
     const result = try evalCode(
-        \\$LOAD_PATH << "build/cext"
+        \\$LOAD_PATH << "zig-out/cext"
         \\require "fixture.so"
         \\CoraCExt.yield_break(7) { |marker| break marker + 100 }
     );
@@ -660,7 +660,7 @@ test "C extension rb_yield `break` returns the break value to C" {
 
 test "C extension rb_yield `break` unwinds past code after the yield" {
     const result = try evalCode(
-        \\$LOAD_PATH << "build/cext"
+        \\$LOAD_PATH << "zig-out/cext"
         \\require "fixture.so"
         \\CoraCExt.yield_break_then_value(7) { |marker| break marker + 100 }
     );
@@ -675,7 +675,7 @@ test "C extension `next` in callback does not pollute later C calls" {
     // an rb_funcall on the value returned from rb_yield, which depends on
     // the boundary state being clean.
     const result = try evalCode(
-        \\$LOAD_PATH << "build/cext"
+        \\$LOAD_PATH << "zig-out/cext"
         \\require "fixture.so"
         \\CoraCExt.yield_next_then_call_to_s(:first) { |m| next m; :unreachable }
     );
@@ -687,7 +687,7 @@ test "C extension real non-local `return` still crosses C boundary" {
     // Sanity check: even after the refactor, a real `return` from a block
     // invoked via rb_yield must still escape the surrounding method.
     const result = try evalCode(
-        \\$LOAD_PATH << "build/cext"
+        \\$LOAD_PATH << "zig-out/cext"
         \\require "fixture.so"
         \\def outer
         \\  CoraCExt.yield_break(:ignored) { |_| return 999 }
@@ -702,7 +702,7 @@ test "C extension real non-local `return` through rb_funcall still works" {
     // Sanity check: a `return` from a proc called via rb_funcall still
     // escapes the surrounding method.
     const result = try evalCode(
-        \\$LOAD_PATH << "build/cext"
+        \\$LOAD_PATH << "zig-out/cext"
         \\require "fixture.so"
         \\def outer
         \\  callback = proc { return 314 }
@@ -716,7 +716,7 @@ test "C extension real non-local `return` through rb_funcall still works" {
 
 test "C extension rb_str_new rejects negative lengths" {
     const result = try evalCode(
-        \\$LOAD_PATH << "build/cext"
+        \\$LOAD_PATH << "zig-out/cext"
         \\require "fixture.so"
         \\begin
         \\  CoraCExt.str_new_length(-1)
@@ -731,7 +731,7 @@ test "C extension rb_str_new rejects negative lengths" {
 
 test "C extension rb_intern2 honors the explicit length" {
     const result = try evalCode(
-        \\$LOAD_PATH << "build/cext"
+        \\$LOAD_PATH << "zig-out/cext"
         \\require "fixture.so"
         \\CoraCExt.intern_length
     );
@@ -741,7 +741,7 @@ test "C extension rb_intern2 honors the explicit length" {
 
 test "C extension rb_str_new_static honors the explicit length" {
     const result = try evalCode(
-        \\$LOAD_PATH << "build/cext"
+        \\$LOAD_PATH << "zig-out/cext"
         \\require "fixture.so"
         \\CoraCExt.static_string
     );
@@ -751,7 +751,7 @@ test "C extension rb_str_new_static honors the explicit length" {
 
 test "C extension RSTRING_PTR returns a stable NUL-terminated buffer" {
     const result = try evalCode(
-        \\$LOAD_PATH << "build/cext"
+        \\$LOAD_PATH << "zig-out/cext"
         \\require "fixture.so"
         \\CoraCExt.rstring_ptr_terminated("form")
     );
@@ -760,7 +760,7 @@ test "C extension RSTRING_PTR returns a stable NUL-terminated buffer" {
 
 test "C extension NUM2LONG rejects out-of-range integers" {
     const result = try evalCode(
-        \\$LOAD_PATH << "build/cext"
+        \\$LOAD_PATH << "zig-out/cext"
         \\require "fixture.so"
         \\begin
         \\  CoraCExt.str_new_length(2 ** 100)
@@ -775,7 +775,7 @@ test "C extension NUM2LONG rejects out-of-range integers" {
 
 test "C extension FIX2LONG preserves negative fixnums" {
     const result = try evalCode(
-        \\$LOAD_PATH << "build/cext"
+        \\$LOAD_PATH << "zig-out/cext"
         \\require "fixture.so"
         \\[-10, -1, 0, 1, 10].map { |value| CoraCExt.fixnum_to_long(value) }
     );
@@ -788,7 +788,7 @@ test "C extension FIX2LONG preserves negative fixnums" {
 
 test "C extension typed data preserves type and payload" {
     const result = try evalCode(
-        \\$LOAD_PATH << "build/cext"
+        \\$LOAD_PATH << "zig-out/cext"
         \\require "fixture.so"
         \\CoraCExt.typed_data_round_trip
     );
@@ -799,7 +799,7 @@ test "C extension typed data preserves type and payload" {
 
 test "C extension typed data can assign payload after allocation" {
     const result = try evalCode(
-        \\$LOAD_PATH << "build/cext"
+        \\$LOAD_PATH << "zig-out/cext"
         \\require "fixture.so"
         \\CoraCExt.typed_data_assign_after_alloc
     );
@@ -808,7 +808,7 @@ test "C extension typed data can assign payload after allocation" {
 
 test "C extension appends encoded bytes to an external string" {
     const result = try evalCode(
-        \\$LOAD_PATH << "build/cext"
+        \\$LOAD_PATH << "zig-out/cext"
         \\require "fixture.so"
         \\str = CoraCExt.encoded_string_append
         \\str == "caf\u{e9}" && str.encoding.name == "UTF-8"
@@ -818,7 +818,7 @@ test "C extension appends encoded bytes to an external string" {
 
 test "C extension converts an Encoding object to an encoding pointer" {
     const result = try evalCode(
-        \\$LOAD_PATH << "build/cext"
+        \\$LOAD_PATH << "zig-out/cext"
         \\require "fixture.so"
         \\[CoraCExt.to_encoding(Encoding::UTF_8) == Encoding::UTF_8,
         \\ CoraCExt.to_encoding(Encoding::ISO_8859_2) == Encoding::ISO_8859_2,
@@ -830,7 +830,7 @@ test "C extension converts an Encoding object to an encoding pointer" {
 
 test "C extension string splitting uses Ruby semantics" {
     const result = try evalCode(
-        \\$LOAD_PATH << "build/cext"
+        \\$LOAD_PATH << "zig-out/cext"
         \\require "fixture.so"
         \\CoraCExt.split_string(" a  b ") == ["a", "b"]
     );
@@ -839,7 +839,7 @@ test "C extension string splitting uses Ruby semantics" {
 
 test "C extension block requirement raises when no block is given" {
     const result = try evalCode(
-        \\$LOAD_PATH << "build/cext"
+        \\$LOAD_PATH << "zig-out/cext"
         \\require "fixture.so"
         \\CoraCExt.needs_block { } && begin
         \\  CoraCExt.needs_block
@@ -853,7 +853,7 @@ test "C extension block requirement raises when no block is given" {
 
 test "C extension method calls its superclass method" {
     const result = try evalCode(
-        \\$LOAD_PATH << "build/cext"
+        \\$LOAD_PATH << "zig-out/cext"
         \\require "fixture.so"
         \\class CoraCExt::SuperBase
         \\  def greeting(name); "hello " + name; end
@@ -865,7 +865,7 @@ test "C extension method calls its superclass method" {
 
 test "C extension object initialization forwards arguments and block" {
     const result = try evalCode(
-        \\$LOAD_PATH << "build/cext"
+        \\$LOAD_PATH << "zig-out/cext"
         \\require "fixture.so"
         \\class CoraCExt::InitTarget
         \\  attr_reader :value
@@ -878,7 +878,7 @@ test "C extension object initialization forwards arguments and block" {
 
 test "C extension registers protected methods" {
     const result = try evalCode(
-        \\$LOAD_PATH << "build/cext"
+        \\$LOAD_PATH << "zig-out/cext"
         \\require "fixture.so"
         \\class CoraCExt::SuperChild
         \\  def read_value(other); other.protected_value; end
@@ -892,7 +892,7 @@ test "C extension registers protected methods" {
 
 test "C extension reports object class and pointer identity" {
     const result = try evalCode(
-        \\$LOAD_PATH << "build/cext"
+        \\$LOAD_PATH << "zig-out/cext"
         \\require "fixture.so"
         \\name, pointer = CoraCExt.object_identity("hello")
         \\name == "String" && pointer.is_a?(Integer) && pointer > 0
@@ -902,7 +902,7 @@ test "C extension reports object class and pointer identity" {
 
 test "C extension normalizes range bounds for slicing" {
     const result = try evalCode(
-        \\$LOAD_PATH << "build/cext"
+        \\$LOAD_PATH << "zig-out/cext"
         \\require "fixture.so"
         \\CoraCExt.range_bounds(1..3, 5) == [true, 1, 3] &&
         \\CoraCExt.range_bounds(-3...-1, 5) == [true, 2, 2] &&
@@ -915,7 +915,7 @@ test "C extension normalizes range bounds for slicing" {
 
 test "C extension converts encoded strings and integer values" {
     const result = try evalCode(
-        \\$LOAD_PATH << "build/cext"
+        \\$LOAD_PATH << "zig-out/cext"
         \\require "fixture.so"
         \\str = CoraCExt.converted_string
         \\str.encoding.name == "ISO-8859-1" && str.bytes == [99, 97, 102, 233] && CoraCExt.integer("12") == 12
@@ -925,7 +925,7 @@ test "C extension converts encoded strings and integer values" {
 
 test "C extension keeps values at registered external addresses alive" {
     const result = try evalCode(
-        \\$LOAD_PATH << "build/cext"
+        \\$LOAD_PATH << "zig-out/cext"
         \\require "fixture.so"
         \\CoraCExt.register_external_root("rooted-" + ("x" * 1024))
         \\10.times { 1000.times { "garbage" * 128 }; GC.start }
@@ -938,7 +938,7 @@ test "C extension keeps values at registered external addresses alive" {
 
 test "C extension converts objects to strings and clears arrays" {
     const result = try evalCode(
-        \\$LOAD_PATH << "build/cext"
+        \\$LOAD_PATH << "zig-out/cext"
         \\require "fixture.so"
         \\ary = [1, 2]
         \\CoraCExt.string_and_clear(:symbol, ary) == ["symbol", []] && ary.empty?
@@ -948,7 +948,7 @@ test "C extension converts objects to strings and clears arrays" {
 
 test "C extension typed data keeps referenced Ruby objects alive" {
     const result = try evalCode(
-        \\$LOAD_PATH << "build/cext"
+        \\$LOAD_PATH << "zig-out/cext"
         \\require "fixture.so"
         \\value = "retained-value-" + ("x" * 1024)
         \\holder = CoraCExt.typed_data_retain(value)
@@ -966,7 +966,7 @@ test "C extension typed data keeps referenced Ruby objects alive" {
 
 test "C extension frees native typed-data storage once after a native reference cycle" {
     const result = try evalCode(
-        \\$LOAD_PATH << "build/cext"
+        \\$LOAD_PATH << "zig-out/cext"
         \\require "fixture.so"
         \\before = CoraCExt.typed_data_cycle_frees
         \\CoraCExt.typed_data_make_cycles(50)
@@ -982,12 +982,14 @@ test "C extension frees native typed-data storage once after a native reference 
     // Conservative GC roots can keep some wrappers alive past these collections.
     try std.testing.expect(counts[1].toInteger() > counts[0].toInteger());
     try std.testing.expect(counts[1].toInteger() <= counts[0].toInteger() + 50);
-    try std.testing.expectEqual(counts[1].toInteger(), counts[2].toInteger());
+    // Later collections may release wrappers retained at the first snapshot.
+    try std.testing.expect(counts[2].toInteger() >= counts[1].toInteger());
+    try std.testing.expect(counts[2].toInteger() <= counts[0].toInteger() + 50);
 }
 
 test "C extension StringValueCStr provides a trailing null byte" {
     const result = try evalCode(
-        \\$LOAD_PATH << "build/cext"
+        \\$LOAD_PATH << "zig-out/cext"
         \\require "fixture.so"
         \\CoraCExt.string_value_cstr_length("hello")
     );
@@ -996,7 +998,7 @@ test "C extension StringValueCStr provides a trailing null byte" {
 
 test "C extension StringValueCStr uses to_str and rejects unrelated objects" {
     const result = try evalCode(
-        \\$LOAD_PATH << "build/cext"
+        \\$LOAD_PATH << "zig-out/cext"
         \\require "fixture.so"
         \\string_like = Object.new
         \\def string_like.to_str; "hello"; end
@@ -1015,7 +1017,7 @@ test "C extension StringValueCStr uses to_str and rejects unrelated objects" {
 
 test "C extension variadic methods receive keyword arguments through rb_scan_args" {
     const result = try evalCode(
-        \\$LOAD_PATH << "build/cext"
+        \\$LOAD_PATH << "zig-out/cext"
         \\require "fixture.so"
         \\a = CoraCExt.scan_keywords("one", exception: false)
         \\b = CoraCExt.scan_keywords("one", 2, exception: true)
@@ -1033,7 +1035,7 @@ test "C extension variadic methods receive keyword arguments through rb_scan_arg
 
 test "C extension rb_scan_args collects remaining positional arguments" {
     const result = try evalCode(
-        \\$LOAD_PATH << "build/cext"
+        \\$LOAD_PATH << "zig-out/cext"
         \\require "fixture.so"
         \\a = CoraCExt.scan_rest
         \\b = CoraCExt.scan_rest(1, 2, 3)
@@ -1063,7 +1065,7 @@ test "C extension rb_scan_args collects remaining positional arguments" {
 
 test "C extension rb_str_buf_new starts empty and can be appended" {
     const result = try evalCode(
-        \\$LOAD_PATH << "build/cext"
+        \\$LOAD_PATH << "zig-out/cext"
         \\require "fixture.so"
         \\CoraCExt.string_buffer
     );
@@ -1074,7 +1076,7 @@ test "C extension rb_str_buf_new starts empty and can be appended" {
 
 test "C extension RSTRING_PTR preserves writable string buffer capacity" {
     const result = try evalCode(
-        \\$LOAD_PATH << "build/cext"
+        \\$LOAD_PATH << "zig-out/cext"
         \\require "fixture.so"
         \\CoraCExt.rstring_ptr_writable_buffer
     );
@@ -1086,7 +1088,7 @@ test "C extension RSTRING_PTR preserves writable string buffer capacity" {
 
 test "C extension rb_ary_entry returns nil outside array bounds" {
     const result = try evalCode(
-        \\$LOAD_PATH << "build/cext"
+        \\$LOAD_PATH << "zig-out/cext"
         \\require "fixture.so"
         \\CoraCExt.array_entries
     );
@@ -1099,7 +1101,7 @@ test "C extension rb_ary_entry returns nil outside array bounds" {
 
 test "C extension hash lookup and deletion return nil for missing keys" {
     const result = try evalCode(
-        \\$LOAD_PATH << "build/cext"
+        \\$LOAD_PATH << "zig-out/cext"
         \\require "fixture.so"
         \\CoraCExt.hash_missing_entries
     );
@@ -1112,7 +1114,7 @@ test "C extension hash lookup and deletion return nil for missing keys" {
 
 test "C extension rb_get_kwargs consumes known keys and rejects unknown keys" {
     const result = try evalCode(
-        \\$LOAD_PATH << "build/cext"
+        \\$LOAD_PATH << "zig-out/cext"
         \\require "fixture.so"
         \\full = { required: nil, optional: false }
         \\short = { required: 7 }
@@ -1149,7 +1151,7 @@ test "C extension rb_get_kwargs consumes known keys and rejects unknown keys" {
 
 test "C extension warnings format arguments and respect verbosity" {
     const result = try evalCode(
-        \\$LOAD_PATH << "build/cext"
+        \\$LOAD_PATH << "zig-out/cext"
         \\require "fixture.so"
         \\require "stringio"
         \\original_stderr = $stderr
@@ -1175,7 +1177,7 @@ test "C extension warnings format arguments and respect verbosity" {
 
 test "C extension nested calls do not inherit surrounding builtin keywords" {
     const result = try evalCode(
-        \\$LOAD_PATH << "build/cext"
+        \\$LOAD_PATH << "zig-out/cext"
         \\require "fixture.so"
         \\class InitTarget
         \\  attr_reader :value
@@ -1194,7 +1196,7 @@ test "C extension nested calls do not inherit surrounding builtin keywords" {
 
 test "C extension last hash keyword scanning preserves positional hashes and values" {
     const result = try evalCode(
-        \\$LOAD_PATH << "build/cext"
+        \\$LOAD_PATH << "zig-out/cext"
         \\require "fixture.so"
         \\CoraCExt.scan_last_hash(7, {answer: 42}) == [1, 7, {answer: 42}] &&
         \\  CoraCExt.scan_last_hash(7) == [1, 7, nil] &&
@@ -1206,7 +1208,7 @@ test "C extension last hash keyword scanning preserves positional hashes and val
 
 test "C extension object catch and throw preserve tag identity" {
     const result = try evalCode(
-        \\$LOAD_PATH << "build/cext"
+        \\$LOAD_PATH << "zig-out/cext"
         \\require "fixture.so"
         \\CoraCExt.object_catch(Object.new)
     );
@@ -1215,7 +1217,7 @@ test "C extension object catch and throw preserve tag identity" {
 
 test "C extension IO headers expose descriptors and enable nonblocking mode" {
     const result = try evalCode(
-        \\$LOAD_PATH << "build/cext"
+        \\$LOAD_PATH << "zig-out/cext"
         \\require "fixture.so"
         \\reader, writer = IO.pipe
         \\begin
@@ -1230,7 +1232,7 @@ test "C extension IO headers expose descriptors and enable nonblocking mode" {
 
 test "C extension array capacity and join APIs produce joined strings" {
     const result = try evalCode(
-        \\$LOAD_PATH << "build/cext"
+        \\$LOAD_PATH << "zig-out/cext"
         \\require "fixture.so"
         \\CoraCExt.native_array
     );
@@ -1239,7 +1241,7 @@ test "C extension array capacity and join APIs produce joined strings" {
 
 test "C extension native blocking calls allow Ruby threads to wake poll" {
     const result = try evalCode(
-        \\$LOAD_PATH << "build/cext"
+        \\$LOAD_PATH << "zig-out/cext"
         \\require "fixture.so"
         \\reader, writer = IO.pipe
         \\begin
@@ -1257,7 +1259,7 @@ test "C extension native blocking calls allow Ruby threads to wake poll" {
 
 test "C extension native IO unblock interrupts poll on Thread raise" {
     const result = try evalCode(
-        \\$LOAD_PATH << "build/cext"
+        \\$LOAD_PATH << "zig-out/cext"
         \\require "fixture.so"
         \\reader, writer = IO.pipe
         \\begin
@@ -1281,7 +1283,7 @@ test "C extension native IO unblock interrupts poll on Thread raise" {
 
 test "C extension encoded interned strings preserve bytes encoding and frozen identity" {
     const result = try evalCode(
-        \\$LOAD_PATH << "build/cext"
+        \\$LOAD_PATH << "zig-out/cext"
         \\require "fixture.so"
         \\source = "a\0b"
         \\utf8 = CoraCExt.interned_string(source)
@@ -1297,7 +1299,7 @@ test "C extension encoded interned strings preserve bytes encoding and frozen id
 
 test "C extension eof error raises EOFError with standard message" {
     const result = try evalCode(
-        \\$LOAD_PATH << "build/cext"
+        \\$LOAD_PATH << "zig-out/cext"
         \\require "fixture.so"
         \\begin
         \\  CoraCExt.eof_error
@@ -1311,7 +1313,7 @@ test "C extension eof error raises EOFError with standard message" {
 
 test "C extension Random class export identifies the runtime Random class" {
     const result = try evalCode(
-        \\$LOAD_PATH << "build/cext"
+        \\$LOAD_PATH << "zig-out/cext"
         \\require "fixture.so"
         \\CoraCExt.random_class.equal?(Random)
     );

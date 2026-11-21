@@ -175,7 +175,7 @@ pub fn create(allocator: std.mem.Allocator, io: std.Io, entrypoint_arg: []const 
     defer allocator.free(executable);
     const stub = try std.Io.Dir.cwd().readFileAlloc(io, executable, allocator, .limited(std.math.maxInt(usize)));
     defer allocator.free(stub);
-    var trailer: [trailer_size]u8 = [_]u8{0} ** trailer_size;
+    var trailer: [trailer_size]u8 = @splat(0);
     @memcpy(trailer[0..magic.len], magic);
     std.mem.writeInt(u32, trailer[8..12], archive_version, .little);
     std.mem.writeInt(u64, trailer[16..24], @intCast(stub.len), .little);
@@ -187,11 +187,11 @@ pub fn create(allocator: std.mem.Allocator, io: std.Io, entrypoint_arg: []const 
     try result.appendSlice(allocator, stub);
     try result.appendSlice(allocator, archive.items);
     try result.appendSlice(allocator, &trailer);
-    try std.Io.Dir.cwd().writeFile(io, .{ .sub_path = output, .data = result.items, .flags = .{ .permissions = @enumFromInt(0o755) } });
+    try std.Io.Dir.cwd().writeFile(io, .{ .sub_path = output, .data = result.items, .flags = .{ .permissions = @fromBackingInt(@intCast(0o755)) } });
 }
 
 fn createTempRoot(allocator: std.mem.Allocator) ![]u8 {
-    const template = try allocator.dupeZ(u8, "/tmp/cora-pack-XXXXXX");
+    const template = try allocator.dupeSentinel(u8, "/tmp/cora-pack-XXXXXX", 0);
     if (mkdtemp(template.ptr) == null) {
         allocator.free(template);
         return error.TempDirectoryUnavailable;
@@ -244,7 +244,7 @@ pub fn maybeExtract(allocator: std.mem.Allocator, io: std.Io) !?ExtractedPackage
         const destination = try std.fs.path.join(allocator, &.{ root, relative_path });
         defer allocator.free(destination);
         if (std.fs.path.dirname(destination)) |parent| try std.Io.Dir.cwd().createDirPath(io, parent);
-        try std.Io.Dir.cwd().writeFile(io, .{ .sub_path = destination, .data = data, .flags = .{ .permissions = @enumFromInt(0o600) } });
+        try std.Io.Dir.cwd().writeFile(io, .{ .sub_path = destination, .data = data, .flags = .{ .permissions = @fromBackingInt(@intCast(0o600)) } });
     }
     if (cursor != archive.len or !seen.contains(entry_relative)) return error.InvalidPackage;
     const entrypoint = try std.fs.path.join(allocator, &.{ root, entry_relative });

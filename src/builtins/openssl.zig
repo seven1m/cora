@@ -3,14 +3,7 @@ const enc = @import("../encoding.zig");
 const io_builtin = @import("io.zig");
 const vm_mod = @import("../vm.zig");
 const value = @import("../value.zig");
-const c = @cImport({
-    @cInclude("openssl/err.h");
-    @cInclude("openssl/evp.h");
-    @cInclude("openssl/pem.h");
-    @cInclude("openssl/rand.h");
-    @cInclude("openssl/ssl.h");
-    @cInclude("openssl/x509_vfy.h");
-});
+const c = @import("openssl_c");
 
 const VM = vm_mod.VM;
 const VMError = vm_mod.VMError;
@@ -809,8 +802,14 @@ fn cipherSetMode(vm: *VM, receiver: Value, encrypt: bool) VMError!Value {
     return receiver;
 }
 
-pub fn builtinOpenSSLCipherEncrypt(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value { try vm.requireArgCount(args, 0); return cipherSetMode(vm, receiver, true); }
-pub fn builtinOpenSSLCipherDecrypt(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value { try vm.requireArgCount(args, 0); return cipherSetMode(vm, receiver, false); }
+pub fn builtinOpenSSLCipherEncrypt(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    return cipherSetMode(vm, receiver, true);
+}
+pub fn builtinOpenSSLCipherDecrypt(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    return cipherSetMode(vm, receiver, false);
+}
 
 pub fn builtinOpenSSLCipherSetKey(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 1);
@@ -907,8 +906,14 @@ fn pkcs5Pbkdf2(vm: *VM, password_value: Value, salt_value: Value, iterations_val
     return binaryString(vm, output);
 }
 
-pub fn builtinOpenSSLPKCS5Pbkdf2Hmac(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value { try vm.requireArgCount(args, 5); return pkcs5Pbkdf2(vm, args[0], args[1], args[2], args[3], args[4]); }
-pub fn builtinOpenSSLPKCS5Pbkdf2HmacSha1(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value { try vm.requireArgCount(args, 4); return pkcs5Pbkdf2(vm, args[0], args[1], args[2], args[3], try vm.newString("sha1", false)); }
+pub fn builtinOpenSSLPKCS5Pbkdf2Hmac(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 5);
+    return pkcs5Pbkdf2(vm, args[0], args[1], args[2], args[3], args[4]);
+}
+pub fn builtinOpenSSLPKCS5Pbkdf2HmacSha1(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 4);
+    return pkcs5Pbkdf2(vm, args[0], args[1], args[2], args[3], try vm.newString("sha1", false));
+}
 
 pub fn builtinOpenSSLFixedLengthSecureCompare(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 2);

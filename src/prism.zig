@@ -1,7 +1,7 @@
 const std = @import("std");
 const enc = @import("encoding.zig");
 
-const c = @cImport(@cInclude("prism.h"));
+const c = @import("prism_c");
 
 pub const RawNode = c.pm_node_t;
 pub const RANGE_FLAGS_EXCLUDE_END = c.PM_RANGE_FLAGS_EXCLUDE_END;

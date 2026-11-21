@@ -1,5 +1,5 @@
 const std = @import("std");
-const c = @cImport(@cInclude("onigmo.h"));
+const c = @import("onigmo_c");
 
 pub const OnigRegex = c.OnigRegex;
 pub const OnigEncoding = c.OnigEncoding;

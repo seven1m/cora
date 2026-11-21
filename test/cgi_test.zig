@@ -9,7 +9,7 @@ test "require cgi and escape HTML" {
 
     const result = try std.process.run(allocator, threaded.io(), .{
         .argv = &.{
-            "build/bin/cora",
+            "zig-out/bin/cora",
             "-e",
             \\require "cgi"
             \\puts CGI.escapeHTML(%q{a&<>"'})

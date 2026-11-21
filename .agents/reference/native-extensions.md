@@ -27,13 +27,13 @@ are built and tested.
 
 Some pure-Ruby vendored gems are added directly to `repo_load_paths` by their
 `ext/<gem>/lib` directory. Default gems are installed under
-`build/lib/gems/4.0.0/gems/<name>-<version>/`; those with native extensions
+`zig-out/lib/gems/4.0.0/gems/<name>-<version>/`; those with native extensions
 ship their compiled `.so` next to the `lib/` tree.
 
 Bundled gems are ordinary installed gems shipped with Cora. The set includes
 `csv`, `test-unit`, and its `power_assert` dependency. Their sources are pinned as
-submodules, installed under `build/lib/gems/4.0.0/gems/`, and registered by
-gemspecs in `build/lib/gems/4.0.0/specifications/`. Unlike default gems,
+submodules, installed under `zig-out/lib/gems/4.0.0/gems/`, and registered by
+gemspecs in `zig-out/lib/gems/4.0.0/specifications/`. Unlike default gems,
 they are not placed directly on `$LOAD_PATH`; RubyGems activates them when
 required. `Gem::Specification#default_gem?` is false for them.
 
@@ -41,7 +41,7 @@ required. `Gem::Specification#default_gem?` is false for them.
 
 `src/load_path.zig` defines the load-path ordering used by both `main.zig`
 (`configureLoadPath`) and the test helpers. Entries are evaluated relative to
-the runtime root (or `build/` in test mode).
+the runtime root (or `zig-out/` in test mode).
 
 - Pure-Ruby stdlib goes through `lib/stdlib/`.
 - Vendored non-default gem trees are listed by their `ext/<gem>/lib` path
@@ -72,10 +72,10 @@ Mach-O linker crash involving its libcharset reexport and exported C API symbols
 - `src/default_gems.zig` - names, versions, source kinds, and load-path
   membership for default gems, shared by the build and runtime.
 - `runtime_ext_dirs` - list of `ext/<gem>` directories copied wholesale into
-  the install prefix (`build/ext/<gem>`). Used for gem trees that are loaded
+  the install prefix (`zig-out/ext/<gem>`). Used for gem trees that are loaded
   directly from `ext/<gem>/lib` and do not need a gem layout.
 - `addInstallGemDir` - installs `ext/<gem>` (or a build copy) into
-  `build/lib/gems/4.0.0/gems/<name>-<version>/`.
+  `zig-out/lib/gems/4.0.0/gems/<name>-<version>/`.
 - `addInstallDefaultGemNativeLib` - installs a single compiled `.so` into the
   default gem's `lib/` directory.
 - `addWriteGemSpec` - loads each upstream `.gemspec` and writes a serialized
@@ -89,8 +89,8 @@ interpreter's shipped gem directory in its default search path.
 Steps per gem:
 
 - `psych` - pure C extension built via `ext/psych/ext/psych/extconf.rb` plus
-  `make -C build/psych/ext`.
-- `strscan` - copied into `build/strscan`, patched with `ext/strscan.patch`,
+  `make -C zig-out/psych/ext`.
+- `strscan` - copied into `zig-out/strscan`, patched with `ext/strscan.patch`,
   then built with its own `extconf.rb` and `make`.
 - `json` - installed as a default gem with native parser and generator `.so`
   files.
@@ -110,7 +110,7 @@ Steps per gem:
 - `csv`, `test-unit`, `power_assert` - pure Ruby; installed as ordinary bundled gems
   with `test-unit` depending on `power_assert`.
 
-The TinyCC JIT is copied from `ext/tinycc` to `build/tinycc`, configured, and
+The TinyCC JIT is copied from `ext/tinycc` to `zig-out/tinycc`, configured, and
 linked as `libtcc.a`. Onigmo is vendored from MRI in `ext/onigmo` and built
 directly as a static library by Zig. It needs neither autotools nor a Ruby
 checkout at build time. See `ext/onigmo/README.md` for its source pin and refresh
@@ -135,9 +135,9 @@ zig build ffi                # build the initial libffi-backed extension
 ## Common Build Options
 
 ```bash
-zig build -Doptimize=ReleaseFast        # default; writes the result to build/bin/cora
-zig build -Doptimize=Debug              # full safety + debug info
-zig build -Doptimize=ReleaseSafe        # release performance with runtime safety
+zig build -Doptimize=fast        # default; writes the result to zig-out/bin/cora
+zig build -Doptimize=debug              # full safety + debug info
+zig build -Doptimize=safe        # release performance with runtime safety
 zig build -Dsubmodule-update=false      # skip `git submodule update --init`
 zig build test -Dtest-jobs=8            # parallelize tests across workers
 ```
@@ -218,11 +218,11 @@ The smallest end-to-end fixture lives at:
   `include/cora/ruby.h` to define `String#cora_cext_test` and a few
   `CoraCExt` module functions covering `rb_funcall`, `rb_yield`, and nested
   non-local returns.
-- `test/core/cext_test.zig` - Zig tests that `$LOAD_PATH << "build/cext"`,
+- `test/core/cext_test.zig` - Zig tests that `$LOAD_PATH << "zig-out/cext"`,
   `require "fixture.so"`, and exercise the fixture through Ruby code.
 - `build.zig` - `buildCExtFixture` compiles the fixture with `gcc -shared
-  -fPIC -I include/cora` to `build/cext/fixture.so`, installed to
-  `build/cext/fixture.so`. The `test` step depends on this.
+  -fPIC -I include/cora` to `zig-out/cext/fixture.so`, installed to
+  `zig-out/cext/fixture.so`. The `test` step depends on this.
 
 Use this fixture as the template when adding new `rb_*` ABI surface area: copy
 `cext_fixture.c`, add a Zig test in `test/core/cext_test.zig`, register the

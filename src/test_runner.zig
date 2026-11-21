@@ -23,11 +23,11 @@ var fba = std.heap.FixedBufferAllocator.init(&fba_buffer);
 var fba_buffer: [8192]u8 = undefined;
 var stdin_buffer: [4096]u8 = undefined;
 var stdout_buffer: [4096]u8 = undefined;
-var process_io: std.Io = std.testing.io;
+var process_io: std.Io = undefined;
 
 const ZigTestFn = @TypeOf(builtin.test_functions[0]);
 const worker_result_prefix = "__cora_worker_result__ ";
-var failed_test_names: std.ArrayListUnmanaged([]const u8) = .{ .items = &.{}, .capacity = 0 };
+var failed_test_names: std.ArrayListUnmanaged([]const u8) = .empty;
 const non_tty_progress_interval: usize = 1000;
 
 const CliOptions = struct {
@@ -151,7 +151,7 @@ fn filterMatches(name: []const u8) bool {
     while (it.next()) |raw| {
         const part = std.mem.trim(u8, raw, " \t\r\n");
         if (part.len == 0) continue;
-        if (std.ascii.indexOfIgnoreCase(name, part) != null) return true;
+        if (std.ascii.findIgnoreCase(name, part) != null) return true;
     }
 
     return false;
@@ -328,12 +328,15 @@ fn executeTestAtIndex(test_fns: []const ZigTestFn, ruby_spec_tests: []const Ruby
     log_err_count = 0;
     testing.log_level = .warn;
     is_fuzz_test = false;
-    testing.allocator_instance = .{};
+    testing.allocator_instance = .init(std.heap.page_allocator, .{
+        .canary = 0xc3a701ba,
+        .check_write_after_free = true,
+    });
     const start_ts = if (timing) getTimeNsec() else 0;
     defer {
         result.log_err_count = log_err_count;
         result.fuzz = is_fuzz_test;
-        result.leak = testing.allocator_instance.deinit() == .leak;
+        result.leak = testing.allocator_instance.deinit() != 0;
     }
 
     if (index < test_fns.len) {
@@ -967,6 +970,12 @@ const crippled = switch (builtin.zig_backend) {
 pub fn main(init: std.process.Init) void {
     @disableInstrumentation();
     process_io = init.io;
+    testing.environ = init.minimal.environ;
+    testing.io_instance = .init(std.heap.page_allocator, .{
+        .argv0 = .init(init.minimal.args),
+        .environ = init.minimal.environ,
+    });
+    defer testing.io_instance.deinit();
 
     if (builtin.cpu.arch.isSpirV()) {
         // SPIR-V needs an special test-runner
@@ -1000,11 +1009,11 @@ fn mainServer() !void {
     @disableInstrumentation();
     var stdin_reader = std.Io.File.stdin().readerStreaming(process_io, &stdin_buffer);
     var stdout_writer = std.Io.File.stdout().writerStreaming(process_io, &stdout_buffer);
-    var server = try std.zig.Server.init(.{
+    var server: std.zig.Server = .{
         .in = &stdin_reader.interface,
         .out = &stdout_writer.interface,
-        .zig_version = builtin.zig_version_string,
-    });
+    };
+    try server.serveStringMessage(.zig_version, builtin.zig_version_string);
 
     if (builtin.fuzz) {
         const coverage_id = fuzzer_coverage_id();
@@ -1018,8 +1027,11 @@ fn mainServer() !void {
                 return std.process.exit(0);
             },
             .query_test_metadata => {
-                testing.allocator_instance = .{};
-                defer if (testing.allocator_instance.deinit() == .leak) {
+                testing.allocator_instance = .init(std.heap.page_allocator, .{
+                    .canary = 0xc3a701ba,
+                    .check_write_after_free = true,
+                });
+                defer if (testing.allocator_instance.deinit() != 0) {
                     @panic("internal test runner memory leak");
                 };
 
@@ -1062,7 +1074,10 @@ fn mainServer() !void {
             },
 
             .run_test => {
-                testing.allocator_instance = .{};
+                testing.allocator_instance = .init(std.heap.page_allocator, .{
+                    .canary = 0xc3a701ba,
+                    .check_write_after_free = true,
+                });
                 log_err_count = 0;
                 const index = try server.receiveBody_u32();
                 var fail = false;
@@ -1098,7 +1113,7 @@ fn mainServer() !void {
                     deinitRubySpecTests(testing.allocator, &ruby_spec_tests);
                 }
 
-                const leak = testing.allocator_instance.deinit() == .leak;
+                const leak = testing.allocator_instance.deinit() != 0;
                 try server.serveTestResults(.{
                     .index = index,
                     .flags = .{
@@ -1118,7 +1133,7 @@ fn mainServer() !void {
                 const test_fn = builtin.test_functions[index];
                 const entry_addr = @intFromPtr(test_fn.func);
                 try server.serveU64Message(.fuzz_start_addr, entry_addr);
-                defer if (testing.allocator_instance.deinit() == .leak) std.process.exit(1);
+                defer if (testing.allocator_instance.deinit() != 0) std.process.exit(1);
                 is_fuzz_test = false;
                 fuzzer_set_name(test_fn.name.ptr, test_fn.name.len);
                 test_fn.func() catch |err| switch (err) {
@@ -1136,7 +1151,7 @@ fn mainServer() !void {
             },
 
             else => {
-                std.debug.print("unsupported message: {x}\n", .{@intFromEnum(hdr.tag)});
+                std.debug.print("unsupported message: {x}\n", .{@backingInt(hdr.tag)});
                 std.process.exit(1);
             },
         }
@@ -1325,10 +1340,10 @@ pub fn log(
     args: anytype,
 ) void {
     @disableInstrumentation();
-    if (@intFromEnum(message_level) <= @intFromEnum(std.log.Level.err)) {
+    if (@backingInt(message_level) <= @backingInt(std.log.Level.err)) {
         log_err_count +|= 1;
     }
-    if (@intFromEnum(message_level) <= @intFromEnum(testing.log_level)) {
+    if (@backingInt(message_level) <= @backingInt(testing.log_level)) {
         std.debug.print(
             "[" ++ @tagName(scope) ++ "] (" ++ @tagName(message_level) ++ "): " ++ format ++ "\n",
             args,
@@ -1439,8 +1454,11 @@ pub fn fuzz(
 
         fn fuzzer_one(input_ptr: [*]const u8, input_len: usize) callconv(.c) void {
             @disableInstrumentation();
-            testing.allocator_instance = .{};
-            defer if (testing.allocator_instance.deinit() == .leak) std.process.exit(1);
+            testing.allocator_instance = .init(std.heap.page_allocator, .{
+                .canary = 0xc3a701ba,
+                .check_write_after_free = true,
+            });
+            defer if (testing.allocator_instance.deinit() != 0) std.process.exit(1);
             log_err_count = 0;
             testOne(ctx, input_ptr[0..input_len]) catch |err| switch (err) {
                 error.SkipZigTest => return,
@@ -1460,7 +1478,10 @@ pub fn fuzz(
     };
     if (builtin.fuzz) {
         const prev_allocator_state = testing.allocator_instance;
-        testing.allocator_instance = .{};
+        testing.allocator_instance = .init(std.heap.page_allocator, .{
+            .canary = 0xc3a701ba,
+            .check_write_after_free = true,
+        });
         defer testing.allocator_instance = prev_allocator_state;
 
         for (options.corpus) |elem| fuzzer_init_corpus_elem(elem.ptr, elem.len);

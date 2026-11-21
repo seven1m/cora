@@ -913,12 +913,12 @@ pub fn builtinIoBinread(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Val
         if (offset < 0) {
             _ = std.c.lseek(fd, offset, 0);
             const errno_val = std.c._errno().*;
-            return vm.raiseErrnoFmt(@enumFromInt(errno_val), "invalid argument", .{});
+            return vm.raiseErrnoFmt(@fromBackingInt(@intCast(errno_val)), "invalid argument", .{});
         }
         const result = std.c.lseek(fd, offset, 0);
         if (result < 0) {
             const errno_val = std.c._errno().*;
-            return vm.raiseErrnoFmt(@enumFromInt(errno_val), "seek failed", .{});
+            return vm.raiseErrnoFmt(@fromBackingInt(@intCast(errno_val)), "seek failed", .{});
         }
     }
 
@@ -1557,7 +1557,7 @@ pub fn builtinIoInitialize(vm: *VM, receiver: Value, args: []Value, _: ?Block) V
     }
     const status_flags = std.c.fcntl(fd, std.c.F.GETFL, @as(c_int, 0));
     if (status_flags < 0) {
-        return vm.raiseErrnoFmt(@enumFromInt(std.c._errno().*), "invalid file descriptor {d}", .{fd});
+        return vm.raiseErrnoFmt(@fromBackingInt(@intCast(std.c._errno().*)), "invalid file descriptor {d}", .{fd});
     }
     if (flags_keyword) |flag_val| {
         _ = try flag_val.coerceToIntegerValue(vm, "no implicit conversion to Integer", "can't convert to Integer");
@@ -1856,7 +1856,7 @@ fn waitForIo(vm: *VM, io: *IoObject, events: i16, timeout_ms: i32, include_hup: 
         try vm.checkAsyncEvents();
         const ready_count = std.c.poll(fds[0..].ptr, @intCast(fds[0..].len), 0);
         if (ready_count < 0) {
-            const errno_code: std.posix.E = @enumFromInt(std.c._errno().*);
+            const errno_code: std.posix.E = @fromBackingInt(@intCast(std.c._errno().*));
             if (errno_code == .INTR) {
                 try vm.checkAsyncEvents();
                 continue;
@@ -2055,7 +2055,7 @@ pub fn builtinIoSelect(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Valu
         selectResetPollfds(pollfds.items);
         const ready_count = std.c.poll(pollfds.items.ptr, @intCast(pollfds.items.len), 0);
         if (ready_count < 0) {
-            const errno_code: std.posix.E = @enumFromInt(std.c._errno().*);
+            const errno_code: std.posix.E = @fromBackingInt(@intCast(std.c._errno().*));
             if (errno_code == .INTR) {
                 try vm.checkAsyncEvents();
                 continue;
@@ -2224,7 +2224,7 @@ fn ioWriteBytes(vm: *VM, io: *IoObject, bytes: []const u8) VMError!usize {
         try vm.checkAsyncEvents();
         const n = std.c.write(fd, bytes[total..].ptr, bytes[total..].len);
         if (n < 0) {
-            const errno_code: std.posix.E = @enumFromInt(std.c._errno().*);
+            const errno_code: std.posix.E = @fromBackingInt(@intCast(std.c._errno().*));
             switch (errno_code) {
                 .INTR => {
                     try vm.checkAsyncEvents();
@@ -2275,7 +2275,7 @@ fn blockingIoRead(vm: *VM, io: *IoObject, buf: []u8) VMError!usize {
         const n = std.c.read(fd, buf.ptr, buf.len);
         if (n >= 0) return @intCast(n);
 
-        const errno_code: std.posix.E = @enumFromInt(std.c._errno().*);
+        const errno_code: std.posix.E = @fromBackingInt(@intCast(std.c._errno().*));
         switch (errno_code) {
             .INTR => {
                 try vm.checkAsyncEvents();

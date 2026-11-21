@@ -851,7 +851,7 @@ test "Thread.pass works inside Fiber in non-main Thread" {
 
     const result = try std.process.run(allocator, threaded.io(), .{
         .argv = &.{
-            "build/bin/cora",
+            "zig-out/bin/cora",
             "-e",
             \\t = Thread.new do
             \\  f = Fiber.new do

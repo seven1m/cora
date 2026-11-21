@@ -1,5 +1,5 @@
 const std = @import("std");
-const c = @cImport(@cInclude("onigmo.h"));
+const c = @import("onigmo_c");
 
 test "Onigmo sharp-s expansion respects the output buffer boundary" {
     // GHSA-34m4-m9fh-gqp5: the old callbacks checked for one free byte

@@ -600,7 +600,7 @@ test "Module constant lookup loads autoloads from included ancestors" {
 
 test "Object const_get resolves Gem::Specification" {
     const result = try evalCode(
-        \\$LOAD_PATH.unshift(File.expand_path("build/ext/rubygems/lib", Dir.pwd))
+        \\$LOAD_PATH.unshift(File.expand_path("zig-out/ext/rubygems/lib", Dir.pwd))
         \\require "rubygems"
         \\Object.const_get("Gem::Specification")
     );

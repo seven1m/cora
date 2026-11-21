@@ -200,12 +200,12 @@ fn setSpecStatsEnv() ?[]u8 {
     else
         null;
 
-    const key_z = allocator.dupeZ(u8, "CORA_SPEC_STATS") catch {
+    const key_z = allocator.dupeSentinel(u8, "CORA_SPEC_STATS", 0) catch {
         if (previous) |value| allocator.free(value);
         return previous;
     };
     defer allocator.free(key_z);
-    const value_z = allocator.dupeZ(u8, "1") catch {
+    const value_z = allocator.dupeSentinel(u8, "1", 0) catch {
         if (previous) |value| allocator.free(value);
         return previous;
     };
@@ -219,11 +219,11 @@ fn restoreSpecStatsEnv(previous_value: ?[]u8) void {
     const allocator = std.heap.page_allocator;
     defer if (previous_value) |value| allocator.free(value);
 
-    const key_z = allocator.dupeZ(u8, "CORA_SPEC_STATS") catch return;
+    const key_z = allocator.dupeSentinel(u8, "CORA_SPEC_STATS", 0) catch return;
     defer allocator.free(key_z);
 
     if (previous_value) |value| {
-        const value_z = allocator.dupeZ(u8, value) catch return;
+        const value_z = allocator.dupeSentinel(u8, value, 0) catch return;
         defer allocator.free(value_z);
         _ = setenv(key_z.ptr, value_z.ptr, 1);
     } else {
@@ -303,7 +303,7 @@ pub fn evalFile(path: []const u8, stdout_buf: []u8, stderr_buf: []u8) EvalResult
 fn appendRepoLoadPaths(vm: *VM, io: std.Io) !void {
     for (load_path.repo_load_paths) |path| {
         var rel_path_buffer: [4096]u8 = undefined;
-        const runtime_path = std.fmt.bufPrint(&rel_path_buffer, "build/{s}", .{path}) catch continue;
+        const runtime_path = std.fmt.bufPrint(&rel_path_buffer, "zig-out/{s}", .{path}) catch continue;
         var path_buffer: [4096]u8 = undefined;
         const abs_len = std.Io.Dir.cwd().realPathFile(io, runtime_path, &path_buffer) catch 0;
         if (abs_len == 0) continue;
@@ -316,7 +316,7 @@ fn evalCodeWithOutputAndPath(ruby_code: []const u8, stdout_buf: []u8, stderr_buf
     var timings = SpecTimings{};
     var phase_start = perfNowNs();
     bdwgc.init();
-    if (builtin.mode != .Debug) bdwgc.disableWarnings();
+    if (builtin.mode != .debug) bdwgc.disableWarnings();
     timings.gc_init_ns = perfNowNs() - phase_start;
     defer bdwgc.deinit();
 
@@ -340,7 +340,7 @@ fn evalCodeWithOutputAndPath(ruby_code: []const u8, stdout_buf: []u8, stderr_buf
     var vm = VM.initEmpty(allocator, cora.gc_allocator.scanned, cora.gc_allocator.atomic, threaded.io(), std.testing.environ);
     defer vm.deinit();
     var exe_path_buffer: [4096]u8 = undefined;
-    const exe_path_len = std.Io.Dir.cwd().realPathFile(threaded.io(), "build/bin/cora", &exe_path_buffer) catch {
+    const exe_path_len = std.Io.Dir.cwd().realPathFile(threaded.io(), "zig-out/bin/cora", &exe_path_buffer) catch {
         return .{ .stdout = "", .stderr = "", .err = error.FileNotFound };
     };
     vm.setRubyExecutablePath(exe_path_buffer[0..exe_path_len]) catch |err| {

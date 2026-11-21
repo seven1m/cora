@@ -2,7 +2,7 @@
   description = "Cora - Ruby interpreter in Zig";
 
   inputs = {
-    nixpkgs.url = "github:NixOS/nixpkgs/d407951447dcd00442e97087bf374aad70c04cea";
+    nixpkgs.url = "github:NixOS/nixpkgs/0bb8272318b4ca41bf0edc6224df3e3e3046b70d";
 
     # Used by shell.nix for plain `nix-shell` support on stable Nix.
     flake-compat = {
@@ -37,7 +37,7 @@
               sqlite
               stdenv.cc
               zlib
-              zig_0_16
+              zig_0_17
             ];
 
             shellHook = ''

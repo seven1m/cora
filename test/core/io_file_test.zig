@@ -1,8 +1,6 @@
 const std = @import("std");
 const builtin = @import("builtin");
-const native_stat_api = @cImport({
-    @cInclude("sys/stat.h");
-});
+const native_stat_api = @import("stat_c");
 const test_helper = @import("../test_helper.zig");
 
 const evalCode = test_helper.evalCode;
@@ -150,8 +148,7 @@ test "standard stream fileno values are 0,1,2" {
 test "IO#reopen redirects an existing stream to a file path" {
     var path_buf: [128]u8 = undefined;
     const path = try uniquePath(&path_buf);
-    const source = try std.fmt.allocPrint(
-        std.testing.allocator,
+    const source = try std.fmt.allocPrint(std.testing.allocator,
         \\path = "{s}"
         \\file = File.open(path, "w")
         \\copy = File.open(path + ".copy", "w")
@@ -177,8 +174,7 @@ test "IO exposes binary mode constant" {
 test "File#tty? is false for regular files" {
     var path_buf: [128]u8 = undefined;
     const path = try uniquePath(&path_buf);
-    const source = try std.fmt.allocPrint(
-        std.testing.allocator,
+    const source = try std.fmt.allocPrint(std.testing.allocator,
         \\path = "{s}"
         \\File.write(path, "hello")
         \\f = File.open(path, "r")
@@ -198,8 +194,7 @@ test "File#tty? is false for regular files" {
 test "File.write and File.read round trip content" {
     var path_buf: [128]u8 = undefined;
     const path = try uniquePath(&path_buf);
-    const source = try std.fmt.allocPrint(
-        std.testing.allocator,
+    const source = try std.fmt.allocPrint(std.testing.allocator,
         \\path = "{s}"
         \\n = File.write(path, "hello")
         \\[n, File.read(path)]
@@ -231,8 +226,7 @@ test "IO#readlines collects lines from a pipe" {
 test "File.read accepts optional length and offset" {
     var path_buf: [128]u8 = undefined;
     const path = try uniquePath(&path_buf);
-    const source = try std.fmt.allocPrint(
-        std.testing.allocator,
+    const source = try std.fmt.allocPrint(std.testing.allocator,
         \\path = "{s}"
         \\File.write(path, "abcdef")
         \\[
@@ -254,8 +248,7 @@ test "File.read accepts optional length and offset" {
 test "File.read rejects negative length and offset" {
     var path_buf: [128]u8 = undefined;
     const path = try uniquePath(&path_buf);
-    const source = try std.fmt.allocPrint(
-        std.testing.allocator,
+    const source = try std.fmt.allocPrint(std.testing.allocator,
         \\path = "{s}"
         \\File.write(path, "abcdef")
         \\begin
@@ -270,8 +263,7 @@ test "File.read rejects negative length and offset" {
     try std.testing.expect(result.isArray());
     try std.testing.expectEqual(true, result.toArrayObject().elements.items[0].toBool());
 
-    const source_offset = try std.fmt.allocPrint(
-        std.testing.allocator,
+    const source_offset = try std.fmt.allocPrint(std.testing.allocator,
         \\path = "{s}"
         \\File.write(path, "abcdef")
         \\begin
@@ -293,8 +285,7 @@ test "File.delete and File.unlink remove files and return the deleted count" {
     const path1 = try uniquePath(&path1_buf);
     const path2 = try std.fmt.bufPrint(&path2_buf, "{s}_second", .{path1});
 
-    const source = try std.fmt.allocPrint(
-        std.testing.allocator,
+    const source = try std.fmt.allocPrint(std.testing.allocator,
         \\path1 = "{s}"
         \\path2 = "{s}"
         \\File.write(path1, "a")
@@ -320,8 +311,7 @@ test "File.delete accepts zero args and coerces to_path" {
     var path_buf: [128]u8 = undefined;
     const path = try uniquePath(&path_buf);
 
-    const source = try std.fmt.allocPrint(
-        std.testing.allocator,
+    const source = try std.fmt.allocPrint(std.testing.allocator,
         \\path = "{s}"
         \\obj = Object.new
         \\def obj.to_path
@@ -348,8 +338,7 @@ test "File.open and File.delete raise mapped Errno classes" {
     var path_buf: [128]u8 = undefined;
     const path = try uniquePath(&path_buf);
 
-    const source = try std.fmt.allocPrint(
-        std.testing.allocator,
+    const source = try std.fmt.allocPrint(std.testing.allocator,
         \\missing = "{s}"
         \\[
         \\  begin
@@ -378,8 +367,7 @@ test "Dir.mkdir raises mapped Errno class for existing path" {
     var path_buf: [128]u8 = undefined;
     const path = try std.fmt.bufPrint(&path_buf, "/tmp/cora_dir_{d}", .{@as(i128, @intCast(std.Io.Clock.boot.now(std.testing.io).nanoseconds))});
 
-    const source = try std.fmt.allocPrint(
-        std.testing.allocator,
+    const source = try std.fmt.allocPrint(std.testing.allocator,
         \\path = "{s}"
         \\Dir.mkdir(path)
         \\begin
@@ -438,8 +426,7 @@ test "Errno exposes common unix constants" {
 test "File.open with block closes file automatically" {
     var path_buf: [128]u8 = undefined;
     const path = try uniquePath(&path_buf);
-    const source = try std.fmt.allocPrint(
-        std.testing.allocator,
+    const source = try std.fmt.allocPrint(std.testing.allocator,
         \\path = "{s}"
         \\f = nil
         \\File.open(path, "w") {{ |io| f = io; io.write("x") }}
@@ -488,8 +475,7 @@ test "File#size reports the current file size" {
 test "File.open accepts integer mode flags" {
     var path_buf: [128]u8 = undefined;
     const path = try uniquePath(&path_buf);
-    const source = try std.fmt.allocPrint(
-        std.testing.allocator,
+    const source = try std.fmt.allocPrint(std.testing.allocator,
         \\path = "{s}"
         \\flags = File::RDWR | File::CREAT | File::BINARY
         \\File.open(path, flags) do |io|
@@ -507,8 +493,7 @@ test "File.open accepts integer mode flags" {
 test "File.stat and IO#stat expose uid and gid" {
     var path_buf: [128]u8 = undefined;
     const path = try uniquePath(&path_buf);
-    const source = try std.fmt.allocPrint(
-        std.testing.allocator,
+    const source = try std.fmt.allocPrint(std.testing.allocator,
         \\path = "{s}"
         \\File.write(path, "x")
         \\f = File.open(path, "r")
@@ -522,7 +507,7 @@ test "File.stat and IO#stat expose uid and gid" {
     , .{path});
     defer std.testing.allocator.free(source);
 
-    const path_z = try std.testing.allocator.dupeZ(u8, path);
+    const path_z = try std.testing.allocator.dupeSentinel(u8, path, 0);
     defer std.testing.allocator.free(path_z);
 
     const result = try evalCode(source);
@@ -553,7 +538,6 @@ test "File.stat and IO#stat agree on birthtime" {
     const result = try evalCode(source);
     try std.testing.expect(result.isTrue());
 }
-
 
 test "File.split matches MRI path splitting" {
     var result = try evalCode("File.split('/a/b')");
@@ -594,8 +578,7 @@ test "File.identical? returns true for same file and false for missing paths" {
     const missing_path = try std.fmt.allocPrint(std.testing.allocator, "{s}_missing", .{path});
     defer std.testing.allocator.free(missing_path);
 
-    const source = try std.fmt.allocPrint(
-        std.testing.allocator,
+    const source = try std.fmt.allocPrint(std.testing.allocator,
         \\path = "{s}"
         \\alt = "{s}"
         \\missing = "{s}"
@@ -622,8 +605,7 @@ test "IO.copy_stream copies bytes between open files" {
     const src = try uniquePath(&src_buf);
     const dst = try uniquePath(&dst_buf);
 
-    const source = try std.fmt.allocPrint(
-        std.testing.allocator,
+    const source = try std.fmt.allocPrint(std.testing.allocator,
         \\src = "{s}"
         \\dst = "{s}"
         \\File.write(src, "hello")
@@ -645,8 +627,7 @@ test "IO.copy_stream uses single read for limited io-like source" {
     var dst_buf: [128]u8 = undefined;
     const dst = try uniquePath(&dst_buf);
 
-    const source = try std.fmt.allocPrint(
-        std.testing.allocator,
+    const source = try std.fmt.allocPrint(std.testing.allocator,
         \\class CopyStreamSource
         \\  attr_reader :calls
         \\  def initialize(data)
@@ -745,8 +726,7 @@ test "Dir.children and File::Stat#directory? support vendored fileutils traversa
     var root_buf: [128]u8 = undefined;
     const root = try uniquePath(&root_buf);
 
-    const source = try std.fmt.allocPrint(
-        std.testing.allocator,
+    const source = try std.fmt.allocPrint(std.testing.allocator,
         \\root = "{s}"
         \\Dir.mkdir(root)
         \\File.write(File.join(root, "a.txt"), "x")
@@ -767,8 +747,7 @@ test "File.lstat and File.symlink? do not follow symlinks" {
     var root_buf: [128]u8 = undefined;
     const root = try uniquePath(&root_buf);
 
-    const source = try std.fmt.allocPrint(
-        std.testing.allocator,
+    const source = try std.fmt.allocPrint(std.testing.allocator,
         \\root = "{s}"
         \\Dir.mkdir(root)
         \\target = File.join(root, "target")
@@ -795,8 +774,7 @@ test "File.lstat and File.symlink? do not follow symlinks" {
 test "File.stat raises Errno::ELOOP for a symlink loop" {
     var path_buf: [128]u8 = undefined;
     const path = try uniquePath(&path_buf);
-    const source = try std.fmt.allocPrint(
-        std.testing.allocator,
+    const source = try std.fmt.allocPrint(std.testing.allocator,
         \\path = "{s}"
         \\File.symlink(path, path)
         \\begin
@@ -816,8 +794,7 @@ test "File.stat raises Errno::ELOOP for a symlink loop" {
 test "Kernel puts and p follow $stdout reassignment" {
     var path_buf: [128]u8 = undefined;
     const path = try uniquePath(&path_buf);
-    const source = try std.fmt.allocPrint(
-        std.testing.allocator,
+    const source = try std.fmt.allocPrint(std.testing.allocator,
         \\path = "{s}"
         \\f = File.open(path, "w")
         \\$stdout = f
@@ -854,8 +831,7 @@ test "write on closed File raises IOError" {
 
     var stdout_buf: [1024]u8 = undefined;
     var stderr_buf: [8192]u8 = undefined;
-    const source = try std.fmt.allocPrint(
-        std.testing.allocator,
+    const source = try std.fmt.allocPrint(std.testing.allocator,
         \\f = File.open("{s}", "w")
         \\f.close
         \\f.write("x")
@@ -870,8 +846,7 @@ test "write on closed File raises IOError" {
 test "File.open applies external encoding without transcoding write_nonblock bytes" {
     var path_buf: [128]u8 = undefined;
     const path = try uniquePath(&path_buf);
-    const source = try std.fmt.allocPrint(
-        std.testing.allocator,
+    const source = try std.fmt.allocPrint(std.testing.allocator,
         \\path = "{s}"
         \\File.open(path, "w", external_encoding: Encoding::UTF_16BE) do |file|
         \\  puts file.external_encoding == Encoding::UTF_16BE
@@ -893,8 +868,7 @@ test "File.open applies external encoding without transcoding write_nonblock byt
 test "IO text writes transcode to external encoding while syswrite stays raw" {
     var path_buf: [128]u8 = undefined;
     const path = try uniquePath(&path_buf);
-    const source = try std.fmt.allocPrint(
-        std.testing.allocator,
+    const source = try std.fmt.allocPrint(std.testing.allocator,
         \\path = "{s}"
         \\count = File.open(path, "w", encoding: "Shift_JIS") do |file|
         \\  written = file.write("こんにちは！")
@@ -926,8 +900,7 @@ test "Dir.pwd returns the current working directory" {
 test "Dir.home follows HOME and supports the current USER" {
     const passwd = std.c.getpwuid(std.c.getuid()) orelse return error.SkipZigTest;
     const current_user = std.mem.span(passwd.name orelse return error.SkipZigTest);
-    const source = try std.fmt.allocPrint(
-        std.testing.allocator,
+    const source = try std.fmt.allocPrint(std.testing.allocator,
         \\old_home = ENV["HOME"]
         \\old_user = ENV["USER"]
         \\ENV["HOME"] = "/tmp/cora_home"
@@ -1019,8 +992,7 @@ test "File.expand_path handles relative and home-based paths" {
     const cwd = try std.process.currentPathAlloc(std.testing.io, std.testing.allocator);
     defer std.testing.allocator.free(cwd);
 
-    const source = try std.fmt.allocPrint(
-        std.testing.allocator,
+    const source = try std.fmt.allocPrint(std.testing.allocator,
         \\old_home = ENV["HOME"]
         \\ENV["HOME"] = "/tmp/cora_home"
         \\begin

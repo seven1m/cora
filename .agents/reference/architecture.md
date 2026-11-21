@@ -10,7 +10,7 @@
 **Key files:**
 - `src/main.zig` - CLI entry point
 - `src/prism.zig` - Prism C library wrapper with typed Node union
-- `build/prism` - generated Prism C/header sources when you need to inspect parser internals
+- `zig-out/prism` - generated Prism C/header sources when you need to inspect parser internals
 - `src/cext.zig` - Ruby C extension ABI implementation (`rb_*` exports for `dlopen`'d `.so` files)
 - `include/cora/ruby.h` - C header that ext authors `#include` to get the `VALUE` ABI Cora supports
 - `src/load_path.zig` - static `repo_load_paths` table that registers vendored gems at startup

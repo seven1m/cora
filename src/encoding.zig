@@ -209,8 +209,8 @@ pub const Encoding = union(enum) {
     /// index rather than only the active union tag.
     pub fn encodingIndex(self: Encoding) usize {
         return switch (self) {
-            .legacy => |legacy| encoding_legacy_index_base + @intFromEnum(legacy.id),
-            else => @intFromEnum(@as(std.meta.Tag(Encoding), self)),
+            .legacy => |legacy| encoding_legacy_index_base + @backingInt(legacy.id),
+            else => @backingInt(@as(std.meta.Tag(Encoding), self)),
         };
     }
 
@@ -262,7 +262,7 @@ pub const Encoding = union(enum) {
     }
 };
 
-pub const encoding_legacy_index_base = @typeInfo(Encoding).@"union".fields.len - 1;
+pub const encoding_legacy_index_base = @typeInfo(Encoding).@"union".field_names.len - 1;
 pub const encoding_index_count = encoding_legacy_index_base + legacy_encoding_count;
 
 pub const TranscodeError = error{

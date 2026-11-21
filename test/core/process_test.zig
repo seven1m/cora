@@ -22,7 +22,7 @@ fn createPathScript(allocator: std.mem.Allocator, stem: []const u8, body: []cons
     defer file.close(std.testing.io);
     try file.writeStreamingAll(std.testing.io, body);
 
-    const script_path_z = try allocator.dupeZ(u8, script_path);
+    const script_path_z = try allocator.dupeSentinel(u8, script_path, 0);
     defer allocator.free(script_path_z);
     if (std.c.chmod(script_path_z, 0o755) != 0) return error.PermissionDenied;
 
@@ -211,7 +211,7 @@ test "Process.wait raises Interrupt instead of EINTR on SIGINT" {
 
     const result = try std.process.run(allocator, threaded.io(), .{
         .argv = &.{
-            "build/bin/cora",
+            "zig-out/bin/cora",
             "-e",
             "target = Process.spawn('/usr/bin/env', 'sh', '-lc', 'sleep 5'); sender = Process.spawn('/usr/bin/env', 'sh', '-lc', \"sleep 0.1; kill -INT #{Process.pid}\"); begin; Process.wait(target); rescue Interrupt; begin; Process.kill('KILL', target); rescue Exception; end; puts 'interrupt'; end",
         },
@@ -250,7 +250,7 @@ test "Process.fork re-raises default signals after child at_exit handlers" {
 
     const result = try std.process.run(allocator, threaded.io(), .{
         .argv = &.{
-            "build/bin/cora",
+            "zig-out/bin/cora",
             "-e",
             \\parent_pid = Process.pid
             \\reader, writer = IO.pipe

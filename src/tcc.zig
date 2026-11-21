@@ -3,14 +3,7 @@ const builtin = @import("builtin");
 
 pub const available = true;
 
-const c = if (available) @cImport({
-    @cInclude("libtcc.h");
-    if (builtin.os.tag == .linux) {
-        @cDefine("_GNU_SOURCE", "1");
-        @cInclude("dlfcn.h");
-        @cInclude("stdlib.h");
-    }
-}) else struct {};
+const c = if (available) @import("tcc_c") else struct {};
 
 pub const State = if (available) c.TCCState else opaque {};
 
