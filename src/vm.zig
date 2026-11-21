@@ -5297,7 +5297,7 @@ pub const VM = struct {
             // Deliver async exception (e.g. from Thread#raise)
             if (thread.async_exception) |exc| {
                 thread.async_exception = null;
-                try self.captureAndSetExceptionBacktrace(exc);
+                try self.captureExceptionBacktrace(exc);
                 // Call exc.exception() on the target thread (matching MRI rb_exc_exception)
                 const exc_val = Value.fromObject(&exc.object);
                 const raised_val = try self.callMethodByName(exc_val, "exception", &.{}, null);
@@ -5622,7 +5622,7 @@ pub const VM = struct {
         }
         if (thread.async_exception) |exc| {
             thread.async_exception = null;
-            try self.captureAndSetExceptionBacktrace(exc);
+            try self.captureExceptionBacktrace(exc);
             const raised_val = try self.callMethodByName(Value.fromObject(&exc.object), "exception", &.{}, null);
             self.setPendingException(raised_val.toExceptionObject());
             return error.Unwind;
@@ -14645,7 +14645,7 @@ pub const VM = struct {
         try self.captureExceptionBacktrace(exc);
     }
 
-    fn captureExceptionBacktrace(self: *VM, exc: *value.ExceptionObject) VMError!void {
+    pub fn captureExceptionBacktrace(self: *VM, exc: *value.ExceptionObject) VMError!void {
         if (exc.backtrace == null) {
             const captured = try self.captureBacktrace();
             const locations = try self.captureBacktraceLocations();

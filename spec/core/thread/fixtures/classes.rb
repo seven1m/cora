@@ -1,130 +1,3 @@
-unless Object.constants.include?(:Queue)
-  class Queue
-    def initialize
-      @items = []
-      @item_read_index = 0
-      @waiters = []
-      @waiter_read_index = 0
-    end
-
-    def <<(obj)
-      push(obj)
-    end
-
-    def push(obj)
-      @items << obj
-      wake_waiter
-      self
-    end
-
-    alias_method :enq, :push
-
-    def pop
-      while true
-        if @item_read_index < @items.size
-          item = @items[@item_read_index]
-          @item_read_index += 1
-          return item
-        end
-
-        waiter = Thread.current
-        @waiters << waiter
-        if waiter == Thread.main
-          Thread.pass
-        else
-          Thread.stop
-        end
-      end
-    end
-
-    private
-
-    def wake_waiter
-      while true
-        return if @waiter_read_index >= @waiters.size
-        waiter = @waiters[@waiter_read_index]
-        @waiter_read_index += 1
-        if waiter.alive?
-          waiter.wakeup
-          return
-        end
-      end
-    end
-  end
-end
-
-unless Object.constants.include?(:Mutex)
-  class Mutex
-    def initialize
-      @owner = nil
-      @waiters = []
-      @waiter_read_index = 0
-    end
-
-    def lock
-      current = Thread.current
-      while true
-        release_dead_owner
-        if @owner.nil? || @owner == current
-          @owner = current
-          return self
-        end
-        @waiters << current
-        Thread.stop
-      end
-    end
-
-    def unlock
-      release_dead_owner
-      @owner = nil
-      wake_waiter
-      self
-    end
-
-    def locked?
-      release_dead_owner
-      !@owner.nil?
-    end
-
-    def synchronize(&action)
-      lock
-      begin
-        action.call if action
-      ensure
-        unlock if @owner == Thread.current
-      end
-    end
-
-    private
-
-    def release_dead_owner
-      if @owner && !@owner.alive?
-        @owner = nil
-      end
-    end
-
-    def wake_waiter
-      while true
-        return if @waiter_read_index >= @waiters.size
-        waiter = @waiters[@waiter_read_index]
-        @waiter_read_index += 1
-        if waiter.alive?
-          waiter.wakeup
-          return
-        end
-      end
-    end
-  end
-end
-
-unless Object.constants.include?(:ThreadGroup)
-  class ThreadGroup
-    def add(_thread)
-      self
-    end
-  end
-end
-
 module ThreadSpecs
 
   class SubThread < Thread
@@ -149,8 +22,7 @@ module ThreadSpecs
 
       Thread.pass until thread.stop?
 
-      # Use positional-only forwarding to keep this helper compatible with Cora's current call parser.
-      thread.raise(*args)
+      thread.raise(*args, **kwargs)
 
       thread.join
     ensure
@@ -307,18 +179,18 @@ module ThreadSpecs
     status
   end
 
-  def self.dying_thread_ensures(kill_method_name=:kill, &action)
+  def self.dying_thread_ensures(kill_method_name=:kill)
     Thread.new do
       Thread.current.report_on_exception = false
       begin
         Thread.current.send(kill_method_name)
       ensure
-        action.call if action
+        yield
       end
     end
   end
 
-  def self.dying_thread_with_outer_ensure(kill_method_name=:kill, &action)
+  def self.dying_thread_with_outer_ensure(kill_method_name=:kill)
     Thread.new do
       Thread.current.report_on_exception = false
       begin
@@ -328,19 +200,19 @@ module ThreadSpecs
           raise "In dying thread"
         end
       ensure
-        action.call if action
+        yield
       end
     end
   end
 
-  def self.join_dying_thread_with_outer_ensure(kill_method_name=:kill, &action)
-    t = dying_thread_with_outer_ensure(kill_method_name, &action)
-    -> { t.join }.should raise_error(RuntimeError, "In dying thread")
+  def self.join_dying_thread_with_outer_ensure(kill_method_name=:kill)
+    t = dying_thread_with_outer_ensure(kill_method_name) { yield }
+    -> { t.join }.should.raise(RuntimeError, "In dying thread")
     return t
   end
 
-  def self.wakeup_dying_sleeping_thread(kill_method_name=:kill, &action)
-    t = ThreadSpecs.dying_thread_ensures(kill_method_name, &action)
+  def self.wakeup_dying_sleeping_thread(kill_method_name=:kill)
+    t = ThreadSpecs.dying_thread_ensures(kill_method_name) { yield }
     Thread.pass while t.status and t.status != 'sleep'
     t.wakeup
     t.join
@@ -411,14 +283,14 @@ module ThreadSpecs
     Thread.critical.should == false
   end
 
-  def self.critical_thread_yields_to_main_thread(is_thread_sleep=false, is_thread_stop=false, &action)
+  def self.critical_thread_yields_to_main_thread(is_thread_sleep=false, is_thread_stop=false)
     @@after_first_sleep = false
 
     critical_thread = Thread.new do
       Thread.pass while Thread.main.status and Thread.main.status != "sleep"
       critical_thread1()
       Thread.main.wakeup
-      action.call if action
+      yield
       Thread.pass while @@after_first_sleep != true # Need to ensure that the next statement does not see the first sleep itself
       Thread.pass while Thread.main.status and Thread.main.status != "sleep"
       critical_thread2(is_thread_stop)
@@ -432,10 +304,10 @@ module ThreadSpecs
     main_thread2(critical_thread)
   end
 
-  def self.create_critical_thread(&action)
+  def self.create_critical_thread
     Thread.new do
       Thread.critical = true
-      action.call if action
+      yield
       Thread.critical = false
     end
   end

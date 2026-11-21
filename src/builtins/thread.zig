@@ -80,7 +80,7 @@ pub fn register(vm: *VM) !void {
     try vm.thread_class.module.methods.put(terminate_sym, value.MethodEntry.builtin(&builtinThreadKill, .{ .exact = 0 }));
 
     const raise_sym = try vm.intern("raise");
-    try vm.thread_class.module.methods.put(raise_sym, value.MethodEntry.builtin(&builtinThreadRaise, .{ .variadic = 0 }));
+    try vm.thread_class.module.methods.put(raise_sym, value.MethodEntry.keywordBuiltin(&builtinThreadRaise, .{ .variadic = 0 }));
 
     const run_sym = try vm.intern("run");
     try vm.thread_class.module.methods.put(run_sym, value.MethodEntry.builtin(&builtinThreadRun, .{ .exact = 0 }));
@@ -504,44 +504,14 @@ fn builtinThreadRaise(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMErro
     const thread = receiver.toThreadObject();
     if (thread.state == .terminated) return Value.nil();
 
-    // Validate and create the exception
-    const exc = blk: {
-        if (args.len == 0) {
-            break :blk try vm.createExceptionWithoutBacktrace(vm.runtime_error_class, "");
-        }
-
-        if (args[0].isString()) {
-            break :blk try vm.createExceptionWithoutBacktrace(vm.runtime_error_class, args[0].toStringObject().str);
-        }
-
-        if (args[0].isException()) {
-            if (args.len > 1) {
-                // Call exception#exception(message) to create a copy, matching MRI semantics
-                const exc_val = args[0];
-                const copy_val = try vm.callMethodByName(exc_val, "exception", args[1..], null);
-                break :blk copy_val.toExceptionObject();
-            } else {
-                break :blk args[0].toExceptionObject();
-            }
-        }
-
-        if (args[0].isClass()) {
-            const class_obj = args[0].toClassObject();
-            if (!vm.isClassOrSubclassOf(class_obj, vm.exception_class)) {
-                return vm.raiseExceptionFmt(vm.type_error_class, "exception class/object expected", .{});
-            }
-            const msg = if (args.len > 1 and args[1].isString()) args[1].toStringObject().str else "";
-            break :blk try vm.createExceptionWithoutBacktrace(class_obj, msg);
-        }
-
-        // Non-Exception object: raise TypeError
-        return vm.raiseExceptionFmt(vm.type_error_class, "exception class/object expected", .{});
-    };
+    const exc = try vm.prepareRaisedException(args);
+    // Exception conversion may execute Ruby and allow the target to finish.
+    if (thread.state == .terminated) return Value.nil();
 
     // Self-raise: deliver synchronously
     const is_current = vm.current_thread != null and thread == vm.current_thread.?;
     if (is_current) {
-        try vm.captureAndSetExceptionBacktrace(exc);
+        try vm.captureExceptionBacktrace(exc);
         vm.setPendingException(exc);
         return error.Unwind;
     }
