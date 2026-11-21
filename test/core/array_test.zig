@@ -188,6 +188,124 @@ test "Enumerable each_entry retains nested callbacks across Fiber yield and GC" 
     try std.testing.expect(result.isTrue());
 }
 
+test "Enumerable each_slice preserves packing callback results and partial slice control flow" {
+    const result = try evalCode(
+        \\class SliceYields
+        \\  include Enumerable
+        \\  attr_reader :results
+        \\  def each
+        \\    raise 'other fiber' unless Fiber.current.equal?($slice_fiber)
+        \\    @results = []
+        \\    @results << (yield)
+        \\    GC.start
+        \\    @results << (yield 1, 2)
+        \\    @results << (yield [3, 4])
+        \\    :ignored
+        \\  end
+        \\end
+        \\$slice_fiber = Fiber.current
+        \\source = SliceYields.new
+        \\seen = []
+        \\returned = source.each_slice(2) { |slice| seen << slice; :block_result }
+        \\raise 'packing' unless seen == [[nil, [1, 2]], [[3, 4]]]
+        \\raise 'source results' unless source.results == [nil, :block_result, nil]
+        \\raise 'receiver' unless returned.equal?(source)
+        \\strict = []
+        \\[1, 2, 3].each_slice(2, &->(slice) { strict << slice })
+        \\error = begin [1,2].each_slice(2, &->(a,b) {}); false; rescue ArgumentError; true; end
+        \\raise 'strict lambda' unless strict == [[1,2],[3]] && error
+        \\seen = []
+        \\[1,2,3,4].each_slice(2) { |slice| seen << slice; slice << :changed }
+        \\raise 'slice identity' unless seen == [[1,2,:changed],[3,4,:changed]] && !seen[0].equal?(seen[1])
+        \\source = Class.new do
+        \\  include Enumerable
+        \\  attr_reader :ensured
+        \\  def each
+        \\    yield 1
+        \\  ensure
+        \\    @ensured = true
+        \\  end
+        \\end.new
+        \\raise 'tail break' unless source.each_slice(2) { break :tail } == :tail && source.ensured
+        \\failure = StopIteration.new('source failure')
+        \\source = Class.new do
+        \\  include Enumerable
+        \\  define_method(:each) { |&block| block.call(1); raise failure }
+        \\end.new
+        \\seen = []
+        \\caught = begin source.each_slice(2) { |slice| seen << slice }; rescue StopIteration => error; error; end
+        \\raise 'flushed after error' unless caught.equal?(failure) && seen.empty?
+        \\true
+    );
+    try std.testing.expect(result.isTrue());
+}
+
+test "Enumerable each_slice retains pending slices across Fiber yield and GC" {
+    const result = try evalCode(
+        \\source = Class.new do
+        \\  include Enumerable
+        \\  def each
+        \\    yield 1
+        \\    Fiber.yield :pending
+        \\    GC.start
+        \\    yield 2
+        \\    yield 3
+        \\  end
+        \\end.new
+        \\fiber = Fiber.new do
+        \\  seen = []
+        \\  result = source.each_slice(2) do |slice|
+        \\    Fiber.yield [:slice, slice.dup]
+        \\    GC.start
+        \\    [slice.first].each_slice(1) { |inner| seen << inner }
+        \\    seen << slice
+        \\  end
+        \\  [result.equal?(source), seen]
+        \\end
+        \\values = []
+        \\while fiber.alive?
+        \\  values << fiber.resume
+        \\  GC.start
+        \\end
+        \\raise 'fiber state' unless values == [:pending, [:slice,[1,2]], [:slice,[3]], [true, [[1],[1,2],[3],[3]]]]
+        \\true
+    );
+    try std.testing.expect(result.isTrue());
+}
+
+test "Enumerable each_slice preserves reentrant and escaped source callbacks" {
+    const result = try evalCode(
+        \\class SavedSliceCallback
+        \\  include Enumerable
+        \\  attr_reader :callback
+        \\  def initialize(values); @values = values; end
+        \\  def each(&callback)
+        \\    @callback = callback
+        \\    @values.each { |n| callback.call(n) }
+        \\  end
+        \\end
+        \\source = SavedSliceCallback.new([1, 2, 4])
+        \\seen = []
+        \\source.each_slice(2) do |slice|
+        \\  seen << slice
+        \\  source.callback.call(3) if slice == [1, 2]
+        \\end
+        \\raise 'reentrant callback' unless seen == [[1, 2, 3], [4]]
+        \\source = SavedSliceCallback.new([1])
+        \\seen = []
+        \\source.each_slice(2) { |slice| seen << slice }
+        \\GC.start
+        \\source.callback.call(2)
+        \\raise 'escaped partial slice' unless seen == [[1, 2], [1, 2]] && seen[0].equal?(seen[1])
+        \\source.callback.call(3)
+        \\GC.start
+        \\source.callback.call(4)
+        \\raise 'escaped callback state' unless seen == [[1, 2], [1, 2], [3, 4]]
+        \\true
+    );
+    try std.testing.expect(result.isTrue());
+}
+
 test "Enumerable flat_map forwards raw yields and returns nil to each" {
     const result = try evalCode(
         \\class FlatMapYields
@@ -313,8 +431,8 @@ test "Enumerable collectors unwind each ensures for break return and throw" {
         \\  source.public_send(name, *args) { return :returned }
         \\  :unreachable
         \\end
-        \\checks = [:flat_map, :collect_concat, :filter_map, :each_with_object, :sort_by, :each_entry].map do |name|
-        \\  args = name == :each_with_object ? [[]] : []
+        \\checks = [:flat_map, :collect_concat, :filter_map, :each_with_object, :sort_by, :each_entry, :each_slice].map do |name|
+        \\  args = case name; when :each_with_object then [[]]; when :each_slice then [1]; else []; end
         \\  source = CollectUnwind.new
         \\  broken = source.public_send(name, *args) { break :broken }
         \\  returned = collect_method_return(source, name, args)
@@ -342,8 +460,8 @@ test "Enumerable collectors propagate source StopIteration and block failures" {
         \\    @ensures += 1
         \\  end
         \\end
-        \\checks = [:flat_map, :collect_concat, :filter_map, :each_with_object, :sort_by, :each_entry].map do |name|
-        \\  args = name == :each_with_object ? [[]] : []
+        \\checks = [:flat_map, :collect_concat, :filter_map, :each_with_object, :sort_by, :each_entry, :each_slice].map do |name|
+        \\  args = case name; when :each_with_object then [[]]; when :each_slice then [1]; else []; end
         \\  failure = StopIteration.new("from source")
         \\  source = CollectFailure.new(failure)
         \\  caught = begin source.public_send(name, *args) { 1 }; rescue StopIteration => error; error; end

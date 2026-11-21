@@ -603,43 +603,45 @@ fn builtinEnumerableEachSlice(vm: *VM, receiver: Value, args: []Value, block: ?B
         return vm.createMethodEnumerator(receiver, method_name, args);
     };
 
-    const enum_value = try vm.createMethodEnumerator(receiver, try vm.intern("each"), &.{});
-    var slice: std.ArrayList(Value) = .empty;
-    defer slice.deinit(vm.allocator);
-
-    while (true) {
-        const next_values = vm.callMethodByName(enum_value, "next_values", &.{}, null) catch |err| {
-            if (err == error.Unwind and vm.pendingException() != null and vm.pendingException().?.object.class == vm.stop_iteration_class) {
-                vm.setPendingException(null);
-                break;
-            }
-            return err;
-        };
-
-        const element = collapseYieldValues(next_values.toArrayObject());
-        slice.append(vm.allocator, element) catch return error.Fatal;
-
-        if (slice.items.len == n_usize) {
-            const slice_ary = try vm.createArray();
-            for (slice.items) |elem| {
-                slice_ary.elements.append(vm.gc_allocator, elem) catch return error.Fatal;
-            }
-            const yield_args = [_]Value{Value.fromObject(&slice_ary.object)};
-            _ = try vm.yieldToBlock(blk, &yield_args);
-            slice.clearRetainingCapacity();
-        }
+    const context = vm.gc_allocator.create(SliceContext) catch return error.Fatal;
+    context.* = .{
+        .block = (try vm.procValueForBlock(blk)).toProcObject().block,
+        .size = n_usize,
+    };
+    const each_block = Block{ .kind = .{ .receiver_builtin = .{
+        .receiver = .{ .raw = @intFromPtr(context) },
+        .func = &eachSliceEach,
+        .arity = -1,
+    } } };
+    _ = try vm.callMethodByName(receiver, "each", &.{}, each_block);
+    if (context.slice) |slice| {
+        _ = try vm.yieldToBlock(context.block, &.{Value.fromObject(&slice.object)});
     }
-
-    if (slice.items.len > 0) {
-        const slice_ary = try vm.createArray();
-        for (slice.items) |elem| {
-            slice_ary.elements.append(vm.gc_allocator, elem) catch return error.Fatal;
-        }
-        const yield_args = [_]Value{Value.fromObject(&slice_ary.object)};
-        _ = try vm.yieldToBlock(blk, &yield_args);
-    }
-
     return receiver;
+}
+
+const SliceContext = struct {
+    block: Block,
+    size: usize,
+    slice: ?*value.ArrayObject = null,
+};
+
+fn eachSliceEach(vm: *VM, receiver: Value, args: []Value) VMError!Value {
+    const context: *SliceContext = @ptrFromInt(receiver.raw);
+    const slice = context.slice orelse new: {
+        const slice = try vm.createArray();
+        context.slice = slice;
+        break :new slice;
+    };
+    slice.elements.append(vm.gc_allocator, try packYieldValues(vm, args)) catch return error.Fatal;
+    if (slice.elements.items.len == context.size) {
+        // Keep the slice current during the yield, matching reentrant calls
+        // through a callback captured by the source's each method.
+        const result = try vm.yieldToBlock(context.block, &.{Value.fromObject(&slice.object)});
+        context.slice = null;
+        return result;
+    }
+    return Value.nil();
 }
 
 fn builtinEnumerableEachCons(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {

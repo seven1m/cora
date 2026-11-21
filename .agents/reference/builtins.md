@@ -35,6 +35,10 @@
 - `Enumerable#each_entry` uses a native callback, forwards its arguments to
   `each`, preserves zero/single yields, and packs multiple yields with forced
   block-argument destructuring. Its callback returns nil to the source.
+- `Enumerable#each_slice` retains its pending slice in a GC-owned callback
+  context and detaches full slices after yielding them. Full-slice callbacks
+  return the user block result to `each`; incomplete slices return nil. Flush
+  the final partial slice only after `each` completes normally.
 - Use `VM.yieldPairToBlock` for Hash/Struct pair iteration. It passes a packed
   `[key, value]` to one-argument/rest/lambda blocks, or two arguments to compatible
   native callbacks and ordinary multi-argument blocks.
