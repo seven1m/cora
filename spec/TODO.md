@@ -234,7 +234,7 @@ Source baseline: ../ruby_spec compared to local spec/
 
 ### core/binding
 - [x] core/binding/clone_spec.rb
-- [ ] core/binding/dup_spec.rb
+- [x] core/binding/dup_spec.rb
 - [-] core/binding/eval_spec.rb
 - [ ] core/binding/implicit_parameter_defined_spec.rb
 - [ ] core/binding/implicit_parameter_get_spec.rb
