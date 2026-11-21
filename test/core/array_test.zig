@@ -993,14 +993,14 @@ test "Array#| union" {
     try std.testing.expectEqual(@as(i64, 4), result.toArrayObject().elements.items[3].toInteger());
 }
 
-test "Array#pack integer directives" {
-    var result = try evalCode("[1, 2, 255].pack('C*')");
-    try std.testing.expect(result.isString());
-    try std.testing.expectEqualSlices(u8, "\x01\x02\xff", result.toStringObject().str);
-
-    result = try evalCode("[0x1234].pack('n').unpack('C*').inspect");
-    try std.testing.expect(result.isString());
-    try std.testing.expectEqualSlices(u8, "[18, 52]", result.toStringObject().str);
+test "Array#pack truncates arbitrary precision integers to the directive width" {
+    const result = try evalCode(
+        \\large = (1 << 130) + 0x1234
+        \\[large].pack("Q<").bytes == [0x34, 0x12, 0, 0, 0, 0, 0, 0] &&
+        \\  [-large].pack("Q>").bytes == [255, 255, 255, 255, 255, 255, 237, 204] &&
+        \\  [large].pack("C").bytes == [0x34]
+    );
+    try std.testing.expect(result.isTruthy());
 }
 
 test "Array#pack Unicode directive encodes MRI codepoints" {

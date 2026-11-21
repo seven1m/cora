@@ -448,11 +448,16 @@ fn packIntegerDirective(
         if (arg_index.* >= items.len) {
             return vm.raiseExceptionFmt(vm.argument_error_class, "too few arguments", .{});
         }
-        const int_val = try coerceToInt(vm, items[arg_index.*]);
+        const int_val = try items[arg_index.*].coerceToIntegerValue(vm, "no implicit conversion into Integer", "can't convert to Integer (to_int gives non-Integer)");
         arg_index.* += 1;
 
         var raw: [8]u8 = @splat(0);
-        const bits: u64 = @bitCast(int_val);
+        const bits: u64 = if (int_val.isInteger()) @bitCast(int_val.toInteger()) else blk: {
+            var truncated = std.math.big.int.Managed.init(vm.allocator) catch return error.Fatal;
+            defer truncated.deinit();
+            truncated.truncate(&int_val.toBigIntegerObject().value, .unsigned, 64) catch return error.Fatal;
+            break :blk truncated.toInt(u64) catch return error.Fatal;
+        };
         std.mem.writeInt(u64, &raw, bits, .little);
 
         const endian = if (fixed_endianness == .native) nativeOr(token.endianness) else fixed_endianness;

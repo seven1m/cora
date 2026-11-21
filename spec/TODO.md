@@ -160,7 +160,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] core/array/pack/g_spec.rb
 - [x] core/array/pack/h_spec.rb
 - [x] core/array/pack/i_spec.rb
-- [ ] core/array/pack/j_spec.rb
+- [x] core/array/pack/j_spec.rb
 - [ ] core/array/pack/l_spec.rb
 - [-] core/array/pack/m_spec.rb
 - [x] core/array/pack/n_spec.rb
