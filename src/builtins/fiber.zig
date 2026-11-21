@@ -25,6 +25,8 @@ pub fn register(vm: *VM) !void {
 
     try fiber_singleton.module.methods.put(try vm.intern("current_scheduler"), value.MethodEntry.builtin(&builtinFiberCurrentScheduler, .{ .exact = 0 }));
 
+    try fiber_singleton.module.methods.put(try vm.intern("schedule"), value.MethodEntry.keywordBuiltin(&builtinFiberSchedule, .{ .variadic = 0 }));
+
     const current_sym = try vm.intern("current");
     try fiber_singleton.module.methods.put(current_sym, value.MethodEntry.builtin(&builtinFiberCurrent, .{ .exact = 0 }));
 
@@ -246,4 +248,10 @@ fn builtinFiberSetScheduler(vm: *VM, _: Value, args: []Value, _: ?Block) VMError
 
 fn builtinFiberCurrentScheduler(vm: *VM, _: Value, _: []Value, _: ?Block) VMError!Value {
     return vm.currentFiberScheduler() orelse Value.nil();
+}
+
+fn builtinFiberSchedule(vm: *VM, _: Value, args: []Value, block: ?Block) VMError!Value {
+    const thread = vm.current_thread orelse try vm.ensureMainThread();
+    const scheduler = thread.fiber_scheduler orelse return vm.raiseExceptionFmt(vm.runtime_error_class, "No scheduler is available!", .{});
+    return vm.callMethodByNameForwardingKeywords(scheduler, "fiber", args, block);
 }

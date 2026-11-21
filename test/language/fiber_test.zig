@@ -600,3 +600,23 @@ test "Main fiber scheduler closes before at_exit handlers" {
     try std.testing.expectEqualStrings("closed", entries[0].toSymbolObject().name);
     try std.testing.expectEqualStrings("at_exit", entries[1].toSymbolObject().name);
 }
+
+test "Fiber schedule forwards arguments keywords and block to scheduler" {
+    const result = try evalCode(
+        \\scheduler = Object.new
+        \\[:block, :unblock, :kernel_sleep, :io_wait, :fiber_interrupt].each do |name|
+        \\  scheduler.define_singleton_method(name) {}
+        \\end
+        \\scheduler.define_singleton_method(:fiber) do |positional, keyword:, &work|
+        \\  Fiber.new(blocking: false) { work.call(positional, keyword) }.tap(&:resume)
+        \\end
+        \\Fiber.set_scheduler(scheduler)
+        \\received = nil
+        \\fiber = Fiber.schedule(:positional, keyword: :named) do |left, right|
+        \\  received = [left, right, Fiber.current_scheduler.equal?(scheduler)]
+        \\end
+        \\Fiber.set_scheduler(nil)
+        \\fiber.is_a?(Fiber) && received == [:positional, :named, true]
+    );
+    try std.testing.expect(result.isTruthy());
+}
