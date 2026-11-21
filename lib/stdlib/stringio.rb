@@ -406,7 +406,11 @@ class StringIO
     length
   end
 
-  def write(string)
+  def write(*strings)
+    strings.inject(0) { |total, string| total + write_string(string) }
+  end
+
+  def write_string(string)
     if @closed_write
       raise IOError, "not opened for writing"
     end
@@ -451,6 +455,8 @@ class StringIO
     @pos += string.bytesize
     string.bytesize
   end
+
+  private :write_string
 
   alias << write
 
