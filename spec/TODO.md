@@ -3815,7 +3815,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] library/socket/tcpsocket/recv_nonblock_spec.rb
 - [ ] library/socket/tcpsocket/recv_spec.rb
 - [ ] library/socket/tcpsocket/remote_address_spec.rb
-- [ ] library/socket/tcpsocket/setsockopt_spec.rb
+- [x] library/socket/tcpsocket/setsockopt_spec.rb
 
 ### library/socket/udpsocket
 - [ ] library/socket/udpsocket/bind_spec.rb

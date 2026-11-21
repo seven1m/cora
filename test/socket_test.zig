@@ -84,3 +84,23 @@ test "BasicSocket recv waits for data preserves output buffers and reports strea
     );
     try std.testing.expect(result.isTruthy());
 }
+
+test "BasicSocket setsockopt is inherited by TCP and UNIX listeners" {
+    const result = try test_helper.evalCode(
+        \\require "socket"
+        \\path = "/tmp/cora-socket-options-#{$$}"
+        \\tcp = TCPServer.new("127.0.0.1", 0)
+        \\unix = UNIXServer.new(path)
+        \\begin
+        \\  [tcp, unix].all? do |socket|
+        \\    socket.setsockopt(:SOCKET, :REUSEADDR, true) == 0 &&
+        \\      socket.setsockopt("SOL_SOCKET", "SO_REUSEADDR", [0].pack("i")) == 0
+        \\  end
+        \\ensure
+        \\  tcp.close
+        \\  unix.close
+        \\  File.unlink(path)
+        \\end
+    );
+    try std.testing.expect(result.isTruthy());
+}

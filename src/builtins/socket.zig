@@ -39,7 +39,6 @@ pub fn register(vm: *VM) !void {
 
     const tcp_socket_name = try vm.intern("TCPSocket");
     const tcp_socket_val = try vm.newClassWithType(tcp_socket_name, ip_socket_class, .io);
-    const tcp_socket_class = tcp_socket_val.toClassObject();
     try vm.object_class.module.constants.put(tcp_socket_name, .{ .value = tcp_socket_val });
 
     const unix_socket_name = try vm.intern("UNIXSocket");
@@ -109,7 +108,7 @@ pub fn register(vm: *VM) !void {
     try ip_socket_class.module.methods.put(peeraddr_sym, value.MethodEntry.builtin(&builtinIPSocketPeeraddr, .{ .variadic = 0 }));
 
     const setsockopt_sym = try vm.intern("setsockopt");
-    try tcp_socket_class.module.methods.put(setsockopt_sym, value.MethodEntry.builtin(&builtinTCPSocketSetsockopt, .{ .exact = 3 }));
+    try basic_socket_class.module.methods.put(setsockopt_sym, value.MethodEntry.builtin(&builtinBasicSocketSetsockopt, .{ .exact = 3 }));
 
     const recv_sym = try vm.intern("recv");
     try basic_socket_class.module.methods.put(recv_sym, value.MethodEntry.builtin(&builtinBasicSocketRecv, .{ .variadic = 1 }));
@@ -124,6 +123,7 @@ pub fn register(vm: *VM) !void {
 
     const socket_options = .{
         .{ "SOL_SOCKET", std.c.SOL.SOCKET },
+        .{ "SO_REUSEADDR", std.c.SO.REUSEADDR },
         .{ "SO_KEEPALIVE", std.c.SO.KEEPALIVE },
         .{ "SO_RCVBUF", std.c.SO.RCVBUF },
         .{ "SO_SNDBUF", std.c.SO.SNDBUF },
@@ -922,6 +922,18 @@ pub fn builtinIPSocketPeeraddr(vm: *VM, receiver: Value, args: []Value, _: ?Bloc
     return socketAddressInfo(vm, receiver, args, std.c.getpeername);
 }
 
+fn socketOptionNumber(vm: *VM, arg: Value, level: ?c_int) VMError!c_int {
+    if (arg.isInteger() or arg.isBigInteger()) return socketInteger(vm, arg);
+    const name = if (arg.isSymbol()) arg.toSymbolObject().name else try arg.coerceToStr(vm, "no implicit conversion into String");
+    const prefix: []const u8 = if (level) |number| (if (number == std.c.SOL.SOCKET) "SO_" else if (number == std.posix.IPPROTO.TCP) "TCP_" else "IP_") else "IPPROTO_";
+    if (level == null and (std.mem.eql(u8, name, "SOCKET") or std.mem.eql(u8, name, "SOL_SOCKET"))) return std.c.SOL.SOCKET;
+    const full_name = if (std.mem.startsWith(u8, name, prefix)) name else std.fmt.allocPrint(vm.allocator, "{s}{s}", .{ prefix, name }) catch return error.Fatal;
+    defer if (full_name.ptr != name.ptr) vm.allocator.free(full_name);
+    const entry = (try socketClass(vm)).module.constants.get(try vm.intern(full_name)) orelse
+        return raiseSocketErrorFmt(vm, "unknown socket {s}: {s}", .{ if (level == null) "level" else "option", name });
+    return socketInteger(vm, entry.value);
+}
+
 fn socketInteger(vm: *VM, arg: Value) VMError!c_int {
     const number = try arg.coerceToI64ViaToInt(vm, "no implicit conversion into Integer", "to_int did not return Integer", "integer out of range");
     return std.math.cast(c_int, number) orelse vm.raiseExceptionFmt(vm.range_error_class, "integer out of range", .{});
@@ -967,22 +979,28 @@ pub fn builtinBasicSocketRecv(vm: *VM, receiver: Value, args: []Value, _: ?Block
     return out;
 }
 
-pub fn builtinTCPSocketSetsockopt(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+pub fn builtinBasicSocketSetsockopt(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 3);
     if (!receiver.isIo()) return vm.raiseExceptionFmt(vm.type_error_class, "receiver is not an IO", .{});
 
     const io = receiver.toIoObject();
     if (io.closed) return vm.raiseExceptionFmt(vm.io_error_class, "closed stream", .{});
 
-    const level: c_int = @intCast(try args[0].integerArgToI64(vm, "no implicit conversion into Integer", "integer out of range"));
-    const optname: u32 = @intCast(try args[1].integerArgToI64(vm, "no implicit conversion into Integer", "integer out of range"));
-    const optval: c_int = if (args[2].isBool())
+    const level = try socketOptionNumber(vm, args[0], null);
+    const optname: u32 = @bitCast(try socketOptionNumber(vm, args[1], level));
+    const optval: c_int = if (args[2].isString()) 0 else if (args[2].isBool())
         @intFromBool(args[2].toBool())
     else
-        @intCast(try args[2].integerArgToI64(vm, "no implicit conversion into Integer", "integer out of range"));
+        try socketInteger(vm, args[2]);
 
-    if (std.c.setsockopt(io.fd, level, optname, &optval, @sizeOf(c_int)) != 0) {
-        return socketError(vm, "setsockopt() failed", .{});
+    const bytes = if (args[2].isString()) args[2].toStringObject().str else std.mem.asBytes(&optval);
+    while (std.c.setsockopt(io.fd, level, optname, bytes.ptr, @intCast(bytes.len)) != 0) {
+        const errno_code = std.posix.errno(-1);
+        if (errno_code == .INTR) {
+            try vm.checkAsyncEvents();
+            continue;
+        }
+        return vm.raiseErrnoFmt(errno_code, "setsockopt(2)", .{});
     }
 
     return Value.integer(0);
