@@ -151,7 +151,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] core/array/pack/at_spec.rb
 - [ ] core/array/pack/b_spec.rb
 - [ ] core/array/pack/buffer_spec.rb
-- [ ] core/array/pack/c_spec.rb
+- [x] core/array/pack/c_spec.rb
 - [x] core/array/pack/comment_spec.rb
 - [ ] core/array/pack/d_spec.rb
 - [ ] core/array/pack/e_spec.rb
