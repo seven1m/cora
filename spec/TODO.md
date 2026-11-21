@@ -2197,7 +2197,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] core/systemexit/success_spec.rb
 
 ### core/thread
-- [ ] core/thread/abort_on_exception_spec.rb
+- [x] core/thread/abort_on_exception_spec.rb
 - [x] core/thread/add_trace_func_spec.rb
 - [x] core/thread/alive_spec.rb
 - [x] core/thread/allocate_spec.rb
