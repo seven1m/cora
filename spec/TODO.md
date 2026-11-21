@@ -2093,7 +2093,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] core/string/unpack/at_spec.rb
 - [x] core/string/unpack/b_spec.rb
 - [x] core/string/unpack/c_spec.rb
-- [ ] core/string/unpack/carret_spec.rb
+- [x] core/string/unpack/carret_spec.rb
 - [x] core/string/unpack/comment_spec.rb
 - [x] core/string/unpack/d_spec.rb
 - [x] core/string/unpack/e_spec.rb

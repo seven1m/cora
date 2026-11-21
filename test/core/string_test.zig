@@ -433,28 +433,13 @@ test "String#chars propagates break value" {
     try std.testing.expect(result.isNil());
 }
 
-test "String#unpack integer and float directives" {
-    var result = try evalCode("\"\\x01\\x02\".b.unpack('C2').inspect");
-    try std.testing.expect(result.isString());
-    try std.testing.expectEqualSlices(u8, "[1, 2]", result.toStringObject().str);
-
-    result = try evalCode("\"\".b.unpack('C2').inspect");
-    try std.testing.expect(result.isString());
-    try std.testing.expectEqualSlices(u8, "[nil, nil]", result.toStringObject().str);
-
-    result = try evalCode("[1.5].pack('d').unpack('d')[0]");
-    try std.testing.expect(result.isFloat());
-    try std.testing.expectApproxEqAbs(@as(f64, 1.5), result.toFloatObject().val, 0.0000001);
-}
-
-test "String#unpack string directives" {
-    var result = try evalCode("\"A \\x00\".b.unpack('A3').inspect");
-    try std.testing.expect(result.isString());
-    try std.testing.expectEqualSlices(u8, "[\"A\"]", result.toStringObject().str);
-
-    result = try evalCode("\"abc\\x00xyz\".b.unpack('Z*').inspect");
-    try std.testing.expect(result.isString());
-    try std.testing.expectEqualSlices(u8, "[\"abc\"]", result.toStringObject().str);
+test "String#unpack keeps short bit and hex reads within the source" {
+    const result = try evalCode(
+        \\"a".unpack("B16^X1C") == ["01100001", 1, 97] &&
+        \\  "a".unpack("h16^X1C") == ["16", 1, 97] &&
+        \\  "abc".unpack("H20^", offset: 1) == ["6263", 3]
+    );
+    try std.testing.expect(result.isTruthy());
 }
 
 test "String.new accepts encoding and capacity keywords" {

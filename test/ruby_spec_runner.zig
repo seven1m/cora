@@ -269,7 +269,9 @@ pub fn runSpec(path: []const u8) RunSpecResult {
 fn specLoaderSource(allocator: std.mem.Allocator, path: []const u8) ![]u8 {
     var source: std.ArrayList(u8) = .empty;
     defer source.deinit(allocator);
-    try source.appendSlice(allocator, "load '");
+    // MSpec provides guards before loading files; some upstream specs guard
+    // their spec_helper require as well as their examples.
+    try source.appendSlice(allocator, "$LOAD_PATH.unshift File.expand_path('ext/mspec/lib')\nrequire 'mspec'\nload '");
     for (path) |byte| {
         if (byte == '\\' or byte == '\'') try source.append(allocator, '\\');
         try source.append(allocator, byte);

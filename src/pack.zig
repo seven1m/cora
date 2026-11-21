@@ -360,6 +360,7 @@ pub fn stringUnpack(vm: *VM, source: *value.StringObject, base_offset: usize, fo
             'G' => try unpackFloat(vm, out, bytes, &index, token, 8, .big),
             'P' => try unpackPointer(vm, out, source, base_offset, bytes, &index, token, true),
             'p' => try unpackPointer(vm, out, source, base_offset, bytes, &index, token, false),
+            '^' => out.elements.append(vm.gc_allocator, try integerValueFromUnsignedDecoded(vm, base_offset + index)) catch return error.Fatal,
             'x' => {
                 if (token.star) {
                     index = bytes.len;
@@ -937,8 +938,8 @@ fn unpackFloat(
 fn unpackA(vm: *VM, out: *value.ArrayObject, bytes: []const u8, index: *usize, token: DirectiveToken) VMError!void {
     const width = if (token.star) bytes.len -| index.* else token.count orelse 1;
     const start = @min(index.*, bytes.len);
-    const end = @min(start + width, bytes.len);
-    index.* = start + width;
+    const end = start + @min(width, bytes.len - start);
+    index.* = end;
 
     var trimmed_end = end;
     while (trimmed_end > start and (bytes[trimmed_end - 1] == ' ' or bytes[trimmed_end - 1] == 0)) {
@@ -952,8 +953,8 @@ fn unpackA(vm: *VM, out: *value.ArrayObject, bytes: []const u8, index: *usize, t
 fn unpacka(vm: *VM, out: *value.ArrayObject, bytes: []const u8, index: *usize, token: DirectiveToken) VMError!void {
     const width = if (token.star) bytes.len -| index.* else token.count orelse 1;
     const start = @min(index.*, bytes.len);
-    const end = @min(start + width, bytes.len);
-    index.* = start + width;
+    const end = start + @min(width, bytes.len - start);
+    index.* = end;
 
     const str = try vm.newStringWithEncoding(bytes[start..end], false, .{ .ascii_8bit = .{} });
     out.elements.append(vm.gc_allocator, str) catch return error.Fatal;
@@ -972,7 +973,7 @@ fn unpackZ(vm: *VM, out: *value.ArrayObject, bytes: []const u8, index: *usize, t
     }
 
     const width = token.count orelse 1;
-    const end = @min(start + width, bytes.len);
+    const end = start + @min(width, bytes.len - start);
     var nul_pos = end;
     var i = start;
     while (i < end) : (i += 1) {
@@ -982,7 +983,7 @@ fn unpackZ(vm: *VM, out: *value.ArrayObject, bytes: []const u8, index: *usize, t
         }
     }
 
-    index.* = start + width;
+    index.* = end;
     const str = try vm.newStringWithEncoding(bytes[start..nul_pos], false, .{ .ascii_8bit = .{} });
     out.elements.append(vm.gc_allocator, str) catch return error.Fatal;
 }
@@ -1023,7 +1024,7 @@ fn unpackBitString(
         out_bits.appendAssumeCapacity(if (bit == 0) '0' else '1');
     }
 
-    index.* = start + bytes_to_consume;
+    index.* = start + available_bytes;
     const str = try vm.newStringWithEncoding(out_bits.items, false, .{ .us_ascii = .{} });
     out.elements.append(vm.gc_allocator, str) catch return error.Fatal;
 }
@@ -1066,7 +1067,7 @@ fn unpackHexString(
         out_hex.appendAssumeCapacity("0123456789abcdef"[nibble]);
     }
 
-    index.* = start + bytes_to_consume;
+    index.* = start + available_bytes;
     const str = try vm.newStringWithEncoding(out_hex.items, false, .{ .us_ascii = .{} });
     out.elements.append(vm.gc_allocator, str) catch return error.Fatal;
 }
