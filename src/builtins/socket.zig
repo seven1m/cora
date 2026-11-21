@@ -2,6 +2,7 @@ const std = @import("std");
 const builtin = @import("builtin");
 const vm_mod = @import("../vm.zig");
 const value = @import("../value.zig");
+const io_builtins = @import("io.zig");
 
 const VM = vm_mod.VM;
 const VMError = vm_mod.VMError;
@@ -109,6 +110,9 @@ pub fn register(vm: *VM) !void {
 
     const setsockopt_sym = try vm.intern("setsockopt");
     try tcp_socket_class.module.methods.put(setsockopt_sym, value.MethodEntry.builtin(&builtinTCPSocketSetsockopt, .{ .exact = 3 }));
+
+    const recv_sym = try vm.intern("recv");
+    try basic_socket_class.module.methods.put(recv_sym, value.MethodEntry.builtin(&builtinBasicSocketRecv, .{ .variadic = 1 }));
 
     try vm.setInstanceVariable(basic_socket_val, "@do_not_reverse_lookup", Value.boolean(true));
 
@@ -916,6 +920,51 @@ pub fn builtinIPSocketAddr(vm: *VM, receiver: Value, args: []Value, _: ?Block) V
 
 pub fn builtinIPSocketPeeraddr(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     return socketAddressInfo(vm, receiver, args, std.c.getpeername);
+}
+
+fn socketInteger(vm: *VM, arg: Value) VMError!c_int {
+    const number = try arg.coerceToI64ViaToInt(vm, "no implicit conversion into Integer", "to_int did not return Integer", "integer out of range");
+    return std.math.cast(c_int, number) orelse vm.raiseExceptionFmt(vm.range_error_class, "integer out of range", .{});
+}
+
+pub fn builtinBasicSocketRecv(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCountRange(args, 1, 3);
+    const length = try socketInteger(vm, args[0]);
+    if (length < 0) return vm.raiseExceptionFmt(vm.argument_error_class, "negative string size (or size too big)", .{});
+    const flags = if (args.len > 1) try socketInteger(vm, args[1]) else 0;
+    const io = receiver.toIoObject();
+    if (io.closed) return vm.raiseExceptionFmt(vm.io_error_class, "closed stream", .{});
+    const out = if (args.len == 3 and !args[2].isNil()) try args[2].coerceToStringValue(vm, "no implicit conversion into String") else try vm.newString("", false);
+    try vm.guardNotFrozen(out);
+    const buffer = vm.allocator.alloc(u8, @intCast(length)) catch return error.Fatal;
+    defer vm.allocator.free(buffer);
+    const nonblocking = (flags & std.c.MSG.DONTWAIT) != 0;
+    const size: usize = if (length == 0) 0 else while (true) {
+        try vm.checkAsyncEvents();
+        if (!nonblocking) _ = try io_builtins.waitReadable(vm, io, -1);
+        const n = std.c.recv(io.fd, buffer.ptr, buffer.len, @intCast(flags | std.c.MSG.DONTWAIT));
+        if (n >= 0) break @intCast(n);
+        const errno_code = std.posix.errno(-1);
+        switch (errno_code) {
+            .INTR => {
+                try vm.checkAsyncEvents();
+                continue;
+            },
+            .AGAIN => if (!nonblocking) continue else return vm.raiseErrnoFmt(errno_code, "recv(2)", .{}),
+            else => return vm.raiseErrnoFmt(errno_code, "recv(2)", .{}),
+        }
+    };
+    out.toStringObject().replaceBytes(vm.gc_allocator_atomic.dupe(u8, buffer[0..size]) catch return error.Fatal);
+    out.toStringObject().validity = .unknown;
+    if (args.len < 3 or args[2].isNil()) out.toStringObject().encoding = .{ .ascii_8bit = .{} };
+    if (size == 0 and length > 0) {
+        var socket_type: c_int = 0;
+        var option_size: std.posix.socklen_t = @sizeOf(c_int);
+        if (std.c.getsockopt(io.fd, std.c.SOL.SOCKET, std.c.SO.TYPE, &socket_type, &option_size) != 0)
+            return socketError(vm, "getsockopt(2)", .{});
+        if (socket_type == std.c.SOCK.STREAM) return Value.nil();
+    }
+    return out;
 }
 
 pub fn builtinTCPSocketSetsockopt(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {

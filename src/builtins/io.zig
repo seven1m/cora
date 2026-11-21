@@ -1887,7 +1887,7 @@ fn waitForIo(vm: *VM, io: *IoObject, events: i16, timeout_ms: i32, include_hup: 
     }
 }
 
-fn waitReadable(vm: *VM, io: *IoObject, timeout_ms: i32) VMError!bool {
+pub fn waitReadable(vm: *VM, io: *IoObject, timeout_ms: i32) VMError!bool {
     return (try waitForIo(vm, io, std.posix.POLL.IN, timeout_ms, true)) != 0;
 }
 

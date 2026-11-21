@@ -64,3 +64,23 @@ test "UNIXServer and UNIXSocket exchange data" {
     try std.testing.expectEqualStrings("UNIXSocket", items[2].toClassObject().module.name.name);
     try std.testing.expectEqualStrings("UNIXSocket", items[3].toClassObject().module.name.name);
 }
+
+test "BasicSocket recv waits for data preserves output buffers and reports stream EOF" {
+    const result = try test_helper.evalCode(
+        \\require "socket"
+        \\server = TCPServer.new("127.0.0.1", 0)
+        \\client = TCPSocket.new("127.0.0.1", server.addr[1])
+        \\peer = server.accept
+        \\empty = peer.recv(0)
+        \\writer = Thread.new { Thread.pass; client.write("hello"); client.close }
+        \\buffer = +"old"
+        \\buffer.force_encoding(Encoding::ISO_8859_1)
+        \\same = peer.recv(16, 0, buffer).equal?(buffer)
+        \\eof = peer.recv(16)
+        \\writer.join
+        \\peer.close
+        \\server.close
+        \\same && buffer == "hello" && buffer.encoding == Encoding::ISO_8859_1 && empty == "" && empty.encoding == Encoding::BINARY && eof.nil?
+    );
+    try std.testing.expect(result.isTruthy());
+}
