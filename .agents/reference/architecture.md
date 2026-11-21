@@ -105,8 +105,13 @@ cleared even outside `items.len`, since the collector scans the whole allocation
 
 Ruby Fiber scheduler objects are stored per thread in `ThreadObject.fiber_scheduler`.
 Their close hooks run on replacement and during thread/interpreter shutdown.
+Nonblocking fibers joining a thread (including through `Thread#value`) call the
+scheduler's `block` hook with the target and remaining timeout. Thread completion
+calls `unblock` with the waiting thread and fiber. Waiter cleanup handles timeout,
+unwind, and thread retirement. Finishing workers stay runnable while callbacks
+execute so preemption cannot retire a live native stack.
 Sleep and I/O waits still use the native thread scheduler; dispatch to Ruby
-Fiber scheduler wait hooks is not connected yet.
+Fiber scheduler sleep and I/O wait hooks is not connected yet.
 
 ## Exception Handling
 

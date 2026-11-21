@@ -4864,6 +4864,7 @@ pub const VM = struct {
         main_thread_obj.exception = null;
         main_thread_obj.pending_interrupts = .empty;
         main_thread_obj.interrupt_masks = .empty;
+        main_thread_obj.fiber_join_waiters = .empty;
         main_thread_obj.delivering_interrupt = false;
         main_thread_obj.terminating = false;
         main_thread_obj.terminated_normally = false;
@@ -4965,6 +4966,7 @@ pub const VM = struct {
         thread_obj.exception = null;
         thread_obj.pending_interrupts = .empty;
         thread_obj.interrupt_masks = .empty;
+        thread_obj.fiber_join_waiters = .empty;
         thread_obj.delivering_interrupt = false;
         thread_obj.terminating = false;
         if (self.current_thread) |parent| {
@@ -5172,6 +5174,7 @@ pub const VM = struct {
             thread.pending_unwind = null;
             thread.pending_interrupts.clearAndFree(self.gc_allocator);
             thread.interrupt_masks.clearAndFree(self.gc_allocator);
+            thread.fiber_join_waiters.clearAndFree(self.gc_allocator);
             thread.current_lexical_scope = null;
             thread.call_context = .{};
             thread.joining_thread = null;
@@ -5208,6 +5211,14 @@ pub const VM = struct {
                     } else i += 1;
                 }
             }
+            for (self.thread_list.items) |target| {
+                var waiter_index: usize = 0;
+                while (waiter_index < target.fiber_join_waiters.items.len) {
+                    if (target.fiber_join_waiters.items[waiter_index].thread == thread) {
+                        _ = removeFiberJoinWaiter(target, waiter_index);
+                    } else waiter_index += 1;
+                }
+            }
             var queued: usize = 0;
             while (queued < self.runnable_queue.items.len) {
                 if (self.runnable_queue.items[queued] == thread) {
@@ -5240,37 +5251,65 @@ pub const VM = struct {
         _ = coro_obj;
         const thread: *value.ThreadObject = @ptrCast(@alignCast(userdata.?));
         thread.owner_vm.reapTerminatedThreads() catch @panic("failed to retire terminated thread");
-        runThreadWithScheduler(thread) catch |err| {
-            const self = thread.owner_vm;
-            thread.state = .terminated;
-            self.releaseThreadOwnedMutexes(thread);
-            switch (err) {
-                error.UnhandledException => {
-                    if (self.pending_unwind != null and self.pending_unwind.? == .thread_kill) {
-                        thread.terminated_normally = true;
-                        thread.exception = null;
-                        thread.result = Value.nil();
-                        self.pending_unwind = null;
-                    } else if (self.pendingException()) |exc| {
-                        thread.terminated_normally = false;
-                        thread.exception = exc;
-                        if (thread.abort_on_exception or self.thread_abort_on_exception) {
-                            if (self.main_thread) |main_thread| {
-                                if (main_thread != thread) self.enqueueThreadInterrupt(main_thread, .{ .exception = .{ .object = exc } }) catch @panic("failed to propagate thread exception");
-                            }
-                        }
-                    } else {
-                        thread.terminated_normally = false;
-                        thread.exception = null;
-                    }
-                },
-                else => {
-                    thread.terminated_normally = true;
-                },
-            }
-        };
+        const self = thread.owner_vm;
+        runThreadWithScheduler(thread) catch |err| self.recordThreadFailure(thread, err);
+        while (thread.fiber_join_waiters.items.len != 0) {
+            self.notifyFiberJoinWaiter(thread) catch |err| self.recordThreadFailure(thread, err);
+        }
         thread.owner_vm.schedulerYield() catch @panic("failed to schedule after thread exit");
         @panic("terminated thread resumed");
+    }
+
+    fn recordThreadFailure(self: *VM, thread: *ThreadObject, err: VMError) void {
+        thread.state = .terminated;
+        self.releaseThreadOwnedMutexes(thread);
+        switch (err) {
+            error.UnhandledException, error.Unwind => {
+                if (self.pending_unwind != null and self.pending_unwind.? == .thread_kill) {
+                    thread.terminated_normally = true;
+                    thread.exception = null;
+                    thread.result = Value.nil();
+                    self.pending_unwind = null;
+                } else if (self.pendingException()) |exc| {
+                    thread.terminated_normally = false;
+                    thread.exception = exc;
+                    if (thread.abort_on_exception or self.thread_abort_on_exception) {
+                        if (self.main_thread) |main_thread| {
+                            if (main_thread != thread) self.enqueueThreadInterrupt(main_thread, .{ .exception = .{ .object = exc } }) catch @panic("failed to propagate thread exception");
+                        }
+                    }
+                } else {
+                    thread.terminated_normally = false;
+                    thread.exception = null;
+                }
+            },
+            else => {
+                thread.terminated_normally = true;
+            },
+        }
+    }
+
+    fn removeFiberJoinWaiter(target: *ThreadObject, index: usize) *value.ThreadJoinWaiter {
+        const waiter = target.fiber_join_waiters.orderedRemove(index);
+        @memset(std.mem.asBytes(&target.fiber_join_waiters.unusedCapacitySlice()[0]), 0);
+        return waiter;
+    }
+
+    fn notifyFiberJoinWaiter(self: *VM, target: *ThreadObject) VMError!void {
+        const waiter = removeFiberJoinWaiter(target, 0);
+        if (waiter.thread.state == .terminated or waiter.fiber.state == .terminated) return;
+        // Ruby callbacks can preempt: keep this native stack live and runnable.
+        target.state = .running;
+        defer target.state = .terminated;
+        const pending = self.pending_unwind;
+        self.pending_unwind = null;
+        var succeeded = false;
+        defer if (succeeded) {
+            self.pending_unwind = pending;
+        };
+        var args = [_]Value{ Value.fromObject(&waiter.thread.object), Value.fromObject(&waiter.fiber.object) };
+        _ = try self.callMethodByName(waiter.scheduler, "unblock", &args, null);
+        succeeded = true;
     }
 
     pub fn currentFiberScheduler(self: *VM) ?Value {
@@ -5568,12 +5607,33 @@ pub const VM = struct {
     }
 
     /// Park a joiner until its target exits, it is interrupted, or time expires.
-    pub fn waitForThreadTermination(self: *VM, target: *value.ThreadObject, timeout_ms: ?i64) VMError!void {
+    pub fn waitForThreadTermination(self: *VM, target: *value.ThreadObject, timeout_ms: ?f64) VMError!void {
         if (target.state == .terminated) return;
         const thread = self.current_thread orelse return error.Fatal;
+        if (self.currentFiberScheduler()) |scheduler| {
+            try self.deliverThreadInterrupt(true);
+            const waiter = self.gc_allocator.create(value.ThreadJoinWaiter) catch return error.Fatal;
+            waiter.* = .{ .thread = thread, .fiber = self.current_fiber, .scheduler = scheduler };
+            target.fiber_join_waiters.append(self.gc_allocator, waiter) catch return error.Fatal;
+            defer {
+                for (target.fiber_join_waiters.items, 0..) |entry, index| {
+                    if (entry == waiter) {
+                        _ = removeFiberJoinWaiter(target, index);
+                        break;
+                    }
+                }
+            }
+            var args = [_]Value{
+                Value.fromObject(&target.object),
+                if (timeout_ms) |ms| try self.newFloat(ms / 1000.0) else Value.nil(),
+            };
+            _ = try self.callMethodByName(scheduler, "block", &args, null);
+            try self.deliverThreadInterrupt(true);
+            return;
+        }
         thread.joining_thread = target;
         defer thread.joining_thread = null;
-        thread.sleep_deadline_ms = if (timeout_ms) |ms| monotonicMilliseconds() + ms else null;
+        thread.sleep_deadline_ms = if (timeout_ms) |ms| monotonicMilliseconds() + @as(i64, @intFromFloat(@ceil(@min(ms, 100)))) else null;
         defer thread.sleep_deadline_ms = null;
 
         thread.state = .sleeping;

@@ -308,14 +308,57 @@ test "Thread masks defer external kill but self-kill remains immediate" {
     try std.testing.expect(result.isTruthy());
 }
 
-test "Thread#join waits for completion" {
+test "Thread scheduler join callbacks survive preemption and preserve worker exceptions" {
     const result = try evalCode(
-        \\x = 0
-        \\t = Thread.new { x = 1 }
-        \\t.join
-        \\x
+        \\class JoinScheduler
+        \\  attr_reader :events
+        \\  def initialize
+        \\    @events = []
+        \\  end
+        \\  def block(*args)
+        \\    Fiber.yield
+        \\  end
+        \\  def unblock(*args)
+        \\    @events << :entered
+        \\    Thread.pass
+        \\    GC.start
+        \\    @events << :done
+        \\  end
+        \\  def kernel_sleep(*args); end
+        \\  def io_wait(*args); end
+        \\  def fiber_interrupt(*args); end
+        \\end
+        \\release = Queue.new
+        \\worker = Thread.new do
+        \\  Thread.current.report_on_exception = false
+        \\  release.pop
+        \\  raise 'worker failure'
+        \\end
+        \\scheduler = JoinScheduler.new
+        \\Fiber.set_scheduler(scheduler)
+        \\joiner = Fiber.new(blocking: false) do
+        \\  begin
+        \\    worker.value
+        \\  rescue RuntimeError => error
+        \\    error.message
+        \\  end
+        \\end
+        \\joiner.resume
+        \\release << true
+        \\Thread.pass until scheduler.events.include?(:entered)
+        \\GC.start
+        \\Thread.pass until scheduler.events.include?(:done)
+        \\answer = joiner.resume
+        \\Fiber.set_scheduler(nil)
+        \\timed = false
+        \\begin
+        \\  worker.join(0)
+        \\rescue RuntimeError => error
+        \\  timed = error.message == 'worker failure'
+        \\end
+        \\answer == 'worker failure' && timed && worker.status.nil?
     );
-    try std.testing.expectEqual(@as(i64, 1), result.toInteger());
+    try std.testing.expect(result.isTruthy());
 }
 
 test "Thread join and value park all waiters until their target exits" {

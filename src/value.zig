@@ -507,6 +507,12 @@ pub const ThreadInterrupt = union(enum) {
     },
 };
 
+pub const ThreadJoinWaiter = struct {
+    thread: *ThreadObject,
+    fiber: *FiberObject,
+    scheduler: Value,
+};
+
 pub const ThreadObject = struct {
     pub const CallContext = struct {
         builtin_keywords: ?*vm_mod.BuiltinKeywordContext = null,
@@ -545,6 +551,7 @@ pub const ThreadObject = struct {
     exception: ?*ExceptionObject = null,
     pending_interrupts: std.ArrayList(ThreadInterrupt) = .empty,
     interrupt_masks: std.ArrayList(*HashObject) = .empty,
+    fiber_join_waiters: std.ArrayList(*ThreadJoinWaiter) = .empty,
     delivering_interrupt: bool = false,
     terminating: bool = false,
     terminated_normally: bool = false,

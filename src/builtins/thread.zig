@@ -354,18 +354,12 @@ fn builtinThreadJoin(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError
 
     const timeout = try optionalTimeoutArg(vm, args);
     if (timeout) |seconds| {
-        if (thread.state == .terminated) {
-            return receiver;
-        }
-
-        if (seconds <= 0.0) {
-            return Value.nil();
-        }
+        if (thread.state != .terminated and seconds <= 0.0) return Value.nil();
 
         const deadline_ms = @as(f64, @floatFromInt(vm_mod.monotonicMilliseconds())) + seconds * 1000.0;
         while (thread.state != .terminated and @as(f64, @floatFromInt(vm_mod.monotonicMilliseconds())) < deadline_ms) {
             const remaining_ms = deadline_ms - @as(f64, @floatFromInt(vm_mod.monotonicMilliseconds()));
-            try vm.waitForThreadTermination(thread, @intFromFloat(@ceil(@max(1, @min(remaining_ms, 100)))));
+            try vm.waitForThreadTermination(thread, remaining_ms);
         }
 
         if (thread.state != .terminated) {
