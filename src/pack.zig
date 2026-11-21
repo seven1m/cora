@@ -52,6 +52,7 @@ pub fn arrayPack(vm: *VM, items: []Value, format: []const u8) VMError!Value {
 
         switch (token.directive) {
             'A', 'a', 'Z' => try packStringDirective(vm, items, &arg_index, token, &out),
+            'B', 'b' => try packBitDirective(vm, items, &arg_index, token, &out),
             'H' => try packHexDirective(vm, items, &arg_index, token, &out, true),
             'h' => try packHexDirective(vm, items, &arg_index, token, &out, false),
             'c' => try packIntegerDirective(vm, items, &arg_index, token, &out, 1, true, .native),
@@ -575,6 +576,29 @@ fn packStringDirective(
         },
         else => unreachable,
     }
+}
+
+fn packBitDirective(vm: *VM, items: []Value, arg_index: *usize, token: DirectiveToken, out: *std.ArrayList(u8)) VMError!void {
+    if (arg_index.* >= items.len) {
+        return vm.raiseExceptionFmt(vm.argument_error_class, "too few arguments", .{});
+    }
+    const arg = items[arg_index.*];
+    arg_index.* += 1;
+    const bytes = if (arg.isNil()) "" else try arg.coerceToStr(vm, "no implicit conversion into String");
+    const count = if (token.star) bytes.len else token.count orelse 1;
+    const used = @min(count, bytes.len);
+    var i: usize = 0;
+    while (i < used) : (i += 8) {
+        var byte: u8 = 0;
+        for (0..@min(8, used - i)) |bit| {
+            const shift: u3 = @intCast(if (token.directive == 'B') 7 - bit else bit);
+            byte |= (bytes[i + bit] & 1) << shift;
+        }
+        out.append(vm.allocator, byte) catch return error.Fatal;
+    }
+    // Ruby pads by one byte for each pair of missing input characters.
+    const missing = count - used;
+    try appendZeros(vm, out, missing / 2 + missing % 2);
 }
 
 fn packHexDirective(
