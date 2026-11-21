@@ -2241,7 +2241,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/thread/native_thread_id_spec.rb
 - [x] core/thread/new_spec.rb
 - [x] core/thread/pass_spec.rb
-- [ ] core/thread/pending_interrupt_spec.rb
+- [x] core/thread/pending_interrupt_spec.rb
 - [x] core/thread/priority_spec.rb
 - [x] core/thread/raise_spec.rb
 - [ ] core/thread/report_on_exception_spec.rb
