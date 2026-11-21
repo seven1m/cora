@@ -873,7 +873,7 @@ pub fn builtinKernelBinding(vm: *VM, receiver: Value, args: []Value, _: ?Block) 
 
     if (vm.currentRubyCallerFrame()) |frame| {
         const binding = try vm.createBinding(frame.self_value, frame.ep, vm.current_lexical_scope);
-        try vm.addBindingLocalScope(binding, binding.ep.?, frame.chunk.local_names.items);
+        try vm.captureBindingFrameScopes(binding, frame);
         // Capture the method name where `binding` was called.
         binding.method_name = if (std.mem.eql(u8, frame.chunk.name, "block"))
             frame.method_name orelse null
@@ -2066,7 +2066,7 @@ pub fn builtinKernelClone(vm: *VM, receiver: Value, args: []Value, _: ?Block) VM
         }
         return receiver;
     };
-    const duplicate = if (receiver.isClass() or receiver.isModule() or receiver.isMethodObject() or receiver.isUnboundMethodObject())
+    const duplicate = if (receiver.isClass() or receiver.isModule() or receiver.isMethodObject() or receiver.isUnboundMethodObject() or receiver.isBinding())
         try vm.allocateDupShell(receiver)
     else
         try vm.newObjectForClass(vm.getClass(receiver));

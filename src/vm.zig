@@ -13812,6 +13812,17 @@ pub const VM = struct {
         return binding_ptr;
     }
 
+    pub fn captureBindingFrameScopes(self: *VM, binding: *value.BindingObject, frame: *const CallFrame) VMError!void {
+        const current_ep = binding.ep.?;
+        if (CallFrame.usesEnclosingMethodContext(frame.frame_type)) {
+            if (enclosingMethodEnvironment(frame)) |outer| {
+                try self.addBindingLocalScope(binding, outer.ep, outer.context.chunk.local_names.items);
+            }
+        }
+        try self.addBindingLocalScope(binding, current_ep, frame.chunk.local_names.items);
+        binding.ep = current_ep;
+    }
+
     pub fn bindingLocalNameScopes(self: *VM, binding: *const value.BindingObject) VMError![][]const []const u8 {
         const scopes = self.allocator.alloc([]const []const u8, binding.scopes.items.len) catch return error.Fatal;
         for (binding.scopes.items, scopes) |scope, *names| names.* = scope.names;
