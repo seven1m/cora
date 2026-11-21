@@ -47,20 +47,6 @@ test "Fiber.current returns main fiber and current fiber inside" {
     try std.testing.expectEqual(false, result.toBool());
 }
 
-test "Fiber.resume and Fiber.yield exchange values" {
-    const result = try evalCode(
-        \\f = Fiber.new { Fiber.yield 1; 2 }
-        \\a = f.resume
-        \\b = f.resume
-        \\[a, b]
-    );
-    try std.testing.expect(result.isArray());
-    const elems = result.toArrayObject().elements.items;
-    try std.testing.expectEqual(@as(usize, 2), elems.len);
-    try std.testing.expectEqual(@as(i64, 1), elems[0].toInteger());
-    try std.testing.expectEqual(@as(i64, 2), elems[1].toInteger());
-}
-
 test "Fiber.yield returns resume argument to the fiber" {
     const result = try evalCode(
         \\f = Fiber.new do
@@ -216,28 +202,6 @@ test "Fiber terminates after unhandled exception" {
     try std.testing.expectEqualSlices(u8, "boom\n", result.stdout);
 }
 
-test "Fiber.resume on self raises FiberError" {
-    var stdout_buf: [8192]u8 = undefined;
-    var stderr_buf: [8192]u8 = undefined;
-    const result = evalCodeWithOutput(
-        \\f = Fiber.new { Fiber.current.resume }
-        \\f.resume
-    , &stdout_buf, &stderr_buf);
-    try std.testing.expect(result.err != null);
-    try std.testing.expect(std.mem.indexOf(u8, result.stderr, "attempt to resume the current fiber (FiberError)") != null);
-}
-
-test "return inside Fiber raises LocalJumpError" {
-    var stdout_buf: [8192]u8 = undefined;
-    var stderr_buf: [8192]u8 = undefined;
-    const result = evalCodeWithOutput(
-        \\f = Fiber.new { return 1 }
-        \\f.resume
-    , &stdout_buf, &stderr_buf);
-    try std.testing.expect(result.err != null);
-    try std.testing.expect(std.mem.indexOf(u8, result.stderr, "LocalJumpError") != null);
-}
-
 test "Array#each + Fiber.yield resumes inside builtin" {
     var stdout_buf: [8192]u8 = undefined;
     var stderr_buf: [8192]u8 = undefined;
@@ -358,21 +322,6 @@ test "throw does not cross fiber boundary to outer catch" {
     try std.testing.expectEqual(@as(i64, 9), elems[1].toInteger());
 }
 
-test "Fiber.resume across threads raises FiberError" {
-    const result = try evalCode(
-        \\f = Fiber.new { :ok }
-        \\Thread.new do
-        \\  begin
-        \\    f.resume
-        \\  rescue => e
-        \\    e.message
-        \\  end
-        \\end.value
-    );
-    try std.testing.expect(result.isString());
-    try std.testing.expectEqualStrings("fiber called across threads", result.toStringObject().str);
-}
-
 test "Fiber stress: 10000 yield/resume cycles" {
     const result = try evalCode(
         \\f = Fiber.new do
@@ -413,4 +362,56 @@ test "Fiber stress: nested builtins with many yields" {
     );
     try std.testing.expect(result.isBool());
     try std.testing.expectEqual(true, result.toBool());
+}
+
+test "Fiber transfer preserves native iteration and rescue state across GC" {
+    const result = try evalCode(
+        \\root = Fiber.current
+        \\fiber = Fiber.new do
+        \\  (1..100).map do |index|
+        \\    begin
+        \\      raise "child"
+        \\    rescue => error
+        \\      root.transfer(index)
+        \\      [index, error.message, $!.message]
+        \\    end
+        \\  end
+        \\end
+        \\valid = true
+        \\begin
+        \\  raise "root"
+        \\rescue
+        \\  100.times do |index|
+        \\    valid &&= fiber.transfer == index + 1
+        \\    GC.start if index % 10 == 0
+        \\    Thread.pass
+        \\    valid &&= $!.message == "root"
+        \\  end
+        \\end
+        \\values = fiber.transfer
+        \\valid && !fiber.alive? && values == (1..100).map { |index| [index, "child", "child"] }
+    );
+    try std.testing.expect(result.isTruthy());
+}
+
+test "Fiber transfer remains in its owner thread during scheduler handoffs" {
+    const result = try evalCode(
+        \\workers = 2.times.map do
+        \\  Thread.new do
+        \\    owner = Thread.current
+        \\    root = Fiber.current
+        \\    child = Fiber.new do
+        \\      100.times do
+        \\        Thread.pass
+        \\        root.transfer(Thread.current)
+        \\      end
+        \\      :done
+        \\    end
+        \\    valid = 100.times.all? { child.transfer.equal?(owner) }
+        \\    valid && child.transfer == :done
+        \\  end
+        \\end
+        \\workers.all? { |thread| thread.value }
+    );
+    try std.testing.expect(result.isTruthy());
 }

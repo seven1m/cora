@@ -2131,6 +2131,9 @@ pub const VM = struct {
         main_fiber_obj.pending_unwind = null;
         main_fiber_obj.current_lexical_scope = self.current_lexical_scope;
         main_fiber_obj.caller = null;
+        main_fiber_obj.resuming_fiber = null;
+        main_fiber_obj.yielding = false;
+        main_fiber_obj.call_context = .{};
         main_fiber_obj.coro = null;
         main_fiber_obj.coro_event = .none;
         main_fiber_obj.coro_result = Value.nil();
@@ -4220,6 +4223,13 @@ pub const VM = struct {
     }
 
     pub fn saveFiberState(self: *VM, fiber: *FiberObject) void {
+        fiber.call_context = .{
+            .builtin_keywords = self.builtin_keyword_ctx,
+            .indexed_yield = self.indexed_yield_ctx,
+            .cext_jmp_buf = self.cext_jmp_buf,
+            .cext_keyword_hash = self.cext_keyword_hash,
+            .loading_file = self.current_loading_file,
+        };
         if (self.threadStorageForFiber(fiber)) |thread| {
             thread.current_lexical_scope = self.current_lexical_scope;
             thread.pending_unwind = self.pending_unwind;
@@ -4230,6 +4240,11 @@ pub const VM = struct {
     }
 
     pub fn restoreFiberState(self: *VM, fiber: *FiberObject) void {
+        self.builtin_keyword_ctx = fiber.call_context.builtin_keywords;
+        self.indexed_yield_ctx = fiber.call_context.indexed_yield;
+        self.cext_jmp_buf = fiber.call_context.cext_jmp_buf;
+        self.cext_keyword_hash = fiber.call_context.cext_keyword_hash;
+        self.current_loading_file = fiber.call_context.loading_file;
         if (self.threadStorageForFiber(fiber)) |thread| {
             self.stack = &thread.stack;
             self.frames = &thread.frames;
@@ -4437,14 +4452,13 @@ pub const VM = struct {
                     fiber.coro_exception = null;
                 },
             }
-            if (fiber.coro) |c| c.yield();
+            self.finishFiber(fiber) catch {};
             return;
         };
     }
 
-    /// Fiber execution loop. Uses its own inline loop rather than executeFastLoop because
-    /// fibers need mid-instruction hooks: checking for yield events and fiber termination
-    /// between each instruction. These checks would pollute the hot path in executeFastLoop.
+    /// Run to the fiber's completion boundary (an empty frame stack). Native
+    /// suspensions return to the same instruction, including builtin callbacks.
     fn runFiberCoroutine(fiber: *FiberObject) VMError!void {
         const self = fiber.owner_vm;
         const blk = fiber.block orelse return error.Fatal;
@@ -4460,7 +4474,7 @@ pub const VM = struct {
                 fiber.state = .terminated;
                 fiber.coro_result = result;
                 fiber.coro_event = .returned;
-                if (fiber.coro) |c| c.yield();
+                try self.finishFiber(fiber);
                 return;
             },
             .receiver_builtin => |builtin_data| {
@@ -4468,7 +4482,7 @@ pub const VM = struct {
                 fiber.state = .terminated;
                 fiber.coro_result = result;
                 fiber.coro_event = .returned;
-                if (fiber.coro) |c| c.yield();
+                try self.finishFiber(fiber);
                 return;
             },
             .builtin => |func| {
@@ -4481,7 +4495,7 @@ pub const VM = struct {
                         }
                         fiber.coro_exception = self.pendingException();
                         fiber.coro_event = .raised;
-                        if (fiber.coro) |c| c.yield();
+                        try self.finishFiber(fiber);
                         return;
                     }
                     return err;
@@ -4489,7 +4503,7 @@ pub const VM = struct {
                 fiber.state = .terminated;
                 fiber.coro_result = result;
                 fiber.coro_event = .returned;
-                if (fiber.coro) |c| c.yield();
+                try self.finishFiber(fiber);
                 return;
             },
             .callable => |callable| {
@@ -4497,7 +4511,7 @@ pub const VM = struct {
                 fiber.state = .terminated;
                 fiber.coro_result = result;
                 fiber.coro_event = .returned;
-                if (fiber.coro) |c| c.yield();
+                try self.finishFiber(fiber);
                 return;
             },
         }
@@ -4514,15 +4528,11 @@ pub const VM = struct {
                 else => return error.Fatal,
             };
 
-            if (fiber.coro_event == .yielded) {
-                if (fiber.coro) |c| c.yield();
-            }
-
             if (self.frames.items.len == 0) {
                 fiber.state = .terminated;
                 fiber.coro_result = self.pop();
                 fiber.coro_event = .returned;
-                if (fiber.coro) |c| c.yield();
+                try self.finishFiber(fiber);
                 return;
             }
         }
@@ -4560,8 +4570,82 @@ pub const VM = struct {
     fn releaseFiberCoroutine(self: *VM, fiber: *FiberObject) void {
         const coro_obj = fiber.coro orelse return;
         fiber.coro = null;
+        fiber.call_context = .{};
         self.releaseCoroutine(coro_obj);
         detachExecutionStacks(&fiber.stack, &fiber.frames);
+    }
+
+    fn fiberContext(self: *VM, fiber: *FiberObject) *FiberCoroContext {
+        if (fiber.coro) |coro| return &coro.context;
+        if (fiber.owner_thread) |thread| {
+            if (thread.coro) |coro| return &coro.context;
+        }
+        return &self.zio_main_context;
+    }
+
+    fn reapTerminatedFibers(self: *VM) void {
+        var index: usize = 0;
+        while (index < self.zio_coroutines.items.len) {
+            const entry = self.zio_coroutines.items[index];
+            if (entry.owner == .fiber) {
+                const fiber = entry.owner.fiber;
+                if (fiber != self.current_fiber and fiber.state == .terminated) {
+                    self.releaseFiberCoroutine(fiber);
+                    continue;
+                }
+            }
+            index += 1;
+        }
+    }
+
+    // Finish on the resumer, or on the deepest active resume chain rooted in
+    // this thread. Transfers never introduce a new return relationship.
+    fn finishFiber(self: *VM, fiber: *FiberObject) VMError!void {
+        const target = if (fiber.caller) |caller| blk: {
+            fiber.caller = null;
+            caller.resuming_fiber = null;
+            break :blk caller;
+        } else blk: {
+            var root = self.rootFiberForCurrentThread();
+            while (root.resuming_fiber) |child| root = child;
+            break :blk root;
+        };
+        target.coro_exception = fiber.coro_exception;
+        target.coro_event = if (fiber.coro_event == .returned) .returned else .raised;
+        _ = try self.switchFiber(target, &.{}, fiber.coro_result);
+        return error.Fatal; // A terminated fiber must never be entered again.
+    }
+
+    fn switchFiber(self: *VM, target: *FiberObject, args: []const Value, result: Value) VMError!Value {
+        const source = self.current_fiber;
+        if (target == source) return result;
+        if (target.state == .created) {
+            if (args.len > target.first_resume_args.len) return error.Fatal;
+            @memcpy(target.first_resume_args[0..args.len], args);
+            target.first_resume_argc = args.len;
+            try self.ensureFiberCoroutine(target);
+        }
+        target.coro_result = result;
+        const source_context = self.fiberContext(source);
+        const target_context = self.fiberContext(target);
+        self.saveFiberState(source);
+        if (source.state != .terminated) source.state = .suspended;
+        target.state = .running;
+        try self.setCurrentStackBaseForGc(try self.stackBaseForFiber(target));
+        self.setCurrentFiber(target);
+        self.restoreFiberState(target);
+        zio.coro.switchContext(source_context, target_context);
+        std.debug.assert(self.current_fiber == source);
+        self.reapTerminatedFibers();
+        if (source.coro_event == .raised) {
+            source.coro_event = .none;
+            const exception = source.coro_exception orelse return error.Fatal;
+            source.coro_exception = null;
+            self.setPendingException(exception);
+            return error.Unwind;
+        }
+        source.coro_event = .none;
+        return source.coro_result;
     }
 
     pub fn fiberYield(self: *VM, yield_value: Value) VMError!Value {
@@ -4569,102 +4653,25 @@ pub const VM = struct {
         if (fiber == self.rootFiberForCurrentThread()) {
             return self.raiseExceptionFmt(self.fiber_error_class, "can't yield from root fiber", .{});
         }
-
-        fiber.coro_result = yield_value;
-        fiber.coro_event = .yielded;
-        fiber.state = .suspended;
-
-        const coro_obj = fiber.coro orelse return error.Fatal;
-        coro_obj.yield();
-
-        fiber.state = .running;
-        return fiber.coro_result;
+        const caller = fiber.caller orelse {
+            return self.raiseExceptionFmt(self.fiber_error_class, "attempt to yield on a not resumed fiber", .{});
+        };
+        fiber.caller = null;
+        caller.resuming_fiber = null;
+        fiber.yielding = true;
+        return self.switchFiber(caller, &.{}, yield_value);
     }
 
     pub fn resumeFiber(self: *VM, fiber: *FiberObject, args: []Value, resume_value: Value) VMError!Value {
-        fiber.coro_result = resume_value;
-        fiber.coro_event = .none;
-
-        if (fiber.state == .created) {
-            if (args.len > fiber.first_resume_args.len) return error.Fatal;
-            for (args, 0..) |arg, i| {
-                fiber.first_resume_args[i] = arg;
-            }
-            fiber.first_resume_argc = args.len;
-            try self.ensureFiberCoroutine(fiber);
-        }
-
-        if (fiber.state == .suspended) {
-            fiber.state = .running;
-        }
-
         const caller = self.current_fiber;
-        self.saveFiberState(caller);
         fiber.caller = caller;
+        caller.resuming_fiber = fiber;
+        fiber.yielding = false;
+        return self.switchFiber(fiber, args, resume_value);
+    }
 
-        const parent_context: *FiberCoroContext = if (caller.coro) |caller_coro|
-            &caller_coro.context
-        else if (self.current_thread) |thread|
-            if (thread.coro) |thread_coro|
-                &thread_coro.context
-            else
-                &self.zio_main_context
-        else
-            &self.zio_main_context;
-
-        const target_coro = fiber.coro orelse return error.Fatal;
-        target_coro.parent_context_ptr.store(parent_context, .release);
-
-        const caller_stack_base = try self.stackBaseForFiber(caller);
-        const target_stack_base = try self.stackBaseForFiber(fiber);
-        try self.setCurrentStackBaseForGc(target_stack_base);
-
-        self.setCurrentFiber(fiber);
-        self.restoreFiberState(fiber);
-
-        var caller_state_restored = false;
-        errdefer if (!caller_state_restored) {
-            self.saveFiberState(fiber);
-            self.setCurrentFiber(caller);
-            self.restoreFiberState(caller);
-            fiber.caller = null;
-            self.setCurrentStackBaseForGc(caller_stack_base) catch {};
-        };
-
-        while (true) {
-            target_coro.parent_context_ptr.store(parent_context, .release);
-            try self.setCurrentStackBaseForGc(target_stack_base);
-            self.setCurrentFiber(fiber);
-            self.restoreFiberState(fiber);
-            caller_state_restored = false;
-
-            target_coro.step();
-
-            self.saveFiberState(fiber);
-            self.setCurrentFiber(caller);
-            self.restoreFiberState(caller);
-            try self.setCurrentStackBaseForGc(caller_stack_base);
-            caller_state_restored = true;
-
-            switch (fiber.coro_event) {
-                .yielded => {
-                    fiber.caller = null;
-                    return fiber.coro_result;
-                },
-                .returned => {
-                    fiber.caller = null;
-                    self.releaseFiberCoroutine(fiber);
-                    return fiber.coro_result;
-                },
-                .raised => {
-                    fiber.caller = null;
-                    self.setPendingException(fiber.coro_exception orelse return error.Fatal);
-                    self.releaseFiberCoroutine(fiber);
-                    return error.Unwind;
-                },
-                .none => return error.Fatal,
-            }
-        }
+    pub fn transferFiber(self: *VM, fiber: *FiberObject, args: []Value, transfer_value: Value) VMError!Value {
+        return self.switchFiber(fiber, args, transfer_value);
     }
 
     // =========================================================================
@@ -4818,6 +4825,9 @@ pub const VM = struct {
         root_fiber.pending_unwind = null;
         root_fiber.current_lexical_scope = thread_obj.current_lexical_scope;
         root_fiber.caller = null;
+        root_fiber.resuming_fiber = null;
+        root_fiber.yielding = false;
+        root_fiber.call_context = .{};
         root_fiber.coro = null;
         root_fiber.coro_event = .none;
         root_fiber.coro_result = Value.nil();
@@ -4934,6 +4944,8 @@ pub const VM = struct {
         fiber.pending_unwind = null;
         fiber.current_lexical_scope = null;
         fiber.caller = null;
+        fiber.resuming_fiber = null;
+        fiber.call_context = .{};
         fiber.coro_result = Value.nil();
         fiber.coro_exception = null;
         @memset(&fiber.first_resume_args, Value.nil());
@@ -10751,6 +10763,9 @@ pub const VM = struct {
         fiber_obj.pending_unwind = null;
         fiber_obj.current_lexical_scope = null;
         fiber_obj.caller = null;
+        fiber_obj.resuming_fiber = null;
+        fiber_obj.yielding = false;
+        fiber_obj.call_context = .{};
         fiber_obj.coro = null;
         fiber_obj.coro_event = .none;
         fiber_obj.coro_result = Value.nil();

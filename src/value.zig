@@ -466,7 +466,6 @@ pub const ProcObject = struct {
 pub const FiberObject = struct {
     pub const CoroEvent = enum {
         none,
-        yielded,
         returned,
         raised,
     };
@@ -482,6 +481,9 @@ pub const FiberObject = struct {
     pending_unwind: ?PendingUnwind = null,
     current_lexical_scope: ?*LexicalScope = null,
     caller: ?*FiberObject = null,
+    resuming_fiber: ?*FiberObject = null,
+    yielding: bool = false,
+    call_context: ThreadObject.CallContext = .{},
     coro: ?*FiberCoro = null,
     coro_event: CoroEvent = .none,
     coro_result: Value = Value.nil(),

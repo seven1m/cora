@@ -29,6 +29,8 @@ pub fn register(vm: *VM) !void {
     const resume_sym = try vm.intern("resume");
     try vm.fiber_class.module.methods.put(resume_sym, value.MethodEntry.builtin(&builtinFiberResume, .{ .variadic = 0 }));
 
+    try vm.fiber_class.module.methods.put(try vm.intern("transfer"), value.MethodEntry.builtin(&builtinFiberTransfer, .{ .variadic = 0 }));
+
     const alive_sym = try vm.intern("alive?");
     try vm.fiber_class.module.methods.put(alive_sym, value.MethodEntry.builtin(&builtinFiberAlive, .{ .exact = 0 }));
 
@@ -113,6 +115,9 @@ pub fn builtinFiberResume(vm: *VM, receiver: Value, args: []Value, _: ?Block) VM
     if (fiber == vm.current_fiber) {
         return raiseFiberError(vm, "attempt to resume the current fiber");
     }
+    if (fiber.resuming_fiber != null) return raiseFiberError(vm, "attempt to resume a resuming fiber");
+    if (fiber.caller != null) return raiseFiberError(vm, "attempt to resume a resumed fiber (double resume)");
+    if (fiber.state == .suspended and !fiber.yielding) return raiseFiberError(vm, "attempt to resume a transferring fiber");
     switch (fiber.state) {
         .terminated => return raiseFiberError(vm, "dead fiber called"),
         .running => return raiseFiberError(vm, "attempt to resume a running fiber"),
@@ -144,4 +149,16 @@ pub fn builtinFiberInspect(vm: *VM, receiver: Value, args: []Value, _: ?Block) V
         .{ @intFromPtr(fiber), state_str },
     ) catch return error.Fatal;
     return try vm.newString(msg, false);
+}
+
+fn builtinFiberTransfer(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    const fiber = receiver.toFiberObject();
+    const thread = vm.current_thread orelse try vm.ensureMainThread();
+    if (fiber.owner_thread) |owner| {
+        if (owner != thread) return raiseFiberError(vm, "fiber called across threads");
+    }
+    if (fiber.resuming_fiber != null) return raiseFiberError(vm, "attempt to transfer to a resuming fiber");
+    if (fiber.yielding) return raiseFiberError(vm, "attempt to transfer to a yielding fiber");
+    if (fiber.state == .terminated) return raiseFiberError(vm, "dead fiber called");
+    return vm.transferFiber(fiber, args, try argsToValue(vm, args));
 }

@@ -685,12 +685,12 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/fiber/kill_spec.rb
 - [x] core/fiber/new_spec.rb
 - [ ] core/fiber/raise_spec.rb
-- [ ] core/fiber/resume_spec.rb
+- [x] core/fiber/resume_spec.rb
 - [ ] core/fiber/schedule_spec.rb
 - [ ] core/fiber/scheduler_spec.rb
 - [ ] core/fiber/set_scheduler_spec.rb
 - [ ] core/fiber/storage_spec.rb
-- [ ] core/fiber/transfer_spec.rb
+- [x] core/fiber/transfer_spec.rb
 - [x] core/fiber/yield_spec.rb
 
 ### core/file
