@@ -5170,6 +5170,12 @@ pub const VM = struct {
         @panic("terminated thread resumed");
     }
 
+    pub fn currentFiberScheduler(self: *VM) ?Value {
+        if (self.current_fiber.blocking) return null;
+        const thread = self.current_thread orelse return null;
+        return thread.fiber_scheduler;
+    }
+
     pub fn closeFiberScheduler(self: *VM, thread: *ThreadObject) VMError!void {
         const scheduler = thread.fiber_scheduler orelse return;
         defer thread.fiber_scheduler = null;
