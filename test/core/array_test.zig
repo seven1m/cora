@@ -1025,6 +1025,20 @@ test "Array#pack quoted printable emits one soft break before a wrapped whitespa
     try std.testing.expectEqualStrings("=3D\t=\n\n", result.toStringObject().str);
 }
 
+test "Array#pack LEB128 round trips arbitrary precision values and handles incomplete inputs" {
+    const result = try evalCode(
+        \\large = (1 << 200) + 127
+        \\unsigned = [0, large, large - 1]
+        \\signed = [large, -large, -large - 1]
+        \\unsigned.pack("R*").unpack("R*") == unsigned &&
+        \\  signed.pack("r*").unpack("r*") == signed &&
+        \\  "\xFF".unpack("R*") == [] &&
+        \\  "\xFF".unpack("rr") == [nil, nil] &&
+        \\  ([256].pack("r") + "\xFF".b).unpack("rrrr") == [256, nil, nil, nil]
+    );
+    try std.testing.expect(result.isTruthy());
+}
+
 test "Array#pack Unicode directive encodes MRI codepoints" {
     const result = try evalCode(
         \\unicode = [0, 65, 233, 0x1f600].pack("U*")

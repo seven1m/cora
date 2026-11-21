@@ -84,7 +84,7 @@ pub fn arrayPack(vm: *VM, items: []Value, format: []const u8, buffer: ?Value) VM
             'm', 'u' => try packEncodedTextDirective(vm, items, &arg_index, token, &out),
             'M' => try packQuotedPrintableDirective(vm, items, &arg_index, token, &out),
             'U' => try packUnicodeDirective(vm, items, &arg_index, token, &out),
-            'w' => try packVariableIntegerDirective(vm, items, &arg_index, token, &out),
+            'w', 'R', 'r' => try packVariableIntegerDirective(vm, items, &arg_index, token, &out),
             'p', 'P' => try packPointerDirective(vm, items, &arg_index, token, &out, &packed_pointer_entries),
             'x' => {
                 if (!token.star) {
@@ -152,14 +152,14 @@ fn packVariableIntegerDirective(vm: *VM, items: []Value, arg_index: *usize, toke
         arg_index.* += 1;
         var number = try integer.integerToManaged(vm);
         defer number.deinit();
-        if (!number.isPositive()) return vm.raiseExceptionFmt(vm.argument_error_class, "can't compress negative numbers", .{});
-        const bit_count = number.bitCountAbs();
+        if (token.directive != 'r' and !number.isPositive()) return vm.raiseExceptionFmt(vm.argument_error_class, "can't compress negative numbers", .{});
+        const bit_count = number.toConst().bitCountTwosCompForSignedness(if (token.directive == 'r') .signed else .unsigned);
         const groups = @max(1, (bit_count + 6) / 7);
         const raw = vm.allocator.alloc(u8, (groups * 7 + 7) / 8) catch return error.Fatal;
         defer vm.allocator.free(raw);
         number.toConst().writeTwosComplement(raw, .little);
         for (0..groups) |i| {
-            const offset = (groups - 1 - i) * 7;
+            const offset = (if (token.directive == 'w') groups - 1 - i else i) * 7;
             const byte_index = offset / 8;
             const word = @as(u16, raw[byte_index]) | (if (byte_index + 1 < raw.len) @as(u16, raw[byte_index + 1]) << 8 else 0);
             var payload: u8 = @intCast((word >> @as(u4, @intCast(offset % 8))) & 0x7f);
@@ -333,7 +333,7 @@ pub fn stringUnpack(vm: *VM, source: *value.StringObject, base_offset: usize, fo
             'h' => try unpackHexString(vm, out, bytes, &index, token, false),
             'M' => try unpackQuotedPrintable(vm, out, bytes, &index),
             'm' => try unpackBase64(vm, out, bytes, &index, token),
-            'w' => try unpackBer(vm, out, bytes, &index, token),
+            'w', 'R', 'r' => try unpackVariableInteger(vm, out, bytes, &index, token),
             'U' => try unpackUnicodeCodepoints(vm, out, bytes, &index, token),
             'u' => try unpackUu(vm, out, bytes, &index),
             'c' => try unpackInteger(vm, out, bytes, &index, token, 1, true, .native),
@@ -1201,12 +1201,12 @@ fn unpackBase64(vm: *VM, out: *value.ArrayObject, bytes: []const u8, index: *usi
     out.elements.append(vm.gc_allocator, str) catch return error.Fatal;
 }
 
-fn unpackBer(vm: *VM, out: *value.ArrayObject, bytes: []const u8, index: *usize, token: DirectiveToken) VMError!void {
+fn unpackVariableInteger(vm: *VM, out: *value.ArrayObject, bytes: []const u8, index: *usize, token: DirectiveToken) VMError!void {
     const count = if (token.star) std.math.maxInt(usize) else token.count orelse 1;
 
     var i: usize = 0;
     while (i < count) : (i += 1) {
-        const maybe = try unpackOneBerInteger(vm, bytes, index);
+        const maybe = if (token.directive == 'w') try unpackOneBerInteger(vm, bytes, index) else try unpackOneLebInteger(vm, bytes, index, token.directive == 'r');
         if (maybe) |val| {
             out.elements.append(vm.gc_allocator, val) catch return error.Fatal;
             continue;
@@ -1215,6 +1215,33 @@ fn unpackBer(vm: *VM, out: *value.ArrayObject, bytes: []const u8, index: *usize,
         if (token.star) break;
         out.elements.append(vm.gc_allocator, Value.nil()) catch return error.Fatal;
     }
+}
+
+fn unpackOneLebInteger(vm: *VM, bytes: []const u8, index: *usize, signed: bool) VMError!?Value {
+    if (index.* >= bytes.len) return null;
+    var result = std.math.big.int.Managed.initSet(vm.allocator, @as(u8, 0)) catch return error.Fatal;
+    defer result.deinit();
+    var digit = std.math.big.int.Managed.init(vm.allocator) catch return error.Fatal;
+    defer digit.deinit();
+    var shift: usize = 0;
+    while (index.* < bytes.len) {
+        const byte = bytes[index.*];
+        index.* += 1;
+        digit.set(byte & 0x7f) catch return error.Fatal;
+        digit.shiftLeft(&digit, shift) catch return error.Fatal;
+        result.add(&result, &digit) catch return error.Fatal;
+        shift = std.math.add(usize, shift, 7) catch return error.Fatal;
+        if (byte & 0x80 == 0) {
+            if (signed and byte & 0x40 != 0) {
+                digit.set(@as(u8, 1)) catch return error.Fatal;
+                digit.shiftLeft(&digit, shift) catch return error.Fatal;
+                result.sub(&result, &digit) catch return error.Fatal;
+            }
+            return try vm.valueFromManagedInteger(&result);
+        }
+    }
+    // Incomplete LEB128 values are omitted for '*', and nil for fixed counts.
+    return null;
 }
 
 fn unpackOneBerInteger(vm: *VM, bytes: []const u8, index: *usize) VMError!?Value {
