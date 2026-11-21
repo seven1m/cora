@@ -101,7 +101,8 @@ not partially initialized interpreter metadata:
   standard SystemCallError class.
 - Method mutation ownership is resolved by methodDefinitionOwner for def, alias,
   and undef. Top-level ownership comes from Object's lexical scope; instance_eval
-  supplies an explicit definition target. A non-module self alone does not imply
+  supplies an explicit definition target. Missing both is an internal error; the
+  owner must not be guessed from self. A non-module self alone does not imply
   Object ownership. Alias and undef opcodes reuse the Module implementations for
   inherited lookup, undefined barriers, frozen checks and callback dispatch.
 

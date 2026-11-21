@@ -2290,7 +2290,7 @@ pub const VM = struct {
                 .class => |class_obj| Value.fromObject(&class_obj.module.object),
             }
         else
-            frame.self_value;
+            error.Fatal; // Ruby declarations require an eval target or lexical scope.
     }
 
     /// Read the locals_count stored in env-data[2] of an ep.
