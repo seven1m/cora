@@ -3,6 +3,7 @@ const vm_mod = @import("../vm.zig");
 const value = @import("../value.zig");
 const kernel_builtin = @import("kernel.zig");
 const string_builtin = @import("string.zig");
+const warning_builtin = @import("warning.zig");
 
 const VM = vm_mod.VM;
 const VMError = vm_mod.VMError;
@@ -100,6 +101,9 @@ pub fn register(vm: *VM) !void {
 
     const get_sym = try vm.intern("[]");
     try vm.thread_class.module.methods.put(get_sym, value.MethodEntry.builtin(&builtinThreadGetFiberLocal, .{ .exact = 1 }));
+
+    const fetch_sym = try vm.intern("fetch");
+    try vm.thread_class.module.methods.put(fetch_sym, value.MethodEntry.builtin(&builtinThreadFetch, .{ .variadic = 1 }));
 
     const set_sym = try vm.intern("[]=");
     try vm.thread_class.module.methods.put(set_sym, value.MethodEntry.builtin(&builtinThreadSetFiberLocal, .{ .exact = 2 }));
@@ -603,6 +607,23 @@ fn builtinThreadGetFiberLocal(vm: *VM, receiver: Value, args: []Value, _: ?Block
     return Value.nil();
 }
 
+fn builtinThreadFetch(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
+    try vm.requireArgCountRange(args, 1, 2);
+    if (args.len == 2 and block != null) {
+        try warning_builtin.writeWarning(vm, "warning: block supersedes default value argument\n");
+    }
+    const key = try symbolKeyArg(vm, args[0]);
+    const symbol = if (key.isSymbol()) key.toSymbolObject() else try vm.intern(key.toStringObject().str);
+    const fiber = try fiberLocalTarget(vm, receiver.toThreadObject());
+    if (fiber.fiber_locals) |locals| {
+        if (locals.get(symbol)) |val| return val;
+    }
+    if (block) |blk| return vm.yieldToBlock(blk, &.{key});
+    if (args.len == 2) return args[1];
+    const inspected = try key.inspect(vm);
+    return vm.raiseKeyErrorFmt(key, receiver, "key not found: {s}", .{inspected.toStringObject().str});
+}
+
 fn builtinThreadSetFiberLocal(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 2);
     if (receiver.isFrozen()) {
@@ -904,13 +925,19 @@ fn optionalTimeoutArg(vm: *VM, args: []Value) VMError!?f64 {
 }
 
 pub fn symbolArg(vm: *VM, arg: Value) VMError!*value.SymbolObject {
-    if (arg.isSymbol()) return arg.toSymbolObject();
+    const key = try symbolKeyArg(vm, arg);
+    return if (key.isSymbol()) key.toSymbolObject() else try vm.intern(key.toStringObject().str);
+}
+
+// Retain a coerced String for APIs such as fetch that yield/store the caller's key.
+fn symbolKeyArg(vm: *VM, arg: Value) VMError!Value {
+    if (arg.isSymbol()) return arg;
     switch (try vm.probeToStringValue(arg)) {
-        .string => |coerced| return try vm.intern(coerced.toStringObject().str),
+        .string => |coerced| return coerced,
         .missing, .nil_result => {},
     }
-
-    return raiseNotSymbolTypeError(vm, arg);
+    _ = try raiseNotSymbolTypeError(vm, arg);
+    unreachable;
 }
 
 fn raiseNotSymbolTypeError(vm: *VM, arg: Value) VMError!*value.SymbolObject {

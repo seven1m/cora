@@ -2224,7 +2224,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] core/thread/element_reference_spec.rb
 - [x] core/thread/element_set_spec.rb
 - [x] core/thread/exit_spec.rb
-- [ ] core/thread/fetch_spec.rb
+- [x] core/thread/fetch_spec.rb
 - [x] core/thread/fork_spec.rb
 - [x] core/thread/group_spec.rb
 - [x] core/thread/handle_interrupt_spec.rb

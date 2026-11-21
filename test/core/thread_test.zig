@@ -879,3 +879,28 @@ test "Thread.start preserves positional and keyword arguments for its block" {
     );
     try std.testing.expect(result.isTruthy());
 }
+
+test "Thread#fetch preserves coerced keys and current fiber storage" {
+    const result = try evalCode(
+        \\key = Object.new
+        \\def key.to_str; "missing"; end
+        \\thread = Thread.current
+        \\begin
+        \\  thread.fetch(key)
+        \\rescue KeyError => e
+        \\  raise "key metadata" unless e.key == "missing" && e.receiver.equal?(thread)
+        \\end
+        \\raise "coerced yield" unless thread.fetch(key) { |k| k } == "missing"
+        \\thread[:slot] = :root
+        \\inner = Fiber.new do
+        \\  raise "root leaked" unless thread.fetch(:slot, :absent) == :absent
+        \\  thread[:slot] = false
+        \\  raise "false treated as missing" unless thread.fetch(:slot) { raise "yielded" } == false
+        \\  thread[:slot] = nil
+        \\  thread.fetch(:slot) { break :removed }
+        \\end.resume
+        \\raise "block break" unless inner == :removed
+        \\thread.fetch(:slot) == :root
+    );
+    try std.testing.expect(result.isTruthy());
+}
