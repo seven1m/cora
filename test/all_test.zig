@@ -1,4 +1,5 @@
 const value_test = @import("value_test.zig");
+const onigmo_test = @import("onigmo_test.zig");
 const prism_test = @import("prism_test.zig");
 const binary_test = @import("binary_test.zig");
 const bundled_gems_test = @import("bundled_gems_test.zig");
@@ -112,6 +113,7 @@ const weakref_test = @import("weakref_test.zig");
 
 comptime {
     _ = value_test;
+    _ = onigmo_test;
     _ = prism_test;
     _ = binary_test;
     _ = bundled_gems_test;

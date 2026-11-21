@@ -308,7 +308,11 @@ pub fn caseMap(
     const end = start + bytes.len;
     var current = start;
     while (@intFromPtr(current) < @intFromPtr(end)) {
-        var chunk_capacity: usize = (@intFromPtr(end) - @intFromPtr(current)) * 2 + 32;
+        // The encoding callback returns int, even though our total length is
+        // usize. Bound each buffer before multiplying (MRI GHSA-87fm-7w84-j2px).
+        const max_chunk_capacity: usize = std.math.maxInt(c_int);
+        const remaining = @intFromPtr(end) - @intFromPtr(current);
+        var chunk_capacity = @min(remaining, (max_chunk_capacity - 32) / 2) * 2 + 32;
         while (true) {
             var chunk = allocator.alloc(u8, chunk_capacity) catch return error.OutOfMemory;
             defer allocator.free(chunk);
@@ -319,7 +323,11 @@ pub fn caseMap(
             const written = case_map_fn(&flags, &next, end, chunk_start, chunk_end, encoding);
             if (written < 0) return error.InvalidByteSequence;
             if (@intFromPtr(next) == @intFromPtr(current)) {
-                chunk_capacity *= 2;
+                if (chunk_capacity == max_chunk_capacity) return error.OutOfMemory;
+                chunk_capacity = if (chunk_capacity > max_chunk_capacity / 2)
+                    max_chunk_capacity
+                else
+                    chunk_capacity * 2;
                 continue;
             }
 

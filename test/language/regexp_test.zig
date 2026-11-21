@@ -362,3 +362,48 @@ test "Regexp === updates match globals in case expressions" {
     try std.testing.expectEqualStrings("mswin32", items[4].toStringObject().str);
     try std.testing.expect(items[5].isNil());
 }
+
+test "Regexp security regressions reject oversized compilation and class intersections" {
+    const result = try evalCode(
+        \\# MRI 0b276cd405 (double free) and 75ce2eed24 (program length overflow).
+        \\chars = (0...9999).map { |i| (0x4e00 + 2 * i).chr("UTF-8") }.join
+        \\cc = "[[:^ascii:][^#{chars}]&&[^\u9fff]&&x]"
+        \\patterns = [cc, "[x&&#{cc}]", cc.encode("UTF-16LE")]
+        \\patterns.each do |pattern|
+        \\  begin
+        \\    Regexp.new(pattern, Regexp::IGNORECASE)
+        \\    raise "accepted oversized intersection"
+        \\  rescue RegexpError
+        \\  end
+        \\end
+        \\k, rest = (2**32 - 217).divmod(100_001)
+        \\begin
+        \\  Regexp.new("(?:#{'.{100000,}' * k}.{#{rest - 1},})?")
+        \\  raise "accepted oversized program"
+        \\rescue RegexpError => e
+        \\  raise "wrong compilation error: #{e.message}" unless e.message.include?("too big compiled program")
+        \\end
+        \\["(?:.{90000,}){90000}", "(?:.{46341,}){46341}"].all? do |pattern|
+        \\  !Regexp.new(pattern).match?("x" * 10)
+        \\end
+    );
+    try std.testing.expect(result.isTrue());
+}
+
+test "Regexp security regressions bound case-insensitive operands and backreferences" {
+    const result = try evalCode(
+        \\# MRI e3591b3d5d and 9a6ccf70d5: case-fold lengths can differ.
+        \\%w[UTF-16LE UTF-16BE UTF-32LE UTF-32BE].each do |enc|
+        \\  tail = "\u0103\u3042\u3044"
+        \\  subject = ("x" * 16 + "\u1E98" + "y" * 8).encode(enc)
+        \\  ["x" * 16 + "(?i:w)" + tail, "(?i:" + "x" * 16 + "w)" + tail].each do |pattern|
+        \\    re = Regexp.new(pattern.encode(enc))
+        \\    raise "lost valid match" unless re.match?(("x" * 16 + "W" + tail).encode(enc))
+        \\    raise "matched beyond operand" if re.match?(subject)
+        \\  end
+        \\end
+        \\!/(k\0)\1/i.match?("k\0\u212a") &&
+        \\  /(k)\1/i.match?("k\u212a") && /(k\0)\1/i.match?("k\0\u212a\0")
+    );
+    try std.testing.expect(result.isTrue());
+}

@@ -7,7 +7,6 @@ const native_extension_suffix = "." ++ rbconfig.nativeExtension();
 const optimize_state_path = "build/build-mode";
 const runtime_prefix = "build";
 const ruby_gem_api_version = "4.1.0";
-const onigmo_build_root = "build/onigmo";
 const rubygems_build_root = "build/rubygems";
 const psych_build_root = "build/psych";
 const strscan_build_root = "build/strscan";
@@ -198,35 +197,69 @@ fn writeSavedOptimizeMode(b: *std.Build, mode: std.builtin.OptimizeMode) void {
     };
 }
 
-fn buildOnigmo(b: *std.Build) *std.Build.Step {
-    const onigmo_build_step = b.step("onigmo", "Build Onigmo library");
-
-    const libonigmo_path = onigmo_build_root ++ "/.libs/libonigmo.a";
-
-    const libonigmo_exists = pathExists(b, libonigmo_path);
-
-    if (!libonigmo_exists) {
-        const copy_step = b.addSystemCommand(&.{ "sh", "-c", "mkdir -p build/onigmo && cp -r ext/onigmo/* build/onigmo/" });
-        onigmo_build_step.dependOn(&copy_step.step);
-
-        const patch_step = b.addSystemCommand(&.{ "sh", "-c", "cd build/onigmo && patch -p1 < ../../ext/onigmo.patch 2>/dev/null; true" });
-        patch_step.step.dependOn(&copy_step.step);
-        onigmo_build_step.dependOn(&patch_step.step);
-
-        const autogen_step = b.addSystemCommand(&.{ "sh", "-c", "cd build/onigmo && sh autogen.sh" });
-        autogen_step.step.dependOn(&patch_step.step);
-        onigmo_build_step.dependOn(&autogen_step.step);
-
-        const configure_step = b.addSystemCommand(&.{ "sh", "-c", "cd build/onigmo && ./configure --with-pic" });
-        configure_step.step.dependOn(&autogen_step.step);
-        onigmo_build_step.dependOn(&configure_step.step);
-
-        const make_step = b.addSystemCommand(&.{ "sh", "-c", "cd build/onigmo && make -j CFLAGS='-std=gnu17'" });
-        make_step.step.dependOn(&configure_step.step);
-        onigmo_build_step.dependOn(&make_step.step);
-    }
-
-    return onigmo_build_step;
+fn buildOnigmo(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.builtin.OptimizeMode) *std.Build.Step.Compile {
+    const module = b.createModule(.{
+        .target = target,
+        .optimize = optimize,
+        .link_libc = true,
+        .pic = true,
+    });
+    module.addIncludePath(b.path("ext/onigmo"));
+    module.addIncludePath(b.path("ext/onigmo/compat"));
+    module.addIncludePath(b.path("ext/onigmo/enc/unicode/17.0.0"));
+    module.addCSourceFiles(.{ .root = b.path("ext/onigmo"), .files = &.{
+        "enc/ascii.c",
+        "enc/big5.c",
+        "enc/euc_jp.c",
+        "enc/euc_kr.c",
+        "enc/euc_tw.c",
+        "enc/gb18030.c",
+        "enc/iso_8859_1.c",
+        "enc/iso_8859_10.c",
+        "enc/iso_8859_11.c",
+        "enc/iso_8859_13.c",
+        "enc/iso_8859_14.c",
+        "enc/iso_8859_15.c",
+        "enc/iso_8859_16.c",
+        "enc/iso_8859_2.c",
+        "enc/iso_8859_3.c",
+        "enc/iso_8859_4.c",
+        "enc/iso_8859_5.c",
+        "enc/iso_8859_6.c",
+        "enc/iso_8859_7.c",
+        "enc/iso_8859_8.c",
+        "enc/iso_8859_9.c",
+        "enc/koi8_r.c",
+        "enc/koi8_u.c",
+        "enc/shift_jis.c",
+        "enc/unicode.c",
+        "enc/utf_16be.c",
+        "enc/utf_16le.c",
+        "enc/utf_32be.c",
+        "enc/utf_32le.c",
+        "enc/utf_8.c",
+        "enc/windows_1250.c",
+        "enc/windows_1251.c",
+        "enc/windows_1252.c",
+        "enc/windows_1253.c",
+        "enc/windows_1254.c",
+        "enc/windows_1257.c",
+        "enc/windows_31j.c",
+        "regcomp.c",
+        "regenc.c",
+        "regerror.c",
+        "regexec.c",
+        "regparse.c",
+        "regsyntax.c",
+        "st.c",
+    }, .flags = &.{ "-std=gnu17", "-DNOT_RUBY" } });
+    const library = b.addLibrary(.{
+        .name = "onigmo",
+        .linkage = .static,
+        .root_module = module,
+    });
+    b.step("onigmo", "Build MRI's vendored Onigmo library").dependOn(&library.step);
+    return library;
 }
 
 fn buildPrism(b: *std.Build, submodule_update_step: ?*std.Build.Step) *std.Build.Step {
@@ -601,7 +634,7 @@ pub fn build(b: *std.Build) void {
     const strscan_build_step = strscan_build.step;
     const json_build = buildJson(b);
     const json_build_step = json_build.step;
-    const onigmo_build_step = buildOnigmo(b);
+    const onigmo = buildOnigmo(b, target, optimize);
     const tinycc_build_step = buildTinyCC(b);
     const cext_fixture_step = buildCExtFixture(b);
     const ffi_build_step = buildFFI(b);
@@ -611,7 +644,6 @@ pub fn build(b: *std.Build) void {
         psych_build_step.dependOn(s);
         strscan_build_step.dependOn(s);
         json_build_step.dependOn(s);
-        onigmo_build_step.dependOn(s);
         tinycc_build_step.dependOn(s);
     }
 
@@ -625,13 +657,12 @@ pub fn build(b: *std.Build) void {
     });
 
     exe.step.dependOn(prism_build_step);
-    exe.step.dependOn(onigmo_build_step);
     exe.step.dependOn(tinycc_build_step);
 
     exe.root_module.addObjectFile(b.path(prism_build_root ++ "/build/libprism.a"));
     exe.root_module.addIncludePath(b.path(prism_build_root ++ "/include"));
-    exe.root_module.addObjectFile(b.path(onigmo_build_root ++ "/.libs/libonigmo.a"));
-    exe.root_module.addIncludePath(b.path(onigmo_build_root ++ "/"));
+    exe.root_module.linkLibrary(onigmo);
+    exe.root_module.addIncludePath(b.path("ext/onigmo"));
     exe.root_module.addCSourceFile(.{ .file = b.path("ext/dtoa.c") });
     exe.root_module.addObjectFile(b.path(tinycc_build_root ++ "/libtcc.a"));
     exe.root_module.addIncludePath(b.path(tinycc_build_root));
@@ -872,13 +903,12 @@ pub fn build(b: *std.Build) void {
     });
 
     test_exe.step.dependOn(prism_build_step);
-    test_exe.step.dependOn(onigmo_build_step);
     test_exe.step.dependOn(cext_fixture_step);
     test_exe.step.dependOn(tinycc_build_step);
     test_exe.root_module.addObjectFile(b.path(prism_build_root ++ "/build/libprism.a"));
     test_exe.root_module.addIncludePath(b.path(prism_build_root ++ "/include"));
-    test_exe.root_module.addObjectFile(b.path(onigmo_build_root ++ "/.libs/libonigmo.a"));
-    test_exe.root_module.addIncludePath(b.path(onigmo_build_root ++ "/"));
+    test_exe.root_module.linkLibrary(onigmo);
+    test_exe.root_module.addIncludePath(b.path("ext/onigmo"));
     test_exe.root_module.addCSourceFile(.{ .file = b.path("ext/dtoa.c") });
     test_exe.root_module.addObjectFile(b.path(tinycc_build_root ++ "/libtcc.a"));
     test_exe.root_module.addIncludePath(b.path(tinycc_build_root));
@@ -899,8 +929,8 @@ pub fn build(b: *std.Build) void {
     cora_mod.addImport("build_options", build_options_mod);
     cora_mod.addImport("zio", zio.module("zio"));
     cora_mod.addIncludePath(b.path(prism_build_root ++ "/include"));
-    cora_mod.addIncludePath(b.path(onigmo_build_root ++ "/"));
-    cora_mod.addObjectFile(b.path(onigmo_build_root ++ "/.libs/libonigmo.a"));
+    cora_mod.addIncludePath(b.path("ext/onigmo"));
+    cora_mod.linkLibrary(onigmo);
     linkSystemLibraries(cora_mod);
     cora_mod.addIncludePath(b.path(tinycc_build_root));
     test_exe.root_module.addImport("cora", cora_mod);
@@ -921,7 +951,7 @@ pub fn build(b: *std.Build) void {
             const run = b.addSystemCommand(&.{
                 "kcov",
                 "--clean",
-                "--exclude-pattern=/nix/store,.zig-cache,build/ext,build/prism,build/onigmo,build/tinycc",
+                "--exclude-pattern=/nix/store,.zig-cache,build/ext,build/prism,build/tinycc",
                 b.fmt("--include-pattern={s}", .{include_pattern}),
                 coverage_output_dir,
             });
@@ -939,7 +969,7 @@ pub fn build(b: *std.Build) void {
     test_run.setEnvironmentVariable("GEM_HOME", test_gem_home);
     test_run.setEnvironmentVariable("GEM_PATH", test_gem_home);
     test_run.step.dependOn(prism_build_step);
-    test_run.step.dependOn(onigmo_build_step);
+    test_run.step.dependOn(&onigmo.step);
     test_run.step.dependOn(b.getInstallStep());
 
     const test_step = b.step("test", "Run tests");

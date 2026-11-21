@@ -7,7 +7,7 @@ are built and tested.
 ## Layout At A Glance
 
 - `ext/<gem>/` - vendored gem sources. Submodules for gems with their own
-  upstream repo (`ext/prism`, `ext/onigmo`, `ext/tinycc`, `ext/rubygems`, `ext/ipaddr`,
+  upstream repo (`ext/prism`, `ext/tinycc`, `ext/rubygems`, `ext/ipaddr`,
   `ext/logger`, `ext/time`, `ext/optparse`, `ext/uri`, `ext/delegate`, `ext/did_you_mean`,
   `ext/tmpdir`, `ext/tempfile`, `ext/cgi`, `ext/erb`, `ext/forwardable`,
   `ext/timeout`, `ext/singleton`, `ext/open3`, `ext/shellwords`, `ext/yaml`,
@@ -110,9 +110,11 @@ Steps per gem:
 - `csv`, `test-unit`, `power_assert` - pure Ruby; installed as ordinary bundled gems
   with `test-unit` depending on `power_assert`.
 
-The TinyCC JIT and Onigmo use the same pattern as the gems: copy from
-`ext/<lib>` to `build/<lib>`, run the upstream configure step, and link the
-resulting `libtcc.a` / `libonigmo.a` into the executable.
+The TinyCC JIT is copied from `ext/tinycc` to `build/tinycc`, configured, and
+linked as `libtcc.a`. Onigmo is vendored from MRI in `ext/onigmo` and built
+directly as a static library by Zig. It needs neither autotools nor a Ruby
+checkout at build time. See `ext/onigmo/README.md` for its source pin and refresh
+procedure.
 
 ## Per-Step Build Targets
 

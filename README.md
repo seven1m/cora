@@ -47,7 +47,6 @@ To build Cora, you'll need:
 - Zig 0.16.x
 - GNU make
 - a C toolchain
-- autotools for the bundled Onigmo build, including `autoreconf`
 
 If you have the [Nix](https://nixos.org/download/) package manager, you can fetch all the dependencies easily with:
 
