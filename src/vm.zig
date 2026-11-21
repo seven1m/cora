@@ -7737,10 +7737,11 @@ pub const VM = struct {
                 const current_self = frame.self_value;
                 const target_is_class = current_self.isClass();
                 const target_is_module = current_self.isModule();
-                const methods = if (target_is_class or target_is_module)
-                    current_self.getModuleMethods().?
+                const owner = if (target_is_class or target_is_module)
+                    current_self
                 else
-                    (try self.getOrCreateSingletonClass(current_self)).module.origin.methods;
+                    Value.fromObject(&(try self.getOrCreateSingletonClass(current_self)).module.object);
+                const methods = owner.getModuleMethods().?;
 
                 for (args[0..argc]) |arg| {
                     const name_sym = try self.coerceToMethodNameSymbol(arg);
@@ -7763,10 +7764,11 @@ pub const VM = struct {
                     }
 
                     methods.put(name_sym, .{ .method = .{ .undefined = {} } }) catch return error.Fatal;
+                    self.markIntegerChangedForReceiver(current_self);
+                    self.bumpMethodStateVersion();
+                    try self.triggerMethodCallback(owner, name_sym, .undefined);
                 }
 
-                self.markIntegerChangedForReceiver(current_self);
-                self.bumpMethodStateVersion();
                 try self.push(Value.NIL);
             },
 
