@@ -29,6 +29,7 @@ Some gems that are known to work, though I haven't tested each thoroughly:
 - minitest
 - nokogiri
 - psych/yaml
+- puma
 - rack
 - rails
 - railties
