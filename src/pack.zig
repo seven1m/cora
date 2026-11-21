@@ -601,11 +601,9 @@ fn packStringDirective(
                 return;
             }
             const width = token.count orelse 1;
-            if (width == 0) return;
-            const used = @min(width - 1, str.len);
+            const used = @min(width, str.len);
             out.appendSlice(vm.allocator, str[0..used]) catch return error.Fatal;
-            out.append(vm.allocator, 0) catch return error.Fatal;
-            try appendZeros(vm, out, width - used - 1);
+            try appendZeros(vm, out, width - used);
         },
         else => unreachable,
     }

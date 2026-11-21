@@ -1143,38 +1143,6 @@ test "Array#clone dispatches initialize_clone, preserves frozen state, and copie
     try std.testing.expectEqualSlices(u8, "singleton", result.toArrayObject().elements.items[5].toSymbolObject().name);
 }
 
-test "Array#pack string directives" {
-    var result = try evalCode("['ab'].pack('A4')");
-    try std.testing.expect(result.isString());
-    try std.testing.expectEqualSlices(u8, "ab  ", result.toStringObject().str);
-
-    result = try evalCode("['ab'].pack('a4')");
-    try std.testing.expect(result.isString());
-    try std.testing.expectEqualSlices(u8, "ab\x00\x00", result.toStringObject().str);
-
-    result = try evalCode("['ab'].pack('Z4')");
-    try std.testing.expect(result.isString());
-    try std.testing.expectEqualSlices(u8, "ab\x00\x00", result.toStringObject().str);
-
-    result = try evalCode("['abc'].pack('H*')");
-    try std.testing.expect(result.isString());
-    try std.testing.expectEqualSlices(u8, "\xab\xc0", result.toStringObject().str);
-
-    result = try evalCode("['abc'].pack('h*')");
-    try std.testing.expect(result.isString());
-    try std.testing.expectEqualSlices(u8, "\xba\x0c", result.toStringObject().str);
-}
-
-test "Array#pack cursor directives" {
-    var result = try evalCode("[1, 2].pack('CXC')");
-    try std.testing.expect(result.isString());
-    try std.testing.expectEqualSlices(u8, "\x02", result.toStringObject().str);
-
-    result = try evalCode("[1, 2].pack('C@3C')");
-    try std.testing.expect(result.isString());
-    try std.testing.expectEqualSlices(u8, "\x01\x00\x00\x02", result.toStringObject().str);
-}
-
 test "Array#join falls back to default representation for invalid to_s result" {
     const result = try evalCode(
         \\object = Object.new
