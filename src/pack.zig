@@ -594,10 +594,10 @@ fn packHexDirective(
 
     var nibble_index: usize = 0;
     while (nibble_index < nibble_count) : (nibble_index += 2) {
-        const first = if (nibble_index < str.len) hexNibble(str[nibble_index]) orelse 0 else 0;
+        const first = if (nibble_index < str.len) packHexNibble(str[nibble_index]) else 0;
         const second_index = nibble_index + 1;
         const second = if (second_index < nibble_count and second_index < str.len)
-            hexNibble(str[second_index]) orelse 0
+            packHexNibble(str[second_index])
         else
             0;
         const byte_value = if (high_nibble_first)
@@ -606,6 +606,11 @@ fn packHexDirective(
             first | (second << 4);
         out.append(vm.allocator, byte_value) catch return error.Fatal;
     }
+}
+
+fn packHexNibble(byte: u8) u8 {
+    // Unlike unpacking, packing accepts every byte, using its low nibble.
+    return if (std.ascii.isAlphabetic(byte)) ((byte & 0x0f) + 9) & 0x0f else byte & 0x0f;
 }
 
 fn packPointerDirective(
