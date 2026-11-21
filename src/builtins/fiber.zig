@@ -161,10 +161,17 @@ pub fn builtinFiberInspect(vm: *VM, receiver: Value, args: []Value, _: ?Block) V
         .suspended => "suspended",
         .terminated => "terminated",
     };
+    const source = if (fiber.block) |block| switch (block.kind) {
+        .chunk => |chunk_block| if (chunk_block.chunk.source_file) |file|
+            std.fmt.allocPrint(vm.gc_allocator, " {s}:{d}", .{ file, chunk_block.chunk.getLine(0) }) catch return error.Fatal
+        else
+            "",
+        else => "",
+    } else "";
     const msg = std.fmt.allocPrint(
         vm.gc_allocator,
-        "#<Fiber:0x{x} ({s})>",
-        .{ @intFromPtr(fiber), state_str },
+        "#<Fiber:0x{x}{s} ({s})>",
+        .{ @intFromPtr(&fiber.object), source, state_str },
     ) catch return error.Fatal;
     return try vm.newString(msg, false);
 }
