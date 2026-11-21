@@ -10072,8 +10072,10 @@ pub const VM = struct {
     pub fn methodArityValue(self: *VM, resolved: ResolvedMethod) VMError!Value {
         return switch (resolved.entry.method) {
             .chunk => |method_chunk| blk: {
-                const required = method_chunk.arity + method_chunk.post_required_count;
-                if (method_chunk.rest_param_index != null or method_chunk.optional_params.items.len > 0) {
+                const has_required_keywords = method_chunk.required_keywords.items.len > 0;
+                const required = method_chunk.arity + method_chunk.post_required_count + @as(usize, @intFromBool(has_required_keywords));
+                const optional_keywords = !has_required_keywords and (method_chunk.optional_keywords.items.len > 0 or method_chunk.keyword_rest_index != null);
+                if (method_chunk.rest_param_index != null or method_chunk.optional_params.items.len > 0 or optional_keywords) {
                     break :blk Value.integer(-@as(i64, @intCast(required)) - 1);
                 }
                 break :blk Value.integer(@intCast(required));

@@ -2367,7 +2367,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] core/true/xor_spec.rb
 
 ### core/unboundmethod
-- [ ] core/unboundmethod/arity_spec.rb
+- [x] core/unboundmethod/arity_spec.rb
 - [x] core/unboundmethod/bind_call_spec.rb
 - [x] core/unboundmethod/bind_spec.rb
 - [x] core/unboundmethod/clone_spec.rb
