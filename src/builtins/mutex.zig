@@ -277,6 +277,7 @@ pub fn waitForMutex(vm: *VM, mutex: *value.MutexObject) VMError!void {
     }
 
     while (mutex.state == .locked) {
+        try vm.deliverThreadInterrupt(true);
         try vm.threadYield();
     }
 }

@@ -231,11 +231,81 @@ test "ObjectSpace registers finalizers for large Thread objects" {
     for (items) |item| try std.testing.expect(item.isTruthy());
 }
 
-test "Thread.handle_interrupt validates masks and yields" {
+test "Thread interrupt masks preserve FIFO order and are inherited by child threads" {
     const result = try evalCode(
-        \\Thread.handle_interrupt(Object => :immediate) { 42 }
+        \\log = []
+        \\Thread.handle_interrupt(Object => :never) do
+        \\  worker = Thread.new do
+        \\    Thread.current.raise 'first'
+        \\    Thread.current.raise 'second'
+        \\    log << Thread.pending_interrupt?(RuntimeError)
+        \\    log << Thread.pending_interrupt?(ArgumentError)
+        \\    2.times do
+        \\      begin
+        \\        Thread.handle_interrupt(RuntimeError => :immediate) { log << :unreachable }
+        \\      rescue RuntimeError => error
+        \\        log << error.message
+        \\      end
+        \\    end
+        \\    log << Thread.pending_interrupt?
+        \\  end
+        \\  worker.join
+        \\end
+        \\log == [true, false, 'first', 'second', false]
     );
-    try std.testing.expectEqual(@as(i64, 42), result.toInteger());
+    try std.testing.expect(result.isTruthy());
+}
+
+test "Thread on_blocking interrupts distinguish Thread.pass from zero-duration sleep" {
+    const result = try evalCode(
+        \\log = []
+        \\begin
+        \\  Thread.handle_interrupt(RuntimeError => :on_blocking) do
+        \\    Thread.current.raise 'blocking'
+        \\    Thread.pass
+        \\    log << :after_pass
+        \\    sleep 0
+        \\    log << :unreachable
+        \\  end
+        \\rescue RuntimeError => error
+        \\  log << error.message
+        \\end
+        \\log == [:after_pass, 'blocking']
+    );
+    try std.testing.expect(result.isTruthy());
+}
+
+test "Thread masks defer external kill but self-kill remains immediate" {
+    const result = try evalCode(
+        \\log = []
+        \\ready = Queue.new
+        \\release = Queue.new
+        \\worker = Thread.new do
+        \\  begin
+        \\    Thread.handle_interrupt(Object => :never) do
+        \\      ready << true
+        \\      release.pop
+        \\      log << :completed_mask
+        \\    end
+        \\    log << :unreachable
+        \\  ensure
+        \\    log << :ensured
+        \\  end
+        \\end
+        \\ready.pop
+        \\worker.kill
+        \\pending = worker.pending_interrupt?
+        \\release << true
+        \\worker.join
+        \\Thread.new do
+        \\  Thread.handle_interrupt(Object => :never) do
+        \\    Thread.current.kill
+        \\    log << :unreachable_self
+        \\  end
+        \\end.join
+        \\pending && log == [:completed_mask, :ensured]
+    );
+    try std.testing.expect(result.isTruthy());
 }
 
 test "Thread#join waits for completion" {

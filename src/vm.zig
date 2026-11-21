@@ -3200,6 +3200,78 @@ pub const VM = struct {
         self.dump_jit_source = enabled;
     }
 
+    const InterruptTiming = enum { immediate, on_blocking, never };
+
+    fn threadInterruptTiming(self: *VM, thread: *ThreadObject, event: value.ThreadInterrupt) InterruptTiming {
+        const event_class = switch (event) {
+            .kill => self.integer_class,
+            .exception => |exception| exception.object.object.class.?,
+        };
+        var index = thread.interrupt_masks.items.len;
+        while (index > 0) {
+            index -= 1;
+            const mask = thread.interrupt_masks.items[index];
+            var ancestor: ?*ModuleObject = &event_class.module;
+            while (ancestor) |node| : (ancestor = node.super) {
+                const origin = if (node.object.type_tag == .iclass) node.origin else node;
+                for (mask.entries.items) |entry| {
+                    if (entry.key.getModuleObject().? == origin) {
+                        const name = entry.value.toSymbolObject().name;
+                        if (std.mem.eql(u8, name, "never")) return .never;
+                        if (std.mem.eql(u8, name, "on_blocking")) return .on_blocking;
+                        return .immediate;
+                    }
+                }
+            }
+        }
+        return .immediate;
+    }
+
+    fn nextThreadInterruptIndex(self: *VM, thread: *ThreadObject, blocking: bool) ?usize {
+        if (thread.delivering_interrupt) return null;
+        for (thread.pending_interrupts.items, 0..) |event, index| {
+            switch (self.threadInterruptTiming(thread, event)) {
+                .never => {},
+                .on_blocking => if (blocking) {
+                    return index;
+                },
+                .immediate => return index,
+            }
+        }
+        return null;
+    }
+
+    pub fn enqueueThreadInterrupt(self: *VM, thread: *ThreadObject, event: value.ThreadInterrupt) VMError!void {
+        if (thread.state == .terminated) return;
+        thread.pending_interrupts.append(self.gc_allocator, event) catch return error.Fatal;
+        if (thread.state == .sleeping and self.nextThreadInterruptIndex(thread, true) != null) {
+            thread.state = .running;
+            self.addRunnableThreadIfAbsent(thread);
+        }
+    }
+
+    pub fn deliverThreadInterrupt(self: *VM, blocking: bool) VMError!void {
+        const thread = self.current_thread orelse return;
+        const index = self.nextThreadInterruptIndex(thread, blocking) orelse return;
+        const event = thread.pending_interrupts.orderedRemove(index);
+        @memset(std.mem.asBytes(&thread.pending_interrupts.unusedCapacitySlice()[0]), 0);
+        thread.delivering_interrupt = true;
+        defer thread.delivering_interrupt = false;
+        if (thread.state == .sleeping) thread.state = .running;
+        switch (event) {
+            .kill => self.setPendingThreadKill(),
+            .exception => |exception| {
+                try self.captureExceptionBacktrace(exception.object);
+                const raised = if (exception.convert)
+                    (try self.callMethodByName(Value.fromObject(&exception.object.object), "exception", &.{}, null)).toExceptionObject()
+                else
+                    exception.object;
+                self.setPendingException(raised);
+            },
+        }
+        return error.Unwind;
+    }
+
     pub fn runAtExitHandlers(self: *VM) VMError!void {
         if (self.skip_at_exit_handlers) {
             return;
@@ -3346,7 +3418,12 @@ pub const VM = struct {
 
     pub inline fn setPendingThreadKill(self: *VM) void {
         self.pending_unwind = .{ .thread_kill = self.currentExceptionCause() };
-        if (self.current_thread) |thread| thread.state = .aborting;
+        if (self.current_thread) |thread| {
+            thread.terminating = true;
+            @memset(std.mem.sliceAsBytes(thread.pending_interrupts.items), 0);
+            thread.pending_interrupts.clearRetainingCapacity();
+            thread.state = .aborting;
+        }
     }
 
     pub inline fn pendingThrow(self: *VM) ?PendingThrow {
@@ -3447,6 +3524,13 @@ pub const VM = struct {
 
     pub fn checkAsyncEvents(self: *VM) VMError!void {
         try self.drainQueuedSignalsToAsyncExceptions();
+        if (self.main_thread) |main| {
+            while (self.pending_async_exceptions.items.len != 0) {
+                const exception = self.pending_async_exceptions.orderedRemove(0);
+                @memset(std.mem.asBytes(&self.pending_async_exceptions.unusedCapacitySlice()[0]), 0);
+                try self.enqueueThreadInterrupt(main, .{ .exception = .{ .object = exception } });
+            }
+        }
         // Process signals belong to the main thread. In particular, an idle
         // handoff from an exiting worker must not execute a trap on its stack.
         if (self.main_thread) |main| {
@@ -3470,6 +3554,7 @@ pub const VM = struct {
             }
             return;
         }
+        try self.deliverThreadInterrupt(false);
         if (self.pending_async_exceptions.items.len == 0) return;
 
         self.setPendingException(self.pending_async_exceptions.orderedRemove(0));
@@ -4777,7 +4862,10 @@ pub const VM = struct {
         main_thread_obj.coro = null;
         main_thread_obj.result = Value.nil();
         main_thread_obj.exception = null;
-        main_thread_obj.async_exception = null;
+        main_thread_obj.pending_interrupts = .empty;
+        main_thread_obj.interrupt_masks = .empty;
+        main_thread_obj.delivering_interrupt = false;
+        main_thread_obj.terminating = false;
         main_thread_obj.terminated_normally = false;
         main_thread_obj.regexp_last_match = Value.nil();
         main_thread_obj.regexp_last_match_full = Value.nil();
@@ -4790,7 +4878,6 @@ pub const VM = struct {
         main_thread_obj.priority = 0;
         main_thread_obj.report_on_exception = true;
         main_thread_obj.abort_on_exception = false;
-        main_thread_obj.kill_requested = false;
         main_thread_obj.waiting_on_queue = false;
         main_thread_obj.waiting_on_require = false;
         main_thread_obj.preempt_requested = false;
@@ -4876,7 +4963,13 @@ pub const VM = struct {
         thread_obj.coro = null;
         thread_obj.result = Value.nil();
         thread_obj.exception = null;
-        thread_obj.async_exception = null;
+        thread_obj.pending_interrupts = .empty;
+        thread_obj.interrupt_masks = .empty;
+        thread_obj.delivering_interrupt = false;
+        thread_obj.terminating = false;
+        if (self.current_thread) |parent| {
+            thread_obj.interrupt_masks.appendSlice(self.gc_allocator, parent.interrupt_masks.items) catch return error.Fatal;
+        }
         thread_obj.terminated_normally = false;
         thread_obj.regexp_last_match = Value.nil();
         thread_obj.regexp_last_match_full = Value.nil();
@@ -4889,7 +4982,6 @@ pub const VM = struct {
         thread_obj.priority = 0;
         thread_obj.report_on_exception = true;
         thread_obj.abort_on_exception = false;
-        thread_obj.kill_requested = false;
         thread_obj.waiting_on_queue = false;
         thread_obj.waiting_on_require = false;
         thread_obj.preempt_requested = false;
@@ -5078,7 +5170,8 @@ pub const VM = struct {
             thread.block = null;
             thread.args = null;
             thread.pending_unwind = null;
-            thread.async_exception = null;
+            thread.pending_interrupts.clearAndFree(self.gc_allocator);
+            thread.interrupt_masks.clearAndFree(self.gc_allocator);
             thread.current_lexical_scope = null;
             thread.call_context = .{};
             thread.joining_thread = null;
@@ -5163,7 +5256,7 @@ pub const VM = struct {
                         thread.exception = exc;
                         if (thread.abort_on_exception or self.thread_abort_on_exception) {
                             if (self.main_thread) |main_thread| {
-                                if (main_thread != thread) main_thread.async_exception = exc;
+                                if (main_thread != thread) self.enqueueThreadInterrupt(main_thread, .{ .exception = .{ .object = exc } }) catch @panic("failed to propagate thread exception");
                             }
                         }
                     } else {
@@ -5292,31 +5385,13 @@ pub const VM = struct {
         self.resetThreadPreemptBudget(thread);
 
         while (true) {
-            // Check kill request before each instruction
-            if (thread.kill_requested) {
-                thread.kill_requested = false;
-                self.setPendingThreadKill();
-                self.unwindStack() catch |unwind_err| switch (unwind_err) {
-                    error.UnhandledException => return error.UnhandledException,
-                    else => return error.Fatal,
-                };
-                continue;
-            }
-
-            // Deliver async exception (e.g. from Thread#raise)
-            if (thread.async_exception) |exc| {
-                thread.async_exception = null;
-                try self.captureExceptionBacktrace(exc);
-                // Call exc.exception() on the target thread (matching MRI rb_exc_exception)
-                const exc_val = Value.fromObject(&exc.object);
-                const raised_val = try self.callMethodByName(exc_val, "exception", &.{}, null);
-                self.setPendingException(raised_val.toExceptionObject());
-                self.unwindStack() catch |unwind_err| switch (unwind_err) {
-                    error.UnhandledException => return error.UnhandledException,
-                    else => return error.Fatal,
-                };
-                continue;
-            }
+            self.deliverThreadInterrupt(false) catch |err| switch (err) {
+                error.Unwind => {
+                    try self.unwindStack();
+                    continue;
+                },
+                else => return err,
+            };
 
             self.executeInstruction() catch |err| switch (err) {
                 error.Unwind => {
@@ -5377,15 +5452,7 @@ pub const VM = struct {
         for (self.thread_list.items) |thread| {
             if (thread.state != .sleeping) continue;
 
-            if (thread.kill_requested) {
-                thread.sleep_deadline_ms = null;
-                thread.io_wait = null;
-                thread.state = .running;
-                self.addRunnableThreadIfAbsent(thread);
-                continue;
-            }
-
-            if (thread.async_exception != null) {
+            if (self.nextThreadInterruptIndex(thread, true) != null) {
                 thread.sleep_deadline_ms = null;
                 thread.io_wait = null;
                 thread.state = .running;
@@ -5476,6 +5543,7 @@ pub const VM = struct {
     }
 
     pub fn timedSleepCurrentThread(self: *VM, duration_ms: i64) VMError!void {
+        try self.deliverThreadInterrupt(true);
         if (duration_ms <= 0) {
             try self.threadYield();
             return;
@@ -5619,27 +5687,17 @@ pub const VM = struct {
 
     /// Yield to another ready thread and deliver events after regaining ownership.
     pub fn threadYield(self: *VM) VMError!void {
-        try self.checkAsyncEvents();
         const thread = self.current_thread orelse return;
+        const blocking = thread.state == .sleeping or thread.waiting_on_queue;
+        try self.checkAsyncEvents();
+        try self.deliverThreadInterrupt(blocking);
         try self.schedulerYield();
         try self.checkAsyncEvents();
 
         // Waking an ensure clause must retain the thread's dying status.
-        if (thread.state == .running and self.pending_unwind != null and self.pending_unwind.? == .thread_kill)
+        if (thread.state == .running and thread.terminating)
             thread.state = .aborting;
-
-        if (thread.kill_requested) {
-            thread.kill_requested = false;
-            self.setPendingThreadKill();
-            return error.Unwind;
-        }
-        if (thread.async_exception) |exc| {
-            thread.async_exception = null;
-            try self.captureExceptionBacktrace(exc);
-            const raised_val = try self.callMethodByName(Value.fromObject(&exc.object), "exception", &.{}, null);
-            self.setPendingException(raised_val.toExceptionObject());
-            return error.Unwind;
-        }
+        try self.deliverThreadInterrupt(blocking);
     }
 
     pub fn maybePreemptCurrentThread(self: *VM, safe_point: bool) VMError!void {

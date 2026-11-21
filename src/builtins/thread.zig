@@ -44,6 +44,10 @@ pub fn register(vm: *VM) !void {
     const handle_interrupt_sym = try vm.intern("handle_interrupt");
     try thread_singleton.module.methods.put(handle_interrupt_sym, value.MethodEntry.builtin(&builtinThreadHandleInterrupt, .{ .exact = 1 }));
 
+    const pending_interrupt_sym = try vm.intern("pending_interrupt?");
+    try thread_singleton.module.methods.put(pending_interrupt_sym, value.MethodEntry.builtin(&builtinThreadClassPendingInterrupt, .{ .variadic = 0 }));
+    try vm.thread_class.module.methods.put(pending_interrupt_sym, value.MethodEntry.builtin(&builtinThreadPendingInterrupt, .{ .variadic = 0 }));
+
     const each_caller_location_sym = try vm.intern("each_caller_location");
     try thread_singleton.module.methods.put(each_caller_location_sym, value.MethodEntry.keywordBuiltin(&builtinThreadEachCallerLocation, .{ .variadic = 0 }));
 
@@ -269,14 +273,35 @@ fn builtinThreadKillClass(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!V
     return builtinThreadKill(vm, args[0], &.{}, null);
 }
 
+fn builtinThreadClassPendingInterrupt(vm: *VM, _: Value, args: []Value, block: ?Block) VMError!Value {
+    const thread = vm.current_thread orelse try vm.ensureMainThread();
+    return builtinThreadPendingInterrupt(vm, Value.fromObject(&thread.object), args, block);
+}
+
+fn builtinThreadPendingInterrupt(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCountRange(args, 0, 1);
+    const thread = receiver.toThreadObject();
+    if (thread.pending_interrupts.items.len == 0) return Value.boolean(false);
+    if (args.len == 0) return Value.boolean(true);
+    if (!args[0].isClass() and !args[0].isModule())
+        return vm.raiseExceptionFmt(vm.type_error_class, "class or module required for rescue clause", .{});
+    for (thread.pending_interrupts.items) |event| {
+        const object = switch (event) {
+            .kill => Value.integer(0),
+            .exception => |exception| Value.fromObject(&exception.object.object),
+        };
+        var type_args = [_]Value{args[0]};
+        if ((try kernel_builtin.builtinKernelIsA(vm, object, &type_args, null)).isTruthy()) return Value.boolean(true);
+    }
+    return Value.boolean(false);
+}
+
 fn builtinThreadHandleInterrupt(vm: *VM, _: Value, args: []Value, block: ?Block) VMError!Value {
     try vm.requireArgCount(args, 1);
-    const blk = block orelse return vm.raiseLocalJumpError("no block given", Value.nil(), "noreason");
-    if (!args[0].isHash()) {
-        return vm.raiseExceptionFmt(vm.type_error_class, "wrong argument type {s} (expected Hash)", .{vm.className(args[0])});
-    }
+    const blk = block orelse return vm.raiseExceptionFmt(vm.argument_error_class, "block is needed.", .{});
+    const mask_value = try vm.coerceToHashValue(args[0]);
 
-    for (args[0].toHashObject().entries.items) |entry| {
+    for (mask_value.toHashObject().entries.items) |entry| {
         if (!entry.key.isClass() and !entry.key.isModule()) {
             return vm.raiseExceptionFmt(vm.type_error_class, "class or module required for rescue clause", .{});
         }
@@ -289,7 +314,17 @@ fn builtinThreadHandleInterrupt(vm: *VM, _: Value, args: []Value, block: ?Block)
         }
     }
 
-    return vm.yieldToBlock(blk, &.{});
+    const thread = vm.current_thread orelse try vm.ensureMainThread();
+    const mask = try vm.copyHashObject(mask_value.toHashObject());
+    thread.interrupt_masks.append(vm.gc_allocator, mask) catch return error.Fatal;
+    const result = interrupt_block: {
+        vm.deliverThreadInterrupt(false) catch |err| break :interrupt_block @as(VMError!Value, err);
+        break :interrupt_block vm.yieldToBlock(blk, &.{Value.nil()});
+    };
+    _ = thread.interrupt_masks.pop();
+    @memset(std.mem.asBytes(&thread.interrupt_masks.unusedCapacitySlice()[0]), 0);
+    try vm.deliverThreadInterrupt(false);
+    return result;
 }
 
 // =============================================================================
@@ -468,7 +503,7 @@ fn builtinThreadStatus(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMErr
     const thread = receiver.toThreadObject();
     if (thread.waiting_on_queue) return try vm.newString("sleep", false);
     return switch (thread.state) {
-        .created, .running => try vm.newString("run", false),
+        .created, .running => try vm.newString(if (thread.terminating) "aborting" else "run", false),
         .sleeping => try vm.newString("sleep", false),
         .aborting => try vm.newString("aborting", false),
         .terminated => if (thread.terminated_normally) Value.boolean(false) else Value.nil(),
@@ -484,18 +519,14 @@ fn builtinThreadKill(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError
     try vm.requireArgCount(args, 0);
     const thread = receiver.toThreadObject();
 
-    if (thread.state == .terminated) return receiver;
-    const is_current = vm.current_thread != null and thread == vm.current_thread.?;
-    if (is_current) {
+    if (thread.state == .terminated or thread.terminating) return receiver;
+    // MRI self-kill is immediate even inside an interrupt mask.
+    if (vm.current_thread == thread) {
         vm.setPendingThreadKill();
         return error.Unwind;
     }
+    try vm.enqueueThreadInterrupt(thread, .kill);
 
-    thread.kill_requested = true;
-    if (thread.state == .sleeping) {
-        thread.state = .running;
-        addToRunnableIfAbsent(vm, thread);
-    }
     return receiver;
 }
 
@@ -507,20 +538,12 @@ fn builtinThreadRaise(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMErro
     // Exception conversion may execute Ruby and allow the target to finish.
     if (thread.state == .terminated) return Value.nil();
 
-    // Self-raise: deliver synchronously
-    const is_current = vm.current_thread != null and thread == vm.current_thread.?;
-    if (is_current) {
-        try vm.captureExceptionBacktrace(exc);
-        vm.setPendingException(exc);
-        return error.Unwind;
-    }
+    try vm.enqueueThreadInterrupt(thread, .{ .exception = .{
+        .object = exc,
+        .convert = vm.current_thread != thread,
+    } });
+    if (vm.current_thread == thread) try vm.deliverThreadInterrupt(false);
 
-    // Deliver exception asynchronously to the target thread
-    thread.async_exception = exc;
-    if (thread.state == .sleeping) {
-        thread.state = .running;
-        addToRunnableIfAbsent(vm, thread);
-    }
     return Value.nil();
 }
 
@@ -718,7 +741,7 @@ fn builtinThreadInspect(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMEr
     const state_str = if (thread.waiting_on_queue)
         "sleep"
     else switch (thread.state) {
-        .created, .running => "run",
+        .created, .running => if (thread.terminating) "aborting" else "run",
         .sleeping => "sleep",
         .aborting => "aborting",
         .terminated => if (thread.terminated_normally) "dead" else "dead",

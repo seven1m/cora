@@ -2169,11 +2169,6 @@ pub fn builtinKernelSleep(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!V
         return vm.raiseExceptionFmt(vm.argument_error_class, "time interval must be non-negative", .{});
     }
 
-    if (seconds == 0.0) {
-        try vm.threadYield();
-        return Value.integer(0);
-    }
-
     const duration_ms = @as(i64, @intFromFloat(@ceil(seconds * 1000.0)));
     try vm.timedSleepCurrentThread(duration_ms);
     return Value.integer(0);

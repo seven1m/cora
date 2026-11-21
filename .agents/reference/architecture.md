@@ -86,6 +86,15 @@ Thread join/value waiters park with a target thread and become ready when that
 target terminates; timed joins also use a sleep deadline.
 Process signal handlers run on the main thread, waking it when necessary.
 
+Each thread has an ordered interrupt queue for raises and termination, plus a
+stack of inherited interrupt masks. `Thread.handle_interrupt` snapshots its hash
+and applies the innermost matching mask, preferring the most specific ancestor.
+Immediate events run at safe points; `:on_blocking` events also run at blocking
+wait boundaries, including zero-duration sleep; `:never` events wait until the
+mask permits delivery. Default signal exceptions use the main thread's queue.
+Termination bypasses rescue while preserving `$!`, runs active ensure clauses,
+and propagates through the active Fiber resume chain. Self-kill is immediate.
+
 Terminated workers are retired after ownership transfers to another native stack,
 either at a new thread entrypoint or when `schedulerYield` resumes. Retirement
 unregisters their thread and fiber coroutines before freeing native stacks, drops

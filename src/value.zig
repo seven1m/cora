@@ -499,6 +499,14 @@ pub const FiberObject = struct {
     owner_vm: *VM,
 };
 
+pub const ThreadInterrupt = union(enum) {
+    kill,
+    exception: struct {
+        object: *ExceptionObject,
+        convert: bool = false,
+    },
+};
+
 pub const ThreadObject = struct {
     pub const CallContext = struct {
         builtin_keywords: ?*vm_mod.BuiltinKeywordContext = null,
@@ -535,7 +543,10 @@ pub const ThreadObject = struct {
     // Result/exception communication
     result: Value = Value.nil(),
     exception: ?*ExceptionObject = null,
-    async_exception: ?*ExceptionObject = null,
+    pending_interrupts: std.ArrayList(ThreadInterrupt) = .empty,
+    interrupt_masks: std.ArrayList(*HashObject) = .empty,
+    delivering_interrupt: bool = false,
+    terminating: bool = false,
     terminated_normally: bool = false,
     regexp_last_match: Value = Value.nil(),
     regexp_last_match_full: Value = Value.nil(),
@@ -550,7 +561,6 @@ pub const ThreadObject = struct {
     priority: i8 = 0,
     report_on_exception: bool = true,
     abort_on_exception: bool = false,
-    kill_requested: bool = false,
     waiting_on_queue: bool = false,
     waiting_on_require: bool = false,
     preempt_requested: bool = false,
