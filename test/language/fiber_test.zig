@@ -540,3 +540,63 @@ test "Fiber blocking restores mode across suspension and injected exceptions" {
     );
     try std.testing.expect(result.isTruthy());
 }
+
+test "Fiber scheduler ownership and closing follow thread lifetime" {
+    const result = try evalCode(
+        \\events = []
+        \\thread = Thread.new do
+        \\  owner = Thread.current
+        \\  scheduler = Object.new
+        \\  [:block, :unblock, :kernel_sleep, :io_wait, :fiber_interrupt].each do |name|
+        \\    scheduler.define_singleton_method(name) {}
+        \\  end
+        \\  scheduler.define_singleton_method(:scheduler_close) do
+        \\    events << [Fiber.scheduler.equal?(scheduler), Thread.current.equal?(owner)]
+        \\  end
+        \\  scheduler.define_singleton_method(:close) { events << :wrong_hook }
+        \\  Fiber.set_scheduler(scheduler)
+        \\  :done
+        \\end
+        \\thread.value == :done && events == [[true, true]] && Fiber.scheduler.nil?
+    );
+    try std.testing.expect(result.isTruthy());
+}
+
+test "Fiber scheduler close errors preserve the exiting thread exception as cause" {
+    const result = try evalCode(
+        \\thread = Thread.new do
+        \\  Thread.current.report_on_exception = false
+        \\  scheduler = Object.new
+        \\  [:block, :unblock, :kernel_sleep, :io_wait, :fiber_interrupt].each do |name|
+        \\    scheduler.define_singleton_method(name) {}
+        \\  end
+        \\  scheduler.define_singleton_method(:scheduler_close) { raise "closing" }
+        \\  Fiber.set_scheduler(scheduler)
+        \\  raise "body"
+        \\end
+        \\begin
+        \\  thread.value
+        \\rescue => error
+        \\  [error.message, error.cause.message, Fiber.scheduler.nil?]
+        \\end == ["closing", "body", true]
+    );
+    try std.testing.expect(result.isTruthy());
+}
+
+test "Main fiber scheduler closes before at_exit handlers" {
+    const result = try evalCode(
+        \\events = []
+        \\scheduler = Object.new
+        \\[:block, :unblock, :kernel_sleep, :io_wait, :fiber_interrupt].each do |name|
+        \\  scheduler.define_singleton_method(name) {}
+        \\end
+        \\scheduler.define_singleton_method(:close) { events << :closed }
+        \\Fiber.set_scheduler(scheduler)
+        \\at_exit { events << :at_exit }
+        \\events
+    );
+    const entries = result.toArrayObject().elements.items;
+    try std.testing.expectEqual(@as(usize, 2), entries.len);
+    try std.testing.expectEqualStrings("closed", entries[0].toSymbolObject().name);
+    try std.testing.expectEqualStrings("at_exit", entries[1].toSymbolObject().name);
+}

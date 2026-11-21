@@ -3211,6 +3211,18 @@ pub const VM = struct {
         const original_exception = self.pendingException();
         var last_exception: ?*value.ExceptionObject = null;
 
+        if (self.current_thread) |thread| {
+            if (thread.fiber_scheduler != null) {
+                self.closeFiberSchedulerPreservingUnwind(thread) catch |err| switch (err) {
+                    error.Unwind => {
+                        last_exception = self.pendingException();
+                        self.setPendingException(null);
+                    },
+                    else => return err,
+                };
+            }
+        }
+
         if (self.exit_signal_trap_mode == .callable and !self.exit_signal_trap_callable.isNil()) {
             _ = self.callMethodByName(self.exit_signal_trap_callable, "call", &[_]Value{}, null) catch |err| {
                 switch (err) {
@@ -4744,6 +4756,7 @@ pub const VM = struct {
         const main_thread_obj = self.gc_allocator.create(value.ThreadObject) catch return error.Fatal;
         main_thread_obj.object = .{ .type_tag = .thread, .flags = 0, .class = self.thread_class, .singleton_class = null, .instance_variables = null };
         main_thread_obj.state = .running;
+        main_thread_obj.fiber_scheduler = null;
         main_thread_obj.block = null;
         main_thread_obj.stack = .init();
         main_thread_obj.frames = .init();
@@ -4842,6 +4855,7 @@ pub const VM = struct {
         const thread_obj = self.gc_allocator.create(value.ThreadObject) catch return error.Fatal;
         thread_obj.object = .{ .type_tag = .thread, .flags = 0, .class = class_obj, .singleton_class = null, .instance_variables = null };
         thread_obj.state = .created;
+        thread_obj.fiber_scheduler = null;
         thread_obj.block = null;
         thread_obj.stack = .init();
         thread_obj.frames = .init();
@@ -5121,7 +5135,7 @@ pub const VM = struct {
         _ = coro_obj;
         const thread: *value.ThreadObject = @ptrCast(@alignCast(userdata.?));
         thread.owner_vm.reapTerminatedThreads() catch @panic("failed to retire terminated thread");
-        runThreadCoroutine(thread) catch |err| {
+        runThreadWithScheduler(thread) catch |err| {
             const self = thread.owner_vm;
             thread.state = .terminated;
             self.releaseThreadOwnedMutexes(thread);
@@ -5154,6 +5168,44 @@ pub const VM = struct {
         };
         thread.owner_vm.schedulerYield() catch @panic("failed to schedule after thread exit");
         @panic("terminated thread resumed");
+    }
+
+    pub fn closeFiberScheduler(self: *VM, thread: *ThreadObject) VMError!void {
+        const scheduler = thread.fiber_scheduler orelse return;
+        defer thread.fiber_scheduler = null;
+        if (try self.checkCallMethodByName(scheduler, "scheduler_close", true, &.{}, null) != null) return;
+        _ = try self.checkCallMethodByName(scheduler, "close", true, &.{}, null);
+    }
+
+    fn closeFiberSchedulerPreservingUnwind(self: *VM, thread: *ThreadObject) VMError!void {
+        const pending = self.pending_unwind;
+        var saved_cause = false;
+        if (pending) |unwind| {
+            if (unwind == .exception and unwind.exception.object.class != self.thread_kill_exception_class) {
+                self.currentRescuedExceptions().append(self.currentFiberStateAllocator(), unwind.exception) catch return error.Fatal;
+                saved_cause = true;
+            }
+        }
+        defer if (saved_cause) {
+            _ = self.currentRescuedExceptions().pop();
+        };
+        self.pending_unwind = null;
+        try self.closeFiberScheduler(thread);
+        self.pending_unwind = pending;
+    }
+
+    fn runThreadWithScheduler(thread: *ThreadObject) VMError!void {
+        const self = thread.owner_vm;
+        const outcome = runThreadCoroutine(thread);
+        if (thread.fiber_scheduler == null) return outcome;
+        thread.state = .running;
+        const closing = self.closeFiberSchedulerPreservingUnwind(thread);
+        thread.state = .terminated;
+        closing catch |err| switch (err) {
+            error.Unwind => return self.unwindStack(),
+            else => return err,
+        };
+        return outcome;
     }
 
     fn runThreadCoroutine(thread: *value.ThreadObject) VMError!void {

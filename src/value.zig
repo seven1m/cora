@@ -523,6 +523,7 @@ pub const ThreadObject = struct {
     };
 
     object: Object,
+    fiber_scheduler: ?Value = null,
     state: State,
     block: ?Block,
     stack: FiberValueStack,

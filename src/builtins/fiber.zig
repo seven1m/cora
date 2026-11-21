@@ -20,6 +20,9 @@ pub fn register(vm: *VM) !void {
     try fiber_singleton.module.methods.put(try vm.intern("blocking"), value.MethodEntry.builtin(&builtinFiberBlocking, .{ .exact = 0 }));
     try vm.fiber_class.module.methods.put(try vm.intern("blocking?"), value.MethodEntry.builtin(&builtinFiberInstanceBlockingQ, .{ .exact = 0 }));
 
+    try fiber_singleton.module.methods.put(try vm.intern("scheduler"), value.MethodEntry.builtin(&builtinFiberScheduler, .{ .exact = 0 }));
+    try fiber_singleton.module.methods.put(try vm.intern("set_scheduler"), value.MethodEntry.builtin(&builtinFiberSetScheduler, .{ .exact = 1 }));
+
     const current_sym = try vm.intern("current");
     try fiber_singleton.module.methods.put(current_sym, value.MethodEntry.builtin(&builtinFiberCurrent, .{ .exact = 0 }));
 
@@ -219,4 +222,22 @@ fn builtinFiberBlocking(vm: *VM, _: Value, _: []Value, block: ?Block) VMError!Va
     fiber.blocking = true;
     defer fiber.blocking = previous;
     return vm.yieldToBlock(blk, &.{Value.fromObject(&fiber.object)});
+}
+
+fn builtinFiberScheduler(vm: *VM, _: Value, _: []Value, _: ?Block) VMError!Value {
+    const thread = vm.current_thread orelse try vm.ensureMainThread();
+    return thread.fiber_scheduler orelse Value.nil();
+}
+
+fn builtinFiberSetScheduler(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+    const scheduler = args[0];
+    if (!scheduler.isNil()) {
+        inline for (.{ "block", "unblock", "kernel_sleep", "io_wait", "fiber_interrupt" }) |name| {
+            if (!try vm.respondsToMethodByName(scheduler, name, false)) return vm.raiseExceptionFmt(vm.argument_error_class, "Scheduler must implement #{s}", .{name});
+        }
+    }
+    const thread = vm.current_thread orelse try vm.ensureMainThread();
+    try vm.closeFiberScheduler(thread);
+    thread.fiber_scheduler = if (scheduler.isNil()) null else scheduler;
+    return scheduler;
 }

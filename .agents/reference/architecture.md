@@ -94,6 +94,11 @@ Results, exceptions, escaped closures/bindings, and observable thread/fiber loca
 remain available through retained Ruby objects. Removed GC-owned list slots are
 cleared even outside `items.len`, since the collector scans the whole allocation.
 
+Ruby Fiber scheduler objects are stored per thread in `ThreadObject.fiber_scheduler`.
+Their close hooks run on replacement and during thread/interpreter shutdown.
+Sleep and I/O waits still use the native thread scheduler; dispatch to Ruby
+Fiber scheduler wait hooks is not connected yet.
+
 ## Exception Handling
 
 - Built-in exception classes include `Exception`, `StandardError`, `RuntimeError`, `ArgumentError`, `TypeError`, `ZeroDivisionError`, and `NoMethodError`.
