@@ -109,7 +109,7 @@ class StringIO
 
     if mode_val.is_a?(Integer)
       parse_mode_integer!(mode_val)
-      return
+      return self
     end
 
     mode_str = mode_str_base || String(mode_val)
@@ -122,6 +122,7 @@ class StringIO
     end
 
     parse_mode_string!(mode_str)
+    self
   end
 
   def self.allocate

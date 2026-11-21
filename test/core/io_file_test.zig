@@ -1094,3 +1094,18 @@ test "IO.read honors explicit external encodings" {
     try std.testing.expectEqualStrings("UTF-8", values[0].toStringObject().str);
     try std.testing.expectEqualStrings("ISO-8859-1", values[1].toStringObject().str);
 }
+
+test "StringIO initialize returns self for subclasses and integer modes" {
+    const result = try evalCode(
+        \\require "stringio"
+        \\class ResponseBuffer < StringIO
+        \\  def initialize(*args)
+        \\    super.binmode
+        \\  end
+        \\end
+        \\buffer = ResponseBuffer.new
+        \\ordinary = StringIO.allocate
+        \\buffer.external_encoding == Encoding::BINARY && ordinary.send(:initialize, +"", IO::RDWR).equal?(ordinary)
+    );
+    try std.testing.expect(result.isTruthy());
+}
