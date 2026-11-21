@@ -440,16 +440,6 @@ test "Thread.main status is 'run'" {
     try std.testing.expectEqualStrings("run", result.toStringObject().str);
 }
 
-test "Thread#kill terminates thread" {
-    const result = try evalCode(
-        \\t = Thread.new { loop { Thread.pass } }
-        \\t.kill
-        \\t.join
-        \\t.alive?
-    );
-    try std.testing.expectEqual(false, result.toBool());
-}
-
 test "Thread#[] and Thread#[]= store fiber-local variables" {
     const result = try evalCode(
         \\t = Thread.new {

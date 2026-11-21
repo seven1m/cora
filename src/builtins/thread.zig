@@ -258,11 +258,6 @@ fn builtinThreadStop(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value 
     }
     thread.state = .sleeping;
     try vm.threadYield();
-    if (vm.pendingException()) |exc| {
-        if (exc.object.class == vm.thread_kill_exception_class and thread.state != .terminated) {
-            thread.state = .aborting;
-        }
-    }
     return Value.nil();
 }
 
@@ -271,13 +266,7 @@ fn builtinThreadKillClass(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!V
     if (!args[0].isThread()) {
         return vm.raiseExceptionFmt(vm.type_error_class, "wrong argument type (expected Thread)", .{});
     }
-    const thread = args[0].toThreadObject();
-    thread.kill_requested = true;
-    if (thread.state == .sleeping) {
-        thread.state = .running;
-        vm.addRunnableThreadIfAbsent(thread);
-    }
-    return args[0];
+    return builtinThreadKill(vm, args[0], &.{}, null);
 }
 
 fn builtinThreadHandleInterrupt(vm: *VM, _: Value, args: []Value, block: ?Block) VMError!Value {
@@ -495,10 +484,11 @@ fn builtinThreadKill(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError
     try vm.requireArgCount(args, 0);
     const thread = receiver.toThreadObject();
 
+    if (thread.state == .terminated) return receiver;
     const is_current = vm.current_thread != null and thread == vm.current_thread.?;
     if (is_current) {
-        thread.state = .aborting;
-        return vm.raiseExceptionFmt(vm.thread_kill_exception_class, "", .{});
+        vm.setPendingThreadKill();
+        return error.Unwind;
     }
 
     thread.kill_requested = true;

@@ -468,6 +468,7 @@ pub const FiberObject = struct {
         none,
         returned,
         raised,
+        thread_killed,
     };
 
     object: Object,

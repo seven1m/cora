@@ -406,6 +406,7 @@ fn sameControlFlowIdentity(lhs: PendingControlFlow, rhs: PendingControlFlow) boo
 fn samePendingUnwindIdentity(lhs: PendingUnwind, rhs: PendingUnwind) bool {
     return switch (lhs) {
         .fiber_kill => rhs == .fiber_kill,
+        .thread_kill => |exception| rhs == .thread_kill and rhs.thread_kill == exception,
         .exception => |lhs_exception| switch (rhs) {
             .exception => |rhs_exception| lhs_exception == rhs_exception,
             else => false,
@@ -423,6 +424,8 @@ fn samePendingUnwindIdentity(lhs: PendingUnwind, rhs: PendingUnwind) bool {
 
 pub const PendingUnwind = union(enum) {
     fiber_kill,
+    // Cancellation bypasses rescue while retaining the active Ruby exception.
+    thread_kill: ?*value.ExceptionObject,
     exception: *value.ExceptionObject,
     throw_: PendingThrow,
     control_flow: PendingControlFlow,
@@ -703,7 +706,6 @@ pub const VM = struct {
     object_space_module: *value.ModuleObject,
     weak_map_class: *value.ClassObject,
     thread_error_class: *value.ClassObject,
-    thread_kill_exception_class: *value.ClassObject,
     closed_queue_error_class: *value.ClassObject,
     uncaught_throw_error_class: *value.ClassObject,
     default_thread_group: Value = Value.nil(),
@@ -955,7 +957,6 @@ pub const VM = struct {
             .object_space_module = undefined,
             .weak_map_class = undefined,
             .thread_error_class = undefined,
-            .thread_kill_exception_class = undefined,
             .closed_queue_error_class = undefined,
             .uncaught_throw_error_class = undefined,
             .default_thread_group = Value.nil(),
@@ -1415,10 +1416,6 @@ pub const VM = struct {
         const thread_error_name_sym = try self.intern("ThreadError");
         const thread_error_class_val = try self.newClass(thread_error_name_sym, self.standard_error_class);
         self.thread_error_class = thread_error_class_val.toClassObject();
-
-        const thread_kill_name_sym = try self.intern("ThreadKillSignal");
-        const thread_kill_class_val = try self.newClass(thread_kill_name_sym, self.exception_class);
-        self.thread_kill_exception_class = thread_kill_class_val.toClassObject();
 
         const load_error_name_sym = try self.intern("LoadError");
         const load_error_class_val = try self.newClass(load_error_name_sym, self.script_error_class);
@@ -3208,7 +3205,7 @@ pub const VM = struct {
             return;
         }
 
-        const original_exception = self.pendingException();
+        const original_unwind = self.pending_unwind;
         var last_exception: ?*value.ExceptionObject = null;
 
         if (self.current_thread) |thread| {
@@ -3257,7 +3254,7 @@ pub const VM = struct {
             return error.UnhandledException;
         }
 
-        self.setPendingException(original_exception);
+        self.pending_unwind = original_unwind;
     }
 
     fn createSignalException(self: *VM, signo: c_int) VMError!*value.ExceptionObject {
@@ -3345,6 +3342,11 @@ pub const VM = struct {
 
     pub inline fn setPendingException(self: *VM, exc: ?*value.ExceptionObject) void {
         self.pending_unwind = if (exc) |e| .{ .exception = e } else null;
+    }
+
+    pub inline fn setPendingThreadKill(self: *VM) void {
+        self.pending_unwind = .{ .thread_kill = self.currentExceptionCause() };
+        if (self.current_thread) |thread| thread.state = .aborting;
     }
 
     pub inline fn pendingThrow(self: *VM) ?PendingThrow {
@@ -4635,7 +4637,12 @@ pub const VM = struct {
             break :blk root;
         };
         target.coro_exception = fiber.coro_exception;
-        target.coro_event = if (fiber.coro_event == .returned) .returned else .raised;
+        target.coro_event = if (self.pending_unwind != null and self.pending_unwind.? == .thread_kill)
+            .thread_killed
+        else if (fiber.coro_event == .returned)
+            .returned
+        else
+            .raised;
         _ = try self.switchFiber(target, &.{}, fiber.coro_result);
         return error.Fatal; // A terminated fiber must never be entered again.
     }
@@ -4661,6 +4668,11 @@ pub const VM = struct {
         zio.coro.switchContext(source_context, target_context);
         std.debug.assert(self.current_fiber == source);
         self.reapTerminatedFibers();
+        if (source.coro_event == .thread_killed) {
+            source.coro_event = .none;
+            self.setPendingThreadKill();
+            return error.Unwind;
+        }
         if (source.killed) {
             self.pending_unwind = .fiber_kill;
             return error.Unwind;
@@ -5141,19 +5153,17 @@ pub const VM = struct {
             self.releaseThreadOwnedMutexes(thread);
             switch (err) {
                 error.UnhandledException => {
-                    if (self.pendingException()) |exc| {
-                        if (exc.object.class == self.thread_kill_exception_class) {
-                            thread.terminated_normally = true;
-                            thread.exception = null;
-                            thread.result = Value.nil();
-                            self.setPendingException(null);
-                        } else {
-                            thread.terminated_normally = false;
-                            thread.exception = exc;
-                            if (thread.abort_on_exception or self.thread_abort_on_exception) {
-                                if (self.main_thread) |main_thread| {
-                                    if (main_thread != thread) main_thread.async_exception = exc;
-                                }
+                    if (self.pending_unwind != null and self.pending_unwind.? == .thread_kill) {
+                        thread.terminated_normally = true;
+                        thread.exception = null;
+                        thread.result = Value.nil();
+                        self.pending_unwind = null;
+                    } else if (self.pendingException()) |exc| {
+                        thread.terminated_normally = false;
+                        thread.exception = exc;
+                        if (thread.abort_on_exception or self.thread_abort_on_exception) {
+                            if (self.main_thread) |main_thread| {
+                                if (main_thread != thread) main_thread.async_exception = exc;
                             }
                         }
                     } else {
@@ -5187,7 +5197,7 @@ pub const VM = struct {
         const pending = self.pending_unwind;
         var saved_cause = false;
         if (pending) |unwind| {
-            if (unwind == .exception and unwind.exception.object.class != self.thread_kill_exception_class) {
+            if (unwind == .exception) {
                 self.currentRescuedExceptions().append(self.currentFiberStateAllocator(), unwind.exception) catch return error.Fatal;
                 saved_cause = true;
             }
@@ -5285,8 +5295,7 @@ pub const VM = struct {
             // Check kill request before each instruction
             if (thread.kill_requested) {
                 thread.kill_requested = false;
-                thread.state = .aborting;
-                self.setPendingException(try self.createException(self.thread_kill_exception_class, ""));
+                self.setPendingThreadKill();
                 self.unwindStack() catch |unwind_err| switch (unwind_err) {
                     error.UnhandledException => return error.UnhandledException,
                     else => return error.Fatal,
@@ -5615,10 +5624,14 @@ pub const VM = struct {
         try self.schedulerYield();
         try self.checkAsyncEvents();
 
+        // Waking an ensure clause must retain the thread's dying status.
+        if (thread.state == .running and self.pending_unwind != null and self.pending_unwind.? == .thread_kill)
+            thread.state = .aborting;
+
         if (thread.kill_requested) {
             thread.kill_requested = false;
-            thread.state = .aborting;
-            return self.raiseExceptionFmt(self.thread_kill_exception_class, "", .{});
+            self.setPendingThreadKill();
+            return error.Unwind;
         }
         if (thread.async_exception) |exc| {
             thread.async_exception = null;
@@ -11274,19 +11287,11 @@ pub const VM = struct {
             return Value.nil();
         }
         if (std.mem.eql(u8, name, "$!")) {
-            if (self.pendingException()) |exc| return Value.fromObject(&exc.object);
-            const rescued_exceptions = self.currentRescuedExceptions();
-            if (rescued_exceptions.items.len > 0) {
-                return Value.fromObject(&rescued_exceptions.items[rescued_exceptions.items.len - 1].object);
-            }
-            return Value.nil();
+            const exc = self.currentExceptionCause() orelse return Value.nil();
+            return Value.fromObject(&exc.object);
         }
         if (std.mem.eql(u8, name, "$@")) {
-            const exc = self.pendingException() orelse blk: {
-                const rescued = self.currentRescuedExceptions();
-                if (rescued.items.len == 0) return Value.nil();
-                break :blk rescued.items[rescued.items.len - 1];
-            };
+            const exc = self.currentExceptionCause() orelse return Value.nil();
             return if (exc.backtrace) |backtrace| Value.fromObject(&backtrace.object) else Value.nil();
         }
         if (self.currentThreadGlobalSlot(name)) |slot| return slot.*;
@@ -14658,6 +14663,9 @@ pub const VM = struct {
 
     fn currentExceptionCause(self: *VM) ?*value.ExceptionObject {
         if (self.pendingException()) |pending| return pending;
+        if (self.pending_unwind) |pending| {
+            if (pending == .thread_kill) return pending.thread_kill;
+        }
         const rescued = self.currentRescuedExceptions();
         if (rescued.items.len > 0) return rescued.items[rescued.items.len - 1];
         return null;
@@ -14757,7 +14765,7 @@ pub const VM = struct {
                     try setFrameIp(&self.frames.items[frame_idx], ensure_byte_offset);
                     return true;
                 }
-            } else if (self.pendingThrow() != null or (self.pending_unwind != null and self.pending_unwind.? == .fiber_kill)) {
+            } else if (self.pendingThrow() != null or (self.pending_unwind != null and (self.pending_unwind.? == .fiber_kill or self.pending_unwind.? == .thread_kill))) {
                 if (try self.findEnsureHandler(frame_idx, true)) |ensure_byte_offset| {
                     try setFrameIp(&self.frames.items[frame_idx], ensure_byte_offset);
                     return true;
@@ -15082,6 +15090,7 @@ pub const VM = struct {
     }
 
     pub fn unhandledExceptionExitStatus(self: *VM) ?u8 {
+        if (self.pending_unwind != null and self.pending_unwind.? == .thread_kill) return 0;
         const exc = self.pendingException() orelse return null;
         if (self.isClassOrSubclassOf(exc.object.class.?, self.system_exit_class)) {
             const status = self.getInstanceVariable(Value.fromObject(&exc.object), "@status") catch return 1;

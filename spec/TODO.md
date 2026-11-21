@@ -2234,7 +2234,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] core/thread/join_spec.rb
 - [x] core/thread/key_spec.rb
 - [x] core/thread/keys_spec.rb
-- [ ] core/thread/kill_spec.rb
+- [x] core/thread/kill_spec.rb
 - [x] core/thread/list_spec.rb
 - [x] core/thread/main_spec.rb
 - [x] core/thread/name_spec.rb
