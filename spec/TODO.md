@@ -164,7 +164,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/array/pack/l_spec.rb
 - [-] core/array/pack/m_spec.rb
 - [x] core/array/pack/n_spec.rb
-- [ ] core/array/pack/p_spec.rb
+- [x] core/array/pack/p_spec.rb
 - [x] core/array/pack/percent_spec.rb
 - [ ] core/array/pack/q_spec.rb
 - [ ] core/array/pack/r_spec.rb
