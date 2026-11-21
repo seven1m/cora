@@ -110,6 +110,10 @@ pub fn register(vm: *VM) !void {
     const setsockopt_sym = try vm.intern("setsockopt");
     try basic_socket_class.module.methods.put(setsockopt_sym, value.MethodEntry.builtin(&builtinBasicSocketSetsockopt, .{ .exact = 3 }));
 
+    const listen_sym = try vm.intern("listen");
+    try tcp_server_class.module.methods.put(listen_sym, value.MethodEntry.builtin(&builtinSocketListen, .{ .exact = 1 }));
+    try unix_server_class.module.methods.put(listen_sym, value.MethodEntry.builtin(&builtinSocketListen, .{ .exact = 1 }));
+
     const recv_sym = try vm.intern("recv");
     try basic_socket_class.module.methods.put(recv_sym, value.MethodEntry.builtin(&builtinBasicSocketRecv, .{ .variadic = 1 }));
 
@@ -937,6 +941,22 @@ fn socketOptionNumber(vm: *VM, arg: Value, level: ?c_int) VMError!c_int {
 fn socketInteger(vm: *VM, arg: Value) VMError!c_int {
     const number = try arg.coerceToI64ViaToInt(vm, "no implicit conversion into Integer", "to_int did not return Integer", "integer out of range");
     return std.math.cast(c_int, number) orelse vm.raiseExceptionFmt(vm.range_error_class, "integer out of range", .{});
+}
+
+pub fn builtinSocketListen(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    const backlog = try socketInteger(vm, args[0]);
+    const io = receiver.toIoObject();
+    if (io.closed) return vm.raiseExceptionFmt(vm.io_error_class, "closed stream", .{});
+    while (std.c.listen(io.fd, @bitCast(backlog)) != 0) {
+        const errno_code = std.posix.errno(-1);
+        if (errno_code == .INTR) {
+            try vm.checkAsyncEvents();
+            continue;
+        }
+        return vm.raiseErrnoFmt(errno_code, "listen(2)", .{});
+    }
+    return Value.integer(0);
 }
 
 pub fn builtinBasicSocketRecv(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {

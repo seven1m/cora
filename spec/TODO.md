@@ -3802,7 +3802,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] library/socket/tcpserver/accept_spec.rb
 - [ ] library/socket/tcpserver/gets_spec.rb
 - [ ] library/socket/tcpserver/initialize_spec.rb
-- [ ] library/socket/tcpserver/listen_spec.rb
+- [x] library/socket/tcpserver/listen_spec.rb
 - [ ] library/socket/tcpserver/new_spec.rb
 - [ ] library/socket/tcpserver/sysaccept_spec.rb
 
