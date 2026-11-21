@@ -2246,7 +2246,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] core/thread/raise_spec.rb
 - [ ] core/thread/report_on_exception_spec.rb
 - [x] core/thread/run_spec.rb
-- [ ] core/thread/set_trace_func_spec.rb
+- [x] core/thread/set_trace_func_spec.rb
 - [ ] core/thread/start_spec.rb
 - [x] core/thread/status_spec.rb
 - [x] core/thread/stop_spec.rb
