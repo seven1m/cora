@@ -242,7 +242,7 @@ pub fn runSpec(path: []const u8) RunSpecResult {
     const stats = parseSpecStats(result.stdout);
 
     if (result.err != null) {
-        std.debug.print("\nSpec error ({s}): {s}\n{s}\n", .{ path, result.stdout, result.stderr });
+        std.debug.print("\nSpec error ({s}, {s}): {s}\n{s}\n", .{ path, @errorName(result.err.?), result.stdout, result.stderr });
         return .{
             .outcome = .fail,
             .stats = stats,
@@ -266,6 +266,18 @@ pub fn runSpec(path: []const u8) RunSpecResult {
     };
 }
 
+fn specLoaderSource(allocator: std.mem.Allocator, path: []const u8) ![]u8 {
+    var source: std.ArrayList(u8) = .empty;
+    defer source.deinit(allocator);
+    try source.appendSlice(allocator, "load '");
+    for (path) |byte| {
+        if (byte == '\\' or byte == '\'') try source.append(allocator, '\\');
+        try source.append(allocator, byte);
+    }
+    try source.appendSlice(allocator, "'\n");
+    return source.toOwnedSlice(allocator);
+}
+
 pub fn evalFile(path: []const u8, stdout_buf: []u8, stderr_buf: []u8) EvalResult {
     const allocator = std.heap.page_allocator;
     var threaded: std.Io.Threaded = .init(allocator, .{});
@@ -281,16 +293,11 @@ pub fn evalFile(path: []const u8, stdout_buf: []u8, stderr_buf: []u8) EvalResult
     };
     defer allocator.free(abs_path);
 
-    const ruby_code = std.Io.Dir.cwd().readFileAlloc(io, path, allocator, .limited(1024 * 1024)) catch {
-        return .{
-            .stdout = "",
-            .stderr = "",
-            .err = error.FileReadFailed,
-        };
+    const loader = specLoaderSource(allocator, abs_path) catch |err| {
+        return .{ .stdout = "", .stderr = "", .err = err };
     };
-    defer allocator.free(ruby_code);
-
-    return evalCodeWithOutputAndPath(ruby_code, stdout_buf, stderr_buf, abs_path);
+    defer allocator.free(loader);
+    return evalCodeWithOutputAndPath(loader, stdout_buf, stderr_buf, null);
 }
 
 fn appendRepoLoadPaths(vm: *VM, io: std.Io) !void {

@@ -4,6 +4,7 @@ const bdwgc = @import("bdwgc");
 const hash_map = @import("hash_map.zig");
 const vm_mod = @import("vm.zig");
 const Chunk = @import("chunk.zig").Chunk;
+const BacktraceContext = @import("chunk.zig").BacktraceContext;
 const VM = vm_mod.VM;
 const VMError = vm_mod.VMError;
 const Method = vm_mod.Method;
@@ -357,6 +358,7 @@ pub const BindingLocalScope = struct {
 
 pub const BindingObject = struct {
     object: Object,
+    backtrace_context: BacktraceContext = .{},
     self_value: Value,
     ep: ?[*]Value, // heap-promoted ep pointer (always promoted on binding creation)
     lexical_scope: ?*LexicalScope,
@@ -989,7 +991,8 @@ pub const Value = struct {
     }
 
     pub inline fn toBindingObject(self: Value) *BindingObject {
-        return @ptrFromInt(self.raw);
+        const object: *Object = @ptrFromInt(self.raw);
+        return @fieldParentPtr("object", object);
     }
 
     pub inline fn toHashObject(self: Value) *HashObject {

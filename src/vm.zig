@@ -17,6 +17,7 @@ const builtins = @import("builtins/builtins.zig");
 const comparable_builtin = @import("builtins/comparable.zig");
 const basic_object_builtin = @import("builtins/basic_object.zig");
 const kernel_builtin = @import("builtins/kernel.zig");
+const kernel_core_source = @embedFile("builtins/kernel.rb");
 const warning_builtin = @import("builtins/warning.zig");
 const thread_builtin = @import("builtins/thread.zig");
 const zio = @import("zio");
@@ -2152,8 +2153,8 @@ pub const VM = struct {
         self.zio_main_context = std.mem.zeroes(FiberCoroContext);
         _ = try self.ensureMainThread();
 
-        try self.buildProgramCallsiteDescriptors();
-        try self.internProgramLiteralSymbols();
+        try self.prepareProgramChunks();
+        _ = try self.evalSource(kernel_core_source, "<internal:kernel>");
         self.runtime_ready = true;
     }
 
@@ -3523,6 +3524,7 @@ pub const VM = struct {
     }
 
     pub fn checkAsyncEvents(self: *VM) VMError!void {
+        if (!self.runtime_ready) return;
         try self.drainQueuedSignalsToAsyncExceptions();
         if (self.main_thread) |main| {
             while (self.pending_async_exceptions.items.len != 0) {
@@ -3673,12 +3675,17 @@ pub const VM = struct {
         }
     }
 
-    fn buildProgramCallsiteDescriptors(self: *VM) VMError!void {
-        try self.buildChunkCallsiteDescriptors(&self.program.main_chunk);
+    fn prepareCompiledChunk(self: *VM, ch: *Chunk) VMError!void {
+        try self.buildChunkCallsiteDescriptors(ch);
+        try self.internLiteralSymbolsInChunk(ch);
+    }
+
+    fn prepareProgramChunks(self: *VM) VMError!void {
+        try self.prepareCompiledChunk(&self.program.main_chunk);
 
         var chunk_iter = self.program.child_chunks.valueIterator();
         while (chunk_iter.next()) |chunk_ptr| {
-            try self.buildChunkCallsiteDescriptors(chunk_ptr.*);
+            try self.prepareCompiledChunk(chunk_ptr.*);
         }
     }
 
@@ -3705,15 +3712,6 @@ pub const VM = struct {
                 }
             }
             ip += 1 + bytecode.opcodeOperandSize(op);
-        }
-    }
-
-    fn internProgramLiteralSymbols(self: *VM) VMError!void {
-        try self.internLiteralSymbolsInChunk(&self.program.main_chunk);
-
-        var chunk_iter = self.program.child_chunks.valueIterator();
-        while (chunk_iter.next()) |chunk_ptr| {
-            try self.internLiteralSymbolsInChunk(chunk_ptr.*);
         }
     }
 
@@ -8821,10 +8819,12 @@ pub const VM = struct {
         args: []Value,
         block: ?Block,
         keyword_ctx: ?*BuiltinKeywordContext,
+        defining_node: ?*ModuleObject,
     ) VMError!Value {
         const pending_unwind_before = self.pendingUnwind();
         const saved_frame_len = self.frames.items.len;
         try self.pushBuiltinFrame(receiver, method_name, block);
+        if (self.frames.items.len > saved_frame_len) self.currentFrame().super_defining_node = defining_node;
         defer if (self.frames.items.len > saved_frame_len and self.frames.items[self.frames.items.len - 1].frame_type == .builtin) {
             self.popBuiltinFrame();
         };
@@ -9003,7 +9003,7 @@ pub const VM = struct {
         args: []Value,
         block: ?Block,
     ) VMError!Value {
-        return self.invokeBuiltinMethod(builtin_method, receiver, method_name, args, block, self.builtin_keyword_ctx);
+        return self.invokeBuiltinMethod(builtin_method, receiver, method_name, args, block, self.builtin_keyword_ctx, null);
     }
 
     pub fn popCurrentBuiltinFrame(self: *VM) void {
@@ -9234,7 +9234,7 @@ pub const VM = struct {
                 else
                     null;
 
-                return self.invokeBuiltinMethod(fun_ptr, receiver, resolved.name.name, @constCast(dispatch.args), block, dispatch_keyword_ctx);
+                return self.invokeBuiltinMethod(fun_ptr, receiver, resolved.name.name, @constCast(dispatch.args), block, dispatch_keyword_ctx, resolved.defining_node);
             },
             .cext => |cext_method| {
                 const result = try self.dispatchCExtMethod(cext_method, resolved, receiver, @constCast(dispatch.args), block, null);
@@ -9970,7 +9970,7 @@ pub const VM = struct {
                     null;
 
                 const saved_frame_len = self.frames.items.len;
-                const result = try self.invokeBuiltinMethod(fun_ptr, receiver, method.name.name, @constCast(dispatch.args), block, maybe_keyword_ctx);
+                const result = try self.invokeBuiltinMethod(fun_ptr, receiver, method.name.name, @constCast(dispatch.args), block, maybe_keyword_ctx, method.defining_node);
                 if (self.frames.items.len < saved_frame_len) {
                     // Builtins can trigger block returns that unwind past this call helper. In
                     // that case the surviving frame already has the right stack state/result.
@@ -10665,7 +10665,7 @@ pub const VM = struct {
                 // For builtin methods, we need a mutable copy
                 var args_copy: [256]Value = undefined;
                 @memcpy(args_copy[0..dispatch.args.len], dispatch.args);
-                const result = try self.invokeBuiltinMethod(fun_ptr, receiver, resolved.name.name, args_copy[0..dispatch.args.len], block, dispatch_keyword_ctx);
+                const result = try self.invokeBuiltinMethod(fun_ptr, receiver, resolved.name.name, args_copy[0..dispatch.args.len], block, dispatch_keyword_ctx, resolved.defining_node);
                 try self.push(result);
             },
             .cext => |cext_method| {
@@ -11657,6 +11657,7 @@ pub const VM = struct {
                 .scopes = scopes_copy,
                 .local_names = names_copy,
                 .method_name = src.method_name,
+                .backtrace_context = src.backtrace_context,
                 .source_file = src.source_file,
                 .source_line = src.source_line,
             };
@@ -12583,7 +12584,7 @@ pub const VM = struct {
             },
         }
 
-        try self.buildChunkCallsiteDescriptors(chunk_ptr);
+        try self.prepareCompiledChunk(chunk_ptr);
         self.program.child_chunks.put(chunk_ptr.chunk_id.?, chunk_ptr) catch return error.Fatal;
         return chunk_ptr;
     }
@@ -13865,7 +13866,7 @@ pub const VM = struct {
         var parser = prism.Parser.init(self.allocator, code_buffer, absolute_path) catch return error.Fatal;
         defer parser.deinit();
 
-        var program = compiler.Compiler.compile(self.allocator, &parser, self.next_chunk_id) catch return error.Fatal;
+        var program = compiler.Compiler.compileWithContext(self.allocator, &parser, self.next_chunk_id, .{ .backtrace_context = .{ .name = "<top (required)>" } }) catch return error.Fatal;
         defer program.child_chunks.deinit();
         const main_chunk = try self.allocateOwnedMainChunk(&program);
         defer {
@@ -13875,10 +13876,10 @@ pub const VM = struct {
         }
 
         self.next_chunk_id = program.next_chunk_id;
-        try self.buildChunkCallsiteDescriptors(main_chunk);
+        try self.prepareCompiledChunk(main_chunk);
         var loaded_iter = program.child_chunks.valueIterator();
         while (loaded_iter.next()) |chunk_ptr| {
-            try self.buildChunkCallsiteDescriptors(chunk_ptr.*);
+            try self.prepareCompiledChunk(chunk_ptr.*);
         }
 
         // Transfer ownership of chunks to main program
@@ -13937,6 +13938,7 @@ pub const VM = struct {
     }
 
     pub const EvalContext = struct {
+        backtrace_context: ?chunk.BacktraceContext = null,
         self_value: Value,
         parent_ep: ?[*]Value,
         lexical_scope: ?*LexicalScope,
@@ -13977,6 +13979,8 @@ pub const VM = struct {
             .{
                 .outer_local_names = outer_names,
                 .outer_local_scopes = outer_scopes,
+                .backtrace_context = if (context) |ctx| ctx.backtrace_context orelse
+                    (if (self.currentRubyFrame()) |caller| try self.frameBacktraceContext(caller) else .{}) else .{},
             },
         ) catch |err| {
             if (compiler.syntaxErrorMessage(err)) |message| {
@@ -13994,10 +13998,10 @@ pub const VM = struct {
 
         self.next_chunk_id = eval_program.next_chunk_id;
 
-        try self.buildChunkCallsiteDescriptors(eval_main_chunk);
+        try self.prepareCompiledChunk(eval_main_chunk);
         var iter = eval_program.child_chunks.valueIterator();
         while (iter.next()) |chunk_ptr| {
-            try self.buildChunkCallsiteDescriptors(chunk_ptr.*);
+            try self.prepareCompiledChunk(chunk_ptr.*);
         }
 
         var ownership_iter = eval_program.child_chunks.iterator();
@@ -14152,6 +14156,8 @@ pub const VM = struct {
 
     pub fn captureBindingFrameScopes(self: *VM, binding: *value.BindingObject, frame: *const CallFrame) VMError!void {
         const current_ep = binding.ep.?;
+        binding.backtrace_context = try self.frameBacktraceContext(frame);
+        binding.backtrace_context.name = self.gc_allocator.dupe(u8, binding.backtrace_context.name) catch return error.Fatal;
         if (CallFrame.usesEnclosingMethodContext(frame.frame_type)) {
             if (enclosingMethodEnvironment(frame)) |outer| {
                 try self.addBindingLocalScope(binding, outer.ep, outer.context.chunk.local_names.items);
@@ -14670,6 +14676,46 @@ pub const VM = struct {
         };
 
         return exc;
+    }
+
+    fn methodBacktraceLabel(self: *VM, name: []const u8, defining_node: ?*ModuleObject) VMError![]const u8 {
+        const node = defining_node orelse return name;
+        const owner = node.origin;
+        if (owner.object.type_tag == .class) {
+            const class = Value.fromObject(&owner.object).toClassObject();
+            if (class.attached_object) |attached| {
+                const owner_name = self.publicModuleName(attached) orelse return name;
+                return std.fmt.allocPrint(self.gc_allocator, "{s}.{s}", .{ owner_name, name }) catch return error.Fatal;
+            }
+        }
+        const owner_name = self.publicModuleName(Value.fromObject(&owner.object)) orelse return name;
+        return std.fmt.allocPrint(self.gc_allocator, "{s}#{s}", .{ owner_name, name }) catch return error.Fatal;
+    }
+
+    pub fn frameBacktraceContext(self: *VM, frame: *const CallFrame) VMError!chunk.BacktraceContext {
+        if (frame.method_name) |name| {
+            if (frame.frame_type != .synthetic) return .{ .name = try self.methodBacktraceLabel(name, frame.super_defining_node) };
+        }
+        const context = frame.chunk.backtrace_context;
+        const base = switch (context.kind) {
+            .method => blk: {
+                const method = enclosingMethodEnvironment(frame);
+                break :blk try self.methodBacktraceLabel(context.name, if (method) |entry| entry.context.defining_node else null);
+            },
+            .module_body => std.fmt.allocPrint(self.gc_allocator, "<module:{s}>", .{context.name}) catch return error.Fatal,
+            .class_body => std.fmt.allocPrint(self.gc_allocator, "<class:{s}>", .{context.name}) catch return error.Fatal,
+            .singleton_body, .top => context.name,
+        };
+        return .{ .name = base, .block_depth = context.block_depth };
+    }
+
+    pub fn frameBacktraceLabel(self: *VM, frame: *const CallFrame) VMError![]const u8 {
+        const context = try self.frameBacktraceContext(frame);
+        return switch (context.block_depth) {
+            0 => context.name,
+            1 => std.fmt.allocPrint(self.gc_allocator, "block in {s}", .{context.name}) catch return error.Fatal,
+            else => std.fmt.allocPrint(self.gc_allocator, "block ({d} levels) in {s}", .{ context.block_depth, context.name }) catch return error.Fatal,
+        };
     }
 
     /// Capture current call stack as a backtrace

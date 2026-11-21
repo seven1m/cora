@@ -15,6 +15,19 @@ fn boundMethodObject(receiver: Value) *MethodObject {
 }
 
 pub fn register(vm: *VM) !void {
+    try common.registerBoundMethodBuiltins(vm, .{
+        .call = &builtinMethodCall,
+        .equal = &builtinMethodEqual,
+        .name = &builtinMethodName,
+        .original_name = &builtinMethodOriginalName,
+        .owner = &builtinMethodOwner,
+        .receiver = &builtinMethodReceiver,
+        .to_proc = &builtinMethodToProc,
+        .arity = &builtinMethodArity,
+        .parameters = &builtinMethodParameters,
+        .unbind = &builtinMethodUnbind,
+        .source_location = &builtinMethodSourceLocation,
+    });
     try vm.method_class.module.methods.put(try vm.intern("super_method"), common.MethodEntry.builtin(&builtinMethodSuperMethod, .{ .exact = 0 }));
     const inspect_sym = try vm.intern("inspect");
     const to_s_sym = try vm.intern("to_s");
@@ -22,15 +35,7 @@ pub fn register(vm: *VM) !void {
     try vm.method_class.module.methods.put(inspect_sym, inspect_entry);
     try vm.method_class.module.methods.put(to_s_sym, inspect_entry);
 
-    const equal_entry = common.MethodEntry.builtin(&builtinMethodEqual, .{ .exact = 1 });
-    const equal_sym = try vm.intern("==");
-    try vm.method_class.module.methods.put(equal_sym, equal_entry);
-    const eql_sym = try vm.intern("eql?");
-    try vm.method_class.module.methods.put(eql_sym, equal_entry);
-
     const call_entry = common.MethodEntry.keywordBuiltin(&builtinMethodCall, .{ .variadic = 0 });
-    const call_sym = try vm.intern("call");
-    try vm.method_class.module.methods.put(call_sym, call_entry);
     const case_equal_sym = try vm.intern("===");
     try vm.method_class.module.methods.put(case_equal_sym, call_entry);
     const element_reference_sym = try vm.intern("[]");
@@ -141,19 +146,7 @@ pub fn createBoundMethodObject(
     resolved: vm_mod.ResolvedMethod,
     owner: Value,
 ) VMError!Value {
-    return common.createBoundMethodObject(vm, receiver, method_name, resolved, owner, .{
-        .call = &builtinMethodCall,
-        .equal = &builtinMethodEqual,
-        .name = &builtinMethodName,
-        .original_name = &builtinMethodOriginalName,
-        .owner = &builtinMethodOwner,
-        .receiver = &builtinMethodReceiver,
-        .to_proc = &builtinMethodToProc,
-        .arity = &builtinMethodArity,
-        .parameters = &builtinMethodParameters,
-        .unbind = &builtinMethodUnbind,
-        .source_location = &builtinMethodSourceLocation,
-    });
+    return common.createBoundMethodObject(vm, receiver, method_name, resolved, owner);
 }
 
 fn builtinMethodSuperMethod(vm: *VM, receiver: Value, _: []Value, _: ?Block) VMError!Value {

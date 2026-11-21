@@ -62,6 +62,16 @@ Prefer not to add new opcodes when an existing mechanism can be extended. When a
 
 **Lexical scopes:** Lexical scope chains track module/class context for constant lookup.
 
+**Backtrace labels:** Chunks record the lexical base label and block nesting depth.
+Frames retain the resolved definition node, so aliases, included module methods,
+and copied UnboundMethods report their original owner. Method and UnboundMethod
+APIs are registered once on their classes; captured method objects hold only
+the implementation and binding metadata. Binding objects keep a
+GC-owned label context for later evals, independently of temporary eval chunks.
+Ruby core methods are embedded from `src/builtins/kernel.rb`;
+their source locations use `<internal:kernel>` while caller locations borrow the
+user call site, matching MRI's treatment of internal Ruby methods.
+
 ## Thread Scheduling
 
 Threads share one native execution thread and hand off directly between saved

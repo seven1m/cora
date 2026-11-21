@@ -147,6 +147,24 @@ test "Binding local_variable_get reads locals and names missing locals" {
     try std.testing.expectEqualStrings("missing", values[1].toSymbolObject().name);
 }
 
+test "Binding retains lexical backtrace labels after eval compilation and GC" {
+    const result = try evalCode(
+        \\class LabelBindingFixture
+        \\  def self.capture
+        \\    1.times { return eval('binding') }
+        \\  end
+        \\end
+        \\original = LabelBindingFixture.capture
+        \\copy = original.dup
+        \\original.local_variable_set(:new_local, 1)
+        \\GC.start
+        \\code = 'caller_locations(0, 1)[0].label'
+        \\expected = 'block in LabelBindingFixture.capture'
+        \\original.eval(code) == expected && copy.eval(code) == expected && eval(code, copy) == expected
+    );
+    try std.testing.expect(result.isTruthy());
+}
+
 test "Binding eval retains values of newly declared locals" {
     const result = try evalCode(
         \\b = TOPLEVEL_BINDING.dup

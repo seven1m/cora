@@ -1933,6 +1933,9 @@ pub fn builtinModuleDefineMethod(vm: *VM, receiver: Value, args: []Value, block:
             body.toUnboundMethodObject().entry;
         copied.visibility = effective_visibility;
         if (copied.original_name == null) copied.original_name = method_name;
+        if (copied.original_defining_node == null) {
+            copied.original_defining_node = if (body.isMethodObject()) body.toMethodObject().defining_node else body.toUnboundMethodObject().defining_node;
+        }
         break :blk copied;
     } else blk: {
         const proc_val = try vm.newProc(try vm.requireBlock(block));

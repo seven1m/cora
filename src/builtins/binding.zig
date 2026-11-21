@@ -90,6 +90,7 @@ pub fn builtinBindingEval(vm: *VM, receiver: Value, args: []Value, _: ?Block) VM
             .start_line = start_line,
             .binding_to_update = binding_obj,
             .method_name = binding_obj.method_name,
+            .backtrace_context = binding_obj.backtrace_context,
         },
     );
 }

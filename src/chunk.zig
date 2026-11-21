@@ -104,6 +104,13 @@ pub const LineInfo = struct {
     line: u32,
 };
 
+pub const BacktraceContext = struct {
+    pub const Kind = enum { top, method, class_body, module_body, singleton_body };
+    kind: Kind = .top,
+    name: []const u8 = "<main>",
+    block_depth: u32 = 0,
+};
+
 pub const Chunk = struct {
     // Flat bytecode stream
     code: std.ArrayList(u8) = .empty,
@@ -117,6 +124,8 @@ pub const Chunk = struct {
     name_owned: bool = false,
     chunk_id: ?ChunkId = null,
     declaration_line: u32 = 1,
+    backtrace_context: BacktraceContext = .{},
+    backtrace_name_owned: bool = false,
     arity: u8 = 0,
     locals_count: u16 = 0, // Total number of locals (including params)
     local_names: std.ArrayList([]const u8) = .empty,
@@ -163,6 +172,7 @@ pub const Chunk = struct {
     }
 
     pub fn deinit(self: *Chunk) void {
+        if (self.backtrace_name_owned) self.allocator.free(self.backtrace_context.name);
         if (self.name_owned) {
             self.allocator.free(self.name);
         }
@@ -213,6 +223,14 @@ pub const Chunk = struct {
         self.callsite_descriptors.deinit(self.allocator);
         self.regexp_literal_offsets.deinit(self.allocator);
         self.block_call_handlers.deinit(self.allocator);
+    }
+
+    pub fn setBacktraceContext(self: *Chunk, context: BacktraceContext) !void {
+        const name = try self.allocator.dupe(u8, context.name);
+        if (self.backtrace_name_owned) self.allocator.free(self.backtrace_context.name);
+        self.backtrace_context = context;
+        self.backtrace_context.name = name;
+        self.backtrace_name_owned = true;
     }
 
     pub fn setSourceFile(self: *Chunk, source_file: ?[]const u8) !void {

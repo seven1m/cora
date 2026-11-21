@@ -128,3 +128,19 @@ test "warn uplevel counts builtin forwarding frames" {
 
     try std.testing.expect(std.mem.indexOf(u8, result.stderr, ":6: warning: warning\n") != null);
 }
+
+test "caller_locations labels use the final constant in scoped namespace bodies" {
+    const result = try evalCode(
+        \\module LabelBodies
+        \\  module Nested; end
+        \\end
+        \\class LabelBodies::Scoped
+        \\  LABEL = caller_locations(0, 1)[0].label
+        \\end
+        \\module LabelBodies::Nested
+        \\  LABEL = caller_locations(0, 1)[0].label
+        \\end
+        \\[LabelBodies::Scoped::LABEL, LabelBodies::Nested::LABEL] == ['<class:Scoped>', '<module:Nested>']
+    );
+    try std.testing.expect(result.isTruthy());
+}

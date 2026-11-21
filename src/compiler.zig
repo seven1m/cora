@@ -195,6 +195,7 @@ pub fn syntaxErrorMessage(err: anyerror) ?[]const u8 {
 
 pub const Compiler = struct {
     pub const CompileContext = struct {
+        backtrace_context: chunk.BacktraceContext = .{},
         outer_local_names: ?[]const []const u8 = null,
         outer_local_scopes: ?[]const []const []const u8 = null,
     };
@@ -347,6 +348,7 @@ pub const Compiler = struct {
         }
 
         var main_chunk = Chunk.init(allocator, "main");
+        try main_chunk.setBacktraceContext(context.backtrace_context);
         try main_chunk.setSourceFile(parser.source_file);
         main_chunk.source_encoding = compiler.parserSourceEncoding();
         compiler.current_chunk = &main_chunk;
@@ -3650,6 +3652,7 @@ pub const Compiler = struct {
             const body_chunk_ptr = try self.allocator.create(Chunk);
             body_chunk_ptr.* = Chunk.init(self.allocator, try self.allocator.dupe(u8, body_name));
             body_chunk_ptr.name_owned = true;
+            try body_chunk_ptr.setBacktraceContext(.{ .kind = .module_body, .name = module_name });
             try body_chunk_ptr.setSourceFile(self.parser.source_file);
             body_chunk_ptr.source_encoding = self.parserSourceEncoding();
             body_chunk_id = try self.nextChunkId();
@@ -3735,6 +3738,7 @@ pub const Compiler = struct {
             const body_chunk_ptr = try self.allocator.create(Chunk);
             body_chunk_ptr.* = Chunk.init(self.allocator, try self.allocator.dupe(u8, body_name));
             body_chunk_ptr.name_owned = true;
+            try body_chunk_ptr.setBacktraceContext(.{ .kind = .class_body, .name = class_name });
             try body_chunk_ptr.setSourceFile(self.parser.source_file);
             body_chunk_ptr.source_encoding = self.parserSourceEncoding();
             body_chunk_id = try self.nextChunkId();
@@ -3794,6 +3798,7 @@ pub const Compiler = struct {
         var body_chunk_id: u16 = 0;
         const body_chunk_ptr = try self.allocator.create(Chunk);
         body_chunk_ptr.* = Chunk.init(self.allocator, "<singleton class>");
+        try body_chunk_ptr.setBacktraceContext(.{ .kind = .singleton_body, .name = "<singleton class>" });
         try body_chunk_ptr.setSourceFile(self.parser.source_file);
         body_chunk_ptr.source_encoding = self.parserSourceEncoding();
         body_chunk_id = try self.nextChunkId();
@@ -4250,6 +4255,7 @@ pub const Compiler = struct {
         const method_chunk_ptr = try self.allocator.create(Chunk);
         method_chunk_ptr.* = Chunk.init(self.allocator, try self.allocator.dupe(u8, method_name_slice));
         method_chunk_ptr.name_owned = true;
+        try method_chunk_ptr.setBacktraceContext(.{ .kind = .method, .name = method_name_slice });
         try method_chunk_ptr.setSourceFile(self.parser.source_file);
         method_chunk_ptr.source_encoding = self.parserSourceEncoding();
         method_chunk_ptr.declaration_line = line;
@@ -4352,6 +4358,9 @@ pub const Compiler = struct {
         // Allocate chunk on heap and track it immediately (before compilation can fail)
         const block_chunk_ptr = try self.allocator.create(Chunk);
         block_chunk_ptr.* = Chunk.init(self.allocator, "block");
+        var backtrace_context = self.current_chunk.backtrace_context;
+        backtrace_context.block_depth += 1;
+        try block_chunk_ptr.setBacktraceContext(backtrace_context);
         try block_chunk_ptr.setSourceFile(self.parser.source_file);
         block_chunk_ptr.source_encoding = self.parserSourceEncoding();
         block_chunk_ptr.declaration_line = line;
@@ -4464,6 +4473,9 @@ pub const Compiler = struct {
         // Allocate chunk on heap and track it immediately (before compilation can fail)
         const lambda_chunk_ptr = try self.allocator.create(Chunk);
         lambda_chunk_ptr.* = Chunk.init(self.allocator, "lambda");
+        var backtrace_context = self.current_chunk.backtrace_context;
+        backtrace_context.block_depth += 1;
+        try lambda_chunk_ptr.setBacktraceContext(backtrace_context);
         lambda_chunk_ptr.is_lambda = true; // Mark as lambda
         try lambda_chunk_ptr.setSourceFile(self.parser.source_file);
         lambda_chunk_ptr.source_encoding = self.parserSourceEncoding();
@@ -4626,6 +4638,7 @@ pub const Compiler = struct {
     fn compileRescueTypeExpressionChunk(self: *Compiler, expression: prism.Node, line: u32) !chunk.ChunkId {
         const rescue_type_chunk_ptr = try self.allocator.create(Chunk);
         rescue_type_chunk_ptr.* = Chunk.init(self.allocator, "rescue_type");
+        try rescue_type_chunk_ptr.setBacktraceContext(self.current_chunk.backtrace_context);
         try rescue_type_chunk_ptr.setSourceFile(self.parser.source_file);
         rescue_type_chunk_ptr.source_encoding = self.parserSourceEncoding();
 
@@ -5156,6 +5169,7 @@ pub const Compiler = struct {
         // Create block chunk for the for body
         const block_chunk_ptr = try self.allocator.create(Chunk);
         block_chunk_ptr.* = Chunk.init(self.allocator, "for_body");
+        try block_chunk_ptr.setBacktraceContext(self.current_chunk.backtrace_context);
         try block_chunk_ptr.setSourceFile(self.parser.source_file);
         block_chunk_ptr.source_encoding = self.parserSourceEncoding();
         block_chunk_ptr.declaration_line = line;

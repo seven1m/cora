@@ -1,3 +1,9 @@
+# Standalone invocations use the same load semantics as MSpec's file runner.
+# Restart before loading helpers so nested spec_helper files initialize fully.
+if !ENV['MSPEC_RUNNER'] && $0.end_with?('_spec.rb')
+  exec RbConfig.ruby, '-e', 'load ARGV.shift', $0, *ARGV
+end
+
 use_realpath = File.respond_to?(:realpath)
 root = __dir__
 dir = "fixtures/code"

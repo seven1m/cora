@@ -407,9 +407,6 @@ pub fn register(vm: *VM) !void {
     const sleep_sym = try vm.intern("sleep");
     try vm.kernel_module.methods.put(sleep_sym, MethodEntry.builtin(&builtinKernelSleep, .{ .variadic = 0 }));
 
-    const tap_sym = try vm.intern("tap");
-    try vm.kernel_module.methods.put(tap_sym, MethodEntry.builtin(&builtinKernelTap, .{ .exact = 0 }));
-
     const then_sym = try vm.intern("then");
     try vm.kernel_module.methods.put(then_sym, MethodEntry.builtin(&builtinKernelThen, .{ .exact = 0 }));
 
@@ -866,6 +863,7 @@ pub fn builtinKernelEval(vm: *VM, receiver: Value, args: []Value, _: ?Block) VME
             .start_line = start_line,
             .binding_to_update = binding_obj,
             .method_name = binding_obj.method_name,
+            .backtrace_context = binding_obj.backtrace_context,
         },
     );
 }
@@ -1426,7 +1424,7 @@ fn isUsableRubyFrame(frame: *const vm_mod.CallFrame) bool {
 
 fn backtraceLocationForFrame(vm: *VM, source_frames: []const vm_mod.CallFrame, index: usize) BacktraceLocation {
     const frame = &source_frames[index];
-    if (frame.frame_type == .builtin) {
+    if (frame.frame_type == .builtin or std.mem.startsWith(u8, frame.chunk.source_file orelse "", "<internal:")) {
         var next = index;
         while (next > 0) {
             next -= 1;
@@ -1586,37 +1584,15 @@ fn planCallerSliceRange(vm: *VM, frame_count: usize, range_obj: *value.RangeObje
     } };
 }
 
-fn callerFrameLabel(vm: *VM, frame: *const vm_mod.CallFrame, next_frame: ?*const vm_mod.CallFrame) VMError![]const u8 {
-    if (frame.method_name) |method_name| {
-        return std.fmt.allocPrint(
-            vm.gc_allocator,
-            "{s}#{s}",
-            .{ vm.getClass(frame.self_value).module.name.name, method_name },
-        ) catch return error.Fatal;
-    }
-
-    if (std.mem.eql(u8, frame.chunk.name, "block")) {
-        const enclosing = if (next_frame) |parent|
-            try callerFrameLabel(vm, parent, null)
-        else
-            "<main>";
-        return std.fmt.allocPrint(vm.gc_allocator, "block in {s}", .{enclosing}) catch return error.Fatal;
-    }
-
-    if (std.mem.eql(u8, frame.chunk.name, "main")) return "<main>";
-    return frame.chunk.name;
-}
-
 fn appendCallerEntry(
     vm: *VM,
     result: *value.ArrayObject,
     entry: BacktraceLocation,
-    next_frame: ?BacktraceLocation,
 ) VMError!void {
     const label = if (entry.frame.frame_type == .builtin)
         entry.frame.method_name orelse entry.frame.chunk.name
     else
-        try callerFrameLabel(vm, entry.frame, if (next_frame) |next| next.frame else null);
+        try vm.frameBacktraceLabel(entry.frame);
 
     const backtrace_str = std.fmt.allocPrint(
         vm.gc_allocator,
@@ -1631,9 +1607,8 @@ fn appendCallerLocationEntry(
     vm: *VM,
     result: *value.ArrayObject,
     entry: BacktraceLocation,
-    next_frame: ?BacktraceLocation,
 ) VMError!void {
-    const label = try callerFrameLabel(vm, entry.frame, if (next_frame) |next| next.frame else null);
+    const label = try vm.frameBacktraceLabel(entry.frame);
     const location = try vm.newBacktraceLocation(entry.source, entry.line, label);
     result.elements.append(vm.gc_allocator, location) catch return error.Fatal;
 }
@@ -1673,11 +1648,10 @@ pub fn backtraceForFrames(vm: *VM, source_frames: []const vm_mod.CallFrame, args
             var idx = span.start;
             const end = span.start + span.count;
             while (idx < end) : (idx += 1) {
-                const next_frame = if (idx + 1 < caller_frames.len) caller_frames[idx + 1] else null;
                 if (options.locations)
-                    try appendCallerLocationEntry(vm, result, caller_frames[idx], next_frame)
+                    try appendCallerLocationEntry(vm, result, caller_frames[idx])
                 else
-                    try appendCallerEntry(vm, result, caller_frames[idx], next_frame);
+                    try appendCallerEntry(vm, result, caller_frames[idx]);
             }
             return Value.fromObject(&result.object);
         },
@@ -2155,15 +2129,6 @@ pub fn builtinKernelSleep(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!V
     const duration_ms = @as(i64, @intFromFloat(@ceil(seconds * 1000.0)));
     try vm.timedSleepCurrentThread(duration_ms);
     return Value.integer(0);
-}
-
-pub fn builtinKernelTap(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
-    try vm.requireArgCount(args, 0);
-    const blk = block orelse {
-        return vm.raiseLocalJumpError("no block given", Value.nil(), "noreason");
-    };
-    _ = try vm.yieldToBlock(blk, &[_]Value{receiver});
-    return receiver;
 }
 
 pub fn builtinKernelThen(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
