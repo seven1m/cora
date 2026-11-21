@@ -10,6 +10,7 @@ Prism AST -> bytecode -> VM execution.
 - Stdlib lives in `lib/stdlib/`. Vendored gem sources live in `ext/<gem>/` as git submodules.
 - Prefer reading the relevant `.agents/reference/*.md` file for the task you are doing before making changes.
 - Prefer general and reusable bytecode/runtime changes over feature-specific one-offs.
+- Required runtime state must be initialized by its owner. Do not substitute a plausible class, method, or execution context when required metadata is missing; retain fallbacks only for documented absence states (see `.agents/reference/fallbacks.md`).
 - Super execution and `defined?(super)` share `VM.lookupSuperMethodFromDefinition`; a lookup miss after an existing node is final. `Method#super_method` uses strict captured-node lookup instead (see `.agents/reference/architecture.md`).
 - Do not expose runtime-only implementation details to Ruby code via fake hidden local variables, ivars, or methods.
 - Prefer shared VM coercion, dispatch, warning, and arity helpers over per-builtin ad hoc logic.
@@ -23,6 +24,7 @@ Prism AST -> bytecode -> VM execution.
 ## Task Routing
 
 - Compiler, VM, runtime model, memory model: `.agents/reference/architecture.md`
+- Runtime fallback and initialization invariants: `.agents/reference/fallbacks.md`
 - Debugging workflow, memory corruption triage: `.agents/reference/debugging.md`
 - TinyCC JIT, eligibility rules, and debug workflow: `.agents/reference/jit.md`
 - Builtins and Ruby-facing conventions: `.agents/reference/builtins.md`

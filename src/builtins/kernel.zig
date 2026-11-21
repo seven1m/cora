@@ -886,6 +886,8 @@ pub fn builtinKernelRequireRelative(vm: *VM, _: Value, args: []Value, _: ?Block)
 
     const current_file = blk: {
         if (vm.frames.items.len > 0) {
+            // File chunks retain canonical identity; eval may supply only a
+            // logical filename from which Ruby still resolves relative loads.
             if (vm.currentFrame().chunk.source_absolute_path orelse vm.currentFrame().chunk.source_file) |source_file| break :blk source_file;
         }
         break :blk vm.current_loading_file orelse {

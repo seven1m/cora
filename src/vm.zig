@@ -4712,6 +4712,9 @@ pub const VM = struct {
         detachExecutionStacks(&fiber.stack, &fiber.frames);
     }
 
+    // switchFiber initializes created Fiber coroutines before asking for a
+    // context, and schedulerYield initializes workers before running them.
+    // Only the main native stack has neither a Fiber nor Thread coroutine.
     fn fiberContext(self: *VM, fiber: *FiberObject) *FiberCoroContext {
         if (fiber.coro) |coro| return &coro.context;
         if (fiber.owner_thread) |thread| {
@@ -8583,6 +8586,8 @@ pub const VM = struct {
         entry: MethodEntry,
     ) LookupMethodResult {
         const resolved_defining_node = entry.original_defining_node orelse defining_node;
+        // A bare module has no class node. Keep the lookup class as its
+        // execution anchor; the Ruby-visible owner still comes from the node.
         const resolved_owner_class = if (entry.original_defining_node) |original_node|
             self.ownerClassForDefiningNode(original_node) orelse owner_class
         else
@@ -10708,6 +10713,8 @@ pub const VM = struct {
     /// Call the superclass method with the given arguments
     fn callSuper(self: *VM, args: []const Value, block: ?Block, keyword_ctx: ?*BuiltinKeywordContext, args_array_mode: bool) VMError!void {
         const frame = self.currentFrame();
+        // Native super belongs to this dispatch, not to a Ruby environment
+        // beneath the builtin frame. Ruby environments can outlive their frame.
         const cext_frame = frame.frame_type == .builtin and frame.super_defining_node != null;
         const method_environment = if (cext_frame) null else enclosingMethodEnvironment(frame);
         const fallback_frame = self.enclosingMethodFrame(frame);

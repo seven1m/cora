@@ -440,5 +440,8 @@ pub fn definingNodeForBind(vm: *VM, target: Value, captured: ?*value.ModuleObjec
         if (node.object.type_tag != .iclass and node.origin != node) continue;
         if (ancestry.visibleModule(node) == owner) return node;
     }
+    // Module methods can bind without an inclusion node. Keep the captured
+    // origin so execution can apply the detached-module super rule, while
+    // Method#super_method can still inspect the captured node strictly.
     return original;
 }
