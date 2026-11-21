@@ -7312,6 +7312,7 @@ pub const VM = struct {
                     }) catch return error.Fatal;
                     self.markIntegerChangedForReceiver(receiver);
                     self.bumpMethodStateVersion();
+                    try self.triggerMethodAdded(Value.fromObject(&singleton_class.module.object), method_name_sym);
                 } else {
                     return error.Fatal;
                 }
@@ -9641,7 +9642,11 @@ pub const VM = struct {
         else
             .{ receiver, "method_added" };
         var args = [_]Value{Value.fromObject(&name_sym.object)};
-        _ = try self.checkCallMethodByName(hook_receiver, hook_name, true, &args, null);
+        if (receiver.isClass() and receiver.toClassObject().attached_object != null) {
+            _ = try self.callMethodByName(hook_receiver, hook_name, &args, null);
+        } else {
+            _ = try self.checkCallMethodByName(hook_receiver, hook_name, true, &args, null);
+        }
     }
 
     const BreakTarget = struct {

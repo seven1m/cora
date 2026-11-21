@@ -2364,6 +2364,7 @@ pub fn builtinKernelDefineSingletonMethod(vm: *VM, receiver: Value, args: []Valu
     singleton_class.module.origin.methods.put(name_sym, method_entry) catch return error.Fatal;
     vm.markIntegerChangedForReceiver(receiver);
     vm.bumpMethodStateVersion();
+    try vm.triggerMethodAdded(Value.fromObject(&singleton_class.module.object), name_sym);
 
     return Value.fromObject(&name_sym.object);
 }
