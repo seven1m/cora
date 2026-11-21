@@ -55,6 +55,7 @@ pub const ObjectTypeTag = enum(u8) {
     rational,
     complex,
     thread,
+    thread_group,
     mutex,
     condition_variable,
     queue,
@@ -318,6 +319,7 @@ pub const ObjectType = enum {
     hash,
     range,
     fiber,
+    thread_group,
     io,
     time,
     weak_map,
@@ -515,6 +517,11 @@ pub const ThreadJoinWaiter = struct {
     scheduler: Value,
 };
 
+pub const ThreadGroupObject = struct {
+    object: Object,
+    enclosed: bool = false,
+};
+
 pub const ThreadObject = struct {
     pub const CallContext = struct {
         builtin_keywords: ?*vm_mod.BuiltinKeywordContext = null,
@@ -540,6 +547,7 @@ pub const ThreadObject = struct {
     };
 
     object: Object,
+    group: ?*ThreadGroupObject = null,
     fiber_scheduler: ?Value = null,
     state: State,
     block: ?Block,
@@ -1075,6 +1083,10 @@ pub const Value = struct {
         return @fieldParentPtr("object", self.getObjectPointer().?);
     }
 
+    pub inline fn toThreadGroupObject(self: Value) *ThreadGroupObject {
+        return @fieldParentPtr("object", self.getObjectPointer().?);
+    }
+
     pub inline fn toMutexObject(self: Value) *MutexObject {
         return @ptrFromInt(self.raw);
     }
@@ -1374,6 +1386,7 @@ pub const Value = struct {
                 },
                 .complex => try writer.print("#<Complex:0x{x}>", .{self.raw}),
                 .float => try writer.print("{d}", .{self.toFloatObject().val}),
+                .thread_group => try writer.print("#<ThreadGroup:0x{x}>", .{self.raw}),
                 .thread => try writer.print("#<Thread:0x{x}>", .{self.raw}),
                 .mutex => try writer.print("#<Mutex:0x{x}>", .{self.raw}),
                 .condition_variable => try writer.print("#<ConditionVariable:0x{x}>", .{self.raw}),

@@ -985,3 +985,44 @@ test "Thread.ignore_deadlock permits an external signal to release a queue" {
     );
     try std.testing.expect(result.isTruthy());
 }
+
+test "Enclosed ThreadGroups retain native membership across child creation and retirement" {
+    const result = try evalCode(
+        \\group = ThreadGroup.new
+        \\ready, start, release = Queue.new, Queue.new, Queue.new
+        \\worker = Thread.new do
+        \\  ready << true
+        \\  start.pop
+        \\  child_release = Queue.new
+        \\  child = Thread.new { child_release.pop }
+        \\  ready << [Thread.current.group, child.group, child]
+        \\  release.pop
+        \\  child_release << true
+        \\  child.join
+        \\end
+        \\ready.pop
+        \\begin
+        \\  group.add(worker)
+        \\  raise "enclose return" unless group.enclose.equal?(group)
+        \\  start << true
+        \\  parent_group, child_group, child = ready.pop
+        \\  GC.start
+        \\  raise "inheritance" unless parent_group.equal?(group) && child_group.equal?(group)
+        \\  raise "membership" unless group.list.include?(worker) && group.list.include?(child)
+        \\  raise "hidden storage" unless group.instance_variables.empty? && worker.instance_variables.empty?
+        \\  [group, ThreadGroup.new].each do |destination|
+        \\    begin
+        \\      destination.add(worker)
+        \\      raise "enclosure ignored"
+        \\    rescue ThreadError
+        \\    end
+        \\  end
+        \\ensure
+        \\  release << true
+        \\  worker.join
+        \\end
+        \\raise "retirement" unless group.list.empty? && worker.group.equal?(group)
+        \\ThreadGroup::Default.list.include?(Thread.main)
+    );
+    try std.testing.expect(result.isTruthy());
+}

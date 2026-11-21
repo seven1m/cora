@@ -127,7 +127,9 @@ either at a new thread entrypoint or when `schedulerYield` resumes. Retirement
 unregisters their thread and fiber coroutines before freeing native stacks, drops
 scheduler/group roots and per-thread bookkeeping, and detaches execution buffers.
 Results, exceptions, escaped closures/bindings, and observable thread/fiber locals
-remain available through retained Ruby objects. Removed GC-owned list slots are
+remain available through retained Ruby objects. ThreadGroup membership is a native
+ThreadObject link inherited at creation, retained after termination; group lists
+filter the live thread registry. Enclosure is native ThreadGroupObject state. Removed GC-owned list slots are
 cleared even outside `items.len`, since the collector scans the whole allocation.
 
 Ruby Fiber scheduler objects are stored per thread in `ThreadObject.fiber_scheduler`.

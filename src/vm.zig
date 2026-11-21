@@ -1234,9 +1234,9 @@ pub const VM = struct {
         self.thread_backtrace_location_class = thread_backtrace_location_class_val.toClassObject();
 
         const thread_group_name_sym = try self.intern("ThreadGroup");
-        const thread_group_class_val = try self.newClass(thread_group_name_sym, self.object_class);
+        const thread_group_class_val = try self.newClassWithType(thread_group_name_sym, self.object_class, .thread_group);
         self.thread_group_class = thread_group_class_val.toClassObject();
-        self.default_thread_group = try self.newObjectForClass(self.thread_group_class);
+        self.default_thread_group = try self.newThreadGroup(self.thread_group_class);
 
         const mutex_name_sym = try self.intern("Mutex");
         const mutex_class_val = try self.newClass(mutex_name_sym, self.object_class);
@@ -4888,6 +4888,7 @@ pub const VM = struct {
         main_thread_obj.fiber_locals = null;
         main_thread_obj.thread_variables = null;
         main_thread_obj.name = null;
+        main_thread_obj.group = self.default_thread_group.toThreadGroupObject();
         main_thread_obj.creation_file = null;
         main_thread_obj.creation_line = 0;
         main_thread_obj.priority = 0;
@@ -4997,6 +4998,7 @@ pub const VM = struct {
         thread_obj.fiber_locals = null;
         thread_obj.thread_variables = null;
         thread_obj.name = null;
+        thread_obj.group = self.current_thread.?.group;
         thread_obj.creation_file = null;
         thread_obj.creation_line = 0;
         thread_obj.priority = 0;
@@ -5067,6 +5069,9 @@ pub const VM = struct {
     }
 
     pub fn startThread(self: *VM, thread_obj: *value.ThreadObject) VMError!void {
+        if (Value.fromObject(&thread_obj.group.?.object).isFrozen()) {
+            return self.raiseExceptionFmt(self.thread_error_class, "can't start a new thread (frozen ThreadGroup)", .{});
+        }
         self.thread_list.append(self.gc_allocator, thread_obj) catch return error.Fatal;
         try self.enqueueReadyThread(thread_obj);
     }
@@ -5173,7 +5178,6 @@ pub const VM = struct {
                 index += 1;
                 continue;
             }
-            try thread_builtin.removeTerminatedThreadFromGroup(self, thread);
             var coro_index: usize = 0;
             while (coro_index < self.zio_coroutines.items.len) {
                 const entry = self.zio_coroutines.items[coro_index];
@@ -11509,6 +11513,12 @@ pub const VM = struct {
         };
     }
 
+    pub fn newThreadGroup(self: *VM, class_obj: *ClassObject) VMError!Value {
+        const group = self.gc_allocator.create(value.ThreadGroupObject) catch return error.Fatal;
+        group.* = .{ .object = .{ .type_tag = .thread_group, .flags = 0, .class = class_obj, .singleton_class = null, .instance_variables = null } };
+        return Value.fromObject(&group.object);
+    }
+
     pub fn newObjectForClass(self: *VM, class_obj: *ClassObject) VMError!Value {
         if (self.findBuiltinAllocFunc(class_obj)) |alloc_fn| {
             return alloc_fn(self, Value.fromObject(&class_obj.module.object), &.{}, null);
@@ -11573,6 +11583,7 @@ pub const VM = struct {
             },
             .range => self.newRange(class_obj),
             .fiber => try self.newFiber(class_obj, null),
+            .thread_group => try self.newThreadGroup(class_obj),
             .io => try self.newIo(class_obj, -1, .{ .owns_fd = false, .readable = false, .writable = false }),
             .time => self.newTime(class_obj, Value.integer(0)),
             .weak_map => blk: {
@@ -12717,6 +12728,7 @@ pub const VM = struct {
             .rational => arg.isRational(),
             .complex => arg.isComplex(),
             .thread => arg.isThread(),
+            .thread_group => arg.isObject() and arg.objectTypeTag() == .thread_group,
             .mutex => arg.isMutex(),
             .condition_variable => arg.isConditionVariable(),
             .queue => arg.isQueue(),

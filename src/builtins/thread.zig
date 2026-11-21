@@ -205,6 +205,9 @@ pub fn register(vm: *VM) !void {
     const list_group_sym = try vm.intern("list");
     try vm.thread_group_class.module.methods.put(list_group_sym, value.MethodEntry.builtin(&builtinThreadGroupList, .{ .exact = 0 }));
 
+    const enclose_sym = try vm.intern("enclose");
+    try vm.thread_group_class.module.methods.put(enclose_sym, value.MethodEntry.builtin(&builtinThreadGroupEnclose, .{ .exact = 0 }));
+
     const enclosed_sym = try vm.intern("enclosed?");
     try vm.thread_group_class.module.methods.put(enclosed_sym, value.MethodEntry.builtin(&builtinThreadGroupEnclosed, .{ .exact = 0 }));
 }
@@ -433,11 +436,7 @@ fn builtinThreadJoin(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError
 
 fn builtinThreadGroup(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
-    const thread = if (receiver.isThread())
-        receiver.toThreadObject()
-    else
-        (vm.current_thread orelse try vm.ensureMainThread());
-    return try threadGroupForThread(vm, thread);
+    return Value.fromObject(&receiver.toThreadObject().group.?.object);
 }
 
 fn builtinThreadGroupAdd(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
@@ -445,69 +444,38 @@ fn builtinThreadGroupAdd(vm: *VM, receiver: Value, args: []Value, _: ?Block) VME
     if (!args[0].isThread()) {
         return vm.raiseExceptionFmt(vm.type_error_class, "wrong argument type (expected Thread)", .{});
     }
-
+    const target = receiver.toThreadGroupObject();
+    if (receiver.isFrozen()) return vm.raiseExceptionFmt(vm.thread_error_class, "can't move to the frozen thread group", .{});
+    if (target.enclosed) return vm.raiseExceptionFmt(vm.thread_error_class, "can't move to the enclosed thread group", .{});
     const thread = args[0].toThreadObject();
-    const previous_group = try threadGroupForThread(vm, thread);
-    try removeThreadFromGroup(vm, previous_group, thread);
-    try appendThreadToGroup(vm, receiver, thread);
-    try vm.setInstanceVariable(args[0], "@thread_group", receiver);
+    const previous = thread.group.?;
+    if (Value.fromObject(&previous.object).isFrozen()) return vm.raiseExceptionFmt(vm.thread_error_class, "can't move from the frozen thread group", .{});
+    if (previous.enclosed) return vm.raiseExceptionFmt(vm.thread_error_class, "can't move from the enclosed thread group", .{});
+    thread.group = target;
     return receiver;
 }
 
 fn builtinThreadGroupList(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
-    const threads = try threadGroupThreads(vm, receiver);
+    const group = receiver.toThreadGroupObject();
     const out = try vm.createArray();
-    for (threads.elements.items) |thread_value| {
-        out.elements.append(vm.gc_allocator, thread_value) catch return error.Fatal;
+    for (vm.thread_list.items) |thread| {
+        if (thread.state != .terminated and thread.group == group) {
+            out.elements.append(vm.gc_allocator, Value.fromObject(&thread.object)) catch return error.Fatal;
+        }
     }
     return Value.fromObject(&out.object);
 }
 
+fn builtinThreadGroupEnclose(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    receiver.toThreadGroupObject().enclosed = true;
+    return receiver;
+}
+
 fn builtinThreadGroupEnclosed(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
-    return Value.boolean((try vm.getInstanceVariable(receiver, "@enclosed")).isTruthy());
-}
-
-fn threadGroupForThread(vm: *VM, thread: *value.ThreadObject) VMError!Value {
-    const group = try vm.getInstanceVariable(Value.fromObject(&thread.object), "@thread_group");
-    return if (group.isNil()) vm.default_thread_group else group;
-}
-
-fn threadGroupThreads(vm: *VM, receiver: Value) VMError!*value.ArrayObject {
-    const threads_value = try vm.getInstanceVariable(receiver, "@threads");
-    if (threads_value.isNil()) {
-        const threads = try vm.createArray();
-        try vm.setInstanceVariable(receiver, "@threads", Value.fromObject(&threads.object));
-        return threads;
-    }
-    return threads_value.toArrayObject();
-}
-
-fn appendThreadToGroup(vm: *VM, receiver: Value, thread: *value.ThreadObject) VMError!void {
-    const threads = try threadGroupThreads(vm, receiver);
-    const thread_value = Value.fromObject(&thread.object);
-    for (threads.elements.items) |entry| {
-        if (entry.isThread() and entry.toThreadObject() == thread) return;
-    }
-    threads.elements.append(vm.gc_allocator, thread_value) catch return error.Fatal;
-}
-
-pub fn removeTerminatedThreadFromGroup(vm: *VM, thread: *value.ThreadObject) VMError!void {
-    const group = try threadGroupForThread(vm, thread);
-    const threads = try vm.getInstanceVariable(group, "@threads");
-    if (threads.isArray()) try removeThreadFromGroup(vm, group, thread);
-}
-
-fn removeThreadFromGroup(vm: *VM, receiver: Value, thread: *value.ThreadObject) VMError!void {
-    const threads = try threadGroupThreads(vm, receiver);
-    for (threads.elements.items, 0..) |entry, i| {
-        if (entry.isThread() and entry.toThreadObject() == thread) {
-            _ = threads.elements.orderedRemove(i);
-            threads.elements.unusedCapacitySlice()[0] = Value.nil();
-            return;
-        }
-    }
+    return Value.boolean(receiver.toThreadGroupObject().enclosed);
 }
 
 fn builtinThreadValue(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
