@@ -4464,7 +4464,9 @@ pub const VM = struct {
         const blk = fiber.block orelse return error.Fatal;
         switch (blk.kind) {
             .chunk => |chunk_blk| {
-                self.pushBlockFrame(chunk_blk.chunk, chunk_blk.defining_ep, chunk_blk.defining_self, .fiber, .{}) catch return error.Fatal;
+                self.pushBlockFrame(chunk_blk.chunk, chunk_blk.defining_ep, chunk_blk.defining_self, .fiber, .{
+                    .block = if (chunk_blk.enclosing_block_proc) |proc_obj| proc_obj.block else null,
+                }) catch return error.Fatal;
 
                 const current_frame = self.currentFrame();
                 self.copyArgumentsWithRestParam(chunk_blk.chunk, current_frame, fiber.first_resume_args[0..fiber.first_resume_argc], .lenient) catch return error.Fatal;
@@ -4641,6 +4643,7 @@ pub const VM = struct {
             source.coro_event = .none;
             const exception = source.coro_exception orelse return error.Fatal;
             source.coro_exception = null;
+            try self.captureExceptionBacktrace(exception);
             self.setPendingException(exception);
             return error.Unwind;
         }
@@ -4668,6 +4671,25 @@ pub const VM = struct {
         caller.resuming_fiber = fiber;
         fiber.yielding = false;
         return self.switchFiber(fiber, args, resume_value);
+    }
+
+    pub fn raiseInFiber(self: *VM, target: *FiberObject, exception: *value.ExceptionObject) VMError!Value {
+        var fiber = target;
+        if (fiber != self.current_fiber) {
+            while (fiber.resuming_fiber) |child| fiber = child;
+        }
+        if (fiber == self.current_fiber) {
+            try self.captureExceptionBacktrace(exception);
+            self.setPendingException(exception);
+            return error.Unwind;
+        }
+        if (fiber.owner_thread != self.current_thread) return self.raiseExceptionFmt(self.fiber_error_class, "fiber called across threads", .{});
+        if (fiber.state == .created) return self.raiseExceptionFmt(self.fiber_error_class, "cannot raise exception on unborn fiber", .{});
+        if (fiber.state == .terminated) return self.raiseExceptionFmt(self.fiber_error_class, "dead fiber called", .{});
+        fiber.coro_exception = exception;
+        fiber.coro_event = .raised;
+        if (fiber.yielding) return self.resumeFiber(fiber, &.{}, Value.nil());
+        return self.transferFiber(fiber, &.{}, Value.nil());
     }
 
     pub fn transferFiber(self: *VM, fiber: *FiberObject, args: []Value, transfer_value: Value) VMError!Value {
@@ -5097,7 +5119,9 @@ pub const VM = struct {
         const blk = thread.block orelse return error.Fatal;
         switch (blk.kind) {
             .chunk => |chunk_blk| {
-                self.pushBlockFrame(chunk_blk.chunk, chunk_blk.defining_ep, chunk_blk.defining_self, .fiber, .{}) catch return error.Fatal;
+                self.pushBlockFrame(chunk_blk.chunk, chunk_blk.defining_ep, chunk_blk.defining_self, .fiber, .{
+                    .block = if (chunk_blk.enclosing_block_proc) |proc_obj| proc_obj.block else null,
+                }) catch return error.Fatal;
 
                 const current_frame = self.currentFrame();
                 const thread_args = thread.args orelse &[_]Value{};
@@ -10741,7 +10765,11 @@ pub const VM = struct {
     }
 
     pub fn newExceptionInstance(self: *VM, class_obj: *ClassObject, args: []const Value, block: ?Block) VMError!Value {
-        const exc = try self.createExceptionWithoutBacktrace(class_obj, "");
+        const default_message = if (class_obj.module.classpath == null) blk: {
+            const class_string = try self.callMethodByName(Value.fromObject(&class_obj.module.object), "to_s", &.{}, null);
+            break :blk try class_string.coerceToStr(self, "no implicit conversion into String");
+        } else self.defaultExceptionMessageForClass(class_obj);
+        const exc = try self.createExceptionWithoutBacktrace(class_obj, default_message);
         const exc_val = Value.fromObject(&exc.object);
         _ = try self.callMethodByNameForwardingKeywords(exc_val, "initialize", @constCast(args), block);
         return exc_val;
@@ -12893,6 +12921,56 @@ pub const VM = struct {
         );
     }
 
+    /// Build an exception in the calling context, leaving backtrace capture to
+    /// the execution context in which it will actually be raised.
+    pub fn prepareRaisedException(self: *VM, args: []Value) VMError!*value.ExceptionObject {
+        const cause = try self.consumeKeywordArg("cause");
+        var effective: [4]Value = undefined;
+        try self.requireArgCountRange(args, 0, 3);
+        @memcpy(effective[0..args.len], args);
+        var argc = args.len;
+        if (self.builtin_keyword_ctx) |ctx| {
+            var remaining: ?*value.HashObject = null;
+            for (ctx.kw_keys, ctx.kw_values, 0..) |key, val, index| {
+                if (ctx.consumed[index]) continue;
+                if (remaining == null) remaining = try self.createHash();
+                try self.hashSetEntry(remaining.?, key, val);
+                ctx.consumed[index] = true;
+            }
+            if (remaining) |hash| {
+                effective[argc] = Value.fromObject(&hash.object);
+                argc += 1;
+            }
+        }
+        try self.requireArgCountRange(effective[0..argc], 0, 3);
+        if (argc == 0 and cause != null) return self.raiseExceptionFmt(self.argument_error_class, "only cause is given with no arguments", .{});
+        const exception = if (argc == 0)
+            try self.createExceptionWithoutBacktrace(self.runtime_error_class, "")
+        else if (argc == 1 and effective[0].isString())
+            try self.createExceptionWithoutBacktrace(self.runtime_error_class, effective[0].toStringObject().str)
+        else blk: {
+            const probe = try self.checkCallMethodByName(effective[0], "exception", true, effective[1..@min(argc, 2)], null);
+            const converted = probe orelse return self.raiseExceptionFmt(self.type_error_class, "exception class/object expected", .{});
+            if (!converted.isException()) return self.raiseExceptionFmt(self.type_error_class, "exception object expected", .{});
+            break :blk converted.toExceptionObject();
+        };
+        if (argc == 3) {
+            _ = try self.callMethodByName(Value.fromObject(&exception.object), "set_backtrace", effective[2..3], null);
+        }
+        const resolved_cause = if (cause) |specified| blk: {
+            if (!specified.isNil() and !specified.isException()) return self.raiseExceptionFmt(self.type_error_class, "exception object expected", .{});
+            break :blk if (specified.isNil()) null else specified.toExceptionObject();
+        } else self.currentExceptionCause();
+        if (resolved_cause != exception) {
+            var current = resolved_cause;
+            while (current) |node| : (current = node.cause) {
+                if (node == exception) return self.raiseExceptionFmt(self.argument_error_class, "circular causes", .{});
+            }
+            exception.cause = resolved_cause;
+        } else exception.cause = null;
+        return exception;
+    }
+
     pub fn raiseFromArgs(self: *VM, args: []const Value, no_current_exception_message: []const u8) VMError {
         if (args.len == 0) {
             const rescued_exceptions = self.currentRescuedExceptions();
@@ -14450,13 +14528,18 @@ pub const VM = struct {
     }
 
     pub fn captureAndSetExceptionBacktrace(self: *VM, exc: *value.ExceptionObject) VMError!void {
+        if (exc.backtrace == null) self.assignImplicitExceptionCause(exc);
+        try self.captureExceptionBacktrace(exc);
+    }
+
+    fn captureExceptionBacktrace(self: *VM, exc: *value.ExceptionObject) VMError!void {
         if (exc.backtrace == null) {
-            self.assignImplicitExceptionCause(exc);
             const captured = try self.captureBacktrace();
-            exc.backtrace_locations = try self.captureBacktraceLocations();
+            const locations = try self.captureBacktraceLocations();
             const backtrace = if (captured) |array| Value.fromObject(&array.object) else Value.nil();
             var args = [_]Value{backtrace};
             _ = try self.callMethodByName(Value.fromObject(&exc.object), "set_backtrace", &args, null);
+            exc.backtrace_locations = locations;
         }
     }
 

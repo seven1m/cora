@@ -31,6 +31,8 @@ pub fn register(vm: *VM) !void {
 
     try vm.fiber_class.module.methods.put(try vm.intern("transfer"), value.MethodEntry.builtin(&builtinFiberTransfer, .{ .variadic = 0 }));
 
+    try vm.fiber_class.module.methods.put(try vm.intern("raise"), value.MethodEntry.keywordBuiltin(&builtinFiberRaise, .{ .variadic = 0 }));
+
     const alive_sym = try vm.intern("alive?");
     try vm.fiber_class.module.methods.put(alive_sym, value.MethodEntry.builtin(&builtinFiberAlive, .{ .exact = 0 }));
 
@@ -161,4 +163,9 @@ fn builtinFiberTransfer(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMEr
     if (fiber.yielding) return raiseFiberError(vm, "attempt to transfer to a yielding fiber");
     if (fiber.state == .terminated) return raiseFiberError(vm, "dead fiber called");
     return vm.transferFiber(fiber, args, try argsToValue(vm, args));
+}
+
+fn builtinFiberRaise(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    const exception = try vm.prepareRaisedException(args);
+    return vm.raiseInFiber(receiver.toFiberObject(), exception);
 }

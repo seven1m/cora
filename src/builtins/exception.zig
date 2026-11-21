@@ -332,6 +332,20 @@ pub fn builtinExceptionSetBacktrace(vm: *VM, receiver: Value, args: []Value, _: 
     if (!backtrace_value.isArray()) {
         return vm.raiseExceptionFmt(vm.type_error_class, "exception backtrace must be Array or nil", .{});
     }
+    const array = backtrace_value.toArrayObject();
+    if (array.elements.items.len > 0 and vm.isClassOrSubclassOf(vm.getClass(array.elements.items[0]), vm.thread_backtrace_location_class)) {
+        const strings = try vm.createArray();
+        for (array.elements.items) |location| {
+            if (!vm.isClassOrSubclassOf(vm.getClass(location), vm.thread_backtrace_location_class)) return vm.raiseExceptionFmt(vm.type_error_class, "backtrace must be Array of String", .{});
+            strings.elements.append(vm.gc_allocator, try vm.callMethodByName(location, "to_s", &.{}, null)) catch return error.Fatal;
+        }
+        exc.backtrace = strings;
+        exc.backtrace_locations = array;
+        return backtrace_value;
+    }
+    for (array.elements.items) |line| {
+        if (!line.isString()) return vm.raiseExceptionFmt(vm.type_error_class, "backtrace must be Array of String", .{});
+    }
     exc.backtrace = backtrace_value.toArrayObject();
     return backtrace_value;
 }

@@ -415,3 +415,32 @@ test "Fiber transfer remains in its owner thread during scheduler handoffs" {
     );
     try std.testing.expect(result.isTruthy());
 }
+
+test "Fiber raise replaces a pending return while suspended in ensure" {
+    const result = try evalCode(
+        \\root = Fiber.current
+        \\events = []
+        \\fiber = Fiber.new do
+        \\  begin
+        \\    lambda do
+        \\      begin
+        \\        return :old_return
+        \\      ensure
+        \\        root.transfer(:paused)
+        \\        events << :unreachable
+        \\      end
+        \\    end.call
+        \\  rescue => error
+        \\    events << error.message
+        \\    :rescued
+        \\  ensure
+        \\    events << :finished
+        \\  end
+        \\end
+        \\paused = fiber.transfer
+        \\GC.start
+        \\result = fiber.raise("injected")
+        \\paused == :paused && result == :rescued && events == ["injected", :finished] && !fiber.alive?
+    );
+    try std.testing.expect(result.isTruthy());
+}

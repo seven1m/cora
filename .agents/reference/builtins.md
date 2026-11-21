@@ -77,6 +77,8 @@
 - Use `VM.raiseKeyErrorFmt(key, receiver, fmt, args)` for `KeyError` with key and receiver fields.
 - Do not manually construct format strings with `std.fmt.allocPrint` just to pass them to `createException`; use the `*Fmt` helpers instead.
 
+- Use `VM.prepareRaisedException` for exception delivery across execution contexts. It consumes raise keywords, invokes `exception`, validates cause chains, and resolves the cause in the caller; delivery captures any missing backtrace in the target context.
+
 ## Block Validation
 
 - Use `VM.requireBlock(block)` to assert a block was provided. Returns the block or raises `ArgumentError("no block given")`.
