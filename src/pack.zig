@@ -1286,15 +1286,17 @@ fn coerceToInt(vm: *VM, arg: Value) VMError!i64 {
 
 fn coerceToFloat(vm: *VM, arg: Value) VMError!f64 {
     if (arg.isFloat()) return arg.toFloatObject().val;
-    if (arg.isInteger()) return @floatFromInt(arg.toInteger());
+    if (arg.isInteger() or arg.isBigInteger()) return arg.integerToF64();
+    if (arg.isNil() or arg.isString()) {
+        return vm.raiseExceptionFmt(vm.type_error_class, "can't convert {s} into Float", .{vm.className(arg)});
+    }
 
-    const maybe_coerced = try vm.checkCallMethodByName(arg, "to_f", false, &[_]Value{}, null);
+    const maybe_coerced = try vm.checkCallMethodByName(arg, "to_f", true, &[_]Value{}, null);
     const coerced = maybe_coerced orelse {
-        return vm.raiseExceptionFmt(vm.type_error_class, "no implicit conversion into Float", .{});
+        return vm.raiseExceptionFmt(vm.type_error_class, "can't convert {s} into Float", .{vm.className(arg)});
     };
     if (coerced.isFloat()) return coerced.toFloatObject().val;
-    if (coerced.isInteger()) return @floatFromInt(coerced.toInteger());
-    return vm.raiseExceptionFmt(vm.type_error_class, "can't convert to Float (to_f gives non-Float)", .{});
+    return vm.raiseExceptionFmt(vm.type_error_class, "can't convert {s} into Float ({s}#to_f gives {s})", .{ vm.className(arg), vm.className(arg), vm.className(coerced) });
 }
 
 fn nativeOr(endianness: Endianness) Endianness {
