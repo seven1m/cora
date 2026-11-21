@@ -916,3 +916,72 @@ test "Thread native IDs follow the OS thread across coroutine handoffs" {
     try std.testing.expectEqual(expected, ids[0].toInteger());
     try std.testing.expectEqual(expected, ids[1].toInteger());
 }
+
+test "Thread deadlocks raise fatal on main and allow cleanup" {
+    const result = try evalCode(
+        \\def deadlocked
+        \\  begin
+        \\    yield
+        \\  rescue Exception => e
+        \\    raise "wrong exception" unless e.class.name == "fatal" && !e.is_a?(StandardError)
+        \\    raise "wrong message" unless e.message.include?("No live threads left. Deadlock?")
+        \\    return true
+        \\  end
+        \\  raise "deadlock missed"
+        \\end
+        \\raise "queue" unless deadlocked { Queue.new.pop }
+        \\cv, mutex = ConditionVariable.new, Mutex.new
+        \\raise "condition" unless deadlocked { mutex.synchronize { cv.wait(mutex) } }
+        \\q = Queue.new
+        \\worker = Thread.new { q.pop }
+        \\begin
+        \\  raise "join" unless deadlocked { worker.join }
+        \\ensure
+        \\  q << :released
+        \\  worker.join
+        \\end
+        \\left, right, ready = Mutex.new, Mutex.new, Queue.new
+        \\left.lock
+        \\worker = Thread.new do
+        \\  right.lock
+        \\  ready << true
+        \\  begin
+        \\    left.synchronize {}
+        \\  ensure
+        \\    right.unlock
+        \\  end
+        \\end
+        \\ready.pop
+        \\begin
+        \\  raise "mutex" unless deadlocked { right.lock }
+        \\ensure
+        \\  left.unlock
+        \\  worker.join
+        \\end
+        \\true
+    );
+    try std.testing.expect(result.isTruthy());
+}
+
+test "Thread.ignore_deadlock permits an external signal to release a queue" {
+    const result = try evalCode(
+        \\q = Queue.new
+        \\original = Thread.ignore_deadlock
+        \\previous = Signal.trap("USR1") { q << :signal }
+        \\parent = Process.pid
+        \\Thread.ignore_deadlock = true
+        \\pid = Process.fork do
+        \\  sleep 0.05
+        \\  Process.kill("USR1", parent)
+        \\  exit!
+        \\end
+        \\begin
+        \\  q.pop == :signal
+        \\ensure
+        \\  Thread.ignore_deadlock = original
+        \\  Signal.trap("USR1", previous)
+        \\  Process.wait(pid)
+        \\end
+    );
+    try std.testing.expect(result.isTruthy());
+}

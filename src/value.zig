@@ -573,6 +573,7 @@ pub const ThreadObject = struct {
     priority: i8 = 0,
     report_on_exception: bool = true,
     abort_on_exception: bool = false,
+    deadlockable_wait: bool = false,
     waiting_on_queue: bool = false,
     waiting_on_require: bool = false,
     preempt_requested: bool = false,

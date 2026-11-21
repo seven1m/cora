@@ -2228,7 +2228,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] core/thread/fork_spec.rb
 - [x] core/thread/group_spec.rb
 - [x] core/thread/handle_interrupt_spec.rb
-- [ ] core/thread/ignore_deadlock_spec.rb
+- [x] core/thread/ignore_deadlock_spec.rb
 - [x] core/thread/initialize_spec.rb
 - [x] core/thread/inspect_spec.rb
 - [x] core/thread/join_spec.rb

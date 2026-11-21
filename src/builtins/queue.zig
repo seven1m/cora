@@ -234,6 +234,9 @@ fn builtinSizedQueuePush(vm: *VM, receiver: Value, args: []Value, _: ?Block) VME
         return Value.nil();
     }
 
+    const was_deadlockable = current_thread.deadlockable_wait;
+    current_thread.deadlockable_wait = true;
+    defer current_thread.deadlockable_wait = was_deadlockable;
     current_thread.state = .sleeping;
     defer {
         if (current_thread.state != .terminated) current_thread.state = .running;
@@ -328,6 +331,9 @@ fn builtinQueuePop(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!V
         return Value.nil();
     }
 
+    const was_deadlockable = current_thread.deadlockable_wait;
+    current_thread.deadlockable_wait = true;
+    defer current_thread.deadlockable_wait = was_deadlockable;
     current_thread.state = .sleeping;
     defer {
         if (current_thread.state != .terminated) current_thread.state = .running;

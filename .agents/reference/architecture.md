@@ -99,6 +99,12 @@ is ready, or they are interrupted. When no thread is ready, the scheduler polls
 descriptors and the nearest deadline, with bounded waits for asynchronous events.
 Thread join/value waiters park with a target thread and become ready when that
 target terminates; timed joins also use a sleep deadline.
+
+Permanent Queue, Mutex, ConditionVariable, join and Thread.stop waits participate in deadlock
+detection. When every live thread is permanently blocked, the idle scheduler
+delivers an internal fatal exception to main. Timers, I/O, ordinary sleep and
+pending interrupts prevent that diagnosis. Thread.ignore_deadlock disables
+the check so external events can release synchronization waits.
 Process signal handlers run on the main thread, waking it when necessary.
 
 New workers inherit `Thread.report_on_exception` when created. Unhandled worker

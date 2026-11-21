@@ -15,6 +15,9 @@ pub fn register(vm: *VM) !void {
     const thread_class_val = Value.fromObject(&vm.thread_class.module.object);
     const thread_singleton = try vm.getOrCreateSingletonClass(thread_class_val);
 
+    try thread_singleton.module.methods.put(try vm.intern("ignore_deadlock"), value.MethodEntry.builtin(&builtinThreadIgnoreDeadlock, .{ .exact = 0 }));
+    try thread_singleton.module.methods.put(try vm.intern("ignore_deadlock="), value.MethodEntry.builtin(&builtinThreadIgnoreDeadlockSet, .{ .exact = 1 }));
+
     // Class methods
     const new_sym = try vm.intern("new");
     try thread_singleton.module.methods.put(new_sym, value.MethodEntry.keywordBuiltin(&builtinThreadNew, .{ .variadic = 0 }));
@@ -283,14 +286,28 @@ fn builtinThreadClassAbortOnExceptionSet(vm: *VM, _: Value, args: []Value, _: ?B
     return args[0];
 }
 
+fn builtinThreadIgnoreDeadlock(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    return Value.boolean(vm.thread_ignore_deadlock);
+}
+
+fn builtinThreadIgnoreDeadlockSet(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    vm.thread_ignore_deadlock = args[0].isTruthy();
+    return args[0];
+}
+
 fn builtinThreadStop(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
-    const thread = vm.current_thread orelse {
-        return vm.raiseExceptionFmt(vm.thread_error_class, "stopping main thread", .{});
-    };
-    if (thread == vm.main_thread orelse thread) {
-        return vm.raiseExceptionFmt(vm.thread_error_class, "stopping main thread", .{});
+    const thread = vm.current_thread orelse return error.Fatal;
+    var living: usize = 0;
+    for (vm.thread_list.items) |entry| {
+        if (entry.state != .terminated) living += 1;
     }
+    if (living <= 1) return vm.raiseExceptionFmt(vm.thread_error_class, "stopping only thread", .{});
+    const was_deadlockable = thread.deadlockable_wait;
+    thread.deadlockable_wait = true;
+    defer thread.deadlockable_wait = was_deadlockable;
     thread.state = .sleeping;
     try vm.threadYield();
     return Value.nil();

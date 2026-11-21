@@ -87,7 +87,14 @@ fn builtinConditionVariableWait(vm: *VM, receiver: Value, args: []Value, _: ?Blo
             try vm.threadYield();
         }
     } else {
+        const was_deadlockable = current_thread.deadlockable_wait;
+        current_thread.deadlockable_wait = true;
+        defer {
+            current_thread.deadlockable_wait = was_deadlockable;
+            if (current_thread.state != .terminated) current_thread.state = .running;
+        }
         while (containsWaiter(cv, current_thread)) {
+            current_thread.state = .sleeping;
             try vm.threadYield();
         }
     }

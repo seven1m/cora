@@ -249,35 +249,35 @@ pub fn releaseMutex(vm: *VM, mutex: *value.MutexObject) void {
 }
 
 pub fn waitForMutex(vm: *VM, mutex: *value.MutexObject) VMError!void {
-    const current_thread = vm.current_thread;
-    const main_thread = vm.main_thread;
-
-    if (current_thread != null and main_thread != null and current_thread.? != main_thread.?) {
-        const gop = vm.mutex_waiters.getOrPut(mutex) catch return error.Fatal;
-        if (!gop.found_existing) {
-            gop.value_ptr.* = .empty;
-        }
-
-        while (mutex.state == .locked) {
-            var found = false;
-            for (gop.value_ptr.items) |waiter| {
-                if (waiter == current_thread.?) {
-                    found = true;
+    const thread = vm.current_thread orelse return error.Fatal;
+    const was_deadlockable = thread.deadlockable_wait;
+    thread.deadlockable_wait = true;
+    defer {
+        thread.deadlockable_wait = was_deadlockable;
+        if (thread.state != .terminated) thread.state = .running;
+        if (vm.mutex_waiters.getPtr(mutex)) |waiters| {
+            for (waiters.items, 0..) |waiter, index| {
+                if (waiter == thread) {
+                    _ = VM.removeThreadListEntry(waiters, index);
                     break;
                 }
             }
-            if (!found) {
-                gop.value_ptr.append(vm.allocator, current_thread.?) catch return error.Fatal;
-            }
-            current_thread.?.state = .sleeping;
-            try vm.threadYield();
         }
-        current_thread.?.state = .running;
-        return;
     }
-
     while (mutex.state == .locked) {
-        try vm.deliverThreadInterrupt(true);
+        // Reacquire the map entry after each handoff; another thread can grow
+        // the map while this native stack is suspended.
+        const gop = vm.mutex_waiters.getOrPut(mutex) catch return error.Fatal;
+        if (!gop.found_existing) gop.value_ptr.* = .empty;
+        var found = false;
+        for (gop.value_ptr.items) |waiter| {
+            if (waiter == thread) {
+                found = true;
+                break;
+            }
+        }
+        if (!found) gop.value_ptr.append(vm.allocator, thread) catch return error.Fatal;
+        thread.state = .sleeping;
         try vm.threadYield();
     }
 }

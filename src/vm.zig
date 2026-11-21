@@ -714,6 +714,7 @@ pub const VM = struct {
     current_thread: ?*value.ThreadObject = null,
     thread_list: std.ArrayList(*value.ThreadObject) = .empty,
     runnable_queue: std.ArrayList(*value.ThreadObject) = .empty,
+    thread_ignore_deadlock: bool = false,
     thread_abort_on_exception: bool = false,
     thread_report_on_exception: bool = true,
     thread_owned_mutexes: std.AutoHashMap(*value.ThreadObject, std.ArrayList(*value.MutexObject)) = undefined,
@@ -730,6 +731,7 @@ pub const VM = struct {
     gc_vm_root_registered: bool = false,
 
     // Exception classes
+    fatal_exception_class: *value.ClassObject,
     exception_class: *value.ClassObject,
     no_memory_error_class: *value.ClassObject,
     script_error_class: *value.ClassObject,
@@ -974,6 +976,7 @@ pub const VM = struct {
             .thread_ensure_saved_unwinds = std.AutoHashMap(*value.ThreadObject, std.ArrayList(SavedUnwind)).init(allocator),
             .thread_rescued_exceptions = std.AutoHashMap(*value.ThreadObject, std.ArrayList(*value.ExceptionObject)).init(allocator),
             .thread_preempt_quantum_ops = DEFAULT_THREAD_PREEMPT_QUANTUM_OPS,
+            .fatal_exception_class = undefined,
             .exception_class = undefined,
             .no_memory_error_class = undefined,
             .script_error_class = undefined,
@@ -1320,6 +1323,10 @@ pub const VM = struct {
         const exception_name_sym = try self.intern("Exception");
         const exception_class_val = try self.newClass(exception_name_sym, self.object_class);
         self.exception_class = exception_class_val.toClassObject();
+        const fatal_class_val = try self.newClass(try self.intern("fatal"), self.exception_class);
+        self.fatal_exception_class = fatal_class_val.toClassObject();
+        self.fatal_exception_class.module.classpath = (try self.newString("fatal", true)).toStringObject();
+        self.fatal_exception_class.module.classpath_permanent = true;
 
         const no_memory_error_name_sym = try self.intern("NoMemoryError");
         const no_memory_error_class_val = try self.newClass(no_memory_error_name_sym, self.exception_class);
@@ -4886,6 +4893,7 @@ pub const VM = struct {
         main_thread_obj.priority = 0;
         main_thread_obj.report_on_exception = true;
         main_thread_obj.abort_on_exception = false;
+        main_thread_obj.deadlockable_wait = false;
         main_thread_obj.waiting_on_queue = false;
         main_thread_obj.waiting_on_require = false;
         main_thread_obj.preempt_requested = false;
@@ -4994,6 +5002,7 @@ pub const VM = struct {
         thread_obj.priority = 0;
         thread_obj.report_on_exception = self.thread_report_on_exception;
         thread_obj.abort_on_exception = false;
+        thread_obj.deadlockable_wait = false;
         thread_obj.waiting_on_queue = false;
         thread_obj.waiting_on_require = false;
         thread_obj.preempt_requested = false;
@@ -5598,7 +5607,28 @@ pub const VM = struct {
         }
     }
 
+    fn checkThreadDeadlock(self: *VM) VMError!void {
+        if (self.thread_ignore_deadlock or self.runnable_queue.items.len != 0) return;
+        const main = self.main_thread orelse return;
+        if (main.state == .terminated or main.finishing) return;
+        if (self.pending_signal_traps.items.len != 0 or self.pending_async_exceptions.items.len != 0) return;
+        for (self.thread_list.items) |thread| {
+            if (thread.state == .terminated) continue;
+            // Timers, descriptor readiness and ordinary sleep can still wake
+            // independently. Only permanent synchronization waits count.
+            if (thread.state != .sleeping or !thread.deadlockable_wait) return;
+            if (thread.sleep_deadline_ms != null or thread.io_wait != null) return;
+            if (thread.pending_interrupts.items.len != 0) return;
+        }
+        const exception = try self.createExceptionWithoutBacktrace(self.fatal_exception_class, "No live threads left. Deadlock?");
+        try self.enqueueThreadInterrupt(main, .{ .exception = .{ .object = exception } });
+        if (self.current_thread == main) try self.deliverThreadInterrupt(true);
+    }
+
     fn waitForThreadWakeup(self: *VM) VMError!void {
+        try self.checkAsyncEvents();
+        try self.checkThreadDeadlock();
+        if (self.runnable_queue.items.len != 0) return;
         var fds: std.ArrayList(std.posix.pollfd) = .empty;
         defer fds.deinit(self.allocator);
         const now_ms = monotonicMilliseconds();
@@ -5682,6 +5712,9 @@ pub const VM = struct {
             try self.deliverThreadInterrupt(true);
             return;
         }
+        const was_deadlockable = thread.deadlockable_wait;
+        thread.deadlockable_wait = timeout_ms == null;
+        defer thread.deadlockable_wait = was_deadlockable;
         thread.joining_thread = target;
         defer thread.joining_thread = null;
         thread.sleep_deadline_ms = if (timeout_ms) |ms| monotonicMilliseconds() + @as(i64, @intFromFloat(@ceil(@min(ms, 100)))) else null;
@@ -5701,6 +5734,9 @@ pub const VM = struct {
             }
         };
 
+        const was_deadlockable = thread.deadlockable_wait;
+        thread.deadlockable_wait = false;
+        defer thread.deadlockable_wait = was_deadlockable;
         thread.state = .sleeping;
         while (thread.state == .sleeping) {
             try self.threadYield();
