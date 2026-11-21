@@ -2255,7 +2255,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] core/thread/thread_variable_set_spec.rb
 - [x] core/thread/thread_variable_spec.rb
 - [x] core/thread/thread_variables_spec.rb
-- [ ] core/thread/to_s_spec.rb
+- [x] core/thread/to_s_spec.rb
 - [x] core/thread/value_spec.rb
 - [x] core/thread/wakeup_spec.rb
 

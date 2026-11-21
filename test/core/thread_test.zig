@@ -165,6 +165,25 @@ test "Thread diagnostics retain the original failure across yielding stderr call
     try std.testing.expect(result.isTrue());
 }
 
+test "Thread descriptions preserve subclass identity and frozen name encodings after retirement" {
+    const result = try evalCode(
+        \\class EncodedWorker < Thread; end
+        \\worker = EncodedWorker.new {}.join
+        \\source = '名前'.encode('EUC-JP')
+        \\worker.name = source
+        \\source.replace('changed')
+        \\GC.start
+        \\stored = worker.name
+        \\description = worker.to_s
+        \\encoded = stored.frozen? && stored.encoding == Encoding::EUC_JP &&
+        \\  stored.encode('UTF-8') == '名前' && description.encoding == Encoding::EUC_JP &&
+        \\  description.encode('UTF-8').start_with?('#<EncodedWorker:') && description.include?(stored)
+        \\worker.name = 'ascii'
+        \\encoded && worker.to_s.encoding == Encoding::BINARY
+    );
+    try std.testing.expect(result.isTrue());
+}
+
 test "Thread retirement preserves exceptions and cross-thread fiber errors" {
     const result = try evalCode(
         \\worker = Thread.new { raise "retained failure" }
@@ -674,16 +693,6 @@ test "Thread#thread_variable?" {
     try std.testing.expectEqual(true, result.toBool());
 }
 
-test "Thread#name and Thread#name=" {
-    const result = try evalCode(
-        \\t = Thread.new { 1 }
-        \\t.name = "worker"
-        \\t.name
-    );
-    try std.testing.expect(result.isString());
-    try std.testing.expectEqualStrings("worker", result.toStringObject().str);
-}
-
 test "Thread#priority and Thread#priority=" {
     const result = try evalCode(
         \\t = Thread.new { 1 }
@@ -726,17 +735,6 @@ test "Thread.abort_on_exception propagates child exceptions to the main thread" 
         \\message
     );
     try std.testing.expectEqualStrings("child failure", result.toStringObject().str);
-}
-
-test "Thread#inspect" {
-    const result = try evalCode(
-        \\t = Thread.new { 1 }
-        \\t.join
-        \\t.inspect
-    );
-    try std.testing.expect(result.isString());
-    const str = result.toStringObject().str;
-    try std.testing.expect(std.mem.startsWith(u8, str, "#<Thread:"));
 }
 
 test "Thread.list returns alive threads" {

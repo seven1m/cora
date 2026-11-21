@@ -7233,11 +7233,14 @@ fn appendSingleConcatArg(
         rhs_encoding = rhs.encoding;
     }
 
-    const result_encoding = resolveStringConcatEncoding(string_obj.encoding, string_obj.str, rhs_encoding, rhs_bytes) orelse {
-        return vm.raiseEncodingCompatibilityError(string_obj.encoding, rhs_encoding);
-    };
+    try appendEncodedBytes(vm, string_obj, rhs_bytes, rhs_encoding);
+}
 
-    try string_obj.appendBytes(vm, rhs_bytes);
+pub fn appendEncodedBytes(vm: *VM, string_obj: *value.StringObject, bytes: []const u8, encoding: enc.Encoding) VMError!void {
+    const result_encoding = resolveStringConcatEncoding(string_obj.encoding, string_obj.str, encoding, bytes) orelse {
+        return vm.raiseEncodingCompatibilityError(string_obj.encoding, encoding);
+    };
+    try string_obj.appendBytes(vm, bytes);
     string_obj.encoding = result_encoding;
     string_obj.validity = .unknown;
 }

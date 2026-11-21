@@ -2,6 +2,7 @@ const std = @import("std");
 const vm_mod = @import("../vm.zig");
 const value = @import("../value.zig");
 const kernel_builtin = @import("kernel.zig");
+const string_builtin = @import("string.zig");
 
 const VM = vm_mod.VM;
 const VMError = vm_mod.VMError;
@@ -712,7 +713,7 @@ fn builtinThreadVarList(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMEr
 fn builtinThreadNameGet(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
     const thread = receiver.toThreadObject();
-    if (thread.name) |n| return try vm.newString(n, false);
+    if (thread.name) |name| return Value.fromObject(&name.object);
     return Value.nil();
 }
 
@@ -722,13 +723,14 @@ fn builtinThreadNameSet(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMEr
     if (args[0].isNil()) {
         thread.name = null;
     } else {
-        const name = try args[0].coerceToStr(vm, "no implicit conversion into String");
-        if (std.mem.indexOfScalar(u8, name, 0) != null) {
+        const name = (try args[0].coerceToStringValue(vm, "no implicit conversion into String")).toStringObject();
+        if (std.mem.indexOfScalar(u8, name.str, 0) != null)
             return vm.raiseExceptionFmt(vm.argument_error_class, "thread name must not contain null bytes", .{});
-        }
-        thread.name = vm.gc_allocator_atomic.dupe(u8, name) catch return error.Fatal;
+        if (!name.encoding.isAsciiCompatible())
+            return vm.raiseExceptionFmt(vm.argument_error_class, "ASCII incompatible encoding ({s})", .{name.encoding.name()});
+        thread.name = (try vm.newStringWithEncoding(name.str, true, name.encoding)).toStringObject();
     }
-    return args[0];
+    return if (thread.name) |name| Value.fromObject(&name.object) else Value.nil();
 }
 
 fn builtinThreadPriorityGet(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
@@ -762,12 +764,28 @@ pub fn threadDescription(vm: *VM, thread: *value.ThreadObject) VMError!Value {
         .aborting => "aborting",
         .terminated => if (thread.terminated_normally) "dead" else "dead",
     };
-    const msg = std.fmt.allocPrint(
-        vm.gc_allocator,
-        "#<Thread:0x{x} {s}>",
-        .{ @intFromPtr(thread), state_str },
-    ) catch return error.Fatal;
-    return try vm.newString(msg, false);
+    const description = try vm.newStringWithEncoding("#<", false, .{ .ascii_8bit = .{} });
+    const out = description.toStringObject();
+    const class = thread.object.class orelse vm.thread_class;
+    if (class.module.classpath) |path|
+        try string_builtin.appendEncodedBytes(vm, out, path.str, path.encoding)
+    else
+        try string_builtin.appendEncodedBytes(vm, out, class.module.name.name, .{ .utf8 = .{} });
+    const identity = std.fmt.allocPrint(vm.gc_allocator_atomic, ":0x{x}", .{@intFromPtr(&thread.object)}) catch return error.Fatal;
+    try out.appendBytes(vm, identity);
+    if (thread.name) |name| {
+        try out.appendBytes(vm, "@");
+        try string_builtin.appendEncodedBytes(vm, out, name.str, name.encoding);
+    }
+    if (thread.creation_file) |file| {
+        try out.appendBytes(vm, " ");
+        try string_builtin.appendEncodedBytes(vm, out, file.str, file.encoding);
+        const line = std.fmt.allocPrint(vm.gc_allocator_atomic, ":{d}", .{thread.creation_line}) catch return error.Fatal;
+        try out.appendBytes(vm, line);
+    }
+    const suffix = std.fmt.allocPrint(vm.gc_allocator_atomic, " {s}>", .{state_str}) catch return error.Fatal;
+    try out.appendBytes(vm, suffix);
+    return description;
 }
 
 fn builtinThreadBacktrace(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {

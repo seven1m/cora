@@ -567,7 +567,9 @@ pub const ThreadObject = struct {
     fiber_locals: ?std.AutoHashMap(*SymbolObject, Value) = null,
     thread_variables: ?std.AutoHashMap(*SymbolObject, Value) = null,
     // Metadata
-    name: ?[]const u8 = null,
+    name: ?*StringObject = null,
+    creation_file: ?*StringObject = null,
+    creation_line: u32 = 0,
     priority: i8 = 0,
     report_on_exception: bool = true,
     abort_on_exception: bool = false,

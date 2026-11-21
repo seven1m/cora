@@ -4881,6 +4881,8 @@ pub const VM = struct {
         main_thread_obj.fiber_locals = null;
         main_thread_obj.thread_variables = null;
         main_thread_obj.name = null;
+        main_thread_obj.creation_file = null;
+        main_thread_obj.creation_line = 0;
         main_thread_obj.priority = 0;
         main_thread_obj.report_on_exception = true;
         main_thread_obj.abort_on_exception = false;
@@ -4987,6 +4989,8 @@ pub const VM = struct {
         thread_obj.fiber_locals = null;
         thread_obj.thread_variables = null;
         thread_obj.name = null;
+        thread_obj.creation_file = null;
+        thread_obj.creation_line = 0;
         thread_obj.priority = 0;
         thread_obj.report_on_exception = self.thread_report_on_exception;
         thread_obj.abort_on_exception = false;
@@ -5043,6 +5047,12 @@ pub const VM = struct {
         } else null;
 
         thread_obj.block = block;
+        if (block.kind == .chunk) {
+            const source = block.kind.chunk.chunk;
+            if (source.source_file) |path|
+                thread_obj.creation_file = (try self.newString(path, true)).toStringObject();
+            thread_obj.creation_line = source.declaration_line;
+        }
         thread_obj.args = args_copy;
         thread_obj.main_fiber.?.storage = if (self.current_fiber.storage) |storage| try self.copyHashObject(storage) else null;
     }
