@@ -13054,9 +13054,44 @@ pub const VM = struct {
     }
 
     pub fn syncLoadedFeaturesGlobals(self: *VM) VMError!void {
-        const loaded = try self.createArray();
-        for (self.loaded_paths.items) |path| {
-            loaded.elements.append(self.gc_allocator, try self.newString(path, false)) catch return error.Fatal;
+        const current = self.getGlobalValue("$LOADED_FEATURES");
+        const loaded = if (current.isArray()) current.toArrayObject() else try self.createArray();
+        // Most calls add one path or change nothing. Keep the public array and
+        // its existing strings instead of duplicating every path after each load.
+        for (self.loaded_paths.items, 0..) |path, index| {
+            if (index < loaded.elements.items.len) {
+                const entry = loaded.elements.items[index];
+                if (entry.isString() and std.mem.eql(u8, entry.toStringObject().str, path)) continue;
+            }
+            try self.guardNotFrozen(Value.fromObject(&loaded.object));
+            // A failed outer require can leave successfully loaded dependencies
+            // after its entry. Preserve those strings while removing that entry.
+            var found: ?usize = null;
+            if (index < loaded.elements.items.len) {
+                for (loaded.elements.items[index + 1 ..], index + 1..) |entry, candidate| {
+                    if (entry.isString() and std.mem.eql(u8, entry.toStringObject().str, path)) {
+                        found = candidate;
+                        break;
+                    }
+                }
+            }
+            const entry = if (found) |candidate| loaded.elements.items[candidate] else try self.newString(path, false);
+            if (found) |candidate| {
+                const old_len = loaded.elements.items.len;
+                const removed = candidate - index;
+                std.mem.copyForwards(Value, loaded.elements.items[index..], loaded.elements.items[candidate..]);
+                @memset(loaded.elements.items[old_len - removed ..], Value.nil());
+                loaded.elements.items.len -= removed;
+            } else if (index < loaded.elements.items.len) {
+                loaded.elements.items[index] = entry;
+            } else {
+                loaded.elements.append(self.gc_allocator, entry) catch return error.Fatal;
+            }
+        }
+        if (loaded.elements.items.len > self.loaded_paths.items.len) {
+            try self.guardNotFrozen(Value.fromObject(&loaded.object));
+            @memset(loaded.elements.items[self.loaded_paths.items.len..], Value.nil());
+            loaded.elements.items.len = self.loaded_paths.items.len;
         }
         const loaded_val = Value.fromObject(&loaded.object);
         try self.setGlobal("$LOADED_FEATURES", loaded_val);

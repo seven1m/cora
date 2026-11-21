@@ -52,6 +52,55 @@ test "require loaded feature lookup tracks load path and loaded feature mutation
     try std.testing.expect(result.isTrue());
 }
 
+test "require synchronizes loaded features without replacing the array or existing strings" {
+    const result = try evalCode(
+        \\require "tmpdir"
+        \\Dir.mktmpdir("cora-feature-sync-") do |dir|
+        \\  dir = File.realpath(dir)
+        \\  original = $LOADED_FEATURES.dup
+        \\  begin
+        \\    features = $LOADED_FEATURES
+        \\    first = "#{dir}/first.rb"
+        \\    inner = "#{dir}/inner.rb"
+        \\    outer = "#{dir}/outer.rb"
+        \\    driver = "#{dir}/driver.rb"
+        \\    File.write(first, "$feature_first_count = ($feature_first_count || 0) + 1")
+        \\    File.write(inner, "true")
+        \\    File.write(outer, "require_relative 'inner'; $feature_inner_entry = $LOADED_FEATURES.find { |s| s.end_with?('/inner.rb') }; raise 'outer failed'")
+        \\    File.write(driver, "require_relative 'first'")
+        \\    raise "first load" unless require(first)
+        \\    first_entry = features.find { |s| s == first }
+        \\    raise "array identity" unless features.equal?($LOADED_FEATURES) && features.equal?($")
+        \\    raise "missing path" unless first_entry
+        \\    raise "repeat load" if require(first)
+        \\    raise "relative load" unless require(driver)
+        \\    raise "string identity" unless features.find { |s| s == first }.equal?(first_entry)
+        \\    begin
+        \\      require(outer)
+        \\      raise "expected failure"
+        \\    rescue RuntimeError => e
+        \\      raise unless e.message == "outer failed"
+        \\    end
+        \\    raise "failed entry" if features.include?(outer)
+        \\    raise "nested entry" unless features.find { |s| s == inner }.equal?($feature_inner_entry)
+        \\    raise "nested reload" if require(inner)
+        \\    features.delete(first)
+        \\    raise "removed entry reload" unless require(first) && $feature_first_count == 2
+        \\    replacement = first.dup
+        \\    features[features.index(first)] = replacement
+        \\    replacement.replace("#{dir}/absent.rb")
+        \\    raise "mutated entry reload" unless require(first) && $feature_first_count == 3
+        \\    GC.start
+        \\    raise "array changed" unless features.equal?($LOADED_FEATURES)
+        \\    true
+        \\  ensure
+        \\    $LOADED_FEATURES.replace(original)
+        \\  end
+        \\end
+    );
+    try std.testing.expect(result.isTrue());
+}
+
 test "require prefers an unloaded Ruby source over a loaded native feature" {
     const result = try evalCode(
         \\require "tmpdir"
