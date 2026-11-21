@@ -5,6 +5,12 @@ November 19–21, 2026 changes through `6cadb2a1`, together with their construct
 lookup producers, and consumers. It also covers the related older super lookup
 that those changes exposed. The rules below apply to future runtime changes.
 
+An entry must identify the actual absence state, its producer, and the consumer's
+behavior at that specific site. Age and an existing green suite are insufficient.
+A description of one caller or a whole family does not certify every expression
+in that family. The inventory below records contracts for the listed paths; it
+is not an exhaustive certification of all fallback expressions in the repository.
+
 ## Required State
 
 A fallback must represent a real absence state. It must not turn a violated
@@ -93,14 +99,18 @@ not partially initialized interpreter metadata:
   names, and thread names are optional Ruby state. Default messages, nil values,
   or fixed-offset formatting follow those states. An unmapped errno uses the
   standard SystemCallError class.
-- A top-level alias targets Object when self is the main object, which has no
-  module method table. Classes/modules supply their own table.
+- Method mutation ownership is resolved by methodDefinitionOwner for def, alias,
+  and undef. Top-level ownership comes from Object's lexical scope; instance_eval
+  supplies an explicit definition target. A non-module self alone does not imply
+  Object ownership. Alias and undef opcodes reuse the Module implementations for
+  inherited lookup, undefined barriers, frozen checks and callback dispatch.
 
 ## Regression Evidence
 
 The audit adds coverage for module super misses and undef barriers, detached
 module bindings with defined?(super), method capture without singleton creation,
-and undefined instance-method hook dispatch. Existing tests cover rebound
+undefined instance-method hook dispatch, and shared def/alias/undef ownership
+for eval, top-level, and lexical method contexts. Existing tests cover rebound
 Method#super_method, escaped blocks, C-extension super, thread/fiber retirement,
 unstarted worker storage, and subclass-preserving Hash/Fiber storage copying.
 The thread storage test also checks the boundary between an empty VM and the

@@ -2172,8 +2172,8 @@ pub fn builtinModuleUndefMethod(vm: *VM, receiver: Value, args: []Value, _: ?Blo
 
     for (names.items) |name_sym| {
         const exists = switch (resolveInstanceMethodLookup(vm, receiver, name_sym)) {
-            .found, .undefined => true,
-            .not_found => false,
+            .found => true,
+            .undefined, .not_found => false,
         };
         if (!exists) {
             const owner_kind = if (receiver.isClass()) "class" else "module";

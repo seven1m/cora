@@ -17,6 +17,7 @@ const builtins = @import("builtins/builtins.zig");
 const comparable_builtin = @import("builtins/comparable.zig");
 const basic_object_builtin = @import("builtins/basic_object.zig");
 const kernel_builtin = @import("builtins/kernel.zig");
+const module_builtin = @import("builtins/module.zig");
 const kernel_core_source = @embedFile("builtins/kernel.rb");
 const warning_builtin = @import("builtins/warning.zig");
 const thread_builtin = @import("builtins/thread.zig");
@@ -2272,6 +2273,24 @@ pub const VM = struct {
 
     fn epMethodDefinitionTarget(ep: [*]Value) ?Value {
         return if (epFrameScopeContext(ep)) |ctx| ctx.method_definition_target else null;
+    }
+
+    /// def, alias and undef share the same eval/lexical method owner.
+    fn methodDefinitionOwner(self: *VM, frame: *const CallFrame) VMError!Value {
+        return if (epMethodDefinitionTarget(frame.ep)) |target|
+            if (target.getModuleMethods()) |_|
+                target
+            else if (target.isInteger() or target.isBigInteger() or target.isFloat() or target.isSymbol())
+                return self.raiseExceptionFmt(self.type_error_class, "can't define singleton method for literals", .{})
+            else
+                Value.fromObject(&(try self.getOrCreateSingletonClass(target)).module.object)
+        else if (self.current_lexical_scope) |scope|
+            switch (scope.scope_module) {
+                .module => |module_obj| Value.fromObject(&module_obj.object),
+                .class => |class_obj| Value.fromObject(&class_obj.module.object),
+            }
+        else
+            frame.self_value;
     }
 
     /// Read the locals_count stored in env-data[2] of an ep.
@@ -7266,21 +7285,7 @@ pub const VM = struct {
                     const requested_visibility: MethodVisibility = if (module_function_mode) .private else self.currentDefaultMethodVisibility();
                     const visibility = methodDefinitionVisibility(method_name, requested_visibility);
 
-                    // Get current self from the frame
-                    const method_owner = if (epMethodDefinitionTarget(frame.ep)) |target|
-                        if (target.getModuleMethods()) |_|
-                            target
-                        else if (target.isInteger() or target.isBigInteger() or target.isFloat() or target.isSymbol())
-                            return self.raiseExceptionFmt(self.type_error_class, "can't define singleton method for literals", .{})
-                        else
-                            Value.fromObject(&(try self.getOrCreateSingletonClass(target)).module.object)
-                    else if (self.current_lexical_scope) |scope|
-                        switch (scope.scope_module) {
-                            .module => |module_obj| Value.fromObject(&module_obj.object),
-                            .class => |class_obj| Value.fromObject(&class_obj.module.object),
-                        }
-                    else
-                        frame.self_value;
+                    const method_owner = try self.methodDefinitionOwner(frame);
                     const methods = method_owner.getModuleMethods() orelse unreachable;
                     const entry: MethodEntry = .{
                         .method = .{ .chunk = chunk_ptr },
@@ -7685,52 +7690,9 @@ pub const VM = struct {
                 const new_name_sym = try self.intern(new_name);
                 const old_name_sym = try self.intern(old_name);
 
-                const current_self = frame.self_value;
-                const methods = current_self.getModuleMethods() orelse self.object_class.module.methods;
-
-                const entry = if (current_self.isClass()) blk: {
-                    const resolved = self.lookupMethodDetailed(current_self.toClassObject(), old_name_sym);
-                    break :blk switch (resolved) {
-                        .found => |found| found.entry,
-                        else => null,
-                    };
-                } else if (current_self.isModule()) blk: {
-                    const resolved = self.lookupModuleMethodDetailed(self.object_class, current_self.toModuleObject(), old_name_sym);
-                    const with_object_fallback = switch (resolved) {
-                        .not_found => self.lookupMethodDetailed(self.object_class, old_name_sym),
-                        else => resolved,
-                    };
-                    break :blk switch (with_object_fallback) {
-                        .found => |found| found.entry,
-                        else => null,
-                    };
-                } else methods.get(old_name_sym);
-
-                if (entry) |resolved_entry| {
-                    var alias_entry = resolved_entry;
-                    if (alias_entry.original_name == null) alias_entry.original_name = old_name_sym;
-                    alias_entry.visibility = methodDefinitionVisibility(new_name, alias_entry.visibility);
-                    if (alias_entry.original_defining_node == null and current_self.isClass()) {
-                        switch (self.lookupMethodDetailed(current_self.toClassObject(), old_name_sym)) {
-                            .found => |found| alias_entry.original_defining_node = found.defining_node,
-                            else => {},
-                        }
-                    }
-                    methods.put(new_name_sym, alias_entry) catch return error.Fatal;
-                    self.markIntegerChangedForReceiver(current_self);
-                    self.bumpMethodStateVersion();
-                    const owner = if (current_self.isClass() or current_self.isModule()) current_self else Value.fromObject(&self.object_class.module.object);
-                    try self.triggerMethodAdded(owner, new_name_sym);
-                } else {
-                    const msg = std.fmt.allocPrint(
-                        self.gc_allocator,
-                        "undefined method '{s}'",
-                        .{old_name},
-                    ) catch return error.Fatal;
-                    const exc = try self.createException(self.name_error_class, msg);
-                    self.setPendingException(exc);
-                    return error.Unwind;
-                }
+                const owner = try self.methodDefinitionOwner(frame);
+                var args = [_]Value{ Value.fromObject(&new_name_sym.object), Value.fromObject(&old_name_sym.object) };
+                _ = try module_builtin.builtinModuleAliasMethod(self, owner, &args, null);
 
                 // alias returns nil in Ruby
                 try self.push(Value.NIL);
@@ -7759,41 +7721,8 @@ pub const VM = struct {
                     args[i] = self.pop();
                 }
 
-                const current_self = frame.self_value;
-                const target_is_class = current_self.isClass();
-                const target_is_module = current_self.isModule();
-                const owner = if (target_is_class or target_is_module)
-                    current_self
-                else
-                    Value.fromObject(&(try self.getOrCreateSingletonClass(current_self)).module.object);
-                const methods = owner.getModuleMethods().?;
-
-                for (args[0..argc]) |arg| {
-                    const name_sym = try self.coerceToMethodNameSymbol(arg);
-                    const exists = if (target_is_class)
-                        self.lookupMethod(current_self.toClassObject(), name_sym) != null
-                    else if (target_is_module) blk: {
-                        const entry = methods.get(name_sym) orelse break :blk false;
-                        break :blk entry.method != .undefined;
-                    } else (try self.findMethod(current_self, name_sym)) != null;
-
-                    if (!exists) {
-                        const msg = std.fmt.allocPrint(
-                            self.gc_allocator,
-                            "undefined method '{s}'",
-                            .{name_sym.name},
-                        ) catch return error.Fatal;
-                        const exc = try self.createException(self.name_error_class, msg);
-                        self.setPendingException(exc);
-                        return error.Unwind;
-                    }
-
-                    methods.put(name_sym, .{ .method = .{ .undefined = {} } }) catch return error.Fatal;
-                    self.markIntegerChangedForReceiver(current_self);
-                    self.bumpMethodStateVersion();
-                    try self.triggerMethodCallback(owner, name_sym, .undefined);
-                }
-
+                const owner = try self.methodDefinitionOwner(frame);
+                _ = try module_builtin.builtinModuleUndefMethod(self, owner, args[0..argc], null);
                 try self.push(Value.NIL);
             },
 
@@ -8616,22 +8545,6 @@ pub const VM = struct {
 
     inline fn cachedMethodFrameName(cached: *const chunk.CallSiteCache) []const u8 {
         return (cached.entry.original_name orelse cached.method_name).name;
-    }
-
-    fn lookupModuleMethodDetailed(
-        self: *VM,
-        owner_class: *ClassObject,
-        module_obj: *value.ModuleObject,
-        method_name: *value.SymbolObject,
-    ) LookupMethodResult {
-        var current: ?*ModuleObject = module_obj;
-        while (current) |node| : (current = node.super) {
-            if (ancestry.methodTableOwner(node).methods.get(method_name)) |entry| {
-                return self.resolveLookupEntry(method_name, owner_class, node, entry);
-            }
-        }
-
-        return .not_found;
     }
 
     pub fn lookupMethodDetailed(self: *VM, class: *ClassObject, method_name: *value.SymbolObject) LookupMethodResult {

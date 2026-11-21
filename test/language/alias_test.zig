@@ -278,3 +278,67 @@ test "alias global variable self alias is a no-op" {
     try std.testing.expect(result.isInteger());
     try std.testing.expectEqual(@as(i64, 7), result.toInteger());
 }
+
+test "alias keyword uses the instance_eval definition owner" {
+    const result = try evalCode(
+        \\string_object = Object.new
+        \\string_object.instance_eval("def string_source; :string; end; alias string_copy string_source")
+        \\block_object = Object.new
+        \\block_object.instance_eval do
+        \\  def block_source; :block; end
+        \\  alias block_copy block_source
+        \\end
+        \\[string_object.string_copy, block_object.block_copy,
+        \\ Object.method_defined?(:string_copy), Object.method_defined?(:block_copy)]
+    );
+    const values = result.toArrayObject().elements.items;
+    try std.testing.expectEqualStrings("string", values[0].toSymbolObject().name);
+    try std.testing.expectEqualStrings("block", values[1].toSymbolObject().name);
+    try std.testing.expect(values[2].isFalse() and values[3].isFalse());
+}
+
+test "top-level alias keyword finds inherited methods" {
+    const result = try evalCode(
+        \\alias inherited_string_copy to_s
+        \\object = Object.new
+        \\[object.inherited_string_copy == object.to_s, Object.instance_method(:inherited_string_copy).owner == Object]
+    );
+    for (result.toArrayObject().elements.items) |value| try std.testing.expect(value.isTrue());
+}
+
+test "undef keyword shares the lexical method definition owner" {
+    const result = try evalCode(
+        \\def removable_top_level_method; end
+        \\undef removable_top_level_method
+        \\class LexicalUndefOwner
+        \\  def target; end
+        \\  def remove_target; undef target; end
+        \\end
+        \\LexicalUndefOwner.new.remove_target
+        \\[Object.method_defined?(:removable_top_level_method), LexicalUndefOwner.method_defined?(:target)]
+    );
+    for (result.toArrayObject().elements.items) |value| try std.testing.expect(value.isFalse());
+}
+
+test "undef keyword and undef_method reject an existing undefined barrier" {
+    const result = try evalCode(
+        \\class RepeatedUndefOwner
+        \\  def target; end
+        \\  undef target
+        \\end
+        \\keyword = begin
+        \\  class RepeatedUndefOwner; undef target; end
+        \\  false
+        \\rescue NameError
+        \\  true
+        \\end
+        \\method = begin
+        \\  RepeatedUndefOwner.send(:undef_method, :target)
+        \\  false
+        \\rescue NameError
+        \\  true
+        \\end
+        \\[keyword, method]
+    );
+    for (result.toArrayObject().elements.items) |value| try std.testing.expect(value.isTrue());
+}
