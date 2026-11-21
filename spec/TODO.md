@@ -3915,7 +3915,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] library/stringio/sysread_spec.rb
 - [ ] library/stringio/syswrite_spec.rb
 - [x] library/stringio/tell_spec.rb
-- [ ] library/stringio/truncate_spec.rb
+- [x] library/stringio/truncate_spec.rb
 - [x] library/stringio/tty_spec.rb
 - [ ] library/stringio/ungetbyte_spec.rb
 - [ ] library/stringio/ungetc_spec.rb

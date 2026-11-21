@@ -383,6 +383,29 @@ class StringIO
 
   alias each each_line
 
+  def truncate(length)
+    raise IOError, "not opened for writing" if @closed_write
+    unless length.is_a?(Integer)
+      raise TypeError, "no implicit conversion into Integer" unless length.respond_to?(:to_int, true)
+      length = length.__send__(:to_int)
+      raise TypeError, "to_int did not return Integer" unless length.is_a?(Integer)
+    end
+    raise Errno::EINVAL, "Invalid argument" if length < 0
+
+    encoding = @string.encoding
+    @string.force_encoding(Encoding::ASCII_8BIT)
+    begin
+      if length < @string.bytesize
+        @string.slice!(length, @string.bytesize - length)
+      elsif length > @string.bytesize
+        @string.concat("\x00" * (length - @string.bytesize))
+      end
+    ensure
+      @string.force_encoding(encoding)
+    end
+    length
+  end
+
   def write(string)
     if @closed_write
       raise IOError, "not opened for writing"
