@@ -34,8 +34,9 @@ pub fn arrayPack(vm: *VM, items: []Value, format: []const u8) VMError!Value {
 
     var out: std.ArrayList(u8) = .empty;
     defer out.deinit(vm.allocator);
+    // Coercion callbacks may collect before the output string owns its targets.
+    // Keep this temporary pointer storage visible to the GC.
     var packed_pointer_entries: std.ArrayList(PackedPointerEntry) = .empty;
-    defer packed_pointer_entries.deinit(vm.allocator);
 
     var arg_index: usize = 0;
     for (tokens.items) |token| {
@@ -644,7 +645,9 @@ fn packPointerDirective(
 
         var ptr_value: usize = 0;
         if (!arg.isNil()) {
-            const str_bytes = try arg.coerceToStr(vm, "no implicit conversion into String");
+            const str_value = try arg.coerceToStringValue(vm, "no implicit conversion into String");
+            const str_obj = str_value.toStringObject();
+            const str_bytes = str_obj.str;
             if (token.directive == 'P') {
                 const min_len = token.count orelse 1;
                 if (str_bytes.len < min_len) {
@@ -656,9 +659,8 @@ fn packPointerDirective(
                 }
             }
 
-            const str_obj = arg.toStringObject();
             ptr_value = @intFromPtr(str_obj.str.ptr);
-            packed_pointer_entries.append(vm.allocator, .{
+            packed_pointer_entries.append(vm.gc_allocator, .{
                 .offset = out.items.len,
                 .target = str_obj,
             }) catch return error.Fatal;

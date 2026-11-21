@@ -1003,6 +1003,23 @@ test "Array#pack truncates arbitrary precision integers to the directive width" 
     try std.testing.expect(result.isTruthy());
 }
 
+test "Array#pack pointer directives retain coerced string targets across callbacks" {
+    const result = try evalCode(
+        \\first = Object.new
+        \\def first.to_str
+        \\  "hello".dup
+        \\end
+        \\second = Object.new
+        \\def second.to_str
+        \\  GC.start
+        \\  "world".dup
+        \\end
+        \\[first, second].pack("p2").unpack("p2") == ["hello", "world"] &&
+        \\  [first].pack("P5").unpack("P5") == ["hello"]
+    );
+    try std.testing.expect(result.isTruthy());
+}
+
 test "Array#pack Unicode directive encodes MRI codepoints" {
     const result = try evalCode(
         \\unicode = [0, 65, 233, 0x1f600].pack("U*")
