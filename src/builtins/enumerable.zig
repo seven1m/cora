@@ -1459,13 +1459,23 @@ fn builtinEnumerableEachEntry(vm: *VM, receiver: Value, args: []Value, block: ?B
         return vm.createMethodEnumerator(receiver, method_name, args);
     };
 
-    const enum_value = try vm.createMethodEnumerator(receiver, try vm.intern("each"), args);
-    while (try enumerableNextElement(vm, enum_value)) |element| {
-        const yield_args = [_]Value{element};
-        _ = try vm.yieldToBlock(blk, &yield_args);
-    }
-
+    const each_block = Block{ .kind = .{ .receiver_builtin = .{
+        .receiver = try vm.procValueForBlock(blk),
+        .func = &eachEntryEach,
+        .arity = -1,
+    } } };
+    _ = try vm.callMethodByName(receiver, "each", args, each_block);
     return receiver;
+}
+
+fn eachEntryEach(vm: *VM, receiver: Value, args: []Value) VMError!Value {
+    const block = receiver.toProcObject().block;
+    if (args.len > 1) {
+        _ = try vm.yieldPackedToBlock(block, try packYieldValues(vm, args));
+    } else {
+        _ = try vm.yieldToBlock(block, args);
+    }
+    return Value.nil();
 }
 
 const EnumerableZipSource = struct {

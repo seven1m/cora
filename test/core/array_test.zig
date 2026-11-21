@@ -121,6 +121,73 @@ test "Enumerable collectors use internal iteration in the caller fiber" {
     try std.testing.expect(result.isTrue());
 }
 
+test "Enumerable each_entry uses caller fiber and preserves yield packing and forwarding" {
+    const result = try evalCode(
+        \\class EntryYields
+        \\  include Enumerable
+        \\  attr_reader :results, :passed
+        \\  def each(*args)
+        \\    raise 'other fiber' unless Fiber.current.equal?($entry_fiber)
+        \\    @passed = args
+        \\    GC.start
+        \\    @results = [(yield), (yield 1), (yield 1, 2), (yield [3, 4])]
+        \\    :ignored
+        \\  end
+        \\end
+        \\$entry_fiber = Fiber.current
+        \\source = EntryYields.new
+        \\seen = []
+        \\returned = source.each_entry(:arg, 2) { |*args| seen << args; :ignored }
+        \\raise 'packing' unless seen == [[], [1], [[1, 2]], [[3, 4]]]
+        \\raise 'source results' unless source.results == [nil, nil, nil, nil]
+        \\raise 'forwarding' unless source.passed == [:arg, 2] && returned.equal?(source)
+        \\pair = Class.new do
+        \\  include Enumerable
+        \\  def each; yield 1, 2; end
+        \\end.new
+        \\zero = Class.new do
+        \\  include Enumerable
+        \\  def each; yield; end
+        \\end.new
+        \\single = Class.new do
+        \\  include Enumerable
+        \\  def each; yield [1, 2]; end
+        \\end.new
+        \\packed = []
+        \\pair.each_entry(&->(a, b) { packed << [a, b] })
+        \\rest = []
+        \\pair.each_entry(&->(*args) { rest << args })
+        \\zero.each_entry(&-> { packed << :zero })
+        \\error = begin single.each_entry(&->(a, b) {}); false; rescue ArgumentError; true; end
+        \\raise 'strict lambdas' unless packed == [[1, 2], :zero] && rest == [[[1, 2]]] && error
+        \\true
+    );
+    try std.testing.expect(result.isTrue());
+}
+
+test "Enumerable each_entry retains nested callbacks across Fiber yield and GC" {
+    const result = try evalCode(
+        \\fiber = Fiber.new do
+        \\  source = [1, 2]
+        \\  seen = []
+        \\  result = source.each_entry do |n|
+        \\    Fiber.yield n
+        \\    GC.start
+        \\    [n].each_entry { |inner| seen << inner * 2 }
+        \\  end
+        \\  [result.equal?(source), seen]
+        \\end
+        \\first = fiber.resume
+        \\GC.start
+        \\second = fiber.resume
+        \\GC.start
+        \\result = fiber.resume
+        \\raise 'fiber state' unless first == 1 && second == 2 && result == [true, [2, 4]] && !fiber.alive?
+        \\true
+    );
+    try std.testing.expect(result.isTrue());
+}
+
 test "Enumerable flat_map forwards raw yields and returns nil to each" {
     const result = try evalCode(
         \\class FlatMapYields
@@ -246,7 +313,7 @@ test "Enumerable collectors unwind each ensures for break return and throw" {
         \\  source.public_send(name, *args) { return :returned }
         \\  :unreachable
         \\end
-        \\checks = [:flat_map, :collect_concat, :filter_map, :each_with_object, :sort_by].map do |name|
+        \\checks = [:flat_map, :collect_concat, :filter_map, :each_with_object, :sort_by, :each_entry].map do |name|
         \\  args = name == :each_with_object ? [[]] : []
         \\  source = CollectUnwind.new
         \\  broken = source.public_send(name, *args) { break :broken }
@@ -275,7 +342,7 @@ test "Enumerable collectors propagate source StopIteration and block failures" {
         \\    @ensures += 1
         \\  end
         \\end
-        \\checks = [:flat_map, :collect_concat, :filter_map, :each_with_object, :sort_by].map do |name|
+        \\checks = [:flat_map, :collect_concat, :filter_map, :each_with_object, :sort_by, :each_entry].map do |name|
         \\  args = name == :each_with_object ? [[]] : []
         \\  failure = StopIteration.new("from source")
         \\  source = CollectFailure.new(failure)

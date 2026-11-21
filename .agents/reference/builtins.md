@@ -32,6 +32,9 @@
 - Internal collection callbacks for `flat_map`/`collect_concat`, `filter_map`, `each_with_object`, and
   `sort_by` dispatch directly to `each` in the caller's fiber. Promote captured
   user blocks before retaining them in GC-owned callback contexts.
+- `Enumerable#each_entry` uses a native callback, forwards its arguments to
+  `each`, preserves zero/single yields, and packs multiple yields with forced
+  block-argument destructuring. Its callback returns nil to the source.
 - Use `VM.yieldPairToBlock` for Hash/Struct pair iteration. It passes a packed
   `[key, value]` to one-argument/rest/lambda blocks, or two arguments to compatible
   native callbacks and ordinary multi-argument blocks.
