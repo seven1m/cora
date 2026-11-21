@@ -1,6 +1,7 @@
 const std = @import("std");
 const vm_mod = @import("../vm.zig");
 const value = @import("../value.zig");
+const hash_builtin = @import("hash.zig");
 const thread_builtin = @import("thread.zig");
 
 const VM = vm_mod.VM;
@@ -13,7 +14,7 @@ pub fn register(vm: *VM) !void {
     const fiber_singleton = try vm.getOrCreateSingletonClass(fiber_class_val);
 
     const new_sym = try vm.intern("new");
-    try fiber_singleton.module.methods.put(new_sym, value.MethodEntry.builtin(&builtinFiberNew, .{ .variadic = 0 }));
+    try fiber_singleton.module.methods.put(new_sym, value.MethodEntry.keywordBuiltin(&builtinFiberNew, .{ .variadic = 0 }));
 
     const current_sym = try vm.intern("current");
     try fiber_singleton.module.methods.put(current_sym, value.MethodEntry.builtin(&builtinFiberCurrent, .{ .exact = 0 }));
@@ -25,6 +26,9 @@ pub fn register(vm: *VM) !void {
     try fiber_singleton.module.methods.put(get_sym, value.MethodEntry.builtin(&builtinFiberStorageGet, .{ .exact = 1 }));
     const set_sym = try vm.intern("[]=");
     try fiber_singleton.module.methods.put(set_sym, value.MethodEntry.builtin(&builtinFiberStorageSet, .{ .exact = 2 }));
+
+    try vm.fiber_class.module.methods.put(try vm.intern("storage"), value.MethodEntry.builtin(&builtinFiberStorage, .{ .exact = 0 }));
+    try vm.fiber_class.module.methods.put(try vm.intern("storage="), value.MethodEntry.builtin(&builtinFiberStorageReplace, .{ .exact = 1 }));
 
     const resume_sym = try vm.intern("resume");
     try vm.fiber_class.module.methods.put(resume_sym, value.MethodEntry.builtin(&builtinFiberResume, .{ .variadic = 0 }));
@@ -63,10 +67,10 @@ fn raiseFiberError(vm: *VM, msg: []const u8) VMError!Value {
 pub fn builtinFiberNew(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
 
+    const storage = try vm.consumeKeywordArg("storage");
+    try vm.validateKeywordArgsConsumed();
     const blk = try vm.requireBlock(block);
-
-    const class_ptr = receiver.toClassObject();
-    return try vm.newFiber(class_ptr, blk);
+    return vm.newFiberWithStorage(receiver.toClassObject(), blk, storage);
 }
 
 pub fn builtinFiberCurrent(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
@@ -77,29 +81,39 @@ pub fn builtinFiberCurrent(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!
 fn builtinFiberStorageGet(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 1);
     const key = try thread_builtin.symbolArg(vm, args[0]);
-    if (vm.current_fiber.storage) |*storage| {
-        return storage.get(key) orelse Value.nil();
-    }
-    return Value.nil();
+    const storage = vm.current_fiber.storage orelse return Value.nil();
+    var key_args = [_]Value{Value.fromObject(&key.object)};
+    return hash_builtin.builtinHashBracket(vm, Value.fromObject(&storage.object), &key_args, null);
 }
 
 fn builtinFiberStorageSet(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
-    try vm.requireArgCount(args, 2);
-    const key = try thread_builtin.symbolArg(vm, args[0]);
+    const symbol = try thread_builtin.symbolArg(vm, args[0]);
+    const key = Value.fromObject(&symbol.object);
     const fiber = vm.current_fiber;
     if (args[1].isNil()) {
-        if (fiber.storage) |*storage| {
-            const previous = storage.get(key) orelse Value.nil();
-            _ = storage.remove(key);
-            return previous;
-        }
-        return Value.nil();
+        const storage = fiber.storage orelse return Value.nil();
+        return try vm.hashDeleteEntry(storage, key) orelse Value.nil();
     }
-    if (fiber.storage == null) {
-        fiber.storage = std.AutoHashMap(*value.SymbolObject, Value).init(vm.gc_allocator);
-    }
-    fiber.storage.?.put(key, args[1]) catch return error.Fatal;
+    if (fiber.storage == null) fiber.storage = try vm.createHash();
+    try vm.hashSetEntry(fiber.storage.?, key, args[1]);
     return args[1];
+}
+
+fn requireStorageOwner(vm: *VM, receiver: Value) VMError!void {
+    if (receiver.toFiberObject() != vm.current_fiber) return vm.raiseExceptionFmt(vm.argument_error_class, "Fiber storage can only be accessed from the Fiber it belongs to", .{});
+}
+
+fn builtinFiberStorage(vm: *VM, receiver: Value, _: []Value, _: ?Block) VMError!Value {
+    try requireStorageOwner(vm, receiver);
+    const storage = receiver.toFiberObject().storage orelse return Value.nil();
+    const snapshot = try vm.copyHashObject(storage);
+    return Value.fromObject(&snapshot.object);
+}
+
+fn builtinFiberStorageReplace(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try requireStorageOwner(vm, receiver);
+    receiver.toFiberObject().storage = try vm.copyValidatedFiberStorage(args[0]);
+    return args[0];
 }
 
 pub fn builtinFiberYield(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {

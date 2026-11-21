@@ -4916,6 +4916,7 @@ pub const VM = struct {
 
         thread_obj.block = block;
         thread_obj.args = args_copy;
+        thread_obj.main_fiber.?.storage = if (self.current_fiber.storage) |storage| try self.copyHashObject(storage) else null;
     }
 
     pub fn startThread(self: *VM, thread_obj: *value.ThreadObject) VMError!void {
@@ -10815,6 +10816,20 @@ pub const VM = struct {
     }
 
     pub fn newFiber(self: *VM, class_obj: *ClassObject, block: ?Block) VMError!Value {
+        return self.newFiberWithStorage(class_obj, block, null);
+    }
+
+    pub fn copyValidatedFiberStorage(self: *VM, storage: Value) VMError!?*value.HashObject {
+        if (storage.isNil()) return null;
+        if (!storage.isHash()) return self.raiseExceptionFmt(self.type_error_class, "storage must be a hash", .{});
+        if (storage.isFrozen()) return self.raiseExceptionFmt(self.frozen_error_class, "storage must not be frozen", .{});
+        for (storage.toHashObject().entries.items) |entry| {
+            if (!entry.key.isSymbol()) return self.raiseExceptionFmt(self.type_error_class, "storage keys must be symbols", .{});
+        }
+        return try self.copyHashObject(storage.toHashObject());
+    }
+
+    pub fn newFiberWithStorage(self: *VM, class_obj: *ClassObject, block: ?Block, storage: ?Value) VMError!Value {
         if (self.current_thread == null) {
             _ = try self.ensureMainThread();
         }
@@ -10841,15 +10856,12 @@ pub const VM = struct {
         fiber_obj.first_resume_args = undefined;
         fiber_obj.first_resume_argc = 0;
         fiber_obj.fiber_locals = null;
-        fiber_obj.storage = null;
-        if (self.current_fiber.storage) |*current_storage| {
-            var inherited = std.AutoHashMap(*value.SymbolObject, Value).init(self.gc_allocator);
-            var entries = current_storage.iterator();
-            while (entries.next()) |entry| {
-                inherited.put(entry.key_ptr.*, entry.value_ptr.*) catch return error.Fatal;
-            }
-            fiber_obj.storage = inherited;
-        }
+        fiber_obj.storage = if (storage != null and !storage.?.isTrue())
+            try self.copyValidatedFiberStorage(storage.?)
+        else if (self.current_fiber.storage) |inherited|
+            try self.copyHashObject(inherited)
+        else
+            null;
         fiber_obj.owner_thread = self.current_thread;
         fiber_obj.owner_vm = self;
         return Value.fromObject(&fiber_obj.object);

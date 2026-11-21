@@ -493,3 +493,42 @@ test "Fiber kill remains pending after ensure yields" {
     );
     try std.testing.expect(result.isTruthy());
 }
+
+test "Fiber storage snapshots isolate hashes while sharing values and defaults" {
+    const result = try evalCode(
+        \\class ContextStorage < Hash; end
+        \\shared = []
+        \\source = ContextStorage.new { |hash, key| hash[key] = [] }
+        \\source[:shared] = shared
+        \\fiber = Fiber.new(storage: source) do
+        \\  snapshot = Fiber.current.storage
+        \\  snapshot[:snapshot_only] = true
+        \\  Fiber[:shared] << :child
+        \\  Fiber[:generated] << :value
+        \\  [Fiber.current.storage.class, Fiber.current.storage.keys.sort, Fiber[:generated]]
+        \\end
+        \\source[:later] = true
+        \\values = fiber.resume
+        \\values == [ContextStorage, [:generated, :shared], [:value]] &&
+        \\  shared == [:child] && source.keys.sort == [:later, :shared]
+    );
+    try std.testing.expect(result.isTruthy());
+}
+
+test "Fiber storage setter and thread inheritance take separate snapshots" {
+    const result = try evalCode(
+        \\Fiber.new(storage: nil) do
+        \\  source = {value: 1}
+        \\  Fiber.current.storage = source
+        \\  source[:value] = 2
+        \\  thread = Thread.new do
+        \\    before = Fiber[:value]
+        \\    Fiber[:value] = 4
+        \\    [before, Fiber[:value]]
+        \\  end
+        \\  Fiber[:value] = 3
+        \\  thread.value == [1, 4] && Fiber[:value] == 3 && source[:value] == 2
+        \\end.resume
+    );
+    try std.testing.expect(result.isTruthy());
+}

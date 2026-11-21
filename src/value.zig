@@ -492,7 +492,7 @@ pub const FiberObject = struct {
     first_resume_args: [256]Value = undefined,
     first_resume_argc: usize = 0,
     fiber_locals: ?std.AutoHashMap(*SymbolObject, Value) = null,
-    storage: ?std.AutoHashMap(*SymbolObject, Value) = null,
+    storage: ?*HashObject = null,
     owner_thread: ?*ThreadObject = null,
     owner_vm: *VM,
 };
