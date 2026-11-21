@@ -586,7 +586,7 @@ test "Thread.start is an alias for Thread.new" {
     try std.testing.expectEqual(@as(i64, 7), result.toInteger());
 }
 
-test "Thread.fork is an alias for Thread.new" {
+test "Thread.fork starts a thread and returns its block result" {
     const result = try evalCode(
         \\t = Thread.fork { 8 }
         \\t.value
@@ -704,4 +704,11 @@ test "Thread.pass works inside Fiber in non-main Thread" {
 
     try std.testing.expect(result.term == .exited and result.term.exited == 0);
     try std.testing.expectEqualSlices(u8, ":ok\n:ok\n", result.stdout);
+}
+
+test "Thread.start preserves positional and keyword arguments for its block" {
+    const result = try evalCode(
+        \\Thread.start(1, two: 2) { |first, second| [first, second] }.value == [1, {two: 2}]
+    );
+    try std.testing.expect(result.isTruthy());
 }

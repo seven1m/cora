@@ -18,10 +18,10 @@ pub fn register(vm: *VM) !void {
     try thread_singleton.module.methods.put(new_sym, value.MethodEntry.keywordBuiltin(&builtinThreadNew, .{ .variadic = 0 }));
 
     const start_sym = try vm.intern("start");
-    try thread_singleton.module.methods.put(start_sym, value.MethodEntry.keywordBuiltin(&builtinThreadNew, .{ .variadic = 0 }));
+    try thread_singleton.module.methods.put(start_sym, value.MethodEntry.builtin(&builtinThreadStart, .{ .variadic = 0 }));
 
     const fork_sym = try vm.intern("fork");
-    try thread_singleton.module.methods.put(fork_sym, value.MethodEntry.keywordBuiltin(&builtinThreadNew, .{ .variadic = 0 }));
+    try thread_singleton.module.methods.put(fork_sym, value.MethodEntry.builtin(&builtinThreadStart, .{ .variadic = 0 }));
 
     const current_sym = try vm.intern("current");
     try thread_singleton.module.methods.put(current_sym, value.MethodEntry.builtin(&builtinThreadCurrent, .{ .exact = 0 }));
@@ -200,6 +200,12 @@ fn builtinThreadNew(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMEr
     try vm.startThread(thread);
 
     return thread_val;
+}
+
+fn builtinThreadStart(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
+    const blk = try vm.requireBlock(block);
+    const thread = try vm.newThread(receiver.toClassObject(), blk, args);
+    return Value.fromObject(&thread.object);
 }
 
 fn builtinThreadCurrent(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
