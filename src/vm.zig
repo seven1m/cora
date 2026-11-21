@@ -7808,14 +7808,11 @@ pub const VM = struct {
                 const fallback = self.enclosingMethodFrame(frame);
                 const name = if (environment) |env| env.context.method_name else fallback.method_name orelse "";
                 const defining_node = if (environment) |env| env.context.defining_node else fallback.super_defining_node;
-                const method_chunk = if (environment) |env| env.context.chunk else fallback.chunk;
                 const name_sym = try self.intern(name);
                 const resolved = if (defining_node) |node|
                     self.lookupSuperMethodFromDefinition(frame.self_value, node, name_sym)
-                else if (method_chunk.lexical_scope) |scope| switch (scope.scope_module) {
-                    .module => |mod| self.lookupMethodForSuperFromScope(self.getDispatchClass(frame.self_value), .{ .module = mod }, name_sym),
-                    .class => |cls| self.lookupMethodForSuperFromScope(self.getDispatchClass(frame.self_value), .{ .class = cls }, name_sym),
-                } else null;
+                else
+                    null;
                 try self.push(Value.boolean(resolved != null));
             },
 
@@ -10383,63 +10380,6 @@ pub const VM = struct {
         unreachable;
     }
 
-    const SuperLookupScope = union(enum) {
-        class: *ClassObject,
-        module: *value.ModuleObject,
-    };
-
-    fn lookupMethodForSuperInModuleChain(
-        self: *VM,
-        owner_class: *ClassObject,
-        module_obj: *value.ModuleObject,
-        defining_scope: SuperLookupScope,
-        method_name: *value.SymbolObject,
-        found_owner: *bool,
-    ) LookupMethodResult {
-        var current: ?*ModuleObject = module_obj;
-        var current_owner_class = owner_class;
-        while (current) |node| : (current = node.super) {
-            if (node.object.type_tag == .class) {
-                current_owner_class = @fieldParentPtr("module", node);
-            }
-            const visible_owner = ancestry.visibleModule(node);
-            const is_origin_shell = node.object.type_tag != .iclass and node.origin != node;
-            const matches_owner = switch (defining_scope) {
-                .class => |defining_class| visible_owner == &defining_class.module and current_owner_class == defining_class and !is_origin_shell,
-                .module => |defining_module| visible_owner == defining_module and !is_origin_shell,
-            };
-
-            if (found_owner.*) {
-                if (ancestry.methodTableOwner(node).methods.get(method_name)) |entry| {
-                    return self.resolveLookupEntry(method_name, current_owner_class, node, entry);
-                }
-            } else if (matches_owner) {
-                found_owner.* = true;
-            }
-        }
-
-        return .not_found;
-    }
-
-    fn lookupMethodForSuperFromScope(
-        self: *VM,
-        start_class: *ClassObject,
-        defining_scope: SuperLookupScope,
-        method_name: *value.SymbolObject,
-    ) ?ResolvedMethod {
-        var found_owner = false;
-        return switch (self.lookupMethodForSuperInModuleChain(
-            start_class,
-            &start_class.module,
-            defining_scope,
-            method_name,
-            &found_owner,
-        )) {
-            .found => |resolved| resolved,
-            .undefined, .not_found => null,
-        };
-    }
-
     pub fn lookupMethodAfterNode(self: *VM, defining_node: *ModuleObject, name: *SymbolObject) ?ResolvedMethod {
         // A later prepend moves this owner's methods into its origin node.
         const start = if (defining_node.object.type_tag != .iclass) defining_node.origin else defining_node;
@@ -10778,7 +10718,6 @@ pub const VM = struct {
             environment.context.method_name
         else
             fallback_frame.method_name orelse fallback_frame.chunk.name;
-        const defining_method_chunk = if (method_environment) |environment| environment.context.chunk else fallback_frame.chunk;
         const explicit_defining_node = if (method_environment) |environment|
             environment.context.defining_node
         else
@@ -10786,27 +10725,13 @@ pub const VM = struct {
         const receiver = frame.self_value;
         const method_name_sym = try self.intern(method_name);
 
-        const lexical_scope = defining_method_chunk.lexical_scope;
-        var maybe_resolved = if (explicit_defining_node) |defining_node|
+        // Only method dispatch establishes a super origin. Top-level/body
+        // frames and direct native helpers have no definition node; lexical
+        // class/module nesting cannot manufacture a superclass method for them.
+        const maybe_resolved = if (explicit_defining_node) |defining_node|
             self.lookupSuperMethodFromDefinition(receiver, defining_node, method_name_sym)
         else
             null;
-        // A known definition node is authoritative: a miss after that node
-        // means there is no super method, not that lookup should restart.
-        if (explicit_defining_node == null) {
-            maybe_resolved = if (lexical_scope) |scope| switch (scope.scope_module) {
-                .module => |defining_module| self.lookupMethodForSuperFromScope(
-                    self.getClass(receiver),
-                    .{ .module = defining_module },
-                    method_name_sym,
-                ),
-                .class => |defining_class| self.lookupMethodForSuperFromScope(
-                    defining_class,
-                    .{ .class = defining_class },
-                    method_name_sym,
-                ),
-            } else null;
-        }
 
         const resolved = maybe_resolved orelse {
             const result = try self.invokeMethodMissing(receiver, method_name_sym, @constCast(args), keyword_ctx, block);

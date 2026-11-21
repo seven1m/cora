@@ -81,6 +81,8 @@ module owner to the receiver's inclusion node when necessary. A module method
 bound to an unrelated hierarchy has no inclusion node; Ruby explicitly starts
 its super chain at that receiver's dispatch class instead. Method#super_method
 uses the captured definition node strictly; it does not relocate that node.
+Both super execution and `defined?(super)` require dispatch metadata. Lexical
+class/module nesting is not a recovery path for an absent definition node.
 
 **Lexical scopes:** Lexical scope chains track module/class context for constant lookup.
 
