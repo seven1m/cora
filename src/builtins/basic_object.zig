@@ -22,17 +22,6 @@ fn evalFilename(vm: *VM, source_file_arg: ?Value) VMError![]const u8 {
     return "(eval)";
 }
 
-fn evalStartLine(vm: *VM, lineno_arg: ?Value) VMError!i32 {
-    if (lineno_arg == null or lineno_arg.?.isNil()) return 1;
-    const lineno = try lineno_arg.?.coerceToI64ViaToInt(
-        vm,
-        "no implicit conversion into Integer",
-        "can't convert to Integer (to_int gives non-Integer)",
-        "bignum too big to convert into `long'",
-    );
-    return std.math.cast(i32, lineno) orelse vm.raiseExceptionFmt(vm.range_error_class, "bignum too big to convert into `long'", .{});
-}
-
 fn instanceEvalLexicalScope(vm: *VM, receiver: Value) VMError!*value.LexicalScope {
     const caller_scope = vm.current_lexical_scope;
     const receiver_class = vm.getClass(receiver);
@@ -127,7 +116,7 @@ pub fn builtinBasicObjectInstanceEval(vm: *VM, receiver: Value, args: []Value, b
             .class_variable_scope = vm.currentRubyCallerLexicalScope(),
             .method_definition_target = try instanceEvalMethodTarget(vm, receiver),
             .parent_local_names = vm.currentEvalParentLocalNames(),
-            .start_line = try evalStartLine(vm, if (args.len >= 3) args[2] else null),
+            .start_line = try vm.evalStartLine(if (args.len >= 3) args[2] else null),
         },
     );
 }

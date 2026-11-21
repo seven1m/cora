@@ -54,18 +54,6 @@ fn nestedEvalLexicalScope(vm: *VM) VMError!?*value.LexicalScope {
     return vm.cloneLexicalScope(current, current.parent);
 }
 
-fn evalStartLine(vm: *VM, lineno_arg: ?Value) VMError!i32 {
-    const arg = lineno_arg orelse return 1;
-    if (arg.isNil()) return 1;
-    const lineno = try arg.coerceToI64ViaToInt(
-        vm,
-        "no implicit conversion into Integer",
-        "can't convert to Integer (to_int gives non-Integer)",
-        "bignum too big to convert into `long'",
-    );
-    return std.math.cast(i32, lineno) orelse vm.raiseExceptionFmt(vm.range_error_class, "bignum too big to convert into `long'", .{});
-}
-
 const BoundMethodLookup = struct {
     resolved: vm_mod.ResolvedMethod,
     owner: Value,
@@ -823,7 +811,7 @@ pub fn builtinKernelEval(vm: *VM, receiver: Value, args: []Value, _: ?Block) VME
         try args[2].coerceToStr(vm, "no implicit conversion into String")
     else
         null;
-    const start_line = try evalStartLine(vm, if (args.len >= 4) args[3] else null);
+    const start_line = try vm.evalStartLine(if (args.len >= 4) args[3] else null);
     const caller_frame = vm.currentRubyFrame();
 
     if (binding_arg.isNil()) {

@@ -49,18 +49,6 @@ fn evalFilename(vm: *VM, source_file_arg: ?Value) VMError![]const u8 {
     return "(eval)";
 }
 
-fn evalStartLine(vm: *VM, lineno_arg: ?Value) VMError!i32 {
-    const arg = lineno_arg orelse return 1;
-    if (arg.isNil()) return 1;
-    const lineno = try arg.coerceToI64ViaToInt(
-        vm,
-        "no implicit conversion into Integer",
-        "can't convert to Integer (to_int gives non-Integer)",
-        "bignum too big to convert into `long'",
-    );
-    return std.math.cast(i32, lineno) orelse vm.raiseExceptionFmt(vm.range_error_class, "bignum too big to convert into `long'", .{});
-}
-
 /// Binding#eval(source, filename=nil, lineno=nil)
 /// Evaluates `source` in the context of the binding, optionally overriding the
 /// reported filename and starting line number.
@@ -70,7 +58,7 @@ pub fn builtinBindingEval(vm: *VM, receiver: Value, args: []Value, _: ?Block) VM
     const source_obj = source_value.toStringObject();
 
     const filename = try evalFilename(vm, if (args.len >= 2) args[1] else null);
-    const start_line = try evalStartLine(vm, if (args.len >= 3) args[2] else null);
+    const start_line = try vm.evalStartLine(if (args.len >= 3) args[2] else null);
     const has_explicit_filename = args.len >= 2 and !args[1].isNil();
 
     const binding_obj = receiver.toBindingObject();

@@ -4,6 +4,7 @@ const value = @import("value.zig");
 const Value = value.Value;
 
 pub const Kind = enum {
+    frozen_error,
     string_compare_fallback,
     array_inspect,
     object_inspect,

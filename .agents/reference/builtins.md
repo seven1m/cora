@@ -10,6 +10,7 @@
 ## Dispatch, Arity, And Coercion Helpers
 
 - Always use VM argument-count helpers such as `requireArgCount` and `requireArgCountRange` instead of hand-constructing wrong-arity exceptions.
+- Use `VM.evalStartLine` for the optional starting line in eval-family methods; it shares nil/default handling, integer coercion, and range errors.
 - After `VM.yieldToBlock`, use `YieldResult.controlFlowValue()` when a builtin should propagate either block `break` or non-local `return` by returning the yielded control-flow value.
 - Prefer `VM.checkCallMethodByName(receiver, "method", include_private, args, block)` for optional conversion/probe calls where a missing method should behave like "not supported".
   Ordinary misses with default response/missing handlers return without constructing
@@ -89,7 +90,7 @@
 
 ## Frozen Object Guards
 
-- Use `VM.guardNotFrozen(receiver)` to check if an object is frozen and raise `FrozenError("can't modify frozen ...")` if so. This replaces the repetitive `if (receiver.isFrozen()) { return vm.raiseExceptionFmt(...); }` pattern.
+- Use `VM.guardNotFrozen(receiver)` to check if an object is frozen and raise `FrozenError("can't modify frozen ...")` if so. It includes the inspected receiver when available and guards recursive inspection. This replaces the repetitive `if (receiver.isFrozen()) { return vm.raiseExceptionFmt(...); }` pattern.
 
 ## Builtin Naming Conventions
 

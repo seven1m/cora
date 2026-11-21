@@ -11873,13 +11873,8 @@ pub const VM = struct {
     }
 
     pub fn setInstanceVariable(self: *VM, receiver: Value, name: []const u8, val: Value) VMError!void {
-        const obj_ptr = receiver.getObjectPointer() orelse {
-            return self.raiseExceptionFmt(self.frozen_error_class, "can't modify frozen {s}", .{self.className(receiver)});
-        };
-
-        if (receiver.isFrozen()) {
-            return self.raiseExceptionFmt(self.frozen_error_class, "can't modify frozen {s}", .{self.className(receiver)});
-        }
+        try self.guardNotFrozen(receiver);
+        const obj_ptr = receiver.getObjectPointer() orelse unreachable;
 
         if (obj_ptr.instance_variables == null) {
             obj_ptr.instance_variables = .{};
@@ -13126,9 +13121,19 @@ pub const VM = struct {
     }
 
     pub fn guardNotFrozen(self: *VM, receiver: Value) VMError!void {
-        if (receiver.isFrozen()) {
-            return self.raiseExceptionFmt(self.frozen_error_class, "can't modify frozen {s}", .{self.className(receiver)});
+        if (!receiver.isFrozen()) return;
+
+        // A custom inspect method can itself attempt to modify the receiver.
+        // Keep that nested frozen error from recursively inspecting it again.
+        if (!try self.enterRecursionGuard(.frozen_error, receiver, Value.NIL)) {
+            defer self.leaveRecursionGuard(.frozen_error, receiver, Value.NIL);
+            if (try self.checkCallMethodByName(receiver, "inspect", true, &.{}, null)) |inspected| {
+                if (inspected.isString()) {
+                    return self.raiseExceptionFmt(self.frozen_error_class, "can't modify frozen {s}: {s}", .{ self.className(receiver), inspected.toStringObject().str });
+                }
+            }
         }
+        return self.raiseExceptionFmt(self.frozen_error_class, "can't modify frozen {s}", .{self.className(receiver)});
     }
 
     fn objectFinalizerCallback(_: *anyopaque, data: ?*anyopaque) callconv(.c) void {
@@ -14109,6 +14114,20 @@ pub const VM = struct {
 
     pub fn evalSourceWithEncoding(self: *VM, source: []const u8, source_file: ?[]const u8, source_encoding: ?enc.Encoding) VMError!Value {
         return self.evalSourceWithEncodingAndContext(source, source_file, source_encoding, null);
+    }
+
+    /// Starting-line coercion shared by eval, Binding#eval and *_eval.
+    pub fn evalStartLine(self: *VM, lineno_arg: ?Value) VMError!i32 {
+        const arg = lineno_arg orelse return 1;
+        if (arg.isNil()) return 1;
+        const conversion_error = std.fmt.allocPrint(self.gc_allocator, "can't convert {s} into Integer (to_int gives non-Integer)", .{self.className(arg)}) catch return error.Fatal;
+        const lineno = try arg.coerceToI64ViaToInt(
+            self,
+            "no implicit conversion into Integer",
+            conversion_error,
+            "bignum too big to convert into `long'",
+        );
+        return std.math.cast(i32, lineno) orelse self.raiseExceptionFmt(self.range_error_class, "bignum too big to convert into `long'", .{});
     }
 
     pub const EvalContext = struct {
