@@ -535,6 +535,30 @@ test "Thread#alive? returns true while running, false after termination" {
     try std.testing.expectEqual(false, result.toBool());
 }
 
+test "Thread backtraces use active fibers and the parked main stack" {
+    const result = try evalCode(
+        \\def trace_worker_fiber(main, traces)
+        \\  traces << main.backtrace
+        \\  traces << Thread.current.backtrace
+        \\  Thread.stop
+        \\end
+        \\def inspect_main_trace(worker, traces)
+        \\  Thread.pass until traces.size == 2 && worker.stop?
+        \\  worker.backtrace
+        \\end
+        \\main = Thread.current
+        \\traces = []
+        \\worker = Thread.new { Fiber.new { trace_worker_fiber(main, traces) }.resume }
+        \\parked = inspect_main_trace(worker, traces)
+        \\worker.kill.join
+        \\traces[0].any? { |line| line.include?('inspect_main_trace') } &&
+        \\  traces[1].any? { |line| line.include?('trace_worker_fiber') } &&
+        \\  parked.any? { |line| line.include?('trace_worker_fiber') } &&
+        \\  worker.backtrace.nil?
+    );
+    try std.testing.expect(result.isTruthy());
+}
+
 test "Thread#status returns status strings" {
     const result = try evalCode(
         \\t = Thread.new { 42 }

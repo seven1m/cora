@@ -136,7 +136,7 @@ pub fn register(vm: *VM) !void {
     try vm.thread_class.module.methods.put(to_s_sym, inspect_entry);
 
     const backtrace_sym = try vm.intern("backtrace");
-    try vm.thread_class.module.methods.put(backtrace_sym, value.MethodEntry.builtin(&builtinThreadBacktrace, .{ .exact = 0 }));
+    try vm.thread_class.module.methods.put(backtrace_sym, value.MethodEntry.builtin(&builtinThreadBacktrace, .{ .variadic = 0 }));
 
     const path_sym = try vm.intern("path");
     try vm.thread_backtrace_location_class.module.methods.put(path_sym, value.MethodEntry.builtin(&builtinThreadBacktraceLocationPath, .{ .exact = 0 }));
@@ -749,31 +749,14 @@ fn builtinThreadInspect(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMEr
 }
 
 fn builtinThreadBacktrace(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
-    try vm.requireArgCount(args, 0);
+    try vm.requireArgCountRange(args, 0, 2);
     const thread = receiver.toThreadObject();
-
-    if (thread.waiting_on_require) {
-        const arr = try vm.createArray();
-        arr.elements.append(vm.gc_allocator, try vm.newString("require", false)) catch return error.Fatal;
-        if (try vm.captureThreadBacktrace(thread)) |backtrace| {
-            for (backtrace.elements.items) |entry| {
-                arr.elements.append(vm.gc_allocator, entry) catch return error.Fatal;
-            }
-        }
-        return Value.fromObject(&arr.object);
-    }
-
-    if (thread.state == .terminated) {
-        if (thread.exception) |exc| {
-            if (exc.backtrace) |backtrace| return Value.fromObject(&backtrace.object);
-        }
-        return Value.nil();
-    }
-
-    if (try vm.captureThreadBacktrace(thread)) |backtrace| {
-        return Value.fromObject(&backtrace.object);
-    }
-    return Value.nil();
+    if (thread.state == .terminated) return Value.nil();
+    return kernel_builtin.backtraceForFrames(vm, vm.threadBacktraceFrames(thread), args, .{
+        .default_start = 0,
+        .include_builtin_prefix = true,
+        .locations = false,
+    });
 }
 
 fn builtinThreadEachCallerLocation(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {

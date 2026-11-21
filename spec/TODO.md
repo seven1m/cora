@@ -2218,7 +2218,7 @@ Source baseline: ../ruby_spec compared to local spec/
 
 ### core/thread
 - [ ] core/thread/backtrace_locations_spec.rb
-- [ ] core/thread/backtrace_spec.rb
+- [x] core/thread/backtrace_spec.rb
 - [x] core/thread/current_spec.rb
 - [x] core/thread/each_caller_location_spec.rb
 - [x] core/thread/element_reference_spec.rb

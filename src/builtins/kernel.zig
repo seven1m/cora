@@ -1539,27 +1539,19 @@ fn callerSliceIntegerArg(vm: *VM, value_arg: Value) VMError!i64 {
 fn planCallerSliceStartLength(vm: *VM, frame_count: usize, start_value: Value, length_value: ?Value) VMError!CallerSlicePlan {
     const frame_count_i64: i64 = @intCast(frame_count);
     const start = try callerSliceIntegerArg(vm, start_value);
-    if (start < 0) {
-        return vm.raiseExceptionFmt(vm.argument_error_class, "negative level ({d})", .{start});
+    if (start < 0) return vm.raiseExceptionFmt(vm.argument_error_class, "negative level ({d})", .{start});
+    const length = if (length_value) |raw_length|
+        if (raw_length.isNil()) null else try callerSliceIntegerArg(vm, raw_length)
+    else
+        null;
+    if (length) |size| {
+        if (size < 0) return vm.raiseExceptionFmt(vm.argument_error_class, "negative size ({d})", .{size});
     }
-
     if (start > frame_count_i64) return .nil_result;
-
-    if (length_value) |raw_length| {
-        const length = try callerSliceIntegerArg(vm, raw_length);
-        if (length < 0) {
-            return vm.raiseExceptionFmt(vm.argument_error_class, "negative size ({d})", .{length});
-        }
-        const remaining = frame_count_i64 - start;
-        return .{ .span = .{
-            .start = @intCast(start),
-            .count = @intCast(@min(length, remaining)),
-        } };
-    }
-
+    const remaining = frame_count_i64 - start;
     return .{ .span = .{
         .start = @intCast(start),
-        .count = @intCast(frame_count_i64 - start),
+        .count = @intCast(if (length) |size| @min(size, remaining) else remaining),
     } };
 }
 
@@ -1621,7 +1613,10 @@ fn appendCallerEntry(
     entry: BacktraceLocation,
     next_frame: ?BacktraceLocation,
 ) VMError!void {
-    const label = try callerFrameLabel(vm, entry.frame, if (next_frame) |next| next.frame else null);
+    const label = if (entry.frame.frame_type == .builtin)
+        entry.frame.method_name orelse entry.frame.chunk.name
+    else
+        try callerFrameLabel(vm, entry.frame, if (next_frame) |next| next.frame else null);
 
     const backtrace_str = std.fmt.allocPrint(
         vm.gc_allocator,
@@ -1644,43 +1639,28 @@ fn appendCallerLocationEntry(
 }
 
 fn builtinKernelCaller(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
-    try vm.requireArgCountRange(args, 0, 2);
-
-    var frames = try collectBacktraceLocations(vm);
-    defer frames.deinit(vm.gc_allocator);
-    const frame_start = backtraceLocationStart(frames.items);
-    const caller_frames = frames.items[frame_start..];
-
-    const plan = if (args.len == 0)
-        try planCallerSliceStartLength(vm, caller_frames.len, Value.integer(1), null)
-    else if (args.len == 1 and args[0].isRange())
-        try planCallerSliceRange(vm, caller_frames.len, args[0].toRangeObject())
-    else
-        try planCallerSliceStartLength(vm, caller_frames.len, args[0], if (args.len == 2) args[1] else null);
-
-    switch (plan) {
-        .nil_result => return Value.nil(),
-        .span => |span| {
-            const result = try vm.createArray();
-            var idx = span.start;
-            const end = span.start + span.count;
-            while (idx < end) : (idx += 1) {
-                const next_frame = if (idx + 1 < caller_frames.len) caller_frames[idx + 1] else null;
-                try appendCallerEntry(vm, result, caller_frames[idx], next_frame);
-            }
-            return Value.fromObject(&result.object);
-        },
-    }
+    return backtraceForFrames(vm, vm.frames.items, args, .{ .locations = false });
 }
 
 pub fn callerLocationsForFrames(vm: *VM, source_frames: []const vm_mod.CallFrame, args: []Value) VMError!Value {
+    return backtraceForFrames(vm, source_frames, args, .{});
+}
+
+pub const BacktraceOptions = struct {
+    default_start: i64 = 1,
+    include_builtin_prefix: bool = false,
+    locations: bool = true,
+};
+
+pub fn backtraceForFrames(vm: *VM, source_frames: []const vm_mod.CallFrame, args: []Value, options: BacktraceOptions) VMError!Value {
+    try vm.requireArgCountRange(args, 0, 2);
     var frames = try collectBacktraceLocationsFromFrames(vm, source_frames);
     defer frames.deinit(vm.gc_allocator);
-    const frame_start = backtraceLocationStart(frames.items);
+    const frame_start = if (options.include_builtin_prefix) 0 else backtraceLocationStart(frames.items);
     const caller_frames = frames.items[frame_start..];
 
     const plan = if (args.len == 0)
-        try planCallerSliceStartLength(vm, caller_frames.len, Value.integer(1), null)
+        try planCallerSliceStartLength(vm, caller_frames.len, Value.integer(options.default_start), null)
     else if (args.len == 1 and args[0].isRange())
         try planCallerSliceRange(vm, caller_frames.len, args[0].toRangeObject())
     else
@@ -1694,7 +1674,10 @@ pub fn callerLocationsForFrames(vm: *VM, source_frames: []const vm_mod.CallFrame
             const end = span.start + span.count;
             while (idx < end) : (idx += 1) {
                 const next_frame = if (idx + 1 < caller_frames.len) caller_frames[idx + 1] else null;
-                try appendCallerLocationEntry(vm, result, caller_frames[idx], next_frame);
+                if (options.locations)
+                    try appendCallerLocationEntry(vm, result, caller_frames[idx], next_frame)
+                else
+                    try appendCallerEntry(vm, result, caller_frames[idx], next_frame);
             }
             return Value.fromObject(&result.object);
         },

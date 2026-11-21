@@ -14796,8 +14796,11 @@ pub const VM = struct {
         }
     }
 
-    pub fn captureThreadBacktrace(self: *VM, thread: *value.ThreadObject) VMError!?*value.ArrayObject {
-        return self.captureBacktraceFromFrames(thread.frames.items);
+    pub fn threadBacktraceFrames(self: *VM, thread: *value.ThreadObject) []const CallFrame {
+        if (self.current_thread == thread) return self.frames.items;
+        const fiber = thread.current_fiber orelse return thread.frames.items;
+        if (self.threadStorageForFiber(fiber) != null) return thread.frames.items;
+        return fiber.frames.items;
     }
 
     pub fn backtraceLineForFrame(_: *VM, frame: *const CallFrame) u32 {
