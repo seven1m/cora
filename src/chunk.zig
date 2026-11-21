@@ -109,6 +109,7 @@ pub const BacktraceContext = struct {
     kind: Kind = .top,
     name: []const u8 = "<main>",
     block_depth: u32 = 0,
+    base_name: ?[]const u8 = null,
 };
 
 pub const Chunk = struct {
@@ -172,7 +173,10 @@ pub const Chunk = struct {
     }
 
     pub fn deinit(self: *Chunk) void {
-        if (self.backtrace_name_owned) self.allocator.free(self.backtrace_context.name);
+        if (self.backtrace_name_owned) {
+            self.allocator.free(self.backtrace_context.name);
+            if (self.backtrace_context.base_name) |base_name| self.allocator.free(base_name);
+        }
         if (self.name_owned) {
             self.allocator.free(self.name);
         }
@@ -227,9 +231,15 @@ pub const Chunk = struct {
 
     pub fn setBacktraceContext(self: *Chunk, context: BacktraceContext) !void {
         const name = try self.allocator.dupe(u8, context.name);
-        if (self.backtrace_name_owned) self.allocator.free(self.backtrace_context.name);
+        errdefer self.allocator.free(name);
+        const base_name = if (context.base_name) |base| try self.allocator.dupe(u8, base) else null;
+        if (self.backtrace_name_owned) {
+            self.allocator.free(self.backtrace_context.name);
+            if (self.backtrace_context.base_name) |old_base| self.allocator.free(old_base);
+        }
         self.backtrace_context = context;
         self.backtrace_context.name = name;
+        self.backtrace_context.base_name = base_name;
         self.backtrace_name_owned = true;
     }
 

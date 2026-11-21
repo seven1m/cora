@@ -11577,6 +11577,7 @@ pub const VM = struct {
         path: []const u8,
         lineno: u32,
         label: []const u8,
+        base_label: []const u8,
     ) VMError!Value {
         const location = try self.newObjectForClass(self.thread_backtrace_location_class);
         const path_value = try self.newString(path, false);
@@ -11590,6 +11591,7 @@ pub const VM = struct {
         try self.setInstanceVariable(location, "@path", path_value);
         try self.setInstanceVariable(location, "@absolute_path", path_value);
         try self.setInstanceVariable(location, "@label", label_value);
+        try self.setInstanceVariable(location, "@base_label", try self.newString(base_label, false));
         try self.setInstanceVariable(location, "@lineno", Value.integer(@intCast(lineno)));
         try self.setInstanceVariable(location, "@to_s", rendered_value);
         return location;
@@ -14158,6 +14160,8 @@ pub const VM = struct {
         const current_ep = binding.ep.?;
         binding.backtrace_context = try self.frameBacktraceContext(frame);
         binding.backtrace_context.name = self.gc_allocator.dupe(u8, binding.backtrace_context.name) catch return error.Fatal;
+        if (binding.backtrace_context.base_name) |base_name|
+            binding.backtrace_context.base_name = self.gc_allocator.dupe(u8, base_name) catch return error.Fatal;
         if (CallFrame.usesEnclosingMethodContext(frame.frame_type)) {
             if (enclosingMethodEnvironment(frame)) |outer| {
                 try self.addBindingLocalScope(binding, outer.ep, outer.context.chunk.local_names.items);
@@ -14692,9 +14696,22 @@ pub const VM = struct {
         return std.fmt.allocPrint(self.gc_allocator, "{s}#{s}", .{ owner_name, name }) catch return error.Fatal;
     }
 
+    pub fn frameBacktraceBaseLabel(self: *VM, frame: *const CallFrame) VMError![]const u8 {
+        if (frame.method_name) |name| {
+            if (frame.frame_type != .synthetic) return name;
+        }
+        const context = frame.chunk.backtrace_context;
+        return switch (context.kind) {
+            .method => context.name,
+            .module_body => std.fmt.allocPrint(self.gc_allocator, "<module:{s}>", .{context.name}) catch return error.Fatal,
+            .class_body => std.fmt.allocPrint(self.gc_allocator, "<class:{s}>", .{context.name}) catch return error.Fatal,
+            .singleton_body, .top => context.base_name orelse context.name,
+        };
+    }
+
     pub fn frameBacktraceContext(self: *VM, frame: *const CallFrame) VMError!chunk.BacktraceContext {
         if (frame.method_name) |name| {
-            if (frame.frame_type != .synthetic) return .{ .name = try self.methodBacktraceLabel(name, frame.super_defining_node) };
+            if (frame.frame_type != .synthetic) return .{ .name = try self.methodBacktraceLabel(name, frame.super_defining_node), .base_name = name };
         }
         const context = frame.chunk.backtrace_context;
         const base = switch (context.kind) {
@@ -14706,7 +14723,7 @@ pub const VM = struct {
             .class_body => std.fmt.allocPrint(self.gc_allocator, "<class:{s}>", .{context.name}) catch return error.Fatal,
             .singleton_body, .top => context.name,
         };
-        return .{ .name = base, .block_depth = context.block_depth };
+        return .{ .name = base, .block_depth = context.block_depth, .base_name = try self.frameBacktraceBaseLabel(frame) };
     }
 
     pub fn frameBacktraceLabel(self: *VM, frame: *const CallFrame) VMError![]const u8 {
@@ -14803,7 +14820,7 @@ pub const VM = struct {
                     "<main>"
             else
                 "<main>";
-            const location = try self.newBacktraceLocation(source, self.backtraceLineForFrame(frame), label);
+            const location = try self.newBacktraceLocation(source, self.backtraceLineForFrame(frame), label, try self.frameBacktraceBaseLabel(frame));
             result.elements.append(self.gc_allocator, location) catch return error.Fatal;
         }
         return result;

@@ -811,20 +811,7 @@ fn builtinThreadBacktraceLocationLabel(vm: *VM, receiver: Value, args: []Value, 
 
 fn builtinThreadBacktraceLocationBaseLabel(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
-    const label = try vm.getInstanceVariable(receiver, "@label");
-    const label_string = label.toStringObject().str;
-    const stripped = if (std.mem.startsWith(u8, label_string, "block in "))
-        label_string["block in ".len..]
-    else
-        label_string;
-    const hash_idx = std.mem.lastIndexOfScalar(u8, stripped, '#');
-    const dot_idx = std.mem.lastIndexOfScalar(u8, stripped, '.');
-    const split_idx = if (hash_idx != null and dot_idx != null)
-        @max(hash_idx.?, dot_idx.?)
-    else
-        hash_idx orelse dot_idx;
-    const base = if (split_idx) |idx| stripped[idx + 1 ..] else stripped;
-    return try vm.newString(base, false);
+    return try vm.getInstanceVariable(receiver, "@base_label");
 }
 
 fn builtinThreadBacktraceLocationLineno(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {

@@ -160,7 +160,9 @@ test "Binding retains lexical backtrace labels after eval compilation and GC" {
         \\GC.start
         \\code = 'caller_locations(0, 1)[0].label'
         \\expected = 'block in LabelBindingFixture.capture'
-        \\original.eval(code) == expected && copy.eval(code) == expected && eval(code, copy) == expected
+        \\base_code = 'caller_locations(0, 1)[0].base_label'
+        \\original.eval(code) == expected && copy.eval(code) == expected && eval(code, copy) == expected &&
+        \\  original.eval(base_code) == 'capture' && copy.eval(base_code) == 'capture'
     );
     try std.testing.expect(result.isTruthy());
 }

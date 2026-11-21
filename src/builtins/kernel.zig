@@ -1609,7 +1609,7 @@ fn appendCallerLocationEntry(
     entry: BacktraceLocation,
 ) VMError!void {
     const label = try vm.frameBacktraceLabel(entry.frame);
-    const location = try vm.newBacktraceLocation(entry.source, entry.line, label);
+    const location = try vm.newBacktraceLocation(entry.source, entry.line, label, try vm.frameBacktraceBaseLabel(entry.frame));
     result.elements.append(vm.gc_allocator, location) catch return error.Fatal;
 }
 
