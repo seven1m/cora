@@ -2099,7 +2099,7 @@ pub fn builtinKernelCatch(vm: *VM, _: Value, args: []Value, block: ?Block) VMErr
     try vm.requireArgCountRange(args, 0, 1);
 
     const blk = block orelse {
-        return vm.raiseExceptionFmt(vm.local_jump_error_class, "no block given", .{});
+        return vm.raiseLocalJumpError("no block given", Value.nil(), "noreason");
     };
     const tag = if (args.len == 1) args[0] else try vm.newInstance(vm.object_class);
 
@@ -2180,7 +2180,7 @@ pub fn builtinKernelSleep(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!V
 pub fn builtinKernelTap(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
     const blk = block orelse {
-        return vm.raiseExceptionFmt(vm.local_jump_error_class, "no block given", .{});
+        return vm.raiseLocalJumpError("no block given", Value.nil(), "noreason");
     };
     _ = try vm.yieldToBlock(blk, &[_]Value{receiver});
     return receiver;

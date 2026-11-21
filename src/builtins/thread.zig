@@ -276,7 +276,7 @@ fn builtinThreadKillClass(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!V
 
 fn builtinThreadHandleInterrupt(vm: *VM, _: Value, args: []Value, block: ?Block) VMError!Value {
     try vm.requireArgCount(args, 1);
-    const blk = block orelse return vm.raiseExceptionFmt(vm.local_jump_error_class, "no block given", .{});
+    const blk = block orelse return vm.raiseLocalJumpError("no block given", Value.nil(), "noreason");
     if (!args[0].isHash()) {
         return vm.raiseExceptionFmt(vm.type_error_class, "wrong argument type {s} (expected Hash)", .{vm.className(args[0])});
     }
@@ -797,7 +797,7 @@ fn builtinThreadEachCallerLocation(vm: *VM, receiver: Value, args: []Value, bloc
         const name = try vm.callMethodByName(first, "inspect", &.{}, null);
         return vm.raiseExceptionFmt(vm.argument_error_class, "unknown keyword: {s}", .{name.toStringObject().str});
     }
-    const blk = block orelse return vm.raiseExceptionFmt(vm.local_jump_error_class, "no block given", .{});
+    const blk = block orelse return vm.raiseLocalJumpError("no block given", Value.nil(), "noreason");
 
     const enumerator_block = switch (blk.kind) {
         .receiver_builtin => true,

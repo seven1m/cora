@@ -201,7 +201,7 @@ fn builtinWeakMapEach(vm: *VM, receiver: Value, args: []Value, block: ?Block) VM
     const wm = receiver.toWeakMapObject();
     const blk = block orelse {
         if (wm.keys.items.len == 0) return receiver;
-        return vm.raiseExceptionFmt(vm.local_jump_error_class, "no block given", .{});
+        return vm.raiseLocalJumpError("no block given", Value.nil(), "noreason");
     };
     for (wm.keys.items, wm.values.items) |key, val| {
         _ = try vm.yieldToBlock(blk, &.{ key, val });
@@ -214,7 +214,7 @@ fn builtinWeakMapEachKey(vm: *VM, receiver: Value, args: []Value, block: ?Block)
     const wm = receiver.toWeakMapObject();
     const blk = block orelse {
         if (wm.keys.items.len == 0) return receiver;
-        return vm.raiseExceptionFmt(vm.local_jump_error_class, "no block given", .{});
+        return vm.raiseLocalJumpError("no block given", Value.nil(), "noreason");
     };
     for (wm.keys.items) |key| {
         _ = try vm.yieldToBlock(blk, &.{key});
@@ -227,7 +227,7 @@ fn builtinWeakMapEachValue(vm: *VM, receiver: Value, args: []Value, block: ?Bloc
     const wm = receiver.toWeakMapObject();
     const blk = block orelse {
         if (wm.keys.items.len == 0) return receiver;
-        return vm.raiseExceptionFmt(vm.local_jump_error_class, "no block given", .{});
+        return vm.raiseLocalJumpError("no block given", Value.nil(), "noreason");
     };
     for (wm.values.items) |val| {
         _ = try vm.yieldToBlock(blk, &.{val});

@@ -433,6 +433,8 @@ pub const ExceptionObject = struct {
     receiver: ?Value = null,
     key: ?Value = null,
     path: ?*StringObject = null,
+    exit_value: Value = Value.nil(),
+    jump_reason: ?*SymbolObject = null,
 };
 
 pub const MethodObject = struct {

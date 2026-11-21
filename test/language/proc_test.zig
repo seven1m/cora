@@ -495,3 +495,25 @@ test "deep recursive lambda call (stack depth stress test)" {
     try std.testing.expect(result.isInteger());
     try std.testing.expectEqual(@as(i64, 0), result.toInteger());
 }
+
+test "LocalJumpError preserves exit value and reason" {
+    const result = try evalCode(
+        \\def make_return
+        \\  proc { return :late }
+        \\end
+        \\def no_block
+        \\  yield
+        \\end
+        \\errors = []
+        \\[make_return, proc { break [1, 2] }, proc { no_block }].each do |action|
+        \\  begin
+        \\    action.call
+        \\  rescue LocalJumpError => e
+        \\    errors << [e.exit_value, e.reason, e.dup.exit_value, e.exception("copy").reason]
+        \\  end
+        \\end
+        \\errors == [[:late, :return, :late, :return], [[1, 2], :break, [1, 2], :break], [nil, :noreason, nil, :noreason]] &&
+        \\  LocalJumpError.new.exit_value.nil? && LocalJumpError.new.reason.nil?
+    );
+    try std.testing.expect(result.isTruthy());
+}

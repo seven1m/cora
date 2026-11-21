@@ -634,7 +634,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] core/exception/equal_value_spec.rb
 - [ ] core/exception/errno_spec.rb
 - [ ] core/exception/exception_spec.rb
-- [ ] core/exception/exit_value_spec.rb
+- [x] core/exception/exit_value_spec.rb
 - [ ] core/exception/frozen_error_spec.rb
 - [ ] core/exception/full_message_spec.rb
 - [x] core/exception/hierarchy_spec.rb
@@ -648,7 +648,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] core/exception/name_spec.rb
 - [x] core/exception/new_spec.rb
 - [ ] core/exception/no_method_error_spec.rb
-- [ ] core/exception/reason_spec.rb
+- [x] core/exception/reason_spec.rb
 - [x] core/exception/receiver_spec.rb
 - [ ] core/exception/result_spec.rb
 - [ ] core/exception/set_backtrace_spec.rb

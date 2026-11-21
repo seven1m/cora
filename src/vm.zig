@@ -2328,13 +2328,21 @@ pub const VM = struct {
         }
     }
 
+    pub fn raiseLocalJumpError(self: *VM, message: []const u8, result: Value, reason: []const u8) VMError {
+        const exc = self.createException(self.local_jump_error_class, message) catch return error.Fatal;
+        exc.exit_value = result;
+        exc.jump_reason = self.intern(reason) catch return error.Fatal;
+        self.setPendingException(exc);
+        return error.Unwind;
+    }
+
     fn startNonLocalReturn(self: *VM, frame_type: CallFrame.FrameType, source_ep: [*]Value, result: Value) VMError!void {
         if (frame_type == .fiber) {
-            return self.raiseExceptionFmt(self.local_jump_error_class, "return from fiber", .{});
+            return self.raiseLocalJumpError("return from fiber", result, "return");
         }
 
         const target_frame = self.findActiveNonLocalReturnTarget(source_ep) orelse {
-            return self.raiseExceptionFmt(self.local_jump_error_class, "unexpected return", .{});
+            return self.raiseLocalJumpError("unexpected return", result, "return");
         };
 
         self.setPendingControlFlow(.{
@@ -7452,9 +7460,7 @@ pub const VM = struct {
                 }
 
                 const target = self.findActiveBreakTarget(current_frame) orelse {
-                    const exc = try self.createException(self.local_jump_error_class, "break from proc-closure");
-                    self.setPendingException(exc);
-                    return error.Unwind;
+                    return self.raiseLocalJumpError("break from proc-closure", result, "break");
                 };
                 self.setPendingControlFlow(.{
                     .kind = .break_,
@@ -9571,7 +9577,7 @@ pub const VM = struct {
     }
 
     fn requireYieldBlock(self: *VM, block: ?Block) VMError!Block {
-        return block orelse return self.raiseExceptionFmt(self.local_jump_error_class, "no block given (yield)", .{});
+        return block orelse return self.raiseLocalJumpError("no block given (yield)", Value.nil(), "noreason");
     }
 
     /// Ruby-level equality helper using `==`.

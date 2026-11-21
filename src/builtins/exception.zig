@@ -9,6 +9,9 @@ const Block = vm_mod.Block;
 const Value = value.Value;
 
 pub fn register(vm: *VM) !void {
+    try vm.local_jump_error_class.module.methods.put(try vm.intern("exit_value"), value.MethodEntry.builtin(&builtinLocalJumpErrorExitValue, .{ .exact = 0 }));
+    try vm.local_jump_error_class.module.methods.put(try vm.intern("reason"), value.MethodEntry.builtin(&builtinLocalJumpErrorReason, .{ .exact = 0 }));
+
     const exception_class_val = Value.fromObject(&vm.exception_class.module.object);
     const exception_singleton = try vm.getOrCreateSingletonClass(exception_class_val);
 
@@ -130,6 +133,8 @@ pub fn builtinExceptionInitializeCopy(vm: *VM, receiver: Value, args: []Value, _
     dst.receiver = src.receiver;
     dst.key = src.key;
     dst.path = src.path;
+    dst.exit_value = src.exit_value;
+    dst.jump_reason = src.jump_reason;
     return receiver;
 }
 
@@ -150,6 +155,8 @@ pub fn builtinExceptionInstanceException(vm: *VM, receiver: Value, args: []Value
     const exc = receiver.toExceptionObject();
     const msg = try args[0].coerceToStr(vm, "no implicit conversion into String");
     const copy = try vm.createExceptionWithoutBacktrace(exc.object.class.?, msg);
+    copy.exit_value = exc.exit_value;
+    copy.jump_reason = exc.jump_reason;
     const copy_val = Value.fromObject(&copy.object);
 
     const ivar_names = try vm.getInstanceVariableNames(receiver);
@@ -449,4 +456,13 @@ pub fn builtinNameErrorReceiver(vm: *VM, receiver: Value, args: []Value, _: ?Blo
         return recv;
     }
     return vm.raiseExceptionFmt(vm.argument_error_class, "no receiver is available", .{});
+}
+
+fn builtinLocalJumpErrorExitValue(_: *VM, receiver: Value, _: []Value, _: ?Block) VMError!Value {
+    return receiver.toExceptionObject().exit_value;
+}
+
+fn builtinLocalJumpErrorReason(_: *VM, receiver: Value, _: []Value, _: ?Block) VMError!Value {
+    const reason = receiver.toExceptionObject().jump_reason orelse return Value.nil();
+    return Value.fromObject(&reason.object);
 }
