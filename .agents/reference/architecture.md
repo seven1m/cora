@@ -47,6 +47,11 @@ Prefer not to add new opcodes when an existing mechanism can be extended. When a
 
 **Builtin keyword contexts:** The context header, copied keyword keys/values, and consumption flags share one GC-scanned allocation sized to the actual keyword count. Contexts can survive nested callbacks and coroutine suspension through saved call state; their storage must not borrow temporary argument buffers.
 
+**Object classes:** The shared Object header permits a temporarily absent class
+while Class and Symbol are bootstrapped. All published runtime objects have a
+class, including unstarted Threads and Hash subclasses. Readers unwrap that
+invariant; they must not silently substitute Thread, Hash, or another base class.
+
 **Value types:** Primitives include integer, float, boolean, and nil. Heap-allocated types include object instances, symbols, strings, modules, classes, arrays, hashes, ranges, exceptions, procs, fibers, regexps, and encodings.
 
 **Blocks, procs, and lambdas:** All are compiled into separate bytecode chunks with arity and parameter metadata. `is_lambda` distinguishes lambda versus proc/block semantics. `YIELD` executes the block passed to the current method. `PUSH_LAMBDA` creates a `ProcObject` wrapping a `Block` (`chunk` + `defining_ep`). Blocks capture through the environment parent chain. Escaping blocks promote captured environments from stack to heap.

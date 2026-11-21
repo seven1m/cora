@@ -788,7 +788,7 @@ pub fn threadDescription(vm: *VM, thread: *value.ThreadObject) VMError!Value {
     };
     const description = try vm.newStringWithEncoding("#<", false, .{ .ascii_8bit = .{} });
     const out = description.toStringObject();
-    const class = thread.object.class orelse vm.thread_class;
+    const class = thread.object.class.?;
     if (class.module.classpath) |path|
         try string_builtin.appendEncodedBytes(vm, out, path.str, path.encoding)
     else

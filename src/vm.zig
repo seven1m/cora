@@ -8852,7 +8852,7 @@ pub const VM = struct {
     }
 
     pub fn copyHashObject(self: *VM, source: *const value.HashObject) VMError!*value.HashObject {
-        const copied_value = try self.newObjectForClass(source.object.class orelse self.hash_class);
+        const copied_value = try self.newObjectForClass(source.object.class.?);
         const copied = copied_value.toHashObject();
         try self.copyHashInto(copied, source, true);
         return copied;

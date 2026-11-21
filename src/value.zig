@@ -86,6 +86,8 @@ pub const Object = struct {
 
     type_tag: ObjectTypeTag,
     flags: u32,
+    // Nullable during staged class/symbol bootstrap only. Published Ruby
+    // objects must have a class; consumers must not substitute a base class.
     class: ?*ClassObject,
     singleton_class: ?*ClassObject,
     instance_variables: ?std.array_hash_map.Auto(*SymbolObject, Value),
