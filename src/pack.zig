@@ -84,6 +84,7 @@ pub fn arrayPack(vm: *VM, items: []Value, format: []const u8, buffer: ?Value) VM
             'm', 'u' => try packEncodedTextDirective(vm, items, &arg_index, token, &out),
             'M' => try packQuotedPrintableDirective(vm, items, &arg_index, token, &out),
             'U' => try packUnicodeDirective(vm, items, &arg_index, token, &out),
+            'w' => try packVariableIntegerDirective(vm, items, &arg_index, token, &out),
             'p', 'P' => try packPointerDirective(vm, items, &arg_index, token, &out, &packed_pointer_entries),
             'x' => {
                 if (!token.star) {
@@ -141,6 +142,31 @@ pub fn arrayPack(vm: *VM, items: []Value, format: []const u8, buffer: ?Value) VM
         try vm.registerPackedPointerTarget(packed_obj, entry.offset, entry.target);
     }
     return packed_value;
+}
+
+fn packVariableIntegerDirective(vm: *VM, items: []Value, arg_index: *usize, token: DirectiveToken, out: *std.ArrayList(u8)) VMError!void {
+    const count = if (token.star) items.len - arg_index.* else token.count orelse 1;
+    for (0..count) |_| {
+        if (arg_index.* >= items.len) return vm.raiseExceptionFmt(vm.argument_error_class, "too few arguments", .{});
+        const integer = try items[arg_index.*].coerceToIntegerValue(vm, "no implicit conversion into Integer", "can't convert to Integer (to_int gives non-Integer)");
+        arg_index.* += 1;
+        var number = try integer.integerToManaged(vm);
+        defer number.deinit();
+        if (!number.isPositive()) return vm.raiseExceptionFmt(vm.argument_error_class, "can't compress negative numbers", .{});
+        const bit_count = number.bitCountAbs();
+        const groups = @max(1, (bit_count + 6) / 7);
+        const raw = vm.allocator.alloc(u8, (groups * 7 + 7) / 8) catch return error.Fatal;
+        defer vm.allocator.free(raw);
+        number.toConst().writeTwosComplement(raw, .little);
+        for (0..groups) |i| {
+            const offset = (groups - 1 - i) * 7;
+            const byte_index = offset / 8;
+            const word = @as(u16, raw[byte_index]) | (if (byte_index + 1 < raw.len) @as(u16, raw[byte_index + 1]) << 8 else 0);
+            var payload: u8 = @intCast((word >> @as(u4, @intCast(offset % 8))) & 0x7f);
+            if (i + 1 < groups) payload |= 0x80;
+            out.append(vm.allocator, payload) catch return error.Fatal;
+        }
+    }
 }
 
 fn packUnicodeDirective(
