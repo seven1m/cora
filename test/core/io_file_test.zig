@@ -1081,3 +1081,23 @@ test "StringIO initialize returns self for subclasses and integer modes" {
     );
     try std.testing.expect(result.isTruthy());
 }
+
+test "IO read consumes bytes buffered by gets" {
+    const result = try evalCode(
+        \\reader, writer = IO.pipe
+        \\begin
+        \\  writer.write("header\nbodytail\nrest")
+        \\  writer.close
+        \\  [reader.gets, reader.read(4), reader.gets, reader.read]
+        \\ensure
+        \\  reader.close
+        \\  writer.close unless writer.closed?
+        \\end
+    );
+    const items = result.toArrayObject().elements.items;
+    try std.testing.expectEqual(@as(usize, 4), items.len);
+    try std.testing.expectEqualStrings("header\n", items[0].toStringObject().str);
+    try std.testing.expectEqualStrings("body", items[1].toStringObject().str);
+    try std.testing.expectEqualStrings("tail\n", items[2].toStringObject().str);
+    try std.testing.expectEqualStrings("rest", items[3].toStringObject().str);
+}

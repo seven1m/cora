@@ -2267,6 +2267,18 @@ fn ioWriteValue(vm: *VM, receiver: Value, io: *IoObject, arg: Value) VMError!usi
 }
 
 fn blockingIoRead(vm: *VM, io: *IoObject, buf: []u8) VMError!usize {
+    // Line reads may have already fetched bytes beyond the separator.
+    // Consume those bytes before waiting for more data from the descriptor.
+    if (io.read_buf_avail > io.read_buf_offset) {
+        const n = @min(buf.len, io.read_buf_avail - io.read_buf_offset);
+        @memcpy(buf[0..n], io.read_buf.?[io.read_buf_offset..][0..n]);
+        io.read_buf_offset += n;
+        if (io.read_buf_offset == io.read_buf_avail) {
+            io.read_buf_offset = 0;
+            io.read_buf_avail = 0;
+        }
+        return n;
+    }
     const fd: std.posix.fd_t = @intCast(io.fd);
     while (true) {
         try vm.checkAsyncEvents();
