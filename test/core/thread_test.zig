@@ -904,3 +904,15 @@ test "Thread#fetch preserves coerced keys and current fiber storage" {
     );
     try std.testing.expect(result.isTruthy());
 }
+
+test "Thread native IDs follow the OS thread across coroutine handoffs" {
+    const result = try evalCode(
+        \\main_id = Thread.current.native_thread_id
+        \\worker_id = Thread.new { Fiber.new { Thread.current.native_thread_id }.resume }.value
+        \\[main_id, worker_id]
+    );
+    const ids = result.toArrayObject().elements.items;
+    const expected: i64 = @intCast(std.Thread.getCurrentId());
+    try std.testing.expectEqual(expected, ids[0].toInteger());
+    try std.testing.expectEqual(expected, ids[1].toInteger());
+}

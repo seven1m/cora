@@ -138,6 +138,9 @@ pub fn register(vm: *VM) !void {
     const priority_set_sym = try vm.intern("priority=");
     try vm.thread_class.module.methods.put(priority_set_sym, value.MethodEntry.builtin(&builtinThreadPrioritySet, .{ .exact = 1 }));
 
+    const native_thread_id_sym = try vm.intern("native_thread_id");
+    try vm.thread_class.module.methods.put(native_thread_id_sym, value.MethodEntry.builtin(&builtinThreadNativeThreadId, .{ .exact = 0 }));
+
     const inspect_sym = try vm.intern("inspect");
     const inspect_entry = value.MethodEntry.builtin(&builtinThreadInspect, .{ .exact = 0 });
     try vm.thread_class.module.methods.put(inspect_sym, inspect_entry);
@@ -773,6 +776,15 @@ fn builtinThreadPrioritySet(vm: *VM, receiver: Value, args: []Value, _: ?Block) 
     const prio = args[0].toInteger();
     thread.priority = @intCast(std.math.clamp(prio, -3, 3));
     return args[0];
+}
+
+fn builtinThreadNativeThreadId(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    // The M:N scheduler associates its single native thread only with the
+    // currently executing Ruby thread. Parked threads have no native owner.
+    const thread = receiver.toThreadObject();
+    if (vm.current_thread != thread or thread.state == .terminated) return Value.nil();
+    return Value.integer(@intCast(std.Thread.getCurrentId()));
 }
 
 fn builtinThreadInspect(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
