@@ -2133,7 +2133,11 @@ pub fn builtinModuleAliasMethod(vm: *VM, receiver: Value, args: []Value, _: ?Blo
         .found => |found| {
             var alias_entry = found.resolved.entry;
             if (alias_entry.original_name == null) alias_entry.original_name = old_name_sym;
-            if (alias_entry.original_defining_node == null) {
+            // A local alias uses this owner's inclusion node at lookup time.
+            // Recording the bare module here would detach captured Method
+            // metadata from the receiver's actual chain. Only inherited aliases
+            // need an explicit origin from a different owner.
+            if (alias_entry.original_defining_node == null and found.owner.raw != receiver.raw) {
                 alias_entry.original_defining_node = found.resolved.defining_node;
             }
             alias_entry.visibility = vm_mod.methodDefinitionVisibility(new_name_str, alias_entry.visibility);

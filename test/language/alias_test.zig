@@ -342,3 +342,26 @@ test "undef keyword and undef_method reject an existing undefined barrier" {
     );
     for (result.toArrayObject().elements.items) |value| try std.testing.expect(value.isTrue());
 }
+
+test "local module aliases capture the receiver inclusion node" {
+    const result = try evalCode(
+        \\module LocalModuleAlias
+        \\  def answer; super; end
+        \\  alias keyword_copy answer
+        \\  alias_method :api_copy, :answer
+        \\end
+        \\class LocalModuleAliasParent
+        \\  def answer; :parent; end
+        \\end
+        \\class LocalModuleAliasChild < LocalModuleAliasParent
+        \\  include LocalModuleAlias
+        \\end
+        \\object = LocalModuleAliasChild.new
+        \\[:keyword_copy, :api_copy].map do |name|
+        \\  method = object.method(name)
+        \\  method.call == :parent && method.super_method.owner == LocalModuleAliasParent &&
+        \\    method.super_method.call == :parent
+        \\end
+    );
+    for (result.toArrayObject().elements.items) |value| try std.testing.expect(value.isTrue());
+}
