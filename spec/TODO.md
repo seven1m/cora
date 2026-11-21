@@ -147,7 +147,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] core/array/one_spec.rb
 
 ### core/array/pack
-- [ ] core/array/pack/a_spec.rb
+- [x] core/array/pack/a_spec.rb
 - [x] core/array/pack/at_spec.rb
 - [x] core/array/pack/b_spec.rb
 - [x] core/array/pack/buffer_spec.rb
