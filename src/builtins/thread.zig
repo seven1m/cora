@@ -151,6 +151,10 @@ pub fn register(vm: *VM) !void {
     const backtrace_locations_sym = try vm.intern("backtrace_locations");
     try vm.thread_class.module.methods.put(backtrace_locations_sym, value.MethodEntry.builtin(&builtinThreadBacktraceLocations, .{ .variadic = 0 }));
 
+    const backtrace_module = vm.thread_class.module.constants.get(try vm.intern("Backtrace")).?.value;
+    const backtrace_singleton = try vm.getOrCreateSingletonClass(backtrace_module);
+    try backtrace_singleton.module.methods.put(try vm.intern("limit"), value.MethodEntry.builtin(&builtinThreadBacktraceLimit, .{ .exact = 0 }));
+
     const path_sym = try vm.intern("path");
     try vm.thread_backtrace_location_class.module.methods.put(path_sym, value.MethodEntry.builtin(&builtinThreadBacktraceLocationPath, .{ .exact = 0 }));
 
@@ -807,6 +811,11 @@ pub fn threadDescription(vm: *VM, thread: *value.ThreadObject) VMError!Value {
     const suffix = std.fmt.allocPrint(vm.gc_allocator_atomic, " {s}>", .{state_str}) catch return error.Fatal;
     try out.appendBytes(vm, suffix);
     return description;
+}
+
+fn builtinThreadBacktraceLimit(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    return Value.integer(if (vm.backtrace_limit) |limit| @intCast(limit) else -1);
 }
 
 fn builtinThreadBacktrace(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {

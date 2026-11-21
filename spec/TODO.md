@@ -2203,7 +2203,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] core/thread/allocate_spec.rb
 
 ### core/thread/backtrace
-- [ ] core/thread/backtrace/limit_spec.rb
+- [x] core/thread/backtrace/limit_spec.rb
 
 ### core/thread/backtrace/location
 - [x] core/thread/backtrace/location/absolute_path_spec.rb
