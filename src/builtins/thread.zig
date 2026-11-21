@@ -303,6 +303,9 @@ fn builtinThreadHandleInterrupt(vm: *VM, _: Value, args: []Value, block: ?Block)
 
 fn builtinThreadInitialize(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
     const thread = receiver.toThreadObject();
+    if (thread.block != null or thread.state != .created) {
+        return vm.raiseExceptionFmt(vm.thread_error_class, "already initialized thread", .{});
+    }
     const blk = block orelse {
         return vm.raiseExceptionFmt(vm.thread_error_class, "must be called with a block", .{});
     };
