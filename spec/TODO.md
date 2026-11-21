@@ -2108,7 +2108,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] core/string/unpack/p_spec.rb
 - [x] core/string/unpack/percent_spec.rb
 - [x] core/string/unpack/q_spec.rb
-- [ ] core/string/unpack/r_spec.rb
+- [x] core/string/unpack/r_spec.rb
 - [x] core/string/unpack/s_spec.rb
 - [x] core/string/unpack/u_spec.rb
 - [x] core/string/unpack/v_spec.rb
