@@ -138,6 +138,9 @@ pub fn register(vm: *VM) !void {
     const backtrace_sym = try vm.intern("backtrace");
     try vm.thread_class.module.methods.put(backtrace_sym, value.MethodEntry.builtin(&builtinThreadBacktrace, .{ .variadic = 0 }));
 
+    const backtrace_locations_sym = try vm.intern("backtrace_locations");
+    try vm.thread_class.module.methods.put(backtrace_locations_sym, value.MethodEntry.builtin(&builtinThreadBacktraceLocations, .{ .variadic = 0 }));
+
     const path_sym = try vm.intern("path");
     try vm.thread_backtrace_location_class.module.methods.put(path_sym, value.MethodEntry.builtin(&builtinThreadBacktraceLocationPath, .{ .exact = 0 }));
 
@@ -749,13 +752,21 @@ fn builtinThreadInspect(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMEr
 }
 
 fn builtinThreadBacktrace(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    return threadBacktrace(vm, receiver, args, false);
+}
+
+fn builtinThreadBacktraceLocations(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    return threadBacktrace(vm, receiver, args, true);
+}
+
+fn threadBacktrace(vm: *VM, receiver: Value, args: []Value, locations: bool) VMError!Value {
     try vm.requireArgCountRange(args, 0, 2);
     const thread = receiver.toThreadObject();
     if (thread.state == .terminated) return Value.nil();
     return kernel_builtin.backtraceForFrames(vm, vm.threadBacktraceFrames(thread), args, .{
         .default_start = 0,
         .include_builtin_prefix = true,
-        .locations = false,
+        .locations = locations,
     });
 }
 
