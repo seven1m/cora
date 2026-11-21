@@ -2264,7 +2264,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] core/threadgroup/default_spec.rb
 - [ ] core/threadgroup/enclose_spec.rb
 - [ ] core/threadgroup/enclosed_spec.rb
-- [-] core/threadgroup/list_spec.rb
+- [x] core/threadgroup/list_spec.rb
 
 ### core/time
 - [ ] core/time/_dump_spec.rb
