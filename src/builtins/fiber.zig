@@ -137,7 +137,7 @@ pub fn builtinFiberYield(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Va
 
 pub fn builtinFiberResume(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     const fiber = receiver.toFiberObject();
-    const current_thread = vm.current_thread orelse try vm.ensureMainThread();
+    const current_thread = vm.current_thread.?;
     if (fiber.owner_thread) |owner_thread| {
         if (owner_thread != current_thread) {
             return raiseFiberError(vm, "fiber called across threads");
@@ -192,7 +192,7 @@ pub fn builtinFiberInspect(vm: *VM, receiver: Value, args: []Value, _: ?Block) V
 
 fn builtinFiberTransfer(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     const fiber = receiver.toFiberObject();
-    const thread = vm.current_thread orelse try vm.ensureMainThread();
+    const thread = vm.current_thread.?;
     if (fiber.owner_thread) |owner| {
         if (owner != thread) return raiseFiberError(vm, "fiber called across threads");
     }
@@ -229,7 +229,7 @@ fn builtinFiberBlocking(vm: *VM, _: Value, _: []Value, block: ?Block) VMError!Va
 }
 
 fn builtinFiberScheduler(vm: *VM, _: Value, _: []Value, _: ?Block) VMError!Value {
-    const thread = vm.current_thread orelse try vm.ensureMainThread();
+    const thread = vm.current_thread.?;
     return thread.fiber_scheduler orelse Value.nil();
 }
 
@@ -240,7 +240,7 @@ fn builtinFiberSetScheduler(vm: *VM, _: Value, args: []Value, _: ?Block) VMError
             if (!try vm.respondsToMethodByName(scheduler, name, false)) return vm.raiseExceptionFmt(vm.argument_error_class, "Scheduler must implement #{s}", .{name});
         }
     }
-    const thread = vm.current_thread orelse try vm.ensureMainThread();
+    const thread = vm.current_thread.?;
     try vm.closeFiberScheduler(thread);
     thread.fiber_scheduler = if (scheduler.isNil()) null else scheduler;
     return scheduler;
@@ -251,7 +251,7 @@ fn builtinFiberCurrentScheduler(vm: *VM, _: Value, _: []Value, _: ?Block) VMErro
 }
 
 fn builtinFiberSchedule(vm: *VM, _: Value, args: []Value, block: ?Block) VMError!Value {
-    const thread = vm.current_thread orelse try vm.ensureMainThread();
+    const thread = vm.current_thread.?;
     const scheduler = thread.fiber_scheduler orelse return vm.raiseExceptionFmt(vm.runtime_error_class, "No scheduler is available!", .{});
     return vm.callMethodByNameForwardingKeywords(scheduler, "fiber", args, block);
 }

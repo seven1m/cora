@@ -64,7 +64,6 @@ fn builtinMutexInitialize(vm: *VM, receiver: Value, args: []Value, _: ?Block) VM
 
 fn builtinMutexLock(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
-    _ = try vm.ensureMainThread();
     const mutex = receiver.toMutexObject();
 
     if (mutex.state == .locked) {
@@ -80,7 +79,6 @@ fn builtinMutexLock(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!
 
 fn builtinMutexUnlock(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
-    _ = try vm.ensureMainThread();
     const mutex = receiver.toMutexObject();
 
     if (mutex.state != .locked) {
@@ -97,14 +95,12 @@ fn builtinMutexUnlock(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMErro
 
 fn builtinMutexLockedQ(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
-    _ = try vm.ensureMainThread();
     const mutex = receiver.toMutexObject();
     return Value.boolean(mutex.state == .locked);
 }
 
 fn builtinMutexTryLock(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
-    _ = try vm.ensureMainThread();
     const mutex = receiver.toMutexObject();
 
     if (mutex.state == .locked) {
@@ -120,7 +116,6 @@ fn builtinMutexTryLock(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMErr
 
 fn builtinMutexOwnedQ(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
-    _ = try vm.ensureMainThread();
     const mutex = receiver.toMutexObject();
 
     if (mutex.state != .locked) return Value.boolean(false);
@@ -130,7 +125,6 @@ fn builtinMutexOwnedQ(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMErro
 
 fn builtinMutexSynchronize(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
-    _ = try vm.ensureMainThread();
     const blk = try vm.requireBlock(block);
 
     const mutex = receiver.toMutexObject();
@@ -155,7 +149,6 @@ fn builtinMutexSynchronize(vm: *VM, receiver: Value, args: []Value, block: ?Bloc
 
 fn builtinMutexSleep(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCountRange(args, 0, 1);
-    _ = try vm.ensureMainThread();
     const mutex = receiver.toMutexObject();
 
     var timeout: ?f64 = null;

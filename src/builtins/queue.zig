@@ -86,7 +86,6 @@ fn builtinQueueNew(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMErr
 
 fn builtinQueueInitialize(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCountRange(args, 0, 1);
-    _ = try vm.ensureMainThread();
 
     const queue = receiver.toQueueObject();
     resetQueue(queue);
@@ -116,7 +115,6 @@ fn builtinQueueInitialize(vm: *VM, receiver: Value, args: []Value, _: ?Block) VM
 
 fn builtinQueuePush(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 1);
-    _ = try vm.ensureMainThread();
 
     const queue = receiver.toQueueObject();
     if (queue.closed) {
@@ -149,7 +147,6 @@ fn builtinQueueFreeze(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMErro
 
 fn builtinSizedQueueInitialize(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 1);
-    _ = try vm.ensureMainThread();
 
     const queue = receiver.toQueueObject();
     resetQueue(queue);
@@ -159,7 +156,6 @@ fn builtinSizedQueueInitialize(vm: *VM, receiver: Value, args: []Value, _: ?Bloc
 
 fn builtinSizedQueuePush(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCountRange(args, 1, 2);
-    _ = try vm.ensureMainThread();
 
     var keyword_timeout: ?Value = null;
     try vm.consumeKeywordArgs(.{"timeout"}, .{&keyword_timeout});
@@ -269,7 +265,6 @@ fn builtinSizedQueueMaxSet(vm: *VM, receiver: Value, args: []Value, _: ?Block) V
 
 fn builtinQueuePop(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCountRange(args, 0, 1);
-    _ = try vm.ensureMainThread();
 
     var keyword_timeout: ?Value = null;
     try vm.consumeKeywordArgs(.{"timeout"}, .{&keyword_timeout});

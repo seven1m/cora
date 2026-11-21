@@ -46,7 +46,6 @@ fn builtinConditionVariableInitialize(vm: *VM, receiver: Value, args: []Value, _
 
 fn builtinConditionVariableWait(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCountRange(args, 1, 2);
-    _ = try vm.ensureMainThread();
     try vm.requireArgType(args, 0, .mutex, "Mutex");
 
     const current_thread = vm.current_thread orelse {
@@ -104,7 +103,6 @@ fn builtinConditionVariableWait(vm: *VM, receiver: Value, args: []Value, _: ?Blo
 
 fn builtinConditionVariableSignal(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
-    _ = try vm.ensureMainThread();
 
     const cv = receiver.toConditionVariableObject();
     while (cv.waiters.items.len > 0) {
@@ -119,7 +117,6 @@ fn builtinConditionVariableSignal(vm: *VM, receiver: Value, args: []Value, _: ?B
 
 fn builtinConditionVariableBroadcast(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
-    _ = try vm.ensureMainThread();
 
     const cv = receiver.toConditionVariableObject();
     while (cv.waiters.items.len > 0) {

@@ -240,18 +240,16 @@ fn builtinThreadStart(vm: *VM, receiver: Value, args: []Value, block: ?Block) VM
 
 fn builtinThreadCurrent(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
-    const mt = try vm.ensureMainThread();
-    return Value.fromObject(&(vm.current_thread orelse mt).object);
+    return Value.fromObject(&vm.current_thread.?.object);
 }
 
 fn builtinThreadMain(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
-    return Value.fromObject(&(try vm.ensureMainThread()).object);
+    return Value.fromObject(&vm.main_thread.?.object);
 }
 
 fn builtinThreadList(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
-    _ = try vm.ensureMainThread();
     const arr = try vm.createArray();
     for (vm.thread_list.items) |thread| {
         if (thread.state != .terminated) {
@@ -325,7 +323,7 @@ fn builtinThreadKillClass(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!V
 }
 
 fn builtinThreadClassPendingInterrupt(vm: *VM, _: Value, args: []Value, block: ?Block) VMError!Value {
-    const thread = vm.current_thread orelse try vm.ensureMainThread();
+    const thread = vm.current_thread.?;
     return builtinThreadPendingInterrupt(vm, Value.fromObject(&thread.object), args, block);
 }
 
@@ -365,7 +363,7 @@ fn builtinThreadHandleInterrupt(vm: *VM, _: Value, args: []Value, block: ?Block)
         }
     }
 
-    const thread = vm.current_thread orelse try vm.ensureMainThread();
+    const thread = vm.current_thread.?;
     const mask = try vm.copyHashObject(mask_value.toHashObject());
     thread.interrupt_masks.append(vm.gc_allocator, mask) catch return error.Fatal;
     const result = interrupt_block: {
@@ -521,7 +519,7 @@ fn builtinThreadStatus(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMErr
 }
 
 fn builtinThreadExit(vm: *VM, _: Value, args: []Value, block: ?Block) VMError!Value {
-    const thread = vm.current_thread orelse try vm.ensureMainThread();
+    const thread = vm.current_thread.?;
     return builtinThreadKill(vm, Value.fromObject(&thread.object), args, block);
 }
 
@@ -591,7 +589,7 @@ fn builtinThreadWakeup(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMErr
 fn builtinThreadGetFiberLocal(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 1);
     const thread = receiver.toThreadObject();
-    const fiber = try fiberLocalTarget(vm, thread);
+    const fiber = fiberLocalTarget(vm, thread);
     const key = try symbolArg(vm, args[0]);
     if (fiber.fiber_locals) |locals| {
         if (locals.get(key)) |val| return val;
@@ -606,7 +604,7 @@ fn builtinThreadFetch(vm: *VM, receiver: Value, args: []Value, block: ?Block) VM
     }
     const key = try symbolKeyArg(vm, args[0]);
     const symbol = if (key.isSymbol()) key.toSymbolObject() else try vm.intern(key.toStringObject().str);
-    const fiber = try fiberLocalTarget(vm, receiver.toThreadObject());
+    const fiber = fiberLocalTarget(vm, receiver.toThreadObject());
     if (fiber.fiber_locals) |locals| {
         if (locals.get(symbol)) |val| return val;
     }
@@ -622,7 +620,7 @@ fn builtinThreadSetFiberLocal(vm: *VM, receiver: Value, args: []Value, _: ?Block
         return vm.raiseExceptionFmt(vm.frozen_error_class, "can't modify frozen thread locals", .{});
     }
     const thread = receiver.toThreadObject();
-    const fiber = try fiberLocalTarget(vm, thread);
+    const fiber = fiberLocalTarget(vm, thread);
     const key = try symbolArg(vm, args[0]);
     if (args[1].isNil()) {
         if (fiber.fiber_locals) |*locals| {
@@ -640,7 +638,7 @@ fn builtinThreadSetFiberLocal(vm: *VM, receiver: Value, args: []Value, _: ?Block
 fn builtinThreadKey(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 1);
     const thread = receiver.toThreadObject();
-    const fiber = try fiberLocalTarget(vm, thread);
+    const fiber = fiberLocalTarget(vm, thread);
     const key = try symbolArg(vm, args[0]);
     if (fiber.fiber_locals) |locals| {
         return Value.boolean(locals.contains(key));
@@ -651,7 +649,7 @@ fn builtinThreadKey(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!
 fn builtinThreadKeys(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
     const thread = receiver.toThreadObject();
-    const fiber = try fiberLocalTarget(vm, thread);
+    const fiber = fiberLocalTarget(vm, thread);
     const arr = try vm.createArray();
     if (fiber.fiber_locals) |locals| {
         var it = locals.keyIterator();
@@ -959,13 +957,11 @@ fn raiseNotSymbolTypeError(vm: *VM, arg: Value) VMError!*value.SymbolObject {
     return vm.raiseExceptionFmt(vm.type_error_class, "{s} is not a symbol", .{inspected.toStringObject().str});
 }
 
-fn fiberLocalTarget(vm: *VM, thread: *value.ThreadObject) VMError!*value.FiberObject {
+fn fiberLocalTarget(vm: *VM, thread: *value.ThreadObject) *value.FiberObject {
     if (vm.current_thread != null and vm.current_thread.? == thread) {
         return vm.current_fiber;
     }
-    if (thread.current_fiber) |fiber| return fiber;
-    if (thread.main_fiber) |fiber| return fiber;
-    return error.Fatal;
+    return thread.current_fiber;
 }
 
 fn removeFromRunnable(vm: *VM, thread: *value.ThreadObject) void {

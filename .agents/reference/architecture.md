@@ -101,6 +101,15 @@ Eval chunks keep a nil canonical path even when given a display filename.
 
 ## Thread Scheduling
 
+`VM.prepare` initializes the main thread once, before evaluating any embedded or
+user Ruby code. Ruby builtins require that prepared state; they must not attempt
+to recover a missing current thread by constructing the main thread. The VM's
+thread pointers remain optional only to represent construction before prepare.
+Every Thread, including an unstarted worker, has a non-null `main_fiber` and
+`current_fiber`. Retirement clears execution buffers but retains the root fiber.
+While a thread runs, `VM.current_fiber` is authoritative; the Thread field is the
+saved active fiber used when another thread resumes or inspects it.
+
 Threads share one native execution thread and hand off directly between saved
 coroutine contexts, following MRI's running/ready/waiting ownership model.
 `VM.runnable_queue` contains ready threads, excluding the current thread.

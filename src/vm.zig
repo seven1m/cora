@@ -715,6 +715,7 @@ pub const VM = struct {
     closed_queue_error_class: *value.ClassObject,
     uncaught_throw_error_class: *value.ClassObject,
     default_thread_group: Value = Value.nil(),
+    // Absent only during VM construction; prepare initializes both before Ruby runs.
     main_thread: ?*value.ThreadObject = null,
     current_thread: ?*value.ThreadObject = null,
     thread_list: std.ArrayList(*value.ThreadObject) = .empty,
@@ -2166,7 +2167,7 @@ pub const VM = struct {
         try self.ensureExecutionStacks(&main_fiber_obj.stack, &main_fiber_obj.frames);
         self.restoreFiberState(main_fiber_obj);
         self.zio_main_context = std.mem.zeroes(FiberCoroContext);
-        _ = try self.ensureMainThread();
+        try self.initializeMainThread();
 
         try self.prepareProgramChunks();
         _ = try self.evalSource(kernel_core_source, "<internal:kernel>");
@@ -4321,7 +4322,7 @@ pub const VM = struct {
 
     fn threadStorageForFiber(self: *VM, fiber: *FiberObject) ?*ThreadObject {
         const owner_thread = fiber.owner_thread orelse return null;
-        if (owner_thread.main_fiber == null or owner_thread.main_fiber.? != fiber) return null;
+        if (owner_thread.main_fiber != fiber) return null;
         if (self.main_thread != null and owner_thread == self.main_thread.?) return null;
         return owner_thread;
     }
@@ -4391,9 +4392,10 @@ pub const VM = struct {
         self.pending_unwind = fiber.pending_unwind;
     }
 
+    // Execution buffers are also used while prepare is installing the main thread.
     inline fn rootFiberForCurrentThread(self: *VM) *FiberObject {
         if (self.current_thread) |thread| {
-            if (thread.main_fiber) |main_fiber| return main_fiber;
+            return thread.main_fiber;
         }
         return self.main_fiber;
     }
@@ -4878,8 +4880,8 @@ pub const VM = struct {
     // Thread infrastructure
     // =========================================================================
 
-    pub fn ensureMainThread(self: *VM) VMError!*value.ThreadObject {
-        if (self.main_thread) |mt| return mt;
+    fn initializeMainThread(self: *VM) VMError!void {
+        std.debug.assert(self.main_thread == null);
         const main_thread_obj = self.gc_allocator.create(value.ThreadObject) catch return error.Fatal;
         main_thread_obj.object = .{ .type_tag = .thread, .flags = 0, .class = self.thread_class, .singleton_class = null, .instance_variables = null };
         main_thread_obj.state = .running;
@@ -4943,7 +4945,6 @@ pub const VM = struct {
             }
         }
         self.thread_list.append(self.gc_allocator, main_thread_obj) catch return error.Fatal;
-        return main_thread_obj;
     }
 
     pub fn newMutex(self: *VM, class_val: Value) VMError!*value.MutexObject {
@@ -4986,7 +4987,7 @@ pub const VM = struct {
     }
 
     pub fn newThreadUnstarted(self: *VM, class_obj: *value.ClassObject) VMError!*value.ThreadObject {
-        _ = try self.ensureMainThread();
+        std.debug.assert(self.current_thread != null);
         const thread_obj = self.gc_allocator.create(value.ThreadObject) catch return error.Fatal;
         thread_obj.object = .{ .type_tag = .thread, .flags = 0, .class = class_obj, .singleton_class = null, .instance_variables = null };
         thread_obj.state = .created;
@@ -5084,7 +5085,7 @@ pub const VM = struct {
             thread_obj.creation_line = source.declaration_line;
         }
         thread_obj.args = args_copy;
-        thread_obj.main_fiber.?.storage = if (self.current_fiber.storage) |storage| try self.copyHashObject(storage) else null;
+        thread_obj.main_fiber.storage = if (self.current_fiber.storage) |storage| try self.copyHashObject(storage) else null;
     }
 
     pub fn startThread(self: *VM, thread_obj: *value.ThreadObject) VMError!void {
@@ -5229,10 +5230,8 @@ pub const VM = struct {
             thread.sleep_deadline_ms = null;
             thread.io_wait = null;
             detachExecutionStacks(&thread.stack, &thread.frames);
-            if (thread.main_fiber) |fiber| {
-                clearRetiredFiberExecution(fiber);
-                fiber.state = .terminated;
-            }
+            clearRetiredFiberExecution(thread.main_fiber);
+            thread.main_fiber.state = .terminated;
             thread.current_fiber = thread.main_fiber;
             if (self.thread_active_catches.fetchRemove(thread)) |entry| {
                 var list = entry.value;
@@ -5844,7 +5843,7 @@ pub const VM = struct {
         if (isThreadRunnable(caller)) try self.enqueueReadyThread(caller);
         self.current_thread = target;
         self.restoreThreadState(target);
-        self.current_fiber = target.current_fiber orelse target.main_fiber orelse self.main_fiber;
+        self.current_fiber = target.current_fiber;
         self.restoreFiberState(self.current_fiber);
         try self.setCurrentStackBaseForGc(try self.stackBaseForFiber(self.current_fiber));
         self.resetThreadPreemptBudget(target);
@@ -11198,9 +11197,7 @@ pub const VM = struct {
     }
 
     pub fn newFiberWithStorage(self: *VM, class_obj: *ClassObject, block: ?Block, storage: ?Value) VMError!Value {
-        if (self.current_thread == null) {
-            _ = try self.ensureMainThread();
-        }
+        std.debug.assert(self.current_thread != null);
         const fiber_obj = self.gc_allocator.create(value.FiberObject) catch return error.Fatal;
         fiber_obj.object = .{ .type_tag = .fiber, .flags = 0, .class = class_obj, .singleton_class = null, .instance_variables = null };
         fiber_obj.active_catches = .empty;
@@ -15045,7 +15042,7 @@ pub const VM = struct {
 
     pub fn threadBacktraceFrames(self: *VM, thread: *value.ThreadObject) []const CallFrame {
         if (self.current_thread == thread) return self.frames.items;
-        const fiber = thread.current_fiber orelse return thread.frames.items;
+        const fiber = thread.current_fiber;
         if (self.threadStorageForFiber(fiber) != null) return thread.frames.items;
         return fiber.frames.items;
     }

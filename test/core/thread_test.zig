@@ -33,7 +33,9 @@ test "Execution buffers allocate on first use and detach after completion" {
     defer program.deinit();
     var vm = cora.vm.VM.initEmpty(allocator, cora.gc_allocator.scanned, cora.gc_allocator.atomic, std.testing.io, std.testing.environ);
     defer vm.deinit();
+    try std.testing.expect(vm.current_thread == null);
     try vm.prepare(&program);
+    try std.testing.expect(vm.main_thread != null and vm.current_thread == vm.main_thread);
     const objects = (try vm.run()).toArrayObject().elements.items;
     const cold = objects[0].toFiberObject();
     try std.testing.expectEqual(@as(usize, 0), cold.stack.storage.len);
@@ -49,16 +51,17 @@ test "Execution buffers allocate on first use and detach after completion" {
     const worker = objects[4].toThreadObject();
     try std.testing.expect(worker.stack.storage.len > 0);
     try std.testing.expect(worker.frames.storage.len > 0);
-    try std.testing.expectEqual(@as(usize, 0), worker.main_fiber.?.stack.storage.len);
-    try std.testing.expectEqual(@as(usize, 0), worker.main_fiber.?.frames.storage.len);
+    try std.testing.expectEqual(@as(usize, 0), worker.main_fiber.stack.storage.len);
+    try std.testing.expectEqual(@as(usize, 0), worker.main_fiber.frames.storage.len);
     // The main thread likewise uses its main fiber's buffers, not a second pair.
     try std.testing.expectEqual(@as(usize, 0), vm.main_thread.?.stack.storage.len);
     try std.testing.expectEqual(@as(usize, 0), vm.main_thread.?.frames.storage.len);
     const unstarted = try vm.newThreadUnstarted(vm.thread_class);
+    try std.testing.expect(unstarted.current_fiber == unstarted.main_fiber);
     try std.testing.expectEqual(@as(usize, 0), unstarted.stack.storage.len);
     try std.testing.expectEqual(@as(usize, 0), unstarted.frames.storage.len);
-    try std.testing.expectEqual(@as(usize, 0), unstarted.main_fiber.?.stack.storage.len);
-    try std.testing.expectEqual(@as(usize, 0), unstarted.main_fiber.?.frames.storage.len);
+    try std.testing.expectEqual(@as(usize, 0), unstarted.main_fiber.stack.storage.len);
+    try std.testing.expectEqual(@as(usize, 0), unstarted.main_fiber.frames.storage.len);
 }
 
 test "Thread retirement releases scheduler roots and suspended coroutine stacks" {

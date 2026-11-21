@@ -671,7 +671,7 @@ pub fn builtinKernelRequire(vm: *VM, _: Value, args: []Value, _: ?Block) VMError
     if (shouldMarkRubygemsLoadedOnMiss(feature)) {
         vm.rubygems_loaded_on_miss = true;
     }
-    const owner_thread = vm.current_thread orelse try vm.ensureMainThread();
+    const owner_thread = vm.current_thread.?;
 
     // Builtin libraries whose classes are registered at VM startup:
     // `require 'name'` is a no-op after the first call, matching Ruby's "already loaded" semantics.
@@ -882,7 +882,7 @@ pub fn builtinKernelRequireRelative(vm: *VM, _: Value, args: []Value, _: ?Block)
     try vm.requireArgCount(args, 1);
     try vm.resetLoadedFilesFromGlobal();
     const relative_path = try vm.coerceToPath(args[0], "no implicit conversion into String");
-    const owner_thread = vm.current_thread orelse try vm.ensureMainThread();
+    const owner_thread = vm.current_thread.?;
 
     const current_file = blk: {
         if (vm.frames.items.len > 0) {

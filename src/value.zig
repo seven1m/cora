@@ -594,8 +594,10 @@ pub const ThreadObject = struct {
     joining_thread: ?*ThreadObject = null,
     io_wait: ?IoWait = null,
     args: ?[]Value = null,
-    main_fiber: ?*FiberObject = null,
-    current_fiber: ?*FiberObject = null,
+    // Installed by both thread constructors, including for unstarted threads.
+    // current_fiber is the saved active fiber; VM.current_fiber is live while running.
+    main_fiber: *FiberObject,
+    current_fiber: *FiberObject,
     owner_vm: *VM,
 };
 
