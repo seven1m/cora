@@ -1269,3 +1269,39 @@ test "Module class_eval block preserves its defining constant scope" {
     );
     try std.testing.expectEqual(@as(i64, 42), result.toInteger());
 }
+
+test "protected module methods allow calls between unrelated includers" {
+    var stdout_buf: [8192]u8 = undefined;
+    var stderr_buf: [8192]u8 = undefined;
+    const result = try evalCode(
+        \\module SharedProtected
+        \\  protected
+        \\  def value; 42; end
+        \\end
+        \\class ProtectedReceiver
+        \\  include SharedProtected
+        \\end
+        \\class ProtectedCaller
+        \\  include SharedProtected
+        \\  def read(other); other.value; end
+        \\end
+        \\ProtectedCaller.new.read(ProtectedReceiver.new)
+    );
+    try std.testing.expectEqual(@as(i64, 42), result.toInteger());
+
+    const denied = evalCodeWithOutput(
+        \\module SharedProtected
+        \\  protected
+        \\  def value; 42; end
+        \\end
+        \\class ProtectedReceiver
+        \\  include SharedProtected
+        \\end
+        \\class UnrelatedCaller
+        \\  def read(other); other.value; end
+        \\end
+        \\UnrelatedCaller.new.read(ProtectedReceiver.new)
+    , &stdout_buf, &stderr_buf);
+    try std.testing.expectEqual(error.UnhandledException, denied.err.?);
+    try std.testing.expect(std.mem.indexOf(u8, denied.stderr, "NoMethodError") != null);
+}

@@ -8483,15 +8483,15 @@ pub const VM = struct {
         return false;
     }
 
-    fn hasDispatchAncestor(self: *VM, receiver: Value, candidate_ancestor: *ClassObject) VMError!bool {
+    fn hasDispatchAncestor(self: *VM, receiver: Value, candidate_ancestor: *ModuleObject) VMError!bool {
         const singleton = if (receiver.getSingletonClass()) |existing| existing else if (receiver.isClass() or receiver.isModule())
             self.getOrCreateSingletonClass(receiver) catch return error.Fatal
         else
             null;
         if (singleton) |singleton_class| {
-            if (self.isClassOrSubclassOf(singleton_class, candidate_ancestor)) return true;
+            if (self.moduleInSuperChain(&singleton_class.module, candidate_ancestor)) return true;
         }
-        return self.isClassOrSubclassOf(self.getClass(receiver), candidate_ancestor);
+        return self.moduleInSuperChain(&self.getClass(receiver).module, candidate_ancestor);
     }
 
     fn isMethodCallable(self: *VM, receiver: Value, resolved: ResolvedMethod, call_style: ReceiverCallStyle) VMError!bool {
@@ -8502,8 +8502,9 @@ pub const VM = struct {
             .protected => {
                 if (self.frames.items.len == 0) return false;
                 const caller_self = self.currentFrame().self_value;
-                return (try self.hasDispatchAncestor(caller_self, resolved.owner_class)) and
-                    (try self.hasDispatchAncestor(receiver, resolved.owner_class));
+                const owner = if (resolved.defining_node) |node| ancestry.visibleModule(node) else &resolved.owner_class.module;
+                return (try self.hasDispatchAncestor(caller_self, owner)) and
+                    (try self.hasDispatchAncestor(receiver, owner));
             },
         }
     }
