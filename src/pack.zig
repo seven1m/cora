@@ -28,12 +28,16 @@ const PackedPointerEntry = struct {
     target: *value.StringObject,
 };
 
-pub fn arrayPack(vm: *VM, items: []Value, format: []const u8) VMError!Value {
+pub fn arrayPack(vm: *VM, items: []Value, format: []const u8, buffer: ?Value) VMError!Value {
     var tokens = try tokenize(vm, format);
     defer tokens.deinit(vm.allocator);
 
     var out: std.ArrayList(u8) = .empty;
     defer out.deinit(vm.allocator);
+    const output_buffer = if (buffer) |provided| (if (provided.isNil()) null else provided) else null;
+    if (output_buffer) |provided| {
+        out.appendSlice(vm.allocator, provided.toStringObject().str) catch return error.Fatal;
+    }
     // Coercion callbacks may collect before the output string owns its targets.
     // Keep this temporary pointer storage visible to the GC.
     var packed_pointer_entries: std.ArrayList(PackedPointerEntry) = .empty;
@@ -123,7 +127,14 @@ pub fn arrayPack(vm: *VM, items: []Value, format: []const u8) VMError!Value {
             else => output_encoding = .{ .ascii_8bit = .{} },
         }
     }
-    const packed_value = try vm.newStringWithEncoding(out.items, false, output_encoding);
+    const packed_value = if (output_buffer) |provided| blk: {
+        const bytes = vm.gc_allocator_atomic.dupeSentinel(u8, out.items, 0) catch return error.Fatal;
+        const string = provided.toStringObject();
+        string.replaceBytes(bytes);
+        string.capacity = out.items.len;
+        string.validity = .unknown;
+        break :blk provided;
+    } else try vm.newStringWithEncoding(out.items, false, output_encoding);
     const packed_obj = packed_value.toStringObject();
     for (packed_pointer_entries.items) |entry| {
         try vm.registerPackedPointerTarget(packed_obj, entry.offset, entry.target);

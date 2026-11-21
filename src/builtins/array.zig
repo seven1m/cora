@@ -873,7 +873,7 @@ pub fn register(vm: *VM) !void {
     try vm.array_class.module.methods.put(rotate_bang_sym, value.MethodEntry.builtin(&builtinArrayRotateBang, .{ .variadic = 0 }));
 
     const pack_sym = try vm.intern("pack");
-    try vm.array_class.module.methods.put(pack_sym, value.MethodEntry.builtin(&builtinArrayPack, .{ .variadic = 1 }));
+    try vm.array_class.module.methods.put(pack_sym, value.MethodEntry.keywordBuiltin(&builtinArrayPack, .{ .variadic = 1 }));
 
     const multiply_sym = try vm.intern("*");
     try vm.array_class.module.methods.put(multiply_sym, value.MethodEntry.builtin(&builtinArrayMultiply, .{ .exact = 1 }));
@@ -3347,8 +3347,16 @@ pub fn builtinArrayRotateBang(vm: *VM, receiver: Value, args: []Value, _: ?Block
 
 pub fn builtinArrayPack(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 1);
+    const buffer = try vm.consumeKeywordArg("buffer");
+    try vm.validateKeywordArgsConsumed();
     const format = try args[0].coerceToStr(vm, "no implicit conversion into String");
-    return pack_runtime.arrayPack(vm, receiver.toArrayObject().elements.items, format);
+    if (buffer) |output| {
+        if (!output.isNil()) {
+            if (!output.isString()) return vm.raiseExceptionFmt(vm.type_error_class, "buffer must be String, not {s}", .{vm.className(output)});
+            try vm.guardNotFrozen(output);
+        }
+    }
+    return pack_runtime.arrayPack(vm, receiver.toArrayObject().elements.items, format, buffer);
 }
 
 fn arrayContainsEquivalent(vm: *VM, haystack: []Value, needle: Value) VMError!bool {
