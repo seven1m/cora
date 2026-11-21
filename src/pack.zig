@@ -82,6 +82,7 @@ pub fn arrayPack(vm: *VM, items: []Value, format: []const u8, buffer: ?Value) VM
             'g' => try packFloatDirective(vm, items, &arg_index, token, &out, 4, .big),
             'G' => try packFloatDirective(vm, items, &arg_index, token, &out, 8, .big),
             'm', 'u' => try packEncodedTextDirective(vm, items, &arg_index, token, &out),
+            'M' => try packQuotedPrintableDirective(vm, items, &arg_index, token, &out),
             'U' => try packUnicodeDirective(vm, items, &arg_index, token, &out),
             'p', 'P' => try packPointerDirective(vm, items, &arg_index, token, &out, &packed_pointer_entries),
             'x' => {
@@ -232,6 +233,40 @@ fn packEncodedTextDirective(
         out.append(vm.allocator, '\n') catch return error.Fatal;
         offset = end;
     }
+}
+
+fn packQuotedPrintableDirective(vm: *VM, items: []Value, arg_index: *usize, token: DirectiveToken, out: *std.ArrayList(u8)) VMError!void {
+    if (arg_index.* >= items.len) return vm.raiseExceptionFmt(vm.argument_error_class, "too few arguments", .{});
+    const str = try vm.objectAsString(items[arg_index.*]);
+    arg_index.* += 1;
+    const bytes = str.toStringObject().str;
+    const requested = if (token.star) 72 else token.count orelse 72;
+    const width = if (requested < 2) 72 else requested;
+    var column: usize = 0;
+    for (bytes, 0..) |byte, i| {
+        if (byte == '\n') {
+            if (column != 0 and i > 0 and (bytes[i - 1] == ' ' or bytes[i - 1] == '\t')) {
+                out.appendSlice(vm.allocator, "=\n") catch return error.Fatal;
+            }
+            out.append(vm.allocator, '\n') catch return error.Fatal;
+            column = 0;
+            continue;
+        }
+        if (byte == '\t' or byte == ' ' or (byte >= 33 and byte <= 126 and byte != '=')) {
+            out.append(vm.allocator, byte) catch return error.Fatal;
+            column += 1;
+        } else {
+            const hex = "0123456789ABCDEF";
+            const escaped = [_]u8{ '=', hex[byte >> 4], hex[byte & 15] };
+            out.appendSlice(vm.allocator, &escaped) catch return error.Fatal;
+            column += 3;
+        }
+        if (column > width) {
+            out.appendSlice(vm.allocator, "=\n") catch return error.Fatal;
+            column = 0;
+        }
+    }
+    if (column != 0) out.appendSlice(vm.allocator, "=\n") catch return error.Fatal;
 }
 
 fn uuCharacter(bits: u8) u8 {

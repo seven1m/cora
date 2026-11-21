@@ -12838,6 +12838,15 @@ pub const VM = struct {
         return str_val.toStringObject().str;
     }
 
+    /// rb_obj_as_string semantics: keep Strings, otherwise call to_s and fall
+    /// back to the default object representation for a non-String result.
+    pub fn objectAsString(self: *VM, arg: Value) VMError!Value {
+        if (arg.isString()) return arg;
+        const result = try self.callMethodByName(arg, "to_s", &.{}, null);
+        if (result.isString()) return result;
+        return kernel_builtin.builtinKernelToS(self, arg, &.{}, null);
+    }
+
     pub fn probeToAryWithVisibility(self: *VM, arg: Value, include_private: bool) VMError!ToAryResult {
         if (arg.isArray()) return .{ .array = arg };
 

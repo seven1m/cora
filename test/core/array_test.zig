@@ -1020,6 +1020,11 @@ test "Array#pack pointer directives retain coerced string targets across callbac
     try std.testing.expect(result.isTruthy());
 }
 
+test "Array#pack quoted printable emits one soft break before a wrapped whitespace newline" {
+    const result = try evalCode("[\"=\\t\\n\"].pack('M3')");
+    try std.testing.expectEqualStrings("=3D\t=\n\n", result.toStringObject().str);
+}
+
 test "Array#pack Unicode directive encodes MRI codepoints" {
     const result = try evalCode(
         \\unicode = [0, 65, 233, 0x1f600].pack("U*")
