@@ -9674,11 +9674,9 @@ pub const VM = struct {
             .undefined => if (singleton) "singleton_method_undefined" else "method_undefined",
         };
         var args = [_]Value{Value.fromObject(&name_sym.object)};
-        if (singleton) {
-            _ = try self.callMethodByName(hook_receiver, hook_name, &args, null);
-        } else {
-            _ = try self.checkCallMethodByName(hook_receiver, hook_name, true, &args, null);
-        }
+        // Both hook families have registered private defaults. If Ruby code
+        // removes one, preserve ordinary method_missing/NoMethodError dispatch.
+        _ = try self.callMethodByName(hook_receiver, hook_name, &args, null);
     }
 
     const BreakTarget = struct {

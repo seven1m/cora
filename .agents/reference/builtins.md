@@ -92,6 +92,10 @@
 
 - Use `VM.guardNotFrozen(receiver)` to check if an object is frozen and raise `FrozenError("can't modify frozen ...")` if so. It includes the inspected receiver when available and guards recursive inspection. This replaces the repetitive `if (receiver.isFrozen()) { return vm.raiseExceptionFmt(...); }` pattern.
 
+## Method Change Hooks
+
+- `VM.triggerMethodCallback` dispatches added/removed/undefined hooks normally for both classes/modules and singleton receivers. Both families have private default methods. An explicitly undefined callback must reach `method_missing` or raise `NoMethodError`; it is not an optional probe.
+
 ## Method Reflection
 
 - Use `method_common.parametersForMethod` and `sourceLocationForMethod` with the method implementation. They do not require a fabricated `ResolvedMethod` or an owner-class fallback.

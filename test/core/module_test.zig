@@ -1305,3 +1305,24 @@ test "protected module methods allow calls between unrelated includers" {
     try std.testing.expectEqual(error.UnhandledException, denied.err.?);
     try std.testing.expect(std.mem.indexOf(u8, denied.stderr, "NoMethodError") != null);
 }
+
+test "undefined instance method hooks use normal missing method dispatch" {
+    const result = try evalCode(
+        \\[:added, :removed, :undefined].map do |event|
+        \\  klass = Class.new { def target; end }
+        \\  hook = "method_#{event}".to_sym
+        \\  klass.singleton_class.send(:undef_method, hook)
+        \\  begin
+        \\    case event
+        \\    when :added; klass.class_eval { def another; end }
+        \\    when :removed; klass.send(:remove_method, :target)
+        \\    when :undefined; klass.send(:undef_method, :target)
+        \\    end
+        \\    false
+        \\  rescue NoMethodError => error
+        \\    error.name == hook
+        \\  end
+        \\end
+    );
+    for (result.toArrayObject().elements.items) |matched| try std.testing.expect(matched.isTrue());
+}
