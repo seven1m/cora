@@ -2211,7 +2211,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] core/thread/backtrace/location/inspect_spec.rb
 - [x] core/thread/backtrace/location/label_spec.rb
 - [x] core/thread/backtrace/location/lineno_spec.rb
-- [ ] core/thread/backtrace/location/path_spec.rb
+- [x] core/thread/backtrace/location/path_spec.rb
 - [ ] core/thread/backtrace/location/source_range_spec.rb
 - [ ] core/thread/backtrace/location/syntax_tree_spec.rb
 - [x] core/thread/backtrace/location/to_s_spec.rb
