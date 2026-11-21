@@ -1107,6 +1107,11 @@ pub fn register(vm: *VM) !void {
     const singleton_method_added_sym = try vm.intern("singleton_method_added");
     try vm.basic_object_class.module.methods.put(singleton_method_added_sym, value.MethodEntry.builtinWithVisibility(&builtinModuleSingletonMethodAdded, .{ .exact = 1 }, .private));
 
+    const method_removed_sym = try vm.intern("method_removed");
+    try vm.module_class.module.methods.put(method_removed_sym, value.MethodEntry.builtinWithVisibility(&builtinModuleMethodAdded, .{ .exact = 1 }, .private));
+    const singleton_method_removed_sym = try vm.intern("singleton_method_removed");
+    try vm.basic_object_class.module.methods.put(singleton_method_removed_sym, value.MethodEntry.builtinWithVisibility(&builtinModuleSingletonMethodAdded, .{ .exact = 1 }, .private));
+
     const ruby2_keywords_sym = try vm.intern("ruby2_keywords");
     try vm.module_class.module.methods.put(ruby2_keywords_sym, value.MethodEntry.builtinWithVisibility(&builtinModuleRuby2Keywords, .{ .variadic = 0 }, .private));
 
@@ -2222,10 +2227,10 @@ pub fn builtinModuleRemoveMethod(vm: *VM, receiver: Value, args: []Value, _: ?Bl
             return vm.raiseExceptionFmt(vm.name_error_class, "{s}", .{msg});
         };
         _ = methods.remove(name_sym);
+        vm.markIntegerChangedForReceiver(receiver);
+        vm.bumpMethodStateVersion();
+        try vm.triggerMethodCallback(receiver, name_sym, .removed);
     }
-    vm.markIntegerChangedForReceiver(receiver);
-    vm.bumpMethodStateVersion();
-
     return receiver;
 }
 

@@ -229,7 +229,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] core/basicobject/not_equal_spec.rb
 - [x] core/basicobject/not_spec.rb
 - [-] core/basicobject/singleton_method_added_spec.rb
-- [ ] core/basicobject/singleton_method_removed_spec.rb
+- [x] core/basicobject/singleton_method_removed_spec.rb
 - [ ] core/basicobject/singleton_method_undefined_spec.rb
 
 ### core/binding

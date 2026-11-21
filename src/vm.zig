@@ -9633,16 +9633,24 @@ pub const VM = struct {
         return .{ .completed = result };
     }
 
-    /// Call the appropriate method-definition hook after a method is defined.
-    /// Singleton classes notify their attached object via singleton_method_added;
-    /// ordinary modules and classes receive method_added directly.
+    pub const MethodCallback = enum { added, removed, undefined };
+
     pub fn triggerMethodAdded(self: *VM, receiver: Value, name_sym: *value.SymbolObject) VMError!void {
-        const hook_receiver, const hook_name: []const u8 = if (receiver.isClass() and receiver.toClassObject().attached_object != null)
-            .{ receiver.toClassObject().attached_object.?, "singleton_method_added" }
-        else
-            .{ receiver, "method_added" };
+        try self.triggerMethodCallback(receiver, name_sym, .added);
+    }
+
+    /// Singleton classes notify their attached object; ordinary modules and
+    /// classes receive the corresponding instance-method callback directly.
+    pub fn triggerMethodCallback(self: *VM, receiver: Value, name_sym: *value.SymbolObject, event: MethodCallback) VMError!void {
+        const singleton = receiver.isClass() and receiver.toClassObject().attached_object != null;
+        const hook_receiver = if (singleton) receiver.toClassObject().attached_object.? else receiver;
+        const hook_name: []const u8 = switch (event) {
+            .added => if (singleton) "singleton_method_added" else "method_added",
+            .removed => if (singleton) "singleton_method_removed" else "method_removed",
+            .undefined => if (singleton) "singleton_method_undefined" else "method_undefined",
+        };
         var args = [_]Value{Value.fromObject(&name_sym.object)};
-        if (receiver.isClass() and receiver.toClassObject().attached_object != null) {
+        if (singleton) {
             _ = try self.callMethodByName(hook_receiver, hook_name, &args, null);
         } else {
             _ = try self.checkCallMethodByName(hook_receiver, hook_name, true, &args, null);
