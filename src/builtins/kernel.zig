@@ -150,6 +150,7 @@ fn resolveMethodEntry(
     method_name: *SymbolObject,
     owner_class: *ClassObject,
     owner: Value,
+    defining_node: *ModuleObject,
     entry: MethodEntry,
 ) ?BoundMethodLookup {
     return switch (entry.method) {
@@ -158,6 +159,7 @@ fn resolveMethodEntry(
             .resolved = .{
                 .name = method_name,
                 .owner_class = owner_class,
+                .defining_node = entry.original_defining_node orelse defining_node,
                 .entry = entry,
             },
             .owner = owner,
@@ -170,7 +172,7 @@ fn lookupSingletonMethodOnly(singleton_class: *ClassObject, method_name: *Symbol
     while (current) |node| : (current = node.super) {
         if (ancestry.methodTableOwner(node).methods.get(method_name)) |entry| {
             const owner = ancestry.visibleValue(node);
-            return resolveMethodEntry(method_name, singleton_class, owner, entry);
+            return resolveMethodEntry(method_name, singleton_class, owner, node, entry);
         }
     }
 

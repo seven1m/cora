@@ -355,6 +355,7 @@ pub fn createBoundMethodObject(
         },
         .receiver = receiver,
         .name = method_name,
+        .defining_node = resolved.defining_node,
         .arity = try vm.methodArityValue(resolved),
         .owner = owner,
         .owner_class = resolved.owner_class,
@@ -425,6 +426,7 @@ pub fn createUnboundMethodObject(
             .instance_variables = null,
         },
         .name = method_name,
+        .defining_node = resolved.defining_node,
         .arity = try vm.methodArityValue(resolved),
         .owner = owner,
         .entry = resolved.entry,
@@ -471,4 +473,22 @@ pub fn createUnboundMethodObject(
 
     vm.bumpMethodStateVersion();
     return method_val;
+}
+
+pub fn methodOwnerForResolved(resolved: vm_mod.ResolvedMethod) Value {
+    return if (resolved.defining_node) |node| ancestry.visibleValue(node) else Value.fromObject(&resolved.owner_class.module.object);
+}
+
+// An included module has a separate ancestor node in each including class.
+// Rebinding keeps the captured implementation but uses the target's chain for super.
+pub fn definingNodeForBind(vm: *VM, target: Value, captured: ?*value.ModuleObject) ?*value.ModuleObject {
+    const original = captured orelse return null;
+    const owner = ancestry.visibleModule(original);
+    const klass = target.getSingletonClass() orelse vm.getClass(target);
+    var current: ?*value.ModuleObject = &klass.module;
+    while (current) |node| : (current = node.super) {
+        if (node.object.type_tag != .iclass and node.origin != node) continue;
+        if (ancestry.visibleModule(node) == owner) return node;
+    }
+    return original;
 }

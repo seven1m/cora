@@ -10027,7 +10027,24 @@ pub const VM = struct {
         };
     }
 
-    fn lookupMethodAfterDefiningNode(
+    pub fn lookupMethodAfterNode(self: *VM, defining_node: *ModuleObject, name: *SymbolObject) ?ResolvedMethod {
+        // A later prepend moves this owner's methods into its origin node.
+        const start = if (defining_node.object.type_tag != .iclass) defining_node.origin else defining_node;
+        var current = start.super;
+        var owner_class = self.ownerClassForDefiningNode(defining_node) orelse self.object_class;
+        while (current) |node| : (current = node.super) {
+            if (node.object.type_tag == .class) owner_class = @fieldParentPtr("module", node);
+            if (ancestry.methodTableOwner(node).methods.get(name)) |entry| {
+                return switch (self.resolveLookupEntry(name, owner_class, node, entry)) {
+                    .found => |resolved| resolved,
+                    .undefined, .not_found => null,
+                };
+            }
+        }
+        return null;
+    }
+
+    pub fn lookupMethodAfterDefiningNode(
         self: *VM,
         receiver: Value,
         defining_node: *ModuleObject,
@@ -10035,22 +10052,8 @@ pub const VM = struct {
     ) ?ResolvedMethod {
         const start_class = self.getDispatchClass(receiver);
         var current: ?*ModuleObject = &start_class.module;
-        var owner_class = start_class;
-        var found_defining_node = false;
         while (current) |node| : (current = node.super) {
-            if (node.object.type_tag == .class) {
-                owner_class = @fieldParentPtr("module", node);
-            }
-            if (found_defining_node) {
-                if (ancestry.methodTableOwner(node).methods.get(method_name)) |entry| {
-                    return switch (self.resolveLookupEntry(method_name, owner_class, node, entry)) {
-                        .found => |resolved| resolved,
-                        .undefined, .not_found => null,
-                    };
-                }
-            } else if (node == defining_node) {
-                found_defining_node = true;
-            }
+            if (node == defining_node) return self.lookupMethodAfterNode(node, method_name);
         }
         return null;
     }

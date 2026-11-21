@@ -1393,7 +1393,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] core/method/receiver_spec.rb
 - [x] core/method/source_location_spec.rb
 - [ ] core/method/source_range_spec.rb
-- [ ] core/method/super_method_spec.rb
+- [x] core/method/super_method_spec.rb
 - [ ] core/method/syntax_tree_spec.rb
 - [ ] core/method/to_proc_spec.rb
 - [ ] core/method/to_s_spec.rb
@@ -2386,7 +2386,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] core/unboundmethod/public_spec.rb
 - [x] core/unboundmethod/source_location_spec.rb
 - [ ] core/unboundmethod/source_range_spec.rb
-- [ ] core/unboundmethod/super_method_spec.rb
+- [x] core/unboundmethod/super_method_spec.rb
 - [ ] core/unboundmethod/syntax_tree_spec.rb
 - [x] core/unboundmethod/to_s_spec.rb
 

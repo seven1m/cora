@@ -261,3 +261,43 @@ test "method call reflects visibility change after prior call" {
     try std.testing.expectEqual(@as(i64, 1), result.toArrayObject().elements.items[0].toInteger());
     try std.testing.expectEqualStrings("no_method", result.toArrayObject().elements.items[1].toSymbolObject().name);
 }
+
+test "Method super lookup retains captured implementation across prepend" {
+    const result = try evalCode(
+        \\class Parent
+        \\  def value; :parent; end
+        \\end
+        \\class Child < Parent
+        \\  def value; [:child, super]; end
+        \\end
+        \\captured = Child.new.method(:value)
+        \\module Before
+        \\  def value; :before; end
+        \\end
+        \\Child.prepend Before
+        \\captured.call == [:child, :parent] && captured.super_method.call == :parent
+    );
+    try std.testing.expect(result.isTruthy());
+}
+
+test "UnboundMethod binding relocates included module super lookup" {
+    const result = try evalCode(
+        \\module Shared
+        \\  def value(keyword:); [:shared, super]; end
+        \\end
+        \\class FirstParent
+        \\  def value(keyword:); [:first, keyword]; end
+        \\end
+        \\class SecondParent
+        \\  def value(keyword:); [:second, keyword]; end
+        \\end
+        \\class First < FirstParent; include Shared; end
+        \\class Second < SecondParent; include Shared; end
+        \\captured = First.instance_method(:value)
+        \\bound = captured.bind(Second.new)
+        \\bound.call(keyword: 42) == [:shared, [:second, 42]] &&
+        \\  bound.super_method.nil? &&
+        \\  captured.bind_call(Second.new, keyword: 43) == [:shared, [:second, 43]]
+    );
+    try std.testing.expect(result.isTruthy());
+}

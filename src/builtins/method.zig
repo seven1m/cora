@@ -15,6 +15,7 @@ fn boundMethodObject(receiver: Value) *MethodObject {
 }
 
 pub fn register(vm: *VM) !void {
+    try vm.method_class.module.methods.put(try vm.intern("super_method"), common.MethodEntry.builtin(&builtinMethodSuperMethod, .{ .exact = 0 }));
     const inspect_sym = try vm.intern("inspect");
     const to_s_sym = try vm.intern("to_s");
     const inspect_entry = common.MethodEntry.builtin(&builtinMethodInspect, .{ .exact = 0 });
@@ -47,6 +48,7 @@ fn builtinMethodCall(vm: *VM, receiver: Value, args: []Value, block: ?Block) VME
 
     const resolved: vm_mod.ResolvedMethod = .{
         .name = method_obj.name,
+        .defining_node = common.definingNodeForBind(vm, method_obj.receiver, method_obj.defining_node),
         .owner_class = method_obj.owner_class,
         .entry = method_obj.entry,
     };
@@ -99,6 +101,7 @@ fn builtinMethodParameters(vm: *VM, receiver: Value, args: []Value, _: ?Block) V
     const method_obj = boundMethodObject(receiver);
     const resolved: vm_mod.ResolvedMethod = .{
         .name = method_obj.name,
+        .defining_node = method_obj.defining_node,
         .owner_class = method_obj.owner_class,
         .entry = method_obj.entry,
     };
@@ -111,6 +114,7 @@ fn builtinMethodUnbind(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMErr
     const method_obj = boundMethodObject(receiver);
     const resolved: vm_mod.ResolvedMethod = .{
         .name = method_obj.name,
+        .defining_node = method_obj.defining_node,
         .owner_class = method_obj.owner_class,
         .entry = method_obj.entry,
     };
@@ -123,6 +127,7 @@ fn builtinMethodSourceLocation(vm: *VM, receiver: Value, args: []Value, _: ?Bloc
     const method_obj = boundMethodObject(receiver);
     const resolved: vm_mod.ResolvedMethod = .{
         .name = method_obj.name,
+        .defining_node = method_obj.defining_node,
         .owner_class = method_obj.owner_class,
         .entry = method_obj.entry,
     };
@@ -149,4 +154,13 @@ pub fn createBoundMethodObject(
         .unbind = &builtinMethodUnbind,
         .source_location = &builtinMethodSourceLocation,
     });
+}
+
+fn builtinMethodSuperMethod(vm: *VM, receiver: Value, _: []Value, _: ?Block) VMError!Value {
+    const method_obj = receiver.toMethodObject();
+    const node = method_obj.defining_node orelse return Value.nil();
+    const name = method_obj.entry.original_name orelse method_obj.name;
+    const resolved = vm.lookupMethodAfterDefiningNode(method_obj.receiver, node, name) orelse return Value.nil();
+    const owner = common.methodOwnerForResolved(resolved);
+    return createBoundMethodObject(vm, method_obj.receiver, name, resolved, owner);
 }

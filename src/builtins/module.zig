@@ -821,13 +821,11 @@ fn setVisibility(vm: *VM, receiver: Value, args: []Value, visibility: MethodVisi
     };
 
     for (names.items) |name_sym| {
-        const entry = if (receiver.isClass()) blk: {
-            const resolved = vm.lookupMethod(receiver.toClassObject(), name_sym) orelse break :blk null;
-            break :blk resolved.entry;
-        } else switch (resolveInstanceMethodLookup(vm, receiver, name_sym)) {
-            .found => |lookup| lookup.resolved.entry,
+        const lookup = switch (resolveInstanceMethodLookup(vm, receiver, name_sym)) {
+            .found => |found| found.resolved,
             .undefined, .not_found => null,
         };
+        const entry = if (lookup) |resolved| resolved.entry else null;
         const method_entry = entry orelse {
             return vm.raiseExceptionFmt(vm.name_error_class, "undefined method '{s}'", .{name_sym.name});
         };
@@ -835,6 +833,9 @@ fn setVisibility(vm: *VM, receiver: Value, args: []Value, visibility: MethodVisi
         const inherited = !methods.contains(name_sym);
         var updated = method_entry;
         updated.visibility = visibility;
+        if (inherited and updated.original_defining_node == null) {
+            updated.original_defining_node = lookup.?.defining_node;
+        }
         methods.put(name_sym, updated) catch return error.Fatal;
         vm.bumpMethodStateVersion();
         if (inherited) try vm.triggerMethodAdded(receiver, name_sym);
