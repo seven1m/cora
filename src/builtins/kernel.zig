@@ -1393,14 +1393,14 @@ pub fn builtinKernelOpen(vm: *VM, _: Value, args: []Value, block: ?Block) VMErro
 
 const WarningLocation = struct {
     source: []const u8,
-    line: u32,
+    line: i64,
 };
 
 const BacktraceLocation = struct {
     frame: *const vm_mod.CallFrame,
     source: []const u8,
     absolute_path: ?[]const u8,
-    line: u32,
+    line: i64,
 };
 
 fn isUsableRubyFrame(frame: *const vm_mod.CallFrame) bool {

@@ -255,14 +255,12 @@ describe "BasicObject#instance_eval" do
   end
 
   it "evaluates string with given filename and negative linenumber" do
-    CORAFIXME "source and bytecode line numbers use unsigned storage", exception: SpecExpectationNotMetError, message: /Expected \["b_file", "1"\] ==/ do
-      err = begin
-        Object.new.instance_eval("\n\nraise\n", "b_file", -100)
-      rescue => e
-        e
-      end
-      err.backtrace.first.split(":")[0..1].should == ["b_file", "-98"]
+    err = begin
+      Object.new.instance_eval("\n\nraise\n", "b_file", -100)
+    rescue => e
+      e
     end
+    err.backtrace.first.split(":")[0..1].should == ["b_file", "-98"]
   end
 
   it "has access to the caller's local variables" do

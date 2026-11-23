@@ -1574,3 +1574,11 @@ test "Kernel#catch without argument yields fresh tag object" {
     );
     try std.testing.expectEqual(@as(i64, 3), result.toInteger());
 }
+
+test "eval preserves signed source lines across zero in runtime metadata" {
+    const result = try evalCode(
+        \\locations = eval("before = __LINE__\nSignedLineConstant = __LINE__\ndef signed_location\n binding\nend\n[before, SignedLineConstant, method(:signed_location).source_location, signed_location.source_location, caller_locations(0, 1).first.lineno]", nil, "signed.rb", -2)
+        \\locations == [-2, -1, ["signed.rb", 0], ["signed.rb", 1], 3]
+    );
+    try std.testing.expectEqual(true, result.toBool());
+}

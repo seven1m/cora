@@ -305,7 +305,7 @@ pub const Node = union(enum) {
 /// Parser wraps Prism's parser and AST lifecycle
 pub const Parser = struct {
     pub const LineColumn = struct {
-        line: u32,
+        line: i64,
         column: u32,
     };
 
@@ -369,7 +369,7 @@ pub const Parser = struct {
         var parser: c.pm_parser_t = undefined;
         var options: c.pm_options_t = std.mem.zeroes(c.pm_options_t);
         defer c.pm_options_free(&options);
-        options.line = start_line - 1;
+        options.line = start_line;
 
         if (source_encoding) |encoding| {
             c.pm_options_encoding_set(&options, encoding.name().ptr);
@@ -426,7 +426,7 @@ pub const Parser = struct {
             self.internal.start_line,
         );
         return .{
-            .line = @intCast(@max(result.line + 1, 0)),
+            .line = result.line,
             .column = result.column,
         };
     }

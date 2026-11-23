@@ -236,7 +236,7 @@ pub const ConstEntry = struct {
 
 pub const ConstSourceLocation = struct {
     file: []const u8,
-    line: u32,
+    line: i64,
 };
 
 pub const AutoloadEntry = struct {
@@ -374,7 +374,7 @@ pub const BindingObject = struct {
     method_name: ?[]const u8 = null,
     // Source location where `binding` was called. The file is GC-owned.
     source_file: ?[]const u8 = null,
-    source_line: u32 = 1,
+    source_line: i64 = 1,
 
     pub fn localSlot(self: *const BindingObject, name: []const u8) ?*Value {
         var scope_index = self.scopes.items.len;
@@ -579,7 +579,7 @@ pub const ThreadObject = struct {
     // Metadata
     name: ?*StringObject = null,
     creation_file: ?*StringObject = null,
-    creation_line: u32 = 0,
+    creation_line: i64 = 0,
     priority: i8 = 0,
     report_on_exception: bool = true,
     abort_on_exception: bool = false,

@@ -101,7 +101,7 @@ pub const BlockCallHandler = struct {
 
 pub const LineInfo = struct {
     byte_offset: u32,
-    line: u32,
+    line: i64,
 };
 
 pub const BacktraceContext = struct {
@@ -124,7 +124,7 @@ pub const Chunk = struct {
     name: []const u8,
     name_owned: bool = false,
     chunk_id: ?ChunkId = null,
-    declaration_line: u32 = 1,
+    declaration_line: i64 = 1,
     backtrace_context: BacktraceContext = .{},
     backtrace_name_owned: bool = false,
     arity: u8 = 0,
@@ -308,7 +308,7 @@ pub const Chunk = struct {
     // Emit helpers - write packed bytes to the code stream
     // =========================================================================
 
-    fn recordLine(self: *Chunk, line: u32) !void {
+    fn recordLine(self: *Chunk, line: i64) !void {
         const offset: u32 = @intCast(self.code.items.len);
         // Only record if line changed from last entry
         if (self.line_info.items.len > 0) {
@@ -324,27 +324,27 @@ pub const Chunk = struct {
     }
 
     /// Emit opcode with no operands
-    pub fn emitOp(self: *Chunk, op: OpCode, line: u32) !void {
+    pub fn emitOp(self: *Chunk, op: OpCode, line: i64) !void {
         try self.recordLine(line);
         try self.code.append(self.allocator, @backingInt(op));
     }
 
     /// Emit opcode with u8 operand
-    pub fn emitOpU8(self: *Chunk, op: OpCode, operand: u8, line: u32) !void {
+    pub fn emitOpU8(self: *Chunk, op: OpCode, operand: u8, line: i64) !void {
         try self.recordLine(line);
         try self.code.append(self.allocator, @backingInt(op));
         try self.code.append(self.allocator, operand);
     }
 
     /// Emit opcode with i8 operand
-    pub fn emitOpI8(self: *Chunk, op: OpCode, operand: i8, line: u32) !void {
+    pub fn emitOpI8(self: *Chunk, op: OpCode, operand: i8, line: i64) !void {
         try self.recordLine(line);
         try self.code.append(self.allocator, @backingInt(op));
         try self.code.append(self.allocator, @bitCast(operand));
     }
 
     /// Emit opcode with u16 operand (little-endian)
-    pub fn emitOpU16(self: *Chunk, op: OpCode, operand: u16, line: u32) !void {
+    pub fn emitOpU16(self: *Chunk, op: OpCode, operand: u16, line: i64) !void {
         try self.recordLine(line);
         try self.code.append(self.allocator, @backingInt(op));
         try self.code.append(self.allocator, @intCast(operand & 0xFF));
@@ -352,7 +352,7 @@ pub const Chunk = struct {
     }
 
     /// Emit opcode with two u8 operands
-    pub fn emitOpU8U8(self: *Chunk, op: OpCode, a: u8, b: u8, line: u32) !void {
+    pub fn emitOpU8U8(self: *Chunk, op: OpCode, a: u8, b: u8, line: i64) !void {
         try self.recordLine(line);
         try self.code.append(self.allocator, @backingInt(op));
         try self.code.append(self.allocator, a);
@@ -360,7 +360,7 @@ pub const Chunk = struct {
     }
 
     /// Emit opcode with u16 + u8 operands
-    pub fn emitOpU16U8(self: *Chunk, op: OpCode, a: u16, b: u8, line: u32) !void {
+    pub fn emitOpU16U8(self: *Chunk, op: OpCode, a: u16, b: u8, line: i64) !void {
         try self.recordLine(line);
         try self.code.append(self.allocator, @backingInt(op));
         try self.code.append(self.allocator, @intCast(a & 0xFF));
@@ -369,7 +369,7 @@ pub const Chunk = struct {
     }
 
     /// Emit opcode with u16 + u8 + u8 operands
-    pub fn emitOpU16U8U8(self: *Chunk, op: OpCode, a: u16, b: u8, c: u8, line: u32) !void {
+    pub fn emitOpU16U8U8(self: *Chunk, op: OpCode, a: u16, b: u8, c: u8, line: i64) !void {
         try self.recordLine(line);
         try self.code.append(self.allocator, @backingInt(op));
         try self.code.append(self.allocator, @intCast(a & 0xFF));
@@ -379,7 +379,7 @@ pub const Chunk = struct {
     }
 
     /// Emit opcode with u16 + u8 + u16 operands
-    pub fn emitOpU16U8U16(self: *Chunk, op: OpCode, a: u16, b: u8, c: u16, line: u32) !void {
+    pub fn emitOpU16U8U16(self: *Chunk, op: OpCode, a: u16, b: u8, c: u16, line: i64) !void {
         try self.recordLine(line);
         try self.code.append(self.allocator, @backingInt(op));
         try self.code.append(self.allocator, @intCast(a & 0xFF));
@@ -390,7 +390,7 @@ pub const Chunk = struct {
     }
 
     /// Emit opcode with two u16 operands
-    pub fn emitOpU16U16(self: *Chunk, op: OpCode, a: u16, b: u16, line: u32) !void {
+    pub fn emitOpU16U16(self: *Chunk, op: OpCode, a: u16, b: u16, line: i64) !void {
         try self.recordLine(line);
         try self.code.append(self.allocator, @backingInt(op));
         try self.code.append(self.allocator, @intCast(a & 0xFF));
@@ -400,7 +400,7 @@ pub const Chunk = struct {
     }
 
     /// Emit opcode with u8 + u16 operands
-    pub fn emitOpU8U16(self: *Chunk, op: OpCode, a: u8, b: u16, line: u32) !void {
+    pub fn emitOpU8U16(self: *Chunk, op: OpCode, a: u8, b: u16, line: i64) !void {
         try self.recordLine(line);
         try self.code.append(self.allocator, @backingInt(op));
         try self.code.append(self.allocator, a);
@@ -408,13 +408,13 @@ pub const Chunk = struct {
         try self.code.append(self.allocator, @intCast(b >> 8));
     }
 
-    pub fn emitCatchStart(self: *Chunk, kind: u8, operand: u16, depth: u8, line: u32) !void {
+    pub fn emitCatchStart(self: *Chunk, kind: u8, operand: u16, depth: u8, line: i64) !void {
         try self.emitOpU8U16(.CATCH_START, kind, operand, line);
         try self.code.append(self.allocator, depth);
     }
 
     /// Emit CALL: u16 method_idx, u8 argc, u8 call_flags, u16 block_chunk_id, u16 callsite_id
-    pub fn emitCall(self: *Chunk, method_idx: u16, argc: u8, call_style: u8, block_chunk_id: u16, line: u32) !void {
+    pub fn emitCall(self: *Chunk, method_idx: u16, argc: u8, call_style: u8, block_chunk_id: u16, line: i64) !void {
         const callsite_id = try self.nextCallsiteId();
         try self.recordLine(line);
         try self.code.append(self.allocator, @backingInt(OpCode.CALL));
@@ -429,7 +429,7 @@ pub const Chunk = struct {
     }
 
     /// Emit CALL_KW: u16 method_idx, u8 argc, u8 kwargc, u8 call_flags, u16 kw_metadata_idx, u16 block_chunk_id, u16 callsite_id
-    pub fn emitCallKw(self: *Chunk, method_idx: u16, argc: u8, kwargc: u8, call_style: u8, kw_metadata_idx: u16, block_chunk_id: u16, line: u32) !void {
+    pub fn emitCallKw(self: *Chunk, method_idx: u16, argc: u8, kwargc: u8, call_style: u8, kw_metadata_idx: u16, block_chunk_id: u16, line: i64) !void {
         const callsite_id = try self.nextCallsiteId();
         try self.recordLine(line);
         try self.code.append(self.allocator, @backingInt(OpCode.CALL_KW));
@@ -447,7 +447,7 @@ pub const Chunk = struct {
     }
 
     /// Emit FORWARD_ARGS_CALL: u16 method_idx, u8 call_flags, u16 block_chunk_id, u16 callsite_id
-    pub fn emitForwardArgsCall(self: *Chunk, method_idx: u16, call_style: u8, block_chunk_id: u16, line: u32) !void {
+    pub fn emitForwardArgsCall(self: *Chunk, method_idx: u16, call_style: u8, block_chunk_id: u16, line: i64) !void {
         const callsite_id = try self.nextCallsiteId();
         try self.recordLine(line);
         try self.code.append(self.allocator, @backingInt(OpCode.FORWARD_ARGS_CALL));
@@ -461,7 +461,7 @@ pub const Chunk = struct {
     }
 
     /// Emit FORWARD_ARGS_CALL_WITH_PREFIX: u16 method_idx, u8 call_flags, u16 block_chunk_id, u8 prefix_argc, u16 callsite_id
-    pub fn emitForwardArgsCallWithPrefix(self: *Chunk, method_idx: u16, call_style: u8, block_chunk_id: u16, prefix_argc: u8, line: u32) !void {
+    pub fn emitForwardArgsCallWithPrefix(self: *Chunk, method_idx: u16, call_style: u8, block_chunk_id: u16, prefix_argc: u8, line: i64) !void {
         const callsite_id = try self.nextCallsiteId();
         try self.recordLine(line);
         try self.code.append(self.allocator, @backingInt(OpCode.FORWARD_ARGS_CALL_WITH_PREFIX));
@@ -475,7 +475,7 @@ pub const Chunk = struct {
         try self.code.append(self.allocator, @intCast(callsite_id >> 8));
     }
 
-    pub fn emitSuper(self: *Chunk, argc: u8, flags: u8, block_chunk_id: u16, line: u32) !void {
+    pub fn emitSuper(self: *Chunk, argc: u8, flags: u8, block_chunk_id: u16, line: i64) !void {
         try self.recordLine(line);
         try self.code.append(self.allocator, @backingInt(OpCode.SUPER));
         try self.code.append(self.allocator, argc);
@@ -484,7 +484,7 @@ pub const Chunk = struct {
         try self.code.append(self.allocator, @intCast(block_chunk_id >> 8));
     }
 
-    pub fn emitSuperKw(self: *Chunk, argc: u8, kwargc: u8, flags: u8, kw_metadata_idx: u16, block_chunk_id: u16, line: u32) !void {
+    pub fn emitSuperKw(self: *Chunk, argc: u8, kwargc: u8, flags: u8, kw_metadata_idx: u16, block_chunk_id: u16, line: i64) !void {
         try self.recordLine(line);
         try self.code.append(self.allocator, @backingInt(OpCode.SUPER_KW));
         try self.code.append(self.allocator, argc);
@@ -497,7 +497,7 @@ pub const Chunk = struct {
     }
 
     /// Emit a jump instruction and return the byte offset of the i16 operand (for patching).
-    pub fn emitJump(self: *Chunk, op: OpCode, line: u32) !usize {
+    pub fn emitJump(self: *Chunk, op: OpCode, line: i64) !usize {
         try self.recordLine(line);
         try self.code.append(self.allocator, @backingInt(op));
         const patch_offset = self.code.items.len;
@@ -507,7 +507,7 @@ pub const Chunk = struct {
     }
 
     /// Emit a backward jump to a known target byte offset.
-    pub fn emitBackwardJump(self: *Chunk, op: OpCode, target: usize, line: u32) !void {
+    pub fn emitBackwardJump(self: *Chunk, op: OpCode, target: usize, line: i64) !void {
         try self.recordLine(line);
         try self.code.append(self.allocator, @backingInt(op));
         // Offset is relative to the byte after the i16 operand
@@ -537,7 +537,7 @@ pub const Chunk = struct {
     }
 
     /// Look up line number for a byte offset (binary search on line_info).
-    pub fn getLine(self: *Chunk, byte_offset: usize) u32 {
+    pub fn getLine(self: *Chunk, byte_offset: usize) i64 {
         if (self.line_info.items.len == 0) return 0;
         // Binary search for the last entry with byte_offset <= target
         var lo: usize = 0;

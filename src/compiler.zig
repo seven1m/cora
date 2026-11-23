@@ -385,7 +385,7 @@ pub const Compiler = struct {
         return compileWithContext(allocator, parser, starting_chunk_id, .{});
     }
 
-    fn nodeLine(self: *Compiler, node: prism.Node) u32 {
+    fn nodeLine(self: *Compiler, node: prism.Node) i64 {
         const ptr: *anyopaque = switch (node) {
             inline else => |raw_ptr| @ptrCast(raw_ptr),
         };
@@ -441,9 +441,8 @@ pub const Compiler = struct {
         std.debug.print("{s}", .{pretty});
     }
 
-    fn compileNode(self: *Compiler, node: prism.Node, inherited_line: u32) anyerror!void {
-        const effective_line = self.nodeLine(node);
-        const line = if (effective_line == 0) inherited_line else effective_line;
+    fn compileNode(self: *Compiler, node: prism.Node, _: i64) anyerror!void {
+        const line = self.nodeLine(node);
 
         switch (node) {
             .program => |program_node| {
@@ -1638,7 +1637,7 @@ pub const Compiler = struct {
         return .{ .utf8 = .{} };
     }
 
-    fn tryCompileFrozenLiteralCall(self: *Compiler, call_node: *prism.CallNode, line: u32) !bool {
+    fn tryCompileFrozenLiteralCall(self: *Compiler, call_node: *prism.CallNode, line: i64) !bool {
         if (call_node.receiver == null) return false;
         if (call_node.block != null) return false;
         if (call_node.arguments != null) {
@@ -1660,7 +1659,7 @@ pub const Compiler = struct {
         return true;
     }
 
-    fn compileDefinedNode(self: *Compiler, defined_node: *prism.DefinedNode, line: u32) !void {
+    fn compileDefinedNode(self: *Compiler, defined_node: *prism.DefinedNode, line: i64) !void {
         if (defined_node.value == null) {
             try self.emitDefinedDescriptor("expression", line);
             return;
@@ -1670,7 +1669,7 @@ pub const Compiler = struct {
         try self.compileDefinedValue(value_node, line);
     }
 
-    fn compileDefinedValue(self: *Compiler, node: prism.Node, line: u32) !void {
+    fn compileDefinedValue(self: *Compiler, node: prism.Node, line: i64) !void {
         switch (node) {
             .self => {
                 try self.emitDefinedDescriptor("self", line);
@@ -1875,7 +1874,7 @@ pub const Compiler = struct {
         }
     }
 
-    fn compileDefinedCall(self: *Compiler, call_node: *prism.CallNode, line: u32) !void {
+    fn compileDefinedCall(self: *Compiler, call_node: *prism.CallNode, line: i64) !void {
         const method_name = try self.parser.getConstantName(call_node.name);
 
         if (call_node.receiver == null) {
@@ -1923,7 +1922,7 @@ pub const Compiler = struct {
         });
     }
 
-    fn emitDefinedRespondToCheck(self: *Compiler, method_name: []const u8, include_private: bool, line: u32) !void {
+    fn emitDefinedRespondToCheck(self: *Compiler, method_name: []const u8, include_private: bool, line: i64) !void {
         const method_idx = try self.current_chunk.addConstant(.{ .string = method_name });
         try self.current_chunk.emitOpU16(.PUSH_SYMBOL, @intCast(method_idx), line);
         try self.current_chunk.emitOp(if (include_private) .PUSH_TRUE else .PUSH_FALSE, line);
@@ -1934,7 +1933,7 @@ pub const Compiler = struct {
         try self.emitBoolToDefinedDescriptor("method", line);
     }
 
-    fn emitBoolToDefinedDescriptor(self: *Compiler, descriptor: []const u8, line: u32) !void {
+    fn emitBoolToDefinedDescriptor(self: *Compiler, descriptor: []const u8, line: i64) !void {
         const false_jump = try self.current_chunk.emitJump(.JUMP_IF_FALSE, line);
         try self.emitDefinedDescriptor(descriptor, line);
         const done_jump = try self.current_chunk.emitJump(.JUMP, line);
@@ -1944,7 +1943,7 @@ pub const Compiler = struct {
         try self.current_chunk.patchJump(done_jump);
     }
 
-    fn emitDefinedDescriptor(self: *Compiler, descriptor: []const u8, line: u32) !void {
+    fn emitDefinedDescriptor(self: *Compiler, descriptor: []const u8, line: i64) !void {
         const idx = try self.current_chunk.addConstant(.{ .string = descriptor });
         try self.current_chunk.emitOpU16(.PUSH_CONST, @intCast(idx), line);
 
@@ -1953,7 +1952,7 @@ pub const Compiler = struct {
         try self.current_chunk.emitCall(@intCast(freeze_idx), 0, call_flags, 0, line);
     }
 
-    fn compileInterpolatedParts(self: *Compiler, parts: anytype, line: u32) !u8 {
+    fn compileInterpolatedParts(self: *Compiler, parts: anytype, line: i64) !u8 {
         if (parts.size > 255) {
             return error.TooManyInterpolationParts;
         }
@@ -2012,7 +2011,7 @@ pub const Compiler = struct {
         return @intCast(part_count);
     }
 
-    fn emitBacktickCall(self: *Compiler, line: u32) !void {
+    fn emitBacktickCall(self: *Compiler, line: i64) !void {
         const method_idx = try self.current_chunk.addConstant(.{ .string = "`" });
         const call_flags = bytecode.encodeCallFlags(.implicit_self, false);
         try self.current_chunk.emitCall(@intCast(method_idx), 1, call_flags, 0, line);
@@ -2046,7 +2045,7 @@ pub const Compiler = struct {
 
     /// Compile only the explicit prefix args that appear before ForwardingArgumentsNode.
     /// Used for mixed forwarding calls like `foo(:bar, ...)`.
-    fn compileForwardingPrefixArguments(self: *Compiler, args: *prism.ArgumentsNode, line: u32) !CompiledCallArguments {
+    fn compileForwardingPrefixArguments(self: *Compiler, args: *prism.ArgumentsNode, line: i64) !CompiledCallArguments {
         var result: CompiledCallArguments = .{};
         var i: usize = 0;
         while (i < args.arguments.size) : (i += 1) {
@@ -2071,7 +2070,7 @@ pub const Compiler = struct {
         return null;
     }
 
-    fn compileCallArguments(self: *Compiler, args_ptr: ?*prism.ArgumentsNode, line: u32) !CompiledCallArguments {
+    fn compileCallArguments(self: *Compiler, args_ptr: ?*prism.ArgumentsNode, line: i64) !CompiledCallArguments {
         var result: CompiledCallArguments = .{};
         var kw_names: std.ArrayList(u16) = .empty;
         defer kw_names.deinit(self.allocator);
@@ -2286,7 +2285,7 @@ pub const Compiler = struct {
         return result;
     }
 
-    fn compileIfStatement(self: *Compiler, if_node: *prism.IfNode, line: u32) anyerror!void {
+    fn compileIfStatement(self: *Compiler, if_node: *prism.IfNode, line: i64) anyerror!void {
         // Compile condition
         const condition = try self.parser.asNode(@ptrCast(if_node.predicate));
         try self.compileNode(condition, line);
@@ -2322,7 +2321,7 @@ pub const Compiler = struct {
         try self.current_chunk.patchJump(jump_end);
     }
 
-    fn compileUnlessStatement(self: *Compiler, unless_node: *prism.UnlessNode, line: u32) anyerror!void {
+    fn compileUnlessStatement(self: *Compiler, unless_node: *prism.UnlessNode, line: i64) anyerror!void {
         // Compile condition
         const condition = try self.parser.asNode(@ptrCast(unless_node.predicate));
         try self.compileNode(condition, line);
@@ -2358,7 +2357,7 @@ pub const Compiler = struct {
         try self.current_chunk.patchJump(jump_end);
     }
 
-    fn compileWhenBody(self: *Compiler, when_node: *prism.WhenNode, line: u32) !void {
+    fn compileWhenBody(self: *Compiler, when_node: *prism.WhenNode, line: i64) !void {
         if (when_node.statements) |statements_ptr| {
             const statements = try self.parser.asNode(@ptrCast(statements_ptr));
             try self.compileNode(statements, line);
@@ -2367,7 +2366,7 @@ pub const Compiler = struct {
         }
     }
 
-    fn compileWhenCondition(self: *Compiler, condition_node: prism.Node, has_predicate: bool, line: u32) !void {
+    fn compileWhenCondition(self: *Compiler, condition_node: prism.Node, has_predicate: bool, line: i64) !void {
         if (condition_node == .splat) {
             const expr_ptr = condition_node.splat.expression orelse return error.UnsupportedNode;
             const expr = try self.parser.asNode(@ptrCast(expr_ptr));
@@ -2382,7 +2381,7 @@ pub const Compiler = struct {
         }
     }
 
-    fn compileCaseNode(self: *Compiler, case_node: *prism.CaseNode, line: u32) !void {
+    fn compileCaseNode(self: *Compiler, case_node: *prism.CaseNode, line: i64) !void {
         const has_predicate = case_node.predicate != null;
         if (has_predicate) {
             const predicate_node = try self.parser.asNode(@ptrCast(case_node.predicate.?));
@@ -2451,7 +2450,7 @@ pub const Compiler = struct {
         }
     }
 
-    fn compileCaseMatch(self: *Compiler, case_match: *prism.CaseMatchNode, line: u32) !void {
+    fn compileCaseMatch(self: *Compiler, case_match: *prism.CaseMatchNode, line: i64) !void {
         const predicate = case_match.predicate orelse return error.UnsupportedNode;
         try self.compileNode(try self.parser.asNode(predicate), line);
 
@@ -2489,7 +2488,7 @@ pub const Compiler = struct {
         for (end_jumps.items) |jump| try self.current_chunk.patchJump(jump);
     }
 
-    fn compileAndNode(self: *Compiler, and_node: *prism.AndNode, line: u32) anyerror!void {
+    fn compileAndNode(self: *Compiler, and_node: *prism.AndNode, line: i64) anyerror!void {
         const left = try self.parser.asNode(@ptrCast(and_node.left));
         try self.compileNode(left, line);
 
@@ -2504,7 +2503,7 @@ pub const Compiler = struct {
         try self.current_chunk.patchJump(jump_end);
     }
 
-    fn compileOrNode(self: *Compiler, or_node: *prism.OrNode, line: u32) anyerror!void {
+    fn compileOrNode(self: *Compiler, or_node: *prism.OrNode, line: i64) anyerror!void {
         const left = try self.parser.asNode(@ptrCast(or_node.left));
         try self.compileNode(left, line);
 
@@ -2542,7 +2541,7 @@ pub const Compiler = struct {
         };
     }
 
-    fn emitGetLocalSlot(self: *Compiler, slot: LocalSlot, line: u32) !void {
+    fn emitGetLocalSlot(self: *Compiler, slot: LocalSlot, line: i64) !void {
         if (slot.depth == 0) {
             try self.current_chunk.emitOpU16(.GET_LOCAL, slot.idx, line);
         } else {
@@ -2550,7 +2549,7 @@ pub const Compiler = struct {
         }
     }
 
-    fn compileAnonymousParameter(self: *Compiler, name: []const u8, line: u32) !void {
+    fn compileAnonymousParameter(self: *Compiler, name: []const u8, line: i64) !void {
         if (self.findLocal(name)) |idx| {
             try self.emitGetLocalSlot(.{ .idx = idx, .depth = 0 }, line);
         } else if (self.findLocalWithDepth(name)) |slot| {
@@ -2560,7 +2559,7 @@ pub const Compiler = struct {
         }
     }
 
-    fn emitSetLocalSlot(self: *Compiler, slot: LocalSlot, line: u32) !void {
+    fn emitSetLocalSlot(self: *Compiler, slot: LocalSlot, line: i64) !void {
         if (slot.depth == 0) {
             try self.current_chunk.emitOpU16(.SET_LOCAL, slot.idx, line);
         } else {
@@ -2568,7 +2567,7 @@ pub const Compiler = struct {
         }
     }
 
-    fn compileMultiWrite(self: *Compiler, node: *prism.MultiWriteNode, line: u32) !void {
+    fn compileMultiWrite(self: *Compiler, node: *prism.MultiWriteNode, line: i64) !void {
         // Compile RHS value onto stack
         const value_node = try self.parser.asNode(@ptrCast(node.value));
         try self.compileNode(value_node, line);
@@ -2631,7 +2630,7 @@ pub const Compiler = struct {
         try self.current_chunk.emitOp(.POP, line);
     }
 
-    fn compileMultiTarget(self: *Compiler, target: prism.Node, index: i64, line: u32) anyerror!void {
+    fn compileMultiTarget(self: *Compiler, target: prism.Node, index: i64, line: i64) anyerror!void {
         switch (target) {
             .required_parameter => |param| {
                 const var_name = try self.parser.getLocalVariableName(param.name);
@@ -2763,7 +2762,7 @@ pub const Compiler = struct {
         }
     }
 
-    fn compileNestedMultiTarget(self: *Compiler, node: *prism.MultiTargetNode, line: u32) anyerror!void {
+    fn compileNestedMultiTarget(self: *Compiler, node: *prism.MultiTargetNode, line: i64) anyerror!void {
         // At this point, the nested array is on top of the stack
         // We need to destructure it like we do in compileMultiWrite
 
@@ -2808,7 +2807,7 @@ pub const Compiler = struct {
         try self.current_chunk.emitOp(.POP, line);
     }
 
-    fn extractArrayElement(self: *Compiler, index: i64, line: u32) !void {
+    fn extractArrayElement(self: *Compiler, index: i64, line: i64) !void {
         // Assumes array is on stack
         // Emits: DUP, PUSH_CONST(index), CALL([], 1)
         try self.current_chunk.emitOp(.DUP, line);
@@ -2821,7 +2820,7 @@ pub const Compiler = struct {
         try self.current_chunk.emitCall(@intCast(bracket_sym), 1, receiver_style, 0, line);
     }
 
-    fn compileSplatAssignment(self: *Compiler, target: prism.Node, left_count: u8, right_count: u8, line: u32) !void {
+    fn compileSplatAssignment(self: *Compiler, target: prism.Node, left_count: u8, right_count: u8, line: i64) !void {
         // Extract middle elements using array slicing with SWAP
         // Stack has: [array, ...]
         // Goal: array[left_count, array.length - left_count - right_count]
@@ -2967,7 +2966,7 @@ pub const Compiler = struct {
         }
     }
 
-    fn compileLocalAndWrite(self: *Compiler, var_write: *prism.LocalVariableAndWriteNode, line: u32) !void {
+    fn compileLocalAndWrite(self: *Compiler, var_write: *prism.LocalVariableAndWriteNode, line: i64) !void {
         const var_name = try self.parser.getLocalVariableName(var_write.name);
         const slot = try self.resolveOrCreateLocalSlot(var_name);
 
@@ -2983,7 +2982,7 @@ pub const Compiler = struct {
         try self.current_chunk.patchJump(jump_end);
     }
 
-    fn compileCallAndWrite(self: *Compiler, call_write: *prism.CallAndWriteNode, line: u32) !void {
+    fn compileCallAndWrite(self: *Compiler, call_write: *prism.CallAndWriteNode, line: i64) !void {
         const receiver_style: bytecode.ReceiverCallStyle = if (call_write.receiver != null) .explicit else .implicit_self;
         if (call_write.receiver) |receiver_ptr| {
             const receiver_node = try self.parser.asNode(@ptrCast(receiver_ptr));
@@ -3022,7 +3021,7 @@ pub const Compiler = struct {
         try self.current_chunk.patchJump(jump_end);
     }
 
-    fn compileLocalOrWrite(self: *Compiler, var_write: *prism.LocalVariableOrWriteNode, line: u32) !void {
+    fn compileLocalOrWrite(self: *Compiler, var_write: *prism.LocalVariableOrWriteNode, line: i64) !void {
         const var_name = try self.parser.getLocalVariableName(var_write.name);
         const slot = try self.resolveOrCreateLocalSlot(var_name);
 
@@ -3038,7 +3037,7 @@ pub const Compiler = struct {
         try self.current_chunk.patchJump(jump_end);
     }
 
-    fn compileCallOrWrite(self: *Compiler, call_write: *prism.CallOrWriteNode, line: u32) !void {
+    fn compileCallOrWrite(self: *Compiler, call_write: *prism.CallOrWriteNode, line: i64) !void {
         const receiver_style: bytecode.ReceiverCallStyle = if (call_write.receiver != null) .explicit else .implicit_self;
         if (call_write.receiver) |receiver_ptr| {
             const receiver_node = try self.parser.asNode(@ptrCast(receiver_ptr));
@@ -3077,7 +3076,7 @@ pub const Compiler = struct {
         try self.current_chunk.patchJump(jump_end);
     }
 
-    fn compileCallOperatorWrite(self: *Compiler, call_write: *prism.CallOperatorWriteNode, line: u32) !void {
+    fn compileCallOperatorWrite(self: *Compiler, call_write: *prism.CallOperatorWriteNode, line: i64) !void {
         const receiver_style: bytecode.ReceiverCallStyle = if (call_write.receiver != null) .explicit else .implicit_self;
         if (call_write.receiver) |receiver_ptr| {
             const receiver_node = try self.parser.asNode(@ptrCast(receiver_ptr));
@@ -3109,7 +3108,7 @@ pub const Compiler = struct {
         try self.current_chunk.emitOp(.POP, line);
     }
 
-    fn compileAttributeWriteCall(self: *Compiler, call_node: *prism.CallNode, line: u32) !void {
+    fn compileAttributeWriteCall(self: *Compiler, call_node: *prism.CallNode, line: i64) !void {
         const safe_navigation = call_node.receiver != null and
             (call_node.base.flags & prism.CALL_NODE_FLAGS_SAFE_NAVIGATION) != 0;
         var safe_nav_jump_nil: ?usize = null;
@@ -3174,7 +3173,7 @@ pub const Compiler = struct {
         }
     }
 
-    fn compileLocalOperatorWrite(self: *Compiler, var_write: *prism.LocalVariableOperatorWriteNode, line: u32) !void {
+    fn compileLocalOperatorWrite(self: *Compiler, var_write: *prism.LocalVariableOperatorWriteNode, line: i64) !void {
         const var_name = try self.parser.getLocalVariableName(var_write.name);
         // Same first-reference reasoning as local_variable_read: `x += 1` with no
         // prior assignment parses as an operator write on a nil-initialized local
@@ -3194,7 +3193,7 @@ pub const Compiler = struct {
         try self.emitSetLocalSlot(slot, line);
     }
 
-    fn compileClassVariableAndWrite(self: *Compiler, var_write: *prism.ClassVariableAndWriteNode, line: u32) !void {
+    fn compileClassVariableAndWrite(self: *Compiler, var_write: *prism.ClassVariableAndWriteNode, line: i64) !void {
         const var_name = try self.parser.getConstantName(@intCast(var_write.name));
         const name_idx = try self.current_chunk.addConstant(.{ .string = var_name });
 
@@ -3210,7 +3209,7 @@ pub const Compiler = struct {
         try self.current_chunk.patchJump(jump_end);
     }
 
-    fn compileClassVariableOrWrite(self: *Compiler, var_write: *prism.ClassVariableOrWriteNode, line: u32) !void {
+    fn compileClassVariableOrWrite(self: *Compiler, var_write: *prism.ClassVariableOrWriteNode, line: i64) !void {
         const var_name = try self.parser.getConstantName(@intCast(var_write.name));
         const name_idx = try self.current_chunk.addConstant(.{ .string = var_name });
 
@@ -3226,7 +3225,7 @@ pub const Compiler = struct {
         try self.current_chunk.patchJump(jump_end);
     }
 
-    fn compileClassVariableOperatorWrite(self: *Compiler, var_write: *prism.ClassVariableOperatorWriteNode, line: u32) !void {
+    fn compileClassVariableOperatorWrite(self: *Compiler, var_write: *prism.ClassVariableOperatorWriteNode, line: i64) !void {
         const var_name = try self.parser.getConstantName(@intCast(var_write.name));
         const name_idx = try self.current_chunk.addConstant(.{ .string = var_name });
 
@@ -3243,7 +3242,7 @@ pub const Compiler = struct {
         try self.current_chunk.emitOpU16(.SET_CVAR, @intCast(name_idx), line);
     }
 
-    fn compileInstanceVariableOperatorWrite(self: *Compiler, var_write: *prism.InstanceVariableOperatorWriteNode, line: u32) !void {
+    fn compileInstanceVariableOperatorWrite(self: *Compiler, var_write: *prism.InstanceVariableOperatorWriteNode, line: i64) !void {
         const var_name = try self.parser.getConstantName(@intCast(var_write.name));
         const name_idx = try self.current_chunk.addConstant(.{ .string = var_name });
 
@@ -3260,7 +3259,7 @@ pub const Compiler = struct {
         try self.current_chunk.emitOpU16(.SET_IVAR, @intCast(name_idx), line);
     }
 
-    fn compileIndexOperatorWrite(self: *Compiler, index_write: *prism.IndexOperatorWriteNode, line: u32) !void {
+    fn compileIndexOperatorWrite(self: *Compiler, index_write: *prism.IndexOperatorWriteNode, line: i64) !void {
         // Lower `receiver[idx] <op>= value` to:
         //   receiver, idx...
         //   DUP_N(receiver+idx tuple count)
@@ -3310,7 +3309,7 @@ pub const Compiler = struct {
         try self.current_chunk.emitCall(@intCast(bracket_eq_idx), write_argc, write_call_flags, 0, line);
     }
 
-    fn compileIndexOrWrite(self: *Compiler, index_write: *prism.IndexOrWriteNode, line: u32) !void {
+    fn compileIndexOrWrite(self: *Compiler, index_write: *prism.IndexOrWriteNode, line: i64) !void {
         // Lower `receiver[idx] ||= value` to:
         //   receiver, args_array
         //   DUP_N(2)
@@ -3366,7 +3365,7 @@ pub const Compiler = struct {
         try self.current_chunk.patchJump(jump_end);
     }
 
-    fn compileIndexAndWrite(self: *Compiler, index_write: *prism.IndexAndWriteNode, line: u32) !void {
+    fn compileIndexAndWrite(self: *Compiler, index_write: *prism.IndexAndWriteNode, line: i64) !void {
         // Lower `receiver[idx] &&= value` to:
         //   receiver, args_array
         //   DUP_N(2)
@@ -3421,7 +3420,7 @@ pub const Compiler = struct {
         try self.current_chunk.patchJump(jump_end);
     }
 
-    fn compileGlobalAndWrite(self: *Compiler, var_write: *prism.GlobalVariableAndWriteNode, line: u32) !void {
+    fn compileGlobalAndWrite(self: *Compiler, var_write: *prism.GlobalVariableAndWriteNode, line: i64) !void {
         const var_name = try self.parser.getConstantName(@intCast(var_write.name));
         const name_idx = try self.current_chunk.addConstant(.{ .string = var_name });
 
@@ -3437,7 +3436,7 @@ pub const Compiler = struct {
         try self.current_chunk.patchJump(jump_end);
     }
 
-    fn compileGlobalOrWrite(self: *Compiler, var_write: *prism.GlobalVariableOrWriteNode, line: u32) !void {
+    fn compileGlobalOrWrite(self: *Compiler, var_write: *prism.GlobalVariableOrWriteNode, line: i64) !void {
         const var_name = try self.parser.getConstantName(@intCast(var_write.name));
         const name_idx = try self.current_chunk.addConstant(.{ .string = var_name });
 
@@ -3453,7 +3452,7 @@ pub const Compiler = struct {
         try self.current_chunk.patchJump(jump_end);
     }
 
-    fn compileGlobalOperatorWrite(self: *Compiler, var_write: *prism.GlobalVariableOperatorWriteNode, line: u32) !void {
+    fn compileGlobalOperatorWrite(self: *Compiler, var_write: *prism.GlobalVariableOperatorWriteNode, line: i64) !void {
         const var_name = try self.parser.getConstantName(@intCast(var_write.name));
         const name_idx = try self.current_chunk.addConstant(.{ .string = var_name });
 
@@ -3470,7 +3469,7 @@ pub const Compiler = struct {
         try self.current_chunk.emitOpU16(.SET_GLOBAL, @intCast(name_idx), line);
     }
 
-    fn compileInstanceVariableAndWrite(self: *Compiler, var_write: *prism.InstanceVariableAndWriteNode, line: u32) !void {
+    fn compileInstanceVariableAndWrite(self: *Compiler, var_write: *prism.InstanceVariableAndWriteNode, line: i64) !void {
         const var_name = try self.parser.getConstantName(@intCast(var_write.name));
         const name_idx = try self.current_chunk.addConstant(.{ .string = var_name });
 
@@ -3486,7 +3485,7 @@ pub const Compiler = struct {
         try self.current_chunk.patchJump(jump_end);
     }
 
-    fn compileInstanceVariableOrWrite(self: *Compiler, var_write: *prism.InstanceVariableOrWriteNode, line: u32) !void {
+    fn compileInstanceVariableOrWrite(self: *Compiler, var_write: *prism.InstanceVariableOrWriteNode, line: i64) !void {
         const var_name = try self.parser.getConstantName(@intCast(var_write.name));
         const name_idx = try self.current_chunk.addConstant(.{ .string = var_name });
 
@@ -3502,7 +3501,7 @@ pub const Compiler = struct {
         try self.current_chunk.patchJump(jump_end);
     }
 
-    fn compileConstantAndWrite(self: *Compiler, const_write: *prism.ConstantAndWriteNode, line: u32) !void {
+    fn compileConstantAndWrite(self: *Compiler, const_write: *prism.ConstantAndWriteNode, line: i64) !void {
         const const_name = try self.parser.getConstantName(const_write.name);
         const const_idx = try self.current_chunk.addConstant(.{ .string = const_name });
 
@@ -3518,7 +3517,7 @@ pub const Compiler = struct {
         try self.current_chunk.patchJump(jump_end);
     }
 
-    fn compileConstantOrWrite(self: *Compiler, const_write: *prism.ConstantOrWriteNode, line: u32) !void {
+    fn compileConstantOrWrite(self: *Compiler, const_write: *prism.ConstantOrWriteNode, line: i64) !void {
         const const_name = try self.parser.getConstantName(const_write.name);
         const const_idx = try self.current_chunk.addConstant(.{ .string = const_name });
 
@@ -3534,7 +3533,7 @@ pub const Compiler = struct {
         try self.current_chunk.patchJump(jump_end);
     }
 
-    fn compileConstantPathWrite(self: *Compiler, const_path_write: *prism.ConstantPathWriteNode, line: u32) !void {
+    fn compileConstantPathWrite(self: *Compiler, const_path_write: *prism.ConstantPathWriteNode, line: i64) !void {
         const target = const_path_write.target;
         if (target.*.parent) |parent| {
             const parent_node = try self.parser.asNode(@ptrCast(parent));
@@ -3552,7 +3551,7 @@ pub const Compiler = struct {
         try self.current_chunk.emitOpU16(.SET_CONST_PATH, @intCast(const_idx), line);
     }
 
-    fn compileConstantPathOrWrite(self: *Compiler, const_write: *prism.ConstantPathOrWriteNode, line: u32) !void {
+    fn compileConstantPathOrWrite(self: *Compiler, const_write: *prism.ConstantPathOrWriteNode, line: i64) !void {
         const target = const_write.target;
         if (target.*.parent) |parent| {
             const parent_node = try self.parser.asNode(@ptrCast(parent));
@@ -3580,7 +3579,7 @@ pub const Compiler = struct {
         try self.current_chunk.patchJump(jump_end);
     }
 
-    fn compileAliasMethod(self: *Compiler, alias_node: *prism.AliasMethodNode, line: u32) anyerror!void {
+    fn compileAliasMethod(self: *Compiler, alias_node: *prism.AliasMethodNode, line: i64) anyerror!void {
         // Both new_name and old_name are SymbolNodes in `alias new_name old_name`
         const new_name_node: *prism.SymbolNode = @ptrCast(@alignCast(alias_node.new_name));
         const new_name = prismStringSlice(new_name_node.unescaped);
@@ -3593,7 +3592,7 @@ pub const Compiler = struct {
         try self.current_chunk.emitOpU16U16(.ALIAS_METHOD, @intCast(new_name_idx), @intCast(old_name_idx), line);
     }
 
-    fn compileAliasGlobalVariable(self: *Compiler, alias_node: *prism.AliasGlobalVariableNode, line: u32) anyerror!void {
+    fn compileAliasGlobalVariable(self: *Compiler, alias_node: *prism.AliasGlobalVariableNode, line: i64) anyerror!void {
         // `alias $new $old` - new_name and old_name are GlobalVariableReadNode or BackReferenceReadNode
         const new_name_node: *prism.GlobalVariableReadNode = @ptrCast(alias_node.new_name);
         const new_name = try self.parser.getConstantName(@intCast(new_name_node.name));
@@ -3606,7 +3605,7 @@ pub const Compiler = struct {
         try self.current_chunk.emitOpU16U16(.ALIAS_GLOBAL_VARIABLE, @intCast(new_name_idx), @intCast(old_name_idx), line);
     }
 
-    fn compileUndefMethod(self: *Compiler, undef_node: *prism.UndefNode, line: u32) anyerror!void {
+    fn compileUndefMethod(self: *Compiler, undef_node: *prism.UndefNode, line: i64) anyerror!void {
         var i: usize = 0;
         while (i < undef_node.names.size) : (i += 1) {
             const name_node = try self.parser.asNode(undef_node.names.nodes[i]);
@@ -3616,7 +3615,7 @@ pub const Compiler = struct {
         try self.current_chunk.emitOpU8(.UNDEF_METHOD, @intCast(undef_node.names.size), line);
     }
 
-    fn compileModule(self: *Compiler, module_node: *prism.ModuleNode, line: u32) anyerror!void {
+    fn compileModule(self: *Compiler, module_node: *prism.ModuleNode, line: i64) anyerror!void {
         var module_name = try self.parser.getConstantName(module_node.name);
         var body_name = module_name;
 
@@ -3693,7 +3692,7 @@ pub const Compiler = struct {
         try self.current_chunk.emitOpU16U16(.DEF_MODULE, @intCast(idx), body_chunk_id, line);
     }
 
-    fn compileClass(self: *Compiler, class_node: *prism.ClassNode, line: u32) anyerror!void {
+    fn compileClass(self: *Compiler, class_node: *prism.ClassNode, line: i64) anyerror!void {
         var class_name = try self.parser.getConstantName(class_node.name);
         var body_name = class_name;
 
@@ -3789,7 +3788,7 @@ pub const Compiler = struct {
         return self.parser.source[start_off..end_off];
     }
 
-    fn compileSingletonClass(self: *Compiler, singleton_class_node: *prism.SingletonClassNode, line: u32) anyerror!void {
+    fn compileSingletonClass(self: *Compiler, singleton_class_node: *prism.SingletonClassNode, line: i64) anyerror!void {
         // Compile receiver expression first; VM pops it in DEF_SINGLETON_CLASS.
         const expression_node = try self.parser.asNode(@ptrCast(singleton_class_node.expression));
         try self.compileNode(expression_node, line);
@@ -3869,7 +3868,7 @@ pub const Compiler = struct {
         self: *Compiler,
         params: *prism.ParametersNode,
         target_chunk: *Chunk,
-        line: u32,
+        line: i64,
     ) !void {
         if (target_chunk.optional_params.items.len > 0) {
             try self.current_chunk.emitOp(.ENTER_OPTIONAL_DEFAULTS, line);
@@ -3918,7 +3917,7 @@ pub const Compiler = struct {
     fn compileChunkedHashLiteral(
         self: *Compiler,
         elements: anytype,
-        line: u32,
+        line: i64,
     ) !void {
         if (elements.size > std.math.maxInt(u16)) {
             return error.TooManyHashPairs;
@@ -4114,7 +4113,7 @@ pub const Compiler = struct {
         };
     }
 
-    fn compileDestructuredRequiredParams(self: *Compiler, params: *prism.ParametersNode, line: u32) !void {
+    fn compileDestructuredRequiredParams(self: *Compiler, params: *prism.ParametersNode, line: i64) !void {
         var slot_index: u8 = 0;
         var i: usize = 0;
         while (i < params.requireds.size) : (i += 1) {
@@ -4222,7 +4221,7 @@ pub const Compiler = struct {
     /// Compile a `&block` call argument onto the stack. Named form (`&blk`)
     /// compiles the expression; anonymous form (`&`) forwards the current
     /// chunk's (possibly anonymous) block parameter slot.
-    fn compileBlockArgumentValue(self: *Compiler, block_arg: *const prism.BlockArgumentNode, line: u32) !void {
+    fn compileBlockArgumentValue(self: *Compiler, block_arg: *const prism.BlockArgumentNode, line: i64) !void {
         if (block_arg.expression) |expr_ptr| {
             const expr = try self.parser.asNode(@ptrCast(expr_ptr));
             try self.compileNode(expr, line);
@@ -4237,7 +4236,7 @@ pub const Compiler = struct {
         }
     }
 
-    fn compileMethod(self: *Compiler, def_node: *prism.DefNode, line: u32) anyerror!void {
+    fn compileMethod(self: *Compiler, def_node: *prism.DefNode, line: i64) anyerror!void {
         // Get the method name (will be interned later by VM)
         const method_name_slice = try self.parser.getConstantName(def_node.name);
 
@@ -4354,7 +4353,7 @@ pub const Compiler = struct {
         });
     }
 
-    fn compileBlock(self: *Compiler, block_node: *prism.BlockNode, line: u32) !u16 {
+    fn compileBlock(self: *Compiler, block_node: *prism.BlockNode, line: i64) !u16 {
         // Allocate chunk on heap and track it immediately (before compilation can fail)
         const block_chunk_ptr = try self.allocator.create(Chunk);
         block_chunk_ptr.* = Chunk.init(self.allocator, "block");
@@ -4469,7 +4468,7 @@ pub const Compiler = struct {
         return @intCast(chunk_id);
     }
 
-    fn compileLambda(self: *Compiler, lambda_node: *prism.LambdaNode, line: u32) !u16 {
+    fn compileLambda(self: *Compiler, lambda_node: *prism.LambdaNode, line: i64) !u16 {
         // Allocate chunk on heap and track it immediately (before compilation can fail)
         const lambda_chunk_ptr = try self.allocator.create(Chunk);
         lambda_chunk_ptr.* = Chunk.init(self.allocator, "lambda");
@@ -4635,7 +4634,7 @@ pub const Compiler = struct {
         return null;
     }
 
-    fn compileRescueTypeExpressionChunk(self: *Compiler, expression: prism.Node, line: u32) !chunk.ChunkId {
+    fn compileRescueTypeExpressionChunk(self: *Compiler, expression: prism.Node, line: i64) !chunk.ChunkId {
         const rescue_type_chunk_ptr = try self.allocator.create(Chunk);
         rescue_type_chunk_ptr.* = Chunk.init(self.allocator, "rescue_type");
         try rescue_type_chunk_ptr.setBacktraceContext(self.current_chunk.backtrace_context);
@@ -4666,7 +4665,7 @@ pub const Compiler = struct {
         return rescue_type_chunk_id;
     }
 
-    fn compileBeginNode(self: *Compiler, begin_node: *prism.BeginNode, line: u32) !void {
+    fn compileBeginNode(self: *Compiler, begin_node: *prism.BeginNode, line: i64) !void {
         // Create exception handler entry
         const handler_idx = self.current_chunk.exception_handlers.items.len;
 
@@ -4872,7 +4871,7 @@ pub const Compiler = struct {
         });
     }
 
-    fn compileRescueModifierNode(self: *Compiler, rescue_modifier_node: *prism.RescueModifierNode, line: u32) !void {
+    fn compileRescueModifierNode(self: *Compiler, rescue_modifier_node: *prism.RescueModifierNode, line: i64) !void {
         // Rescue modifier is syntactic sugar for:
         // begin
         //   expression
@@ -4949,7 +4948,7 @@ pub const Compiler = struct {
         });
     }
 
-    fn compileBreakStatement(self: *Compiler, break_node: *prism.BreakNode, line: u32) !void {
+    fn compileBreakStatement(self: *Compiler, break_node: *prism.BreakNode, line: i64) !void {
         if (self.loop_stack.items.len == 0) {
             return error.BreakOutsideLoop;
         }
@@ -4983,7 +4982,7 @@ pub const Compiler = struct {
         }
     }
 
-    fn compileNextStatement(self: *Compiler, next_node: *prism.NextNode, line: u32) !void {
+    fn compileNextStatement(self: *Compiler, next_node: *prism.NextNode, line: i64) !void {
         if (self.loop_stack.items.len == 0) {
             return error.NextOutsideLoop;
         }
@@ -5017,7 +5016,7 @@ pub const Compiler = struct {
         }
     }
 
-    fn compileRedoStatement(self: *Compiler, line: u32) !void {
+    fn compileRedoStatement(self: *Compiler, line: i64) !void {
         if (self.loop_stack.items.len == 0) {
             return error.RedoOutsideLoop;
         }
@@ -5029,7 +5028,7 @@ pub const Compiler = struct {
         }
     }
 
-    fn compileArgumentsAsValue(self: *Compiler, args_node: *prism.ArgumentsNode, line: u32) !void {
+    fn compileArgumentsAsValue(self: *Compiler, args_node: *prism.ArgumentsNode, line: i64) !void {
         if (args_node.arguments.size == 0) {
             try self.current_chunk.emitOp(.PUSH_NIL, line);
             return;
@@ -5067,7 +5066,7 @@ pub const Compiler = struct {
         }
     }
 
-    fn compileWhileStatement(self: *Compiler, while_node: *prism.WhileNode, line: u32) anyerror!void {
+    fn compileWhileStatement(self: *Compiler, while_node: *prism.WhileNode, line: i64) anyerror!void {
         const loop_idx = self.loop_stack.items.len;
         try self.loop_stack.append(self.allocator, .{
             .loop_type = .while_loop,
@@ -5143,7 +5142,7 @@ pub const Compiler = struct {
         }
     }
 
-    fn compileForStatement(self: *Compiler, for_node: *prism.ForNode, line: u32) anyerror!void {
+    fn compileForStatement(self: *Compiler, for_node: *prism.ForNode, line: i64) anyerror!void {
         // for x in collection; body; end → collection.each { |x| body }
 
         // Loop context for break/next/redo — use block type since body compiles as a block
@@ -5247,13 +5246,13 @@ pub const Compiler = struct {
         try self.current_chunk.emitOp(.PUSH_NIL, line);
     }
 
-    fn emitNoMatchingPatternRaise(self: *Compiler, message: []const u8, line: u32) !void {
+    fn emitNoMatchingPatternRaise(self: *Compiler, message: []const u8, line: i64) !void {
         try self.current_chunk.emitOp(.POP, line);
         try self.current_chunk.emitOp(.POP, line);
         try self.emitPatternRaise(message, line);
     }
 
-    fn emitPatternRaise(self: *Compiler, message: []const u8, line: u32) !void {
+    fn emitPatternRaise(self: *Compiler, message: []const u8, line: i64) !void {
         try self.current_chunk.emitOp(.PUSH_SELF, line);
 
         const class_idx = try self.current_chunk.addConstant(.{ .string = "NoMatchingPatternError" });
@@ -5271,12 +5270,12 @@ pub const Compiler = struct {
         );
     }
 
-    fn emitPatternMethodCall(self: *Compiler, name: []const u8, argc: u8, line: u32) !void {
+    fn emitPatternMethodCall(self: *Compiler, name: []const u8, argc: u8, line: i64) !void {
         const idx = try self.current_chunk.addConstant(.{ .string = name });
         try self.current_chunk.emitCall(@intCast(idx), argc, bytecode.encodeCallFlags(.explicit, false), 0, line);
     }
 
-    fn emitPatternTypeCheck(self: *Compiler, class_name: []const u8, failures: *std.ArrayList(usize), line: u32) !void {
+    fn emitPatternTypeCheck(self: *Compiler, class_name: []const u8, failures: *std.ArrayList(usize), line: i64) !void {
         try self.current_chunk.emitOp(.DUP, line);
         const class_idx = try self.current_chunk.addConstant(.{ .string = class_name });
         try self.current_chunk.emitOpU16(.GET_CONST, @intCast(class_idx), line);
@@ -5284,7 +5283,7 @@ pub const Compiler = struct {
         try failures.append(self.allocator, try self.current_chunk.emitJump(.JUMP_IF_FALSE, line));
     }
 
-    fn emitPatternDeconstruct(self: *Compiler, method_name: []const u8, failures: *std.ArrayList(usize), line: u32) !void {
+    fn emitPatternDeconstruct(self: *Compiler, method_name: []const u8, failures: *std.ArrayList(usize), line: i64) !void {
         try self.current_chunk.emitOp(.DUP, line);
         const method_idx = try self.current_chunk.addConstant(.{ .string = method_name });
         try self.current_chunk.emitOpU16(.PUSH_SYMBOL, @intCast(method_idx), line);
@@ -5292,7 +5291,7 @@ pub const Compiler = struct {
         try failures.append(self.allocator, try self.current_chunk.emitJump(.JUMP_IF_FALSE, line));
     }
 
-    fn emitPatternConstantCheck(self: *Compiler, raw_constant: ?*prism.RawNode, failures: *std.ArrayList(usize), line: u32) !void {
+    fn emitPatternConstantCheck(self: *Compiler, raw_constant: ?*prism.RawNode, failures: *std.ArrayList(usize), line: i64) !void {
         const constant = raw_constant orelse return;
         try self.current_chunk.emitOp(.DUP, line);
         try self.compileNode(try self.parser.asNode(constant), line);
@@ -5301,7 +5300,7 @@ pub const Compiler = struct {
         try failures.append(self.allocator, try self.current_chunk.emitJump(.JUMP_IF_FALSE, line));
     }
 
-    fn finishPatternChecks(self: *Compiler, failures: []const usize, line: u32) !void {
+    fn finishPatternChecks(self: *Compiler, failures: []const usize, line: i64) !void {
         try self.current_chunk.emitOp(.POP, line);
         try self.current_chunk.emitOp(.PUSH_TRUE, line);
         const done = try self.current_chunk.emitJump(.JUMP, line);
@@ -5311,7 +5310,7 @@ pub const Compiler = struct {
         try self.current_chunk.patchJump(done);
     }
 
-    fn extractPatternArraySlice(self: *Compiler, start: usize, post_count: usize, line: u32) !void {
+    fn extractPatternArraySlice(self: *Compiler, start: usize, post_count: usize, line: i64) !void {
         try self.current_chunk.emitOp(.DUP, line);
         try self.current_chunk.emitOp(.DUP, line);
         try self.emitPatternMethodCall("length", 0, line);
@@ -5326,7 +5325,7 @@ pub const Compiler = struct {
         try self.emitPatternMethodCall("[]", 2, line);
     }
 
-    fn compileFindPattern(self: *Compiler, find: *prism.FindPatternNode, line: u32) anyerror!void {
+    fn compileFindPattern(self: *Compiler, find: *prism.FindPatternNode, line: i64) anyerror!void {
         var outer_failures: std.ArrayList(usize) = .empty;
         defer outer_failures.deinit(self.allocator);
         var next_candidate: std.ArrayList(usize) = .empty;
@@ -5410,7 +5409,7 @@ pub const Compiler = struct {
 
     // Consume a candidate value and leave a Boolean match result. Each composite
     // pattern keeps its deconstructed value on the stack while checking children.
-    fn compileRequiredPattern(self: *Compiler, pattern: prism.Node, line: u32) anyerror!void {
+    fn compileRequiredPattern(self: *Compiler, pattern: prism.Node, line: i64) anyerror!void {
         switch (pattern) {
             .implicit => |implicit| try self.compileRequiredPattern(try self.parser.asNode(implicit.value), line),
             .local_variable_target => |target| {
@@ -5511,7 +5510,7 @@ pub const Compiler = struct {
         }
     }
 
-    fn compileMatchRequired(self: *Compiler, match_node: *prism.MatchRequiredNode, line: u32) !void {
+    fn compileMatchRequired(self: *Compiler, match_node: *prism.MatchRequiredNode, line: i64) !void {
         const value_node = try self.parser.asNode(@ptrCast(match_node.value));
         const pattern_node = try self.parser.asNode(@ptrCast(match_node.pattern));
         var legacy_array = pattern_node == .array_pattern;
@@ -5605,7 +5604,7 @@ pub const Compiler = struct {
         try self.current_chunk.emitOp(.POP, line);
     }
 
-    fn compileUntilStatement(self: *Compiler, until_node: *prism.UntilNode, line: u32) anyerror!void {
+    fn compileUntilStatement(self: *Compiler, until_node: *prism.UntilNode, line: i64) anyerror!void {
         const loop_idx = self.loop_stack.items.len;
         try self.loop_stack.append(self.allocator, .{
             .loop_type = .until_loop,

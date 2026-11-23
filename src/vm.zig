@@ -8579,6 +8579,11 @@ pub const VM = struct {
                 .{receiver.toModuleObject().name.name},
             ) catch return error.Fatal;
         }
+        if (receiver.getSingletonClass() != null) {
+            if (receiver.eql(self.main_self)) return "main";
+            const description = try kernel_builtin.builtinKernelToS(self, receiver, &.{}, null);
+            return description.toStringObject().str;
+        }
         return std.fmt.allocPrint(
             self.gc_allocator,
             "an instance of {s}",
@@ -11600,7 +11605,7 @@ pub const VM = struct {
         self: *VM,
         path: []const u8,
         absolute_path: ?[]const u8,
-        lineno: u32,
+        lineno: i64,
         label: []const u8,
         base_label: []const u8,
     ) VMError!Value {
@@ -14890,11 +14895,10 @@ pub const VM = struct {
         return fiber.frames.items;
     }
 
-    pub fn backtraceLineForFrame(_: *VM, frame: *const CallFrame) u32 {
+    pub fn backtraceLineForFrame(_: *VM, frame: *const CallFrame) i64 {
         if (frame.chunk.line_info.items.len == 0) return 1;
         const ip = if (frame.ip == 0) 0 else frame.ip - 1;
-        const line = frame.chunk.getLine(ip);
-        return if (line == 0) 1 else line;
+        return frame.chunk.getLine(ip);
     }
 
     fn writeFormattedException(_: *VM, writer: anytype, exc: *value.ExceptionObject, limit: ?usize) VMError!void {

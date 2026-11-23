@@ -105,25 +105,19 @@ describe "BasicObject#singleton_method_added" do
       class << object
         undef_method :singleton_method_added
 
-        CORAFIXME "NoMethodError describes ordinary receivers as an instance of Object", exception: SpecExpectationNotMetError, message: /an instance of Object/ do
-          -> {
-            def foo
-            end
-          }.should.raise(NoMethodError, /undefined method [`']singleton_method_added' for #<Object:/)
-        end
-
-        CORAFIXME "NoMethodError describes ordinary receivers as an instance of Object", exception: SpecExpectationNotMetError, message: /an instance of Object/ do
-          -> {
-            define_method(:bar) {}
-          }.should.raise(NoMethodError, /undefined method [`']singleton_method_added' for #<Object:/)
-        end
-      end
-
-      CORAFIXME "NoMethodError describes ordinary receivers as an instance of Object", exception: SpecExpectationNotMetError, message: /an instance of Object/ do
         -> {
-          object.define_singleton_method(:baz) {}
+          def foo
+          end
+        }.should.raise(NoMethodError, /undefined method [`']singleton_method_added' for #<Object:/)
+
+        -> {
+          define_method(:bar) {}
         }.should.raise(NoMethodError, /undefined method [`']singleton_method_added' for #<Object:/)
       end
+
+      -> {
+        object.define_singleton_method(:baz) {}
+      }.should.raise(NoMethodError, /undefined method [`']singleton_method_added' for #<Object:/)
     end
 
     it "calls #method_missing" do

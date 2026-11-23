@@ -69,13 +69,7 @@ pub fn writeWarning(vm: *VM, message: []const u8) VMError!void {
 pub fn warnBlockUnused(vm: *VM) VMError!void {
     const frame = vm.currentFrame();
     const source_file = frame.chunk.source_file orelse "(eval)";
-    const ip = if (frame.ip == 0) 0 else frame.ip - 1;
-    const line = if (frame.chunk.line_info.items.len == 0)
-        @as(u32, 1)
-    else blk: {
-        const chunk_line = frame.chunk.getLine(ip);
-        break :blk if (chunk_line == 0) @as(u32, 1) else chunk_line;
-    };
+    const line = vm.backtraceLineForFrame(frame);
     const warning = std.fmt.allocPrint(vm.allocator, "{s}:{d}: warning: given block not used\n", .{ source_file, line }) catch return error.Fatal;
     defer vm.allocator.free(warning);
     try writeWarning(vm, warning);
