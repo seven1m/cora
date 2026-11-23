@@ -703,6 +703,7 @@ pub const VM = struct {
     marshal_module: *value.ModuleObject,
     errno_module: *value.ModuleObject,
     warning_deprecated_enabled: bool = true,
+    frozen_string_literal: ?bool = null,
     process_status_class: *value.ClassObject,
     main_self: Value,
     main_fiber: *value.FiberObject,
@@ -13922,7 +13923,7 @@ pub const VM = struct {
 
         const code_buffer = std.Io.Dir.cwd().readFileAlloc(self.io, absolute_path, self.gc_allocator_atomic, .limited(std.math.maxInt(usize))) catch return error.Fatal;
 
-        var parser = prism.Parser.init(self.allocator, code_buffer, absolute_path) catch return error.Fatal;
+        var parser = prism.Parser.initWithOptions(self.allocator, code_buffer, .{ .source_file = absolute_path, .frozen_string_literal = self.frozen_string_literal }) catch return error.Fatal;
         defer parser.deinit();
 
         var program = compiler.Compiler.compileWithContext(self.allocator, &parser, self.next_chunk_id, .{ .backtrace_context = .{ .name = "<top (required)>" } }) catch return error.Fatal;
@@ -14039,10 +14040,14 @@ pub const VM = struct {
         const outer_names = if (context) |ctx| ctx.parent_local_names else null;
         const start_line = if (context) |ctx| ctx.start_line else 1;
         const outer_scopes = if (context) |ctx| ctx.parent_local_scopes else null;
-        var parser = (if (outer_scopes) |scopes|
-            prism.Parser.initWithEncodingScopesAndLine(self.allocator, source, source_file, source_encoding, scopes, start_line)
-        else
-            prism.Parser.initWithEncodingLocalsAndLine(self.allocator, source, source_file, source_encoding, outer_names, start_line)) catch {
+        const fallback_scopes = [_][]const []const u8{outer_names orelse &.{}};
+        var parser = prism.Parser.initWithOptions(self.allocator, source, .{
+            .source_file = source_file,
+            .source_encoding = source_encoding,
+            .outer_local_scopes = outer_scopes orelse if (outer_names != null) &fallback_scopes else null,
+            .start_line = start_line,
+            .frozen_string_literal = self.frozen_string_literal,
+        }) catch {
             return self.raiseExceptionFmt(self.syntax_error_class, "{s}: syntax error", .{source_file orelse "(eval)"});
         };
         defer parser.deinit();

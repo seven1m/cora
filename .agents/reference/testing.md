@@ -76,6 +76,7 @@ Inspection:
 Load path and requires:
 - `-I PATH[:PATH...]` - add directories to `$LOAD_PATH` (colon-separated)
 - `-r LIBRARY` - `require` LIBRARY before the script body
+- `--enable-frozen-string-literal`, `--disable-frozen-string-literal` - set the default for string literals in scripts, loaded files, and eval; magic comments override it (`--enable=frozen-string-literal` and `--disable=frozen-string-literal` are also accepted).
 - `--disable-gems` - skip RubyGems setup (useful for debugging require resolution against the static `repo_load_paths`)
 
 Runtime:

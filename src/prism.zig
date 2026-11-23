@@ -304,6 +304,14 @@ pub const Node = union(enum) {
 
 /// Parser wraps Prism's parser and AST lifecycle
 pub const Parser = struct {
+    pub const Options = struct {
+        source_file: ?[]const u8 = null,
+        source_encoding: ?enc.Encoding = null,
+        outer_local_scopes: ?[]const []const []const u8 = null,
+        start_line: i32 = 1,
+        frozen_string_literal: ?bool = null,
+    };
+
     pub const LineColumn = struct {
         line: i64,
         column: u32,
@@ -366,17 +374,29 @@ pub const Parser = struct {
         outer_local_scopes: ?[]const []const []const u8,
         start_line: i32,
     ) !Parser {
+        return initWithOptions(allocator, source, .{
+            .source_file = source_file,
+            .source_encoding = source_encoding,
+            .outer_local_scopes = outer_local_scopes,
+            .start_line = start_line,
+        });
+    }
+
+    pub fn initWithOptions(allocator: std.mem.Allocator, source: []const u8, parse_options: Options) !Parser {
         var parser: c.pm_parser_t = undefined;
         var options: c.pm_options_t = std.mem.zeroes(c.pm_options_t);
         defer c.pm_options_free(&options);
-        options.line = start_line;
+        options.line = parse_options.start_line;
+        if (parse_options.frozen_string_literal) |frozen| {
+            c.pm_options_frozen_string_literal_set(&options, frozen);
+        }
 
-        if (source_encoding) |encoding| {
+        if (parse_options.source_encoding) |encoding| {
             c.pm_options_encoding_set(&options, encoding.name().ptr);
             c.pm_options_encoding_locked_set(&options, true);
         }
 
-        if (outer_local_scopes) |scopes| {
+        if (parse_options.outer_local_scopes) |scopes| {
             if (scopes.len > 0) {
                 _ = c.pm_options_scopes_init(&options, scopes.len);
                 for (scopes, 0..) |names, scope_index| {
@@ -404,7 +424,7 @@ pub const Parser = struct {
             .source = source,
             .internal = parser,
             .ast = @ptrCast(@alignCast(ast)),
-            .source_file = source_file,
+            .source_file = parse_options.source_file,
         };
     }
 

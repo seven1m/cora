@@ -2889,8 +2889,8 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] library/delegate/delegator/tap_spec.rb
 
 ### library/digest
-- [ ] library/digest/bubblebabble_spec.rb
-- [ ] library/digest/hexencode_spec.rb
+- [x] library/digest/bubblebabble_spec.rb
+- [x] library/digest/hexencode_spec.rb
 
 ### library/digest/instance
 - [x] library/digest/instance/append_spec.rb
@@ -2924,18 +2924,18 @@ Source baseline: ../ruby_spec compared to local spec/
 ### library/digest/sha256
 - [x] library/digest/sha256/append_spec.rb
 - [x] library/digest/sha256/block_length_spec.rb
-- [ ] library/digest/sha256/digest_bang_spec.rb
+- [x] library/digest/sha256/digest_bang_spec.rb
 - [x] library/digest/sha256/digest_length_spec.rb
-- [ ] library/digest/sha256/digest_spec.rb
-- [ ] library/digest/sha256/equal_spec.rb
-- [-] library/digest/sha256/file_spec.rb
+- [x] library/digest/sha256/digest_spec.rb
+- [x] library/digest/sha256/equal_spec.rb
+- [x] library/digest/sha256/file_spec.rb
 - [x] library/digest/sha256/hexdigest_bang_spec.rb
-- [ ] library/digest/sha256/hexdigest_spec.rb
-- [ ] library/digest/sha256/inspect_spec.rb
-- [ ] library/digest/sha256/length_spec.rb
+- [x] library/digest/sha256/hexdigest_spec.rb
+- [x] library/digest/sha256/inspect_spec.rb
+- [x] library/digest/sha256/length_spec.rb
 - [x] library/digest/sha256/reset_spec.rb
-- [ ] library/digest/sha256/size_spec.rb
-- [ ] library/digest/sha256/to_s_spec.rb
+- [x] library/digest/sha256/size_spec.rb
+- [x] library/digest/sha256/to_s_spec.rb
 - [x] library/digest/sha256/update_spec.rb
 
 ### library/digest/sha384

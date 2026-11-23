@@ -23,9 +23,7 @@ describe "Digest::SHA256.file" do
     end
 
     it "can be used with frozen-string-literal" do
-      CORAFIXME "Cora does not support --enable=frozen-string-literal", exception: SpecExpectationNotMetError do
-        ruby_exe("require 'digest'; puts Digest::SHA256.file(#{@file.inspect}).digest.inspect", options: "--enable=frozen-string-literal").chomp.should == SHA256Constants::Digest.inspect
-      end
+      ruby_exe("require 'digest'; puts Digest::SHA256.file(#{@file.inspect}).digest.inspect", options: "--enable=frozen-string-literal").chomp.should == SHA256Constants::Digest.inspect
     end
 
     it "calls #to_str on an object and returns the Digest::SHA256 with the result" do

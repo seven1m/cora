@@ -263,3 +263,19 @@ test "Digest equality rejects incompatible values without changing digest state"
     );
     try std.testing.expect(result.isTrue());
 }
+
+test "Digest encoders preserve binary inputs and expose digest Bubble Babble helpers" {
+    const result = try evalCode(
+        \\require "digest/bubblebabble"
+        \\source = [0, 255, 128, 127].pack("C*").force_encoding(Encoding::UTF_16LE).freeze
+        \\bubble = Digest.bubblebabble(source)
+        \\hex = Digest.hexencode(source)
+        \\digest = Digest::SHA256.new.update("abc")
+        \\bubble == "xebaz-zubel-zexox" && bubble.encoding == Encoding::BINARY && !bubble.frozen? &&
+        \\  hex == "00ff807f" && hex.encoding == Encoding::US_ASCII && !hex.frozen? &&
+        \\  source.encoding == Encoding::UTF_16LE && source.bytes == [0, 255, 128, 127] &&
+        \\  digest.bubblebabble == Digest.bubblebabble(digest.digest) &&
+        \\  Digest::SHA256.bubblebabble("abc") == digest.bubblebabble
+    );
+    try std.testing.expect(result.isTrue());
+}

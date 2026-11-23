@@ -179,6 +179,8 @@ fn printHelp() void {
         \\
         \\Runtime:
         \\  --jit                  Enable the experimental TinyCC JIT
+        \\  --enable-frozen-string-literal  Freeze and intern string literals
+        \\  --disable-frozen-string-literal Keep string literals mutable
         \\  --disable-gems         Skip RubyGems setup
         \\  --pack                 Package ENTRYPOINT into a self-contained executable
         \\  -o FILE                Output path used with --pack
@@ -239,6 +241,7 @@ pub fn main(init: std.process.Init) !void {
     var dump_jit_source = false;
     var jit_enabled = false;
     var disable_gems = false;
+    var frozen_string_literal: ?bool = null;
     var strip_leading_garbage = false;
     var backtrace_limit: ?usize = null;
     var input_record_separator: ?[]const u8 = null;
@@ -339,6 +342,10 @@ pub fn main(init: std.process.Init) !void {
             dump_jit_source = true;
         } else if (std.mem.eql(u8, args[i], "--jit")) {
             jit_enabled = true;
+        } else if (std.mem.eql(u8, args[i], "--enable-frozen-string-literal") or std.mem.eql(u8, args[i], "--enable=frozen-string-literal")) {
+            frozen_string_literal = true;
+        } else if (std.mem.eql(u8, args[i], "--disable-frozen-string-literal") or std.mem.eql(u8, args[i], "--disable=frozen-string-literal")) {
+            frozen_string_literal = false;
         } else if (std.mem.eql(u8, args[i], "--disable-gems")) {
             disable_gems = true;
         } else if (!std.mem.startsWith(u8, args[i], "-")) {
@@ -399,7 +406,7 @@ pub fn main(init: std.process.Init) !void {
         break :blk code_buffer.?;
     } else unreachable;
     const code = if (strip_leading_garbage) stripLeadingGarbage(raw_code) else raw_code;
-    var parser = prism.Parser.init(allocator, code, source_file) catch {
+    var parser = prism.Parser.initWithOptions(allocator, code, .{ .source_file = source_file, .frozen_string_literal = frozen_string_literal }) catch {
         std.debug.print("{s}: syntax error (SyntaxError)\n", .{source_file orelse "(eval)"});
         return;
     };
@@ -444,6 +451,7 @@ pub fn main(init: std.process.Init) !void {
     }
 
     var virtual_machine = vm.VM.initEmpty(allocator, gc_allocator.scanned, gc_allocator.atomic, init.io, init.minimal.environ);
+    virtual_machine.frozen_string_literal = frozen_string_literal;
     try virtual_machine.prepare(&program);
     cext.setupGlobals(&virtual_machine);
     if (verbose) {

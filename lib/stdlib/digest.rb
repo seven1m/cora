@@ -7,6 +7,11 @@ def Digest(name)
 end
 
 module Digest
+  def self.hexencode(string)
+    string = String.try_convert(string) or raise TypeError, "no implicit conversion into String"
+    string.unpack1("H*").force_encoding(Encoding::US_ASCII)
+  end
+
   module Instance
     def update(string)
       raise RuntimeError, "#{self.class} does not implement update()"

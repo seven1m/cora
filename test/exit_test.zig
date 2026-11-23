@@ -40,3 +40,40 @@ test "unknown cli flag exits with ruby-style error" {
         result.stderr,
     );
 }
+
+test "frozen string literal cli defaults apply to loaded files and eval" {
+    var gpa: std.heap.DebugAllocator(.{}) = .init;
+    defer _ = gpa.deinit();
+    const allocator = gpa.allocator();
+    var threaded: std.Io.Threaded = .init(allocator, .{});
+    defer threaded.deinit();
+
+    const enabled_code =
+        \\# frozen_string_literal: false
+        \\p ["main".frozen?, eval(%q{"eval".frozen?})]
+        \\load "test/support/frozen_literals.rb"
+    ;
+    const disabled_code =
+        \\# frozen_string_literal: true
+        \\p ["main".frozen?, eval(%q{"eval".frozen?})]
+        \\load "test/support/frozen_literals.rb"
+    ;
+    const cases = [_]struct { flag: []const u8, code: []const u8, expected: []const u8 }{
+        .{ .flag = "--enable-frozen-string-literal", .code = enabled_code, .expected = "[false, true]\n[true, true]\n" },
+        .{ .flag = "--enable=frozen-string-literal", .code = enabled_code, .expected = "[false, true]\n[true, true]\n" },
+        .{ .flag = "--disable-frozen-string-literal", .code = disabled_code, .expected = "[true, false]\n[false, false]\n" },
+        .{ .flag = "--disable=frozen-string-literal", .code = disabled_code, .expected = "[true, false]\n[false, false]\n" },
+    };
+    for (cases) |case| {
+        const result = try std.process.run(allocator, threaded.io(), .{
+            .argv = &.{ "zig-out/bin/cora", case.flag, "-e", case.code },
+            .stdout_limit = .limited(1024 * 1024),
+            .stderr_limit = .limited(1024 * 1024),
+        });
+        defer allocator.free(result.stdout);
+        defer allocator.free(result.stderr);
+        try std.testing.expect(result.term == .exited and result.term.exited == 0);
+        try std.testing.expectEqualStrings(case.expected, result.stdout);
+        try std.testing.expectEqualStrings("", result.stderr);
+    }
+}
