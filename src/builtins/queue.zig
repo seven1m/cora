@@ -1,6 +1,7 @@
 const std = @import("std");
 const vm_mod = @import("../vm.zig");
 const value = @import("../value.zig");
+const synchronization = @import("synchronization.zig");
 
 const VM = vm_mod.VM;
 const VMError = vm_mod.VMError;
@@ -324,95 +325,32 @@ fn queueHasCapacity(queue: *value.QueueObject) bool {
     return queueLength(queue) < max_size;
 }
 
-const Waiters = std.ArrayList(*value.QueueWaiter);
-
-fn removeWaiter(waiters: *Waiters, index: usize) *value.QueueWaiter {
-    const waiter = waiters.orderedRemove(index);
-    @memset(std.mem.asBytes(&waiters.unusedCapacitySlice()[0]), 0);
-    return waiter;
-}
-
-fn removeWaiterIfPresent(waiters: *Waiters, waiter: *value.QueueWaiter) void {
-    for (waiters.items, 0..) |entry, index| {
-        if (entry == waiter) {
-            _ = removeWaiter(waiters, index);
-            return;
-        }
-    }
-}
-
-fn clearWaiters(waiters: *Waiters) void {
-    @memset(std.mem.sliceAsBytes(waiters.items), 0);
-    waiters.clearRetainingCapacity();
-}
-
-fn addThreadWaiter(vm: *VM, waiters: *Waiters, thread: *value.ThreadObject) VMError!*value.QueueWaiter {
-    const waiter = vm.gc_allocator.create(value.QueueWaiter) catch return error.Fatal;
-    waiter.* = .{ .thread = thread };
-    waiters.append(vm.gc_allocator, waiter) catch return error.Fatal;
-    return waiter;
-}
-
-fn waiterIsLive(waiter: *value.QueueWaiter) bool {
-    return switch (waiter.*) {
-        .thread => |thread| thread.state != .terminated,
-        .fiber => |fiber_waiter| fiber_waiter.thread.state != .terminated and fiber_waiter.fiber.state != .terminated,
-    };
-}
-
-fn wakeWaiter(vm: *VM, queue: *value.QueueObject, waiter: *value.QueueWaiter) VMError!void {
-    switch (waiter.*) {
-        .thread => |thread| {
-            thread.state = .running;
-            addToRunnableIfAbsent(vm, thread);
-        },
-        .fiber => |fiber_waiter| try vm.notifyFiberSchedulerWaiter(fiber_waiter, Value.fromObject(&queue.object)),
-    }
-}
-
-fn wakeNextWaiter(vm: *VM, queue: *value.QueueObject, waiters: *Waiters) VMError!void {
-    while (waiters.items.len > 0) {
-        const waiter = removeWaiter(waiters, 0);
-        if (!waiterIsLive(waiter)) continue;
-        try wakeWaiter(vm, queue, waiter);
-        return;
-    }
-}
-
-fn wakeAllWaiters(vm: *VM, queue: *value.QueueObject, waiters: *Waiters) VMError!void {
-    // Unblock callbacks can yield, cancel waits, or register new waits. Only
-    // notify the registrations that existed when this wakeup began.
-    const snapshot = vm.gc_allocator.dupe(*value.QueueWaiter, waiters.items) catch return error.Fatal;
-    for (snapshot) |waiter| {
-        for (waiters.items, 0..) |entry, index| {
-            if (entry == waiter) {
-                _ = removeWaiter(waiters, index);
-                if (waiterIsLive(waiter)) try wakeWaiter(vm, queue, waiter);
-                break;
-            }
-        }
-    }
-}
+const Waiters = synchronization.Waiters;
+const removeWaiterIfPresent = synchronization.removeWaiterIfPresent;
+const clearWaiters = synchronization.clearWaiters;
+const addThreadWaiter = synchronization.addThreadWaiter;
+const waiterIsLive = synchronization.waiterIsLive;
+const blockFiberOnQueue = synchronization.blockFiber;
 
 fn wakeNextDequeueWaiter(vm: *VM, queue: *value.QueueObject) VMError!void {
-    try wakeNextWaiter(vm, queue, &queue.dequeue_waiters);
+    try synchronization.wakeNextWaiter(vm, Value.fromObject(&queue.object), &queue.dequeue_waiters);
 }
 
 fn wakeAllDequeueWaiters(vm: *VM, queue: *value.QueueObject) VMError!void {
-    try wakeAllWaiters(vm, queue, &queue.dequeue_waiters);
+    try synchronization.wakeAllWaiters(vm, Value.fromObject(&queue.object), &queue.dequeue_waiters);
 }
 
 fn wakeNextEnqueueWaiter(vm: *VM, queue: *value.QueueObject) VMError!void {
-    try wakeNextWaiter(vm, queue, &queue.enqueue_waiters);
+    try synchronization.wakeNextWaiter(vm, Value.fromObject(&queue.object), &queue.enqueue_waiters);
 }
 
 fn wakeAllEnqueueWaiters(vm: *VM, queue: *value.QueueObject) VMError!void {
-    try wakeAllWaiters(vm, queue, &queue.enqueue_waiters);
+    try synchronization.wakeAllWaiters(vm, Value.fromObject(&queue.object), &queue.enqueue_waiters);
 }
 
 fn countWaiting(queue: *value.QueueObject) usize {
     var count: usize = 0;
-    for ([_][]*value.QueueWaiter{ queue.dequeue_waiters.items, queue.enqueue_waiters.items }) |waiters| {
+    for ([_][]*value.SynchronizationWaiter{ queue.dequeue_waiters.items, queue.enqueue_waiters.items }) |waiters| {
         for (waiters) |waiter| {
             switch (waiter.*) {
                 .thread => |thread| if (thread.state == .sleeping or thread.waiting_on_queue) {
@@ -450,19 +388,6 @@ fn blockThreadOnQueue(vm: *VM, waiters: *Waiters, timeout: ?f64) VMError!void {
     }
 }
 
-fn blockFiberOnQueue(vm: *VM, receiver: Value, waiters: *Waiters, scheduler: Value, timeout: ?f64) VMError!void {
-    try vm.deliverThreadInterrupt(true);
-    const fiber_waiter = vm.gc_allocator.create(value.FiberSchedulerWaiter) catch return error.Fatal;
-    fiber_waiter.* = .{ .thread = vm.current_thread orelse return error.Fatal, .fiber = vm.current_fiber, .scheduler = scheduler };
-    const waiter = vm.gc_allocator.create(value.QueueWaiter) catch return error.Fatal;
-    waiter.* = .{ .fiber = fiber_waiter };
-    waiters.append(vm.gc_allocator, waiter) catch return error.Fatal;
-    defer removeWaiterIfPresent(waiters, waiter);
-    var args = [_]Value{ receiver, if (timeout) |seconds| try vm.newFloat(seconds) else Value.nil() };
-    _ = try vm.callMethodByName(scheduler, "block", &args, null);
-    try vm.deliverThreadInterrupt(true);
-}
-
 fn waitForQueue(vm: *VM, receiver: Value, queue: *value.QueueObject, mode: enum { enqueue, dequeue }, item: Value, timeout: ?f64) VMError!Value {
     const scheduler = vm.currentFiberScheduler();
     const deadline: ?f64 = if (timeout) |seconds| @as(f64, @floatFromInt(vm_mod.monotonicMilliseconds())) + seconds * 1000 else null;
@@ -497,8 +422,4 @@ fn waitForQueue(vm: *VM, receiver: Value, queue: *value.QueueObject, mode: enum 
             }
         }
     }
-}
-
-fn addToRunnableIfAbsent(vm: *VM, thread: *value.ThreadObject) void {
-    vm.addRunnableThreadIfAbsent(thread);
 }

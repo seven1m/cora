@@ -564,6 +564,7 @@ pub const ThreadObject = struct {
     pending_interrupts: std.ArrayList(ThreadInterrupt) = .empty,
     interrupt_masks: std.ArrayList(*HashObject) = .empty,
     fiber_join_waiters: std.ArrayList(*FiberSchedulerWaiter) = .empty,
+    owned_mutexes: std.ArrayList(*MutexObject) = .empty,
     delivering_interrupt: bool = false,
     terminating: bool = false,
     finishing: bool = false,
@@ -603,6 +604,7 @@ pub const ThreadObject = struct {
 
 pub const MutexObject = struct {
     object: Object,
+    waiters: std.ArrayList(*SynchronizationWaiter) = .empty,
     state: State = .unlocked,
     owner_thread: ?*ThreadObject = null,
     owner_fiber: ?*FiberObject = null,
@@ -618,7 +620,7 @@ pub const ConditionVariableObject = struct {
     waiters: std.ArrayList(*ThreadObject) = .empty,
 };
 
-pub const QueueWaiter = union(enum) {
+pub const SynchronizationWaiter = union(enum) {
     thread: *ThreadObject,
     fiber: *FiberSchedulerWaiter,
 };
@@ -627,8 +629,8 @@ pub const QueueObject = struct {
     object: Object,
     items: std.ArrayList(Value) = .empty,
     read_index: usize = 0,
-    dequeue_waiters: std.ArrayList(*QueueWaiter) = .empty,
-    enqueue_waiters: std.ArrayList(*QueueWaiter) = .empty,
+    dequeue_waiters: std.ArrayList(*SynchronizationWaiter) = .empty,
+    enqueue_waiters: std.ArrayList(*SynchronizationWaiter) = .empty,
     closed: bool = false,
     max_size: ?usize = null,
 };

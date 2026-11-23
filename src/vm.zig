@@ -21,6 +21,7 @@ const module_builtin = @import("builtins/module.zig");
 const kernel_core_source = @embedFile("builtins/kernel.rb");
 const warning_builtin = @import("builtins/warning.zig");
 const thread_builtin = @import("builtins/thread.zig");
+const synchronization = @import("builtins/synchronization.zig");
 const zio = @import("zio");
 const bdwgc = @import("bdwgc");
 const cext_gc = @import("cext_gc.zig");
@@ -729,8 +730,6 @@ pub const VM = struct {
     thread_ignore_deadlock: bool = false,
     thread_abort_on_exception: bool = false,
     thread_report_on_exception: bool = true,
-    thread_owned_mutexes: std.AutoHashMap(*value.ThreadObject, std.ArrayList(*value.MutexObject)) = undefined,
-    mutex_waiters: std.AutoHashMap(*value.MutexObject, std.ArrayList(*value.ThreadObject)) = undefined,
     thread_active_catches: std.AutoHashMap(*value.ThreadObject, std.ArrayList(Value)) = undefined,
     thread_ensure_saved_unwinds: std.AutoHashMap(*value.ThreadObject, std.ArrayList(SavedUnwind)) = undefined,
     thread_rescued_exceptions: std.AutoHashMap(*value.ThreadObject, std.ArrayList(*value.ExceptionObject)) = undefined,
@@ -982,8 +981,6 @@ pub const VM = struct {
             .runnable_queue = .empty,
             .thread_abort_on_exception = false,
             .thread_report_on_exception = true,
-            .thread_owned_mutexes = std.AutoHashMap(*value.ThreadObject, std.ArrayList(*value.MutexObject)).init(allocator),
-            .mutex_waiters = std.AutoHashMap(*value.MutexObject, std.ArrayList(*value.ThreadObject)).init(allocator),
             .thread_active_catches = std.AutoHashMap(*value.ThreadObject, std.ArrayList(Value)).init(allocator),
             .thread_ensure_saved_unwinds = std.AutoHashMap(*value.ThreadObject, std.ArrayList(SavedUnwind)).init(allocator),
             .thread_rescued_exceptions = std.AutoHashMap(*value.ThreadObject, std.ArrayList(*value.ExceptionObject)).init(allocator),
@@ -3230,16 +3227,6 @@ pub const VM = struct {
             self.allocator.destroy(ctx);
         }
         self.frame_scope_contexts.deinit(self.allocator);
-        var owned_mutexes_iter = self.thread_owned_mutexes.valueIterator();
-        while (owned_mutexes_iter.next()) |owned_mutexes| {
-            owned_mutexes.deinit(self.allocator);
-        }
-        self.thread_owned_mutexes.deinit();
-        var mutex_waiters_iter = self.mutex_waiters.valueIterator();
-        while (mutex_waiters_iter.next()) |waiters| {
-            waiters.deinit(self.allocator);
-        }
-        self.mutex_waiters.deinit();
         self.runnable_queue.deinit(self.gc_allocator);
         self.thread_list.deinit(self.gc_allocator);
     }
@@ -5004,6 +4991,7 @@ pub const VM = struct {
         main_thread_obj.pending_interrupts = .empty;
         main_thread_obj.interrupt_masks = .empty;
         main_thread_obj.fiber_join_waiters = .empty;
+        main_thread_obj.owned_mutexes = .empty;
         main_thread_obj.delivering_interrupt = false;
         main_thread_obj.terminating = false;
         main_thread_obj.finishing = false;
@@ -5058,6 +5046,7 @@ pub const VM = struct {
         _ = class_val;
         const mutex_obj = self.gc_allocator.create(value.MutexObject) catch return error.Fatal;
         mutex_obj.object = .{ .type_tag = .mutex, .flags = 0, .class = self.mutex_class, .singleton_class = null, .instance_variables = null };
+        mutex_obj.waiters = .empty;
         mutex_obj.state = .unlocked;
         mutex_obj.owner_thread = null;
         mutex_obj.owner_fiber = null;
@@ -5110,6 +5099,7 @@ pub const VM = struct {
         thread_obj.pending_interrupts = .empty;
         thread_obj.interrupt_masks = .empty;
         thread_obj.fiber_join_waiters = .empty;
+        thread_obj.owned_mutexes = .empty;
         thread_obj.delivering_interrupt = false;
         thread_obj.terminating = false;
         thread_obj.finishing = false;
@@ -5203,29 +5193,42 @@ pub const VM = struct {
         try self.enqueueReadyThread(thread_obj);
     }
 
-    pub fn releaseThreadOwnedMutexes(self: *VM, thread: *value.ThreadObject) void {
-        if (self.thread_owned_mutexes.getPtr(thread)) |owned_mutexes| {
-            while (owned_mutexes.items.len > 0) {
-                const mutex = owned_mutexes.pop() orelse break;
+    fn releaseThreadOwnedMutexes(self: *VM, thread: *value.ThreadObject) VMError!void {
+        // Callback Ruby may preempt, acquire locks, or change other threads.
+        // Keep this native stack runnable and release a whole batch before
+        // notifying any waiter, with no borrowed map entries across callbacks.
+        thread.state = .running;
+        defer thread.state = .terminated;
+        var pending = self.pending_unwind;
+        self.pending_unwind = null;
+        defer self.pending_unwind = pending;
+        var failure: ?VMError = null;
+        defer {
+            thread.owned_mutexes.deinit(self.gc_allocator);
+            thread.owned_mutexes = .empty;
+        }
+        while (thread.owned_mutexes.items.len != 0) {
+            var released = thread.owned_mutexes;
+            thread.owned_mutexes = .empty;
+            defer released.deinit(self.gc_allocator);
+            for (released.items) |mutex| {
                 mutex.state = .unlocked;
                 mutex.owner_thread = null;
                 mutex.owner_fiber = null;
-                self.wakeNextMutexWaiter(mutex);
+            }
+            for (released.items) |mutex| {
+                self.wakeNextMutexWaiter(mutex) catch |err| {
+                    failure = err;
+                    pending = self.pending_unwind;
+                    self.pending_unwind = null;
+                };
             }
         }
+        if (failure) |err| return err;
     }
 
-    pub fn wakeNextMutexWaiter(self: *VM, mutex: *value.MutexObject) void {
-        if (self.mutex_waiters.getPtr(mutex)) |waiters| {
-            while (waiters.items.len > 0) {
-                const waiter = removeThreadListEntry(waiters, 0);
-                if (!self.isKnownThread(waiter)) continue;
-                if (waiter.state == .terminated) continue;
-                waiter.state = .running;
-                self.addRunnableThreadIfAbsent(waiter);
-                return;
-            }
-        }
+    pub fn wakeNextMutexWaiter(self: *VM, mutex: *value.MutexObject) VMError!void {
+        try synchronization.wakeNextWaiter(self, Value.fromObject(&mutex.object), &mutex.waiters);
     }
 
     pub fn newThread(self: *VM, class_obj: *value.ClassObject, block: Block, args: []Value) VMError!*value.ThreadObject {
@@ -5352,19 +5355,6 @@ pub const VM = struct {
                 var list = entry.value;
                 list.deinit(self.allocator);
             }
-            if (self.thread_owned_mutexes.fetchRemove(thread)) |entry| {
-                var list = entry.value;
-                list.deinit(self.allocator);
-            }
-            var waiters = self.mutex_waiters.valueIterator();
-            while (waiters.next()) |list| {
-                var i: usize = 0;
-                while (i < list.items.len) {
-                    if (list.items[i] == thread) {
-                        _ = removeThreadListEntry(list, i);
-                    } else i += 1;
-                }
-            }
             for (self.thread_list.items) |target| {
                 var waiter_index: usize = 0;
                 while (waiter_index < target.fiber_join_waiters.items.len) {
@@ -5424,7 +5414,6 @@ pub const VM = struct {
     fn recordThreadFailure(self: *VM, thread: *ThreadObject, err: VMError) void {
         finishThreadBody(thread);
         thread.state = .terminated;
-        self.releaseThreadOwnedMutexes(thread);
         switch (err) {
             error.UnhandledException, error.Unwind => {
                 if (self.pending_unwind != null and self.pending_unwind.? == .thread_kill) {
@@ -5538,7 +5527,11 @@ pub const VM = struct {
 
     fn runThreadWithScheduler(thread: *ThreadObject) VMError!void {
         const self = thread.owner_vm;
-        const outcome = runThreadCoroutine(thread);
+        var outcome = runThreadCoroutine(thread);
+        finishThreadBody(thread);
+        self.releaseThreadOwnedMutexes(thread) catch |err| {
+            outcome = err;
+        };
         if (thread.fiber_scheduler == null) return outcome;
         thread.state = .running;
         const closing = self.closeFiberSchedulerPreservingUnwind(thread);
@@ -5569,7 +5562,6 @@ pub const VM = struct {
                 thread.state = .terminated;
                 thread.result = result;
                 thread.terminated_normally = true;
-                self.releaseThreadOwnedMutexes(thread);
                 return;
             },
             .receiver_builtin => |builtin_data| {
@@ -5579,7 +5571,6 @@ pub const VM = struct {
                 thread.state = .terminated;
                 thread.result = result;
                 thread.terminated_normally = true;
-                self.releaseThreadOwnedMutexes(thread);
                 return;
             },
             .builtin => |func| {
@@ -5600,7 +5591,6 @@ pub const VM = struct {
                 thread.state = .terminated;
                 thread.result = result;
                 thread.terminated_normally = true;
-                self.releaseThreadOwnedMutexes(thread);
                 return;
             },
             .callable => |callable| {
@@ -5610,7 +5600,6 @@ pub const VM = struct {
                 thread.state = .terminated;
                 thread.result = result;
                 thread.terminated_normally = true;
-                self.releaseThreadOwnedMutexes(thread);
                 return;
             },
         }
@@ -5640,7 +5629,6 @@ pub const VM = struct {
                 thread.state = .terminated;
                 thread.result = self.pop();
                 thread.terminated_normally = true;
-                self.releaseThreadOwnedMutexes(thread);
                 return;
             }
         }
@@ -5900,6 +5888,7 @@ pub const VM = struct {
 
         if (!thread.preempt_requested or !safe_point) return false;
 
+        self.wakeSleepingIoWaiters();
         if (!self.hasOtherRunnableThread(thread)) {
             thread.preempt_requested = false;
             return false;

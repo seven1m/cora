@@ -132,6 +132,8 @@ not change Ruby fiber caller relationships. Handoffs preserve pending unwinds,
 builtin keyword/indexed-yield contexts, C extension jump buffers and keyword
 hashes, and the current loading file. Suspended native stacks remain GC roots.
 
+Preemption safe points poll sleeping and I/O waiters before checking the ready
+queue, so CPU-bound threads cannot starve an expired timer.
 Sleep and I/O waiters become ready when their deadline expires, their descriptor
 is ready, or they are interrupted. When no thread is ready, the scheduler polls
 descriptors and the nearest deadline, with bounded waits for asynchronous events.
@@ -179,14 +181,22 @@ unwind, and thread retirement. Finishing workers stay runnable while callbacks
 execute so preemption cannot retire a live native stack.
 Queue and SizedQueue waits in nonblocking fibers likewise call `block` with the
 queue and remaining timeout, then `unblock` with the queue and waiting fiber.
-`FiberSchedulerWaiter` captures the owner thread, fiber, and scheduler for both
-join and queue waits. Queue thread and fiber registrations share FIFO lists; each
+`FiberSchedulerWaiter` captures the owner thread, fiber, and scheduler for
+join, queue, and mutex waits. Queue and Mutex thread and fiber registrations share
+FIFO lists through `builtins/synchronization.zig`; each
 registration is removed on wakeup or unwind. Native timed waits park with the
 VM sleep helper; both native and fiber paths retain a monotonic deadline across
 spurious wakeups and register again when the queue is still unavailable.
 Wake-all callbacks operate on a snapshot of registrations so callbacks may
 yield, cancel, or register new waits.
-Sleep and I/O waits still use the native thread scheduler; dispatch to Ruby
+Mutex wait lists live on MutexObject, and ThreadObject owns the GC-scanned list
+of acquired locks. Thread exit detaches and releases all owned locks before
+notifying waiters, retaining a runnable native stack across Ruby callbacks.
+Callbacks may acquire new locks; cleanup drains those locks too. Callback errors
+do not prevent the remaining released locks from notifying their waiters.
+Mutex#sleep dispatches to scheduler `kernel_sleep` in a nonblocking fiber and
+reacquires the lock before propagating any pending interrupt or sleep-hook error.
+Kernel sleep and I/O waits still use the native thread scheduler; dispatch to Ruby
 Fiber scheduler sleep and I/O wait hooks is not connected yet.
 
 ## Exception Handling

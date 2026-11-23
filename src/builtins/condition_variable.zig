@@ -75,7 +75,7 @@ fn builtinConditionVariableWait(vm: *VM, receiver: Value, args: []Value, _: ?Blo
         }
     }
 
-    mutex_builtin.releaseMutex(vm, mutex);
+    try mutex_builtin.releaseMutex(vm, mutex);
     const wait_result: VMError!void = wait: {
         if (timeout_ms) |limit| {
             vm.timedSleepCurrentThread(limit) catch |err| break :wait err;

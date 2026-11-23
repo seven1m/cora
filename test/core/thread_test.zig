@@ -1158,3 +1158,128 @@ test "Queue native timeouts retain their deadline and registration after wakeup"
     );
     try std.testing.expect(result.isTruthy());
 }
+
+test "Mutex scheduler waits support spurious wakeups cancellation and same thread handoff" {
+    const result = try evalCode(
+        \\events = []
+        \\scheduler = Object.new
+        \\scheduler.define_singleton_method(:block) { |mutex, timeout| events << [:block, mutex, Fiber.current, timeout]; Fiber.yield }
+        \\scheduler.define_singleton_method(:unblock) { |mutex, fiber| events << [:unblock, mutex, fiber] }
+        \\[:kernel_sleep, :io_wait, :fiber_interrupt].each { |name| scheduler.define_singleton_method(name) {} }
+        \\Fiber.set_scheduler(scheduler)
+        \\m = Mutex.new
+        \\m.lock
+        \\cancelled = Fiber.new(blocking: false) do
+        \\  begin
+        \\    m.lock
+        \\  rescue RuntimeError => error
+        \\    error.message
+        \\  end
+        \\end
+        \\cancelled.resume
+        \\cancelled.resume
+        \\raise "spurious wakeup" unless events.size == 2 && events.last == [:block, m, cancelled, nil]
+        \\raise "cancellation" unless cancelled.raise("cancelled") == "cancelled"
+        \\m.unlock
+        \\raise "stale waiter" unless events.size == 2
+        \\m.lock
+        \\waiter = Fiber.new(blocking: false) { m.synchronize { m.owned? } }
+        \\waiter.resume
+        \\m.unlock
+        \\raise "wrong wakeup" unless events.last == [:unblock, m, waiter]
+        \\raise "ownership" unless waiter.resume == true && !m.locked?
+        \\Fiber.set_scheduler(nil)
+        \\true
+    );
+    try std.testing.expect(result.isTruthy());
+}
+
+test "Mutex scheduler sleep reacquires before delivering an interrupt under contention" {
+    const result = try evalCode(
+        \\events = []
+        \\scheduler = Object.new
+        \\scheduler.define_singleton_method(:kernel_sleep) { |duration| events << [:sleep, duration]; Fiber.yield }
+        \\scheduler.define_singleton_method(:block) { |mutex, timeout| events << :reacquiring; Fiber.yield }
+        \\scheduler.define_singleton_method(:unblock) { |mutex, fiber| events << :released }
+        \\[:io_wait, :fiber_interrupt].each { |name| scheduler.define_singleton_method(name) {} }
+        \\Fiber.set_scheduler(scheduler)
+        \\m = Mutex.new
+        \\sleeper = Fiber.new(blocking: false) do
+        \\  m.lock
+        \\  begin
+        \\    m.sleep(nil)
+        \\  rescue RuntimeError => error
+        \\    [error.message, m.owned?]
+        \\  ensure
+        \\    m.unlock
+        \\  end
+        \\end
+        \\sleeper.resume
+        \\raise "sleep hook" unless events == [[:sleep, nil]] && !m.locked?
+        \\m.lock
+        \\sleeper.raise("interrupt")
+        \\raise "reacquisition did not block" unless events.last == :reacquiring && m.owned?
+        \\GC.start
+        \\m.unlock
+        \\raise "interrupt ownership" unless sleeper.resume == ["interrupt", true] && !m.locked?
+        \\Fiber.set_scheduler(nil)
+        \\true
+    );
+    try std.testing.expect(result.isTruthy());
+}
+
+test "Mutex thread exit releases every lock before preemptible callbacks and preserves failure" {
+    const result = try evalCode(
+        \\events = []
+        \\m1, m2, callback_lock = Mutex.new, Mutex.new, Mutex.new
+        \\scheduler = Object.new
+        \\scheduler.define_singleton_method(:block) { |mutex, timeout| Fiber.yield }
+        \\scheduler.define_singleton_method(:unblock) do |mutex, fiber|
+        \\  events << :entered
+        \\  raise "held lock during callback" if m1.locked? || m2.locked?
+        \\  callback_lock.synchronize { Thread.pass; GC.start }
+        \\  events << :done
+        \\end
+        \\[:kernel_sleep, :io_wait, :fiber_interrupt].each { |name| scheduler.define_singleton_method(name) {} }
+        \\ready, finish = Queue.new, Queue.new
+        \\worker = Thread.new do
+        \\  Thread.current.report_on_exception = false
+        \\  m1.lock
+        \\  m2.lock
+        \\  ready << true
+        \\  finish.pop
+        \\  raise "worker failure"
+        \\end
+        \\ready.pop
+        \\Fiber.set_scheduler(scheduler)
+        \\f1 = Fiber.new(blocking: false) { m1.synchronize { :first } }
+        \\f2 = Fiber.new(blocking: false) { m2.synchronize { :second } }
+        \\f1.resume
+        \\f2.resume
+        \\finish << true
+        \\begin
+        \\  worker.join
+        \\  raise "lost worker exception"
+        \\rescue RuntimeError => error
+        \\  raise error unless error.message == "worker failure"
+        \\end
+        \\raise "callbacks" unless events == [:entered, :done, :entered, :done]
+        \\raise "resumption" unless f1.resume == :first && f2.resume == :second
+        \\Fiber.set_scheduler(nil)
+        \\true
+    );
+    try std.testing.expect(result.isTruthy());
+}
+
+test "Thread preemption wakes expired timers while the only runnable thread loops" {
+    const result = try evalCode(
+        \\done = false
+        \\worker = Thread.new { sleep 0.01; done = true }
+        \\Thread.pass
+        \\iterations = 0
+        \\iterations += 1 until done
+        \\worker.join
+        \\iterations > 0
+    );
+    try std.testing.expect(result.isTruthy());
+}

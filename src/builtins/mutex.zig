@@ -1,6 +1,7 @@
 const std = @import("std");
 const vm_mod = @import("../vm.zig");
 const value = @import("../value.zig");
+const synchronization = @import("synchronization.zig");
 
 const VM = vm_mod.VM;
 const VMError = vm_mod.VMError;
@@ -89,7 +90,7 @@ fn builtinMutexUnlock(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMErro
         return vm.raiseExceptionFmt(vm.thread_error_class, "Attempt to unlock a mutex which is locked by another thread/fiber", .{});
     }
 
-    releaseMutex(vm, mutex);
+    try releaseMutex(vm, mutex);
     return receiver;
 }
 
@@ -139,10 +140,10 @@ fn builtinMutexSynchronize(vm: *VM, receiver: Value, args: []Value, block: ?Bloc
     try acquireMutex(vm, mutex);
 
     const yield_result = vm.yieldToBlock(blk, &[_]Value{}) catch |err| {
-        releaseMutex(vm, mutex);
+        try releaseMutex(vm, mutex);
         return err;
     };
-    releaseMutex(vm, mutex);
+    try releaseMutex(vm, mutex);
 
     return yield_result;
 }
@@ -152,7 +153,7 @@ fn builtinMutexSleep(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError
     const mutex = receiver.toMutexObject();
 
     var timeout: ?f64 = null;
-    if (args.len == 1) {
+    if (args.len == 1 and !args[0].isNil()) {
         const duration = args[0];
         if (duration.isInteger() or duration.isFloat()) {
             const dur_val = if (duration.isInteger()) duration.integerToF64() else duration.toFloatObject().val;
@@ -169,26 +170,26 @@ fn builtinMutexSleep(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError
         return vm.raiseExceptionFmt(vm.thread_error_class, "Attempt to sleep with a mutex not locked by the current thread", .{});
     }
 
-    releaseMutex(vm, mutex);
+    try releaseMutex(vm, mutex);
 
-    if (vm.current_thread == null) {
-        try acquireMutex(vm, mutex);
-        return Value.integer(0);
-    }
-
-    if (timeout == null) {
-        try vm.sleepCurrentThreadForever();
-    } else {
-        const duration_ms = @as(i64, @intFromFloat(@ceil(timeout.? * 1000.0)));
-        try vm.timedSleepCurrentThread(duration_ms);
-    }
-
-    if (mutex.state == .locked) {
-        try waitForMutex(vm, mutex);
-    }
-    try acquireMutex(vm, mutex);
-
-    return Value.integer(0);
+    const started = vm_mod.monotonicMilliseconds();
+    const sleep_result: VMError!void = sleeping: {
+        vm.deliverThreadInterrupt(true) catch |err| break :sleeping err;
+        if (vm.currentFiberScheduler()) |scheduler| {
+            var sleep_args = [_]Value{if (args.len == 1) args[0] else Value.nil()};
+            _ = vm.callMethodByName(scheduler, "kernel_sleep", &sleep_args, null) catch |err| break :sleeping err;
+        } else if (timeout) |seconds| {
+            const duration_ms: i64 = @intFromFloat(@ceil(seconds * 1000.0));
+            vm.timedSleepCurrentThread(duration_ms) catch |err| break :sleeping err;
+        } else {
+            vm.sleepCurrentThreadForever() catch |err| break :sleeping err;
+        }
+        vm.deliverThreadInterrupt(true) catch |err| break :sleeping err;
+        break :sleeping;
+    };
+    try reacquireMutex(vm, mutex);
+    try sleep_result;
+    return Value.integer(@divTrunc(vm_mod.monotonicMilliseconds() - started + 500, 1000));
 }
 
 // =============================================================================
@@ -196,49 +197,34 @@ fn builtinMutexSleep(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError
 // =============================================================================
 
 pub fn isOwnedByCurrentFiber(vm: *VM, mutex: *value.MutexObject) bool {
-    const current_thread = vm.current_thread;
-    const current_fiber = vm.current_fiber;
-
-    if (mutex.owner_thread != current_thread) return false;
-    if (mutex.owner_fiber) |owner_fiber| {
-        return owner_fiber == current_fiber;
-    }
-    return true;
+    return mutex.owner_thread != null and mutex.owner_thread == vm.current_thread and mutex.owner_fiber == vm.current_fiber;
 }
 
 pub fn acquireMutex(vm: *VM, mutex: *value.MutexObject) VMError!void {
+    const thread = vm.current_thread orelse return error.Fatal;
+    std.debug.assert(mutex.state == .unlocked);
+    thread.owned_mutexes.append(vm.gc_allocator, mutex) catch return error.Fatal;
     mutex.state = .locked;
-    mutex.owner_thread = vm.current_thread;
+    mutex.owner_thread = thread;
     mutex.owner_fiber = vm.current_fiber;
-    if (vm.current_thread) |thread| {
-        const gop = vm.thread_owned_mutexes.getOrPut(thread) catch return error.Fatal;
-        if (!gop.found_existing) {
-            gop.value_ptr.* = .empty;
-        }
-        for (gop.value_ptr.items) |owned_mutex| {
-            if (owned_mutex == mutex) return;
-        }
-        gop.value_ptr.append(vm.allocator, mutex) catch return error.Fatal;
-    }
 }
 
-pub fn releaseMutex(vm: *VM, mutex: *value.MutexObject) void {
-    if (mutex.owner_thread) |owner_thread| {
-        if (vm.thread_owned_mutexes.getPtr(owner_thread)) |owned_mutexes| {
-            var i: usize = 0;
-            while (i < owned_mutexes.items.len) {
-                if (owned_mutexes.items[i] == mutex) {
-                    _ = owned_mutexes.orderedRemove(i);
-                    break;
-                }
-                i += 1;
-            }
+pub fn releaseMutex(vm: *VM, mutex: *value.MutexObject) VMError!void {
+    const owner = mutex.owner_thread orelse return error.Fatal;
+    for (owner.owned_mutexes.items, 0..) |owned, index| {
+        if (owned == mutex) {
+            _ = owner.owned_mutexes.orderedRemove(index);
+            @memset(std.mem.asBytes(&owner.owned_mutexes.unusedCapacitySlice()[0]), 0);
+            break;
         }
     }
     mutex.state = .unlocked;
     mutex.owner_thread = null;
     mutex.owner_fiber = null;
-    vm.wakeNextMutexWaiter(mutex);
+    const pending = vm.pending_unwind;
+    vm.pending_unwind = null;
+    try vm.wakeNextMutexWaiter(mutex);
+    vm.pending_unwind = pending;
 }
 
 // A sleeping waiter must own the lock again before an interrupt reaches Ruby.
@@ -264,34 +250,26 @@ pub fn reacquireMutex(vm: *VM, mutex: *value.MutexObject) VMError!void {
 
 pub fn waitForMutex(vm: *VM, mutex: *value.MutexObject) VMError!void {
     const thread = vm.current_thread orelse return error.Fatal;
-    const was_deadlockable = thread.deadlockable_wait;
-    thread.deadlockable_wait = true;
-    defer {
-        thread.deadlockable_wait = was_deadlockable;
-        if (thread.state != .terminated) thread.state = .running;
-        if (vm.mutex_waiters.getPtr(mutex)) |waiters| {
-            for (waiters.items, 0..) |waiter, index| {
-                if (waiter == thread) {
-                    _ = VM.removeThreadListEntry(waiters, index);
-                    break;
-                }
-            }
-        }
-    }
+    const scheduler = vm.currentFiberScheduler();
     while (mutex.state == .locked) {
-        // Reacquire the map entry after each handoff; another thread can grow
-        // the map while this native stack is suspended.
-        const gop = vm.mutex_waiters.getOrPut(mutex) catch return error.Fatal;
-        if (!gop.found_existing) gop.value_ptr.* = .empty;
-        var found = false;
-        for (gop.value_ptr.items) |waiter| {
-            if (waiter == thread) {
-                found = true;
-                break;
+        if (isOwnedByCurrentFiber(vm, mutex)) return vm.raiseExceptionFmt(vm.thread_error_class, "deadlock; recursive locking", .{});
+        if (scheduler) |fiber_scheduler| {
+            try synchronization.blockFiber(vm, Value.fromObject(&mutex.object), &mutex.waiters, fiber_scheduler, null);
+        } else {
+            if (mutex.owner_thread == thread and !vm.thread_ignore_deadlock) {
+                return vm.raiseExceptionFmt(vm.thread_error_class, "deadlock; lock already owned by another fiber belonging to the same thread", .{});
             }
+            try vm.deliverThreadInterrupt(true);
+            const waiter = try synchronization.addThreadWaiter(vm, &mutex.waiters, thread);
+            defer synchronization.removeWaiterIfPresent(&mutex.waiters, waiter);
+            const was_deadlockable = thread.deadlockable_wait;
+            thread.deadlockable_wait = true;
+            defer {
+                thread.deadlockable_wait = was_deadlockable;
+                if (thread.state != .terminated) thread.state = .running;
+            }
+            thread.state = .sleeping;
+            while (thread.state == .sleeping) try vm.threadYield();
         }
-        if (!found) gop.value_ptr.append(vm.allocator, thread) catch return error.Fatal;
-        thread.state = .sleeping;
-        try vm.threadYield();
     }
 }

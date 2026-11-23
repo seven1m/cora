@@ -71,6 +71,12 @@ Complex arithmetic shares `coerceAndCallComplexArithmetic` for the two-element
 `coerce` protocol. Polar and rectangular constructors share `complexRealArgument`,
 which accepts real Numerics and unwraps Complex arguments with a zero imaginary part.
 
+Synchronization registrations and scheduler block/unblock callbacks are shared by
+Mutex and Queue through `src/builtins/synchronization.zig`. Use identity-based
+removal and clear unused GC-scanned list slots. `mutex.reacquireMutex` preserves
+pending unwinds while waiting, ensuring sleep/wait callers own their lock before
+an interrupt reaches Ruby.
+
 ## Array And String Coercion Helpers
 
 - `VM.probeToAry` centralizes low-level `to_ary` coercion. It distinguishes array, missing method, and nil result, and raises `TypeError` when `to_ary` returns a non-Array.
