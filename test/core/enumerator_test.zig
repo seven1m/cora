@@ -518,3 +518,71 @@ test "Product nested iteration keeps independent tuples and each_entry semantics
     );
     try std.testing.expectEqual(true, result.toBool());
 }
+
+test "Enumerator feed survives lookahead and rewind resets pending values" {
+    const result = try evalCode(
+        \\seen = []
+        \\enum = Enumerator.new do |y|
+        \\  seen << y.yield(:one)
+        \\  seen << y.yield(:two)
+        \\end
+        \\enum.feed(nil)
+        \\raise "peek" unless enum.peek == :one && enum.next == :one
+        \\begin
+        \\  enum.feed(:duplicate)
+        \\  raise "duplicate feed accepted"
+        \\rescue TypeError
+        \\end
+        \\raise "next" unless enum.next == :two && seen == [nil]
+        \\enum.feed(42)
+        \\begin
+        \\  enum.next
+        \\rescue StopIteration
+        \\end
+        \\raise "yield result" unless seen == [nil, 42]
+        \\enum.rewind
+        \\enum.feed(9)
+        \\enum.next
+        \\enum.next
+        \\seen == [nil, 42, 9]
+    );
+    try std.testing.expect(result.isTruthy());
+}
+
+test "ArithmeticSequence last computes exact tails without consuming the cursor" {
+    const result = try evalCode(
+        \\start = 2**100
+        \\seq = start.step(start + 100, 3)
+        \\raise "tail" unless seq.last(3) == [start + 93, start + 96, start + 99]
+        \\raise "cursor" unless seq.next == start && seq.last == start + 99 && seq.next == start + 3
+        \\r = Rational(1, 3).step(Rational(1), Rational(1, 6))
+        \\raise "rational tail" unless r.last(2) == [Rational(5, 6), Rational(1)]
+        \\raise "empty tail" unless (5..1).step.last.nil? && (5..1).step.last(2) == []
+        \\raise "keyword inspect" unless 1.step(to: 9, by: 2).inspect == "(1.step(to: 9, by: 2))"
+        \\raise "default inspect" unless 1.step.inspect == "(1.step)"
+        \\true
+    );
+    try std.testing.expect(result.isTruthy());
+}
+
+test "Enumerator produce is repeatable and uninitialized state stays explicit" {
+    const result = try evalCode(
+        \\size = 3
+        \\producer = Enumerator.produce(0, size: -> { size }) { |n| raise StopIteration if n == 2; n + 1 }
+        \\raise "produce" unless producer.to_a == [0, 1, 2] && producer.to_a == [0, 1, 2]
+        \\raise "size" unless producer.size == 3
+        \\size = 8
+        \\raise "size callback" unless producer.size == 8
+        \\raw = Enumerator.allocate
+        \\[:size, :next, :peek, :rewind].each do |method|
+        \\  begin
+        \\    raw.send(method)
+        \\    raise "uninitialized enumerator accepted"
+        \\  rescue ArgumentError
+        \\  end
+        \\end
+        \\raw.send(:initialize) { |y| y << :ready }
+        \\raw.to_a == [:ready]
+    );
+    try std.testing.expect(result.isTruthy());
+}

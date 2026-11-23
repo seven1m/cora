@@ -735,6 +735,9 @@ pub const EnumeratorObject = struct {
     size: ?Value,
     size_fn: ?SizeFn,
     arithmetic_sequence: ?ArithmeticSequence = null,
+    feed_value: ?Value = null,
+    sequence_arguments: ?*ArrayObject = null,
+    sequence_keywords: ?*HashObject = null,
     fiber: ?*FiberObject,
     lookahead_values: ?*ArrayObject,
     has_lookahead_values: bool,
@@ -749,6 +752,8 @@ pub const EnumeratorObject = struct {
     pub const SizeFn = *const fn (vm: *VM, receiver: Value, method_args: ?*ArrayObject) VMError!Value;
 
     pub const Kind = union(enum) {
+        uninitialized,
+        produce: struct { initial: ?Value, proc: *ProcObject },
         method: struct {
             receiver: Value,
             method_name: *SymbolObject,

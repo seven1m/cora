@@ -494,7 +494,13 @@ fn builtinNumericStep(vm: *VM, receiver: Value, args: []Value, block: ?Block) VM
         const is_sequence = (end.isNil() or vm.isClassOrSubclassOf(vm.getClass(end), vm.numeric_class)) and vm.isClassOrSubclassOf(vm.getClass(step), vm.numeric_class);
         const class = if (is_sequence) vm.enumerator_arithmetic_sequence_class else vm.enumerator_class;
         const result = try vm.newEnumeratorOfClass(class, .{ .method = .{ .receiver = receiver, .method_name = try vm.intern("step") } }, stored, null, &numericStepSize);
-        if (is_sequence) result.toEnumeratorObject().arithmetic_sequence = .{ .begin = receiver, .end = end, .step = step, .exclude_end = false };
+        if (is_sequence) {
+            result.toEnumeratorObject().arithmetic_sequence = .{ .begin = receiver, .end = end, .step = step, .exclude_end = false };
+            const original = try vm.createArray();
+            original.elements.appendSlice(vm.gc_allocator, args) catch return error.Fatal;
+            if (try vm.consumeKeywordArgHash()) |keywords| result.toEnumeratorObject().sequence_keywords = keywords.toHashObject();
+            result.toEnumeratorObject().sequence_arguments = original;
+        }
         return result;
     };
     const positive = (try vm.callMethodByName(step, ">", &zero_args, null)).isTruthy();

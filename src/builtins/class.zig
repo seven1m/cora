@@ -193,7 +193,7 @@ pub fn builtinClassAllocate(vm: *VM, receiver: Value, args: []Value, _: ?Block) 
 
     const class_ptr = receiver.toClassObject();
     if (class_ptr.allocation_policy != .normal) {
-        return vm.raiseExceptionFmt(vm.type_error_class, "allocator undefined for {s}", .{class_ptr.module.name.name});
+        return vm.raiseExceptionFmt(vm.type_error_class, "allocator undefined for {s}", .{vm.publicModuleName(receiver) orelse class_ptr.module.name.name});
     }
     if (class_ptr.object_type == .string) {
         return vm.newStringForClassWithEncoding(class_ptr, "", false, .{ .ascii_8bit = .{} });

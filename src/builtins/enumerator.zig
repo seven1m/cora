@@ -3,6 +3,7 @@ const vm_mod = @import("../vm.zig");
 const value = @import("../value.zig");
 const class_builtin = @import("class.zig");
 const kernel_builtin = @import("kernel.zig");
+const arithmetic = @import("arithmetic_sequence.zig");
 
 const VM = vm_mod.VM;
 const VMError = vm_mod.VMError;
@@ -16,7 +17,17 @@ pub fn register(vm: *VM) !void {
     const enum_singleton = try vm.getOrCreateSingletonClass(enum_class_val);
 
     const new_sym = try vm.intern("new");
-    try enum_singleton.module.methods.put(new_sym, MethodEntry.builtin(&builtinEnumeratorNew, .{ .variadic = 0 }));
+    vm.enumerator_class.builtin_alloc_func = &builtinEnumeratorAllocate;
+    vm.enumerator_lazy_class.builtin_alloc_func = &builtinEnumeratorAllocate;
+    try enum_singleton.module.methods.put(new_sym, MethodEntry.keywordBuiltin(&class_builtin.builtinClassNew, .{ .variadic = 0 }));
+    try enum_singleton.module.methods.put(try vm.intern("produce"), MethodEntry.keywordBuiltin(&builtinEnumeratorProduce, .{ .variadic = 0 }));
+    try enum_singleton.module.methods.put(try vm.intern("product"), MethodEntry.keywordBuiltin(&builtinEnumeratorProduct, .{ .variadic = 0 }));
+    try vm.enumerator_class.module.methods.put(try vm.intern("initialize"), MethodEntry.builtinWithVisibility(&builtinEnumeratorInitialize, .{ .variadic = 0 }, .private));
+    try vm.enumerator_class.module.methods.put(try vm.intern("feed"), MethodEntry.builtin(&builtinEnumeratorFeed, .{ .exact = 1 }));
+    try vm.enumerator_class.module.methods.put(try vm.intern("+"), MethodEntry.builtin(&builtinEnumeratorPlus, .{ .exact = 1 }));
+    const arithmetic_singleton = try vm.getOrCreateSingletonClass(Value.fromObject(&vm.enumerator_arithmetic_sequence_class.module.object));
+    try arithmetic_singleton.module.methods.put(new_sym, .{ .method = .{ .undefined = {} } });
+    vm.enumerator_arithmetic_sequence_class.allocation_policy = .unavailable;
 
     // Enumerator instance methods
     const each_sym = try vm.intern("each");
@@ -46,6 +57,13 @@ pub fn register(vm: *VM) !void {
     try vm.enumerator_arithmetic_sequence_class.module.methods.put(try vm.intern("begin"), MethodEntry.builtin(&builtinArithmeticSequenceBegin, .{ .exact = 0 }));
     try vm.enumerator_arithmetic_sequence_class.module.methods.put(try vm.intern("end"), MethodEntry.builtin(&builtinArithmeticSequenceEnd, .{ .exact = 0 }));
     try vm.enumerator_arithmetic_sequence_class.module.methods.put(try vm.intern("step"), MethodEntry.builtin(&builtinArithmeticSequenceStep, .{ .exact = 0 }));
+    try vm.enumerator_arithmetic_sequence_class.module.methods.put(each_sym, MethodEntry.builtin(&builtinArithmeticSequenceEach, .{ .exact = 0 }));
+    try vm.enumerator_arithmetic_sequence_class.module.methods.put(try vm.intern("exclude_end?"), MethodEntry.builtin(&builtinArithmeticSequenceExcludeEnd, .{ .exact = 0 }));
+    const equal_entry = MethodEntry.builtin(&builtinArithmeticSequenceEqual, .{ .exact = 1 });
+    try vm.enumerator_arithmetic_sequence_class.module.methods.put(try vm.intern("=="), equal_entry);
+    try vm.enumerator_arithmetic_sequence_class.module.methods.put(try vm.intern("eql?"), equal_entry);
+    try vm.enumerator_arithmetic_sequence_class.module.methods.put(try vm.intern("hash"), MethodEntry.builtin(&builtinArithmeticSequenceHash, .{ .exact = 0 }));
+    try vm.enumerator_arithmetic_sequence_class.module.methods.put(try vm.intern("last"), MethodEntry.builtin(&builtinArithmeticSequenceLast, .{ .variadic = 0 }));
 
     const size_sym = try vm.intern("size");
     try vm.enumerator_class.module.methods.put(size_sym, MethodEntry.builtin(&builtinEnumeratorSize, .{ .exact = 0 }));
@@ -58,6 +76,7 @@ pub fn register(vm: *VM) !void {
     const each_with_object_sym = try vm.intern("each_with_object");
     const each_with_object_entry = enumerable.value.toModuleObject().methods.get(each_with_object_sym) orelse return error.Fatal;
     try vm.enumerator_class.module.methods.put(each_with_object_sym, each_with_object_entry);
+    try enumerable.value.toModuleObject().methods.put(try vm.intern("lazy"), MethodEntry.builtin(&builtinEnumerableLazy, .{ .exact = 0 }));
     const with_object_sym = try vm.intern("with_object");
     try vm.enumerator_class.module.methods.put(with_object_sym, each_with_object_entry);
 
@@ -66,9 +85,8 @@ pub fn register(vm: *VM) !void {
     try chain_singleton.module.methods.put(new_sym, MethodEntry.keywordBuiltin(&class_builtin.builtinClassNew, .{ .variadic = 0 }));
     try vm.enumerator_chain_class.module.methods.put(try vm.intern("initialize"), MethodEntry.builtinWithVisibility(&builtinChainInitialize, .{ .variadic = 0 }, .private));
 
-    const product_value = try vm.newClass(try vm.intern("Product"), vm.enumerator_class);
-    const product_class = product_value.toClassObject();
-    try vm.setConstant(&vm.enumerator_class.module, try vm.intern("Product"), product_value);
+    const product_class = vm.enumerator_product_class;
+    const product_value = Value.fromObject(&product_class.module.object);
     product_class.builtin_alloc_func = &builtinProductAllocate;
     const product_singleton = try vm.getOrCreateSingletonClass(product_value);
     try product_singleton.module.methods.put(new_sym, MethodEntry.keywordBuiltin(&class_builtin.builtinClassNew, .{ .variadic = 0 }));
@@ -85,20 +103,108 @@ pub fn register(vm: *VM) !void {
     const yield_push_sym = try vm.intern("<<");
     try vm.yielder_class.module.methods.put(yield_push_sym, MethodEntry.builtin(&builtinYielderPush, .{ .exact = 1 }));
 
+    try vm.yielder_class.module.methods.put(try vm.intern("to_proc"), MethodEntry.builtin(&builtinYielderToProc, .{ .exact = 0 }));
     const yield_sym = try vm.intern("yield");
     try vm.yielder_class.module.methods.put(yield_sym, MethodEntry.builtin(&builtinYielderYield, .{ .variadic = 0 }));
 }
 
 // --- Enumerator class methods ---
 
-fn builtinEnumeratorNew(vm: *VM, _: Value, args: []Value, block: ?Block) VMError!Value {
-    try vm.requireArgCount(args, 0);
+fn builtinEnumeratorAllocate(vm: *VM, receiver: Value, _: []Value, _: ?Block) VMError!Value {
+    return vm.newEnumeratorOfClass(receiver.toClassObject(), .uninitialized, null, null, null);
+}
 
-    const blk = try vm.requireBlock(block);
+fn builtinEnumeratorInitialize(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
+    try vm.guardNotFrozen(receiver);
+    try vm.requireArgCountRange(args, 0, 1);
+    const proc = try vm.newProc(try vm.requireBlock(block));
+    const e = receiver.toEnumeratorObject();
+    e.kind = .{ .generator = .{ .proc = proc.toProcObject() } };
+    e.size = if (args.len == 1) args[0] else null;
+    e.size_fn = null;
+    e.method_args = null;
+    e.fiber = null;
+    e.feed_value = null;
+    e.lookahead_values = null;
+    e.has_lookahead_values = false;
+    return receiver;
+}
 
-    // Wrap the block as a ProcObject
-    const proc_val = try vm.newProc(blk);
-    return vm.newEnumerator(.{ .generator = .{ .proc = proc_val.toProcObject() } }, null, null, null);
+fn initializedEnumerator(vm: *VM, receiver: Value) VMError!*value.EnumeratorObject {
+    const e = receiver.toEnumeratorObject();
+    if (e.kind == .uninitialized) return vm.raiseExceptionFmt(vm.argument_error_class, "uninitialized enumerator", .{});
+    return e;
+}
+
+fn builtinEnumeratorFeed(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    const e = receiver.toEnumeratorObject();
+    if (e.kind == .uninitialized) return vm.raiseExceptionFmt(vm.argument_error_class, "uninitialized enumerator", .{});
+    if (e.feed_value != null) return vm.raiseExceptionFmt(vm.type_error_class, "feed value already set", .{});
+    e.feed_value = args[0];
+    return Value.nil();
+}
+
+fn builtinEnumeratorPlus(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    const sources = try vm.createArray();
+    sources.elements.appendSlice(vm.gc_allocator, &.{ receiver, args[0] }) catch return error.Fatal;
+    return vm.newEnumeratorOfClass(vm.enumerator_chain_class, .{ .chain = .{ .sources = sources } }, null, null, null);
+}
+
+fn builtinEnumeratorProduct(vm: *VM, _: Value, args: []Value, block: ?Block) VMError!Value {
+    try vm.validateKeywordArgsConsumed();
+    const result = try vm.newEnumeratorOfClass(vm.enumerator_product_class, .{ .product = .{ .sources = null } }, null, null, null);
+    _ = try builtinProductInitialize(vm, result, args, null);
+    if (block) |blk| {
+        _ = try builtinProductEach(vm, result, &.{}, blk);
+        return Value.nil();
+    }
+    return result;
+}
+
+fn builtinEnumeratorProduce(vm: *VM, _: Value, args: []Value, block: ?Block) VMError!Value {
+    try vm.requireArgCountRange(args, 0, 1);
+    var size: ?Value = null;
+    try vm.consumeKeywordArgs(.{"size"}, .{&size});
+    try vm.validateKeywordArgsConsumed();
+    const proc = try vm.newProc(try vm.requireBlock(block));
+    return vm.newEnumerator(.{ .produce = .{ .initial = if (args.len == 1) args[0] else null, .proc = proc.toProcObject() } }, null, size orelse try vm.newFloat(std.math.inf(f64)), null);
+}
+
+fn enumerateProduce(vm: *VM, receiver: Value, initial: ?Value, proc: *value.ProcObject, block: Block) VMError!Value {
+    var current = initial orelse Value.nil();
+    if (initial) |first| _ = try vm.yieldToBlock(block, &.{first});
+    while (true) {
+        var args = [_]Value{current};
+        current = vm.callProcObject(proc, &args, null, null, null, null) catch |err| {
+            if (err == error.Unwind) {
+                if (vm.pendingException()) |exception| {
+                    if (vm.isClassOrSubclassOf(exception.object.class.?, vm.stop_iteration_class)) {
+                        vm.setPendingException(null);
+                        return receiver;
+                    }
+                }
+            }
+            return err;
+        };
+        _ = try vm.yieldToBlock(block, &.{current});
+    }
+}
+
+fn builtinEnumerableLazy(vm: *VM, receiver: Value, _: []Value, _: ?Block) VMError!Value {
+    if (vm.isClassOrSubclassOf(vm.getClass(receiver), vm.enumerator_lazy_class)) return receiver;
+    return vm.newEnumeratorOfClass(vm.enumerator_lazy_class, .{ .method = .{ .receiver = receiver, .method_name = try vm.intern("each") } }, null, null, &lazySize);
+}
+
+fn lazySize(vm: *VM, receiver: Value, _: ?*value.ArrayObject) VMError!Value {
+    return (try vm.checkCallMethodByName(receiver, "size", false, &.{}, null)) orelse Value.nil();
+}
+
+fn builtinYielderToProc(vm: *VM, receiver: Value, _: []Value, _: ?Block) VMError!Value {
+    return vm.newProc(.{ .kind = .{ .receiver_builtin = .{ .receiver = receiver, .func = &yielderProcCall, .arity = -1 } } });
+}
+
+fn yielderProcCall(vm: *VM, receiver: Value, args: []Value) VMError!Value {
+    return vm.yieldToBlock(receiver.toYielderObject().block, args);
 }
 
 fn builtinChainAllocate(vm: *VM, receiver: Value, _: []Value, _: ?Block) VMError!Value {
@@ -251,7 +357,7 @@ fn inspectComposite(vm: *VM, receiver: Value, sources: ?*value.ArrayObject) VMEr
 // --- Enumerator instance methods ---
 
 fn builtinEnumeratorEach(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
-    const enum_obj = receiver.toEnumeratorObject();
+    const enum_obj = try initializedEnumerator(vm, receiver);
 
     const blk = block orelse {
         if (args.len == 0) {
@@ -259,6 +365,8 @@ fn builtinEnumeratorEach(vm: *VM, receiver: Value, args: []Value, block: ?Block)
         }
 
         switch (enum_obj.kind) {
+            .uninitialized => return vm.raiseExceptionFmt(vm.argument_error_class, "uninitialized enumerator", .{}),
+            .produce => return vm.newEnumerator(enum_obj.kind, null, enum_obj.size, enum_obj.size_fn),
             .method => {
                 var merged_args = try vm.createArray();
                 if (enum_obj.method_args) |method_args| {
@@ -285,6 +393,8 @@ fn builtinEnumeratorEach(vm: *VM, receiver: Value, args: []Value, block: ?Block)
     };
 
     switch (enum_obj.kind) {
+        .uninitialized => return vm.raiseExceptionFmt(vm.argument_error_class, "uninitialized enumerator", .{}),
+        .produce => |p| return enumerateProduce(vm, receiver, p.initial, p.proc, blk),
         .method => |m| {
             // Method-based: call receiver.method_name(args, &blk)
             var call_args_buf: [256]Value = undefined;
@@ -379,7 +489,7 @@ fn builtinEnumeratorWithIndex(vm: *VM, receiver: Value, args: []Value, block: ?B
 
 fn builtinEnumeratorNext(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
-    const enum_obj = receiver.toEnumeratorObject();
+    const enum_obj = try initializedEnumerator(vm, receiver);
 
     const yield_values = try takeNextYieldValues(vm, enum_obj);
     return collapseYieldValues(yield_values);
@@ -387,28 +497,28 @@ fn builtinEnumeratorNext(vm: *VM, receiver: Value, args: []Value, _: ?Block) VME
 
 fn builtinEnumeratorNextValues(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
-    const enum_obj = receiver.toEnumeratorObject();
+    const enum_obj = try initializedEnumerator(vm, receiver);
     const yield_values = try takeNextYieldValues(vm, enum_obj);
     return Value.fromObject(&yield_values.object);
 }
 
 fn builtinEnumeratorPeek(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
-    const enum_obj = receiver.toEnumeratorObject();
+    const enum_obj = try initializedEnumerator(vm, receiver);
     const yield_values = try peekNextYieldValues(vm, enum_obj);
     return collapseYieldValues(yield_values);
 }
 
 fn builtinEnumeratorPeekValues(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
-    const enum_obj = receiver.toEnumeratorObject();
+    const enum_obj = try initializedEnumerator(vm, receiver);
     const yield_values = try peekNextYieldValues(vm, enum_obj);
     return Value.fromObject(&yield_values.object);
 }
 
 fn builtinEnumeratorRewind(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
-    const enum_obj = receiver.toEnumeratorObject();
+    const enum_obj = try initializedEnumerator(vm, receiver);
     if (enum_obj.kind == .method) {
         _ = try vm.checkCallMethodByName(enum_obj.kind.method.receiver, "rewind", false, &.{}, null);
     }
@@ -422,6 +532,7 @@ fn builtinEnumeratorRewind(vm: *VM, receiver: Value, args: []Value, _: ?Block) V
         }
     }
     enum_obj.fiber = null;
+    enum_obj.feed_value = null;
     enum_obj.has_lookahead_values = false;
     enum_obj.lookahead_values = null;
     return receiver;
@@ -444,27 +555,103 @@ fn builtinArithmeticSequenceStep(vm: *VM, receiver: Value, _: []Value, _: ?Block
 }
 
 fn builtinArithmeticSequenceInspect(vm: *VM, receiver: Value, _: []Value, _: ?Block) VMError!Value {
-    const sequence = receiver.toEnumeratorObject();
-    const method = switch (sequence.kind) {
-        .method => |method| method,
-        else => return builtinEnumeratorInspect(vm, receiver, &.{}, null),
+    const e = receiver.toEnumeratorObject();
+    const method = switch (e.kind) {
+        .method => |m| m,
+        else => return error.Fatal,
     };
     const inspected = try method.receiver.inspect(vm);
-    var buf: std.Io.Writer.Allocating = .init(vm.allocator);
-    defer buf.deinit();
-    const writer = &buf.writer;
-    writer.print("(({s}).{s}", .{ inspected.toStringObject().str, method.method_name.name }) catch return error.Fatal;
-    if (sequence.method_args) |args| {
+    var buffer: std.Io.Writer.Allocating = .init(vm.allocator);
+    defer buffer.deinit();
+    const writer = &buffer.writer;
+    writer.writeAll(if (method.receiver.isRange()) "((" else "(") catch return error.Fatal;
+    writer.writeAll(inspected.toStringObject().str) catch return error.Fatal;
+    if (method.receiver.isRange()) writer.writeAll(")") catch return error.Fatal;
+    writer.print(".{s}", .{method.method_name.name}) catch return error.Fatal;
+    const arguments = e.sequence_arguments orelse e.method_args;
+    if ((if (arguments) |a| a.elements.items.len > 0 else false) or e.sequence_keywords != null) {
         writer.writeAll("(") catch return error.Fatal;
-        for (args.elements.items, 0..) |arg, i| {
-            if (i > 0) writer.writeAll(", ") catch return error.Fatal;
-            const arg_inspected = try arg.inspect(vm);
-            writer.writeAll(arg_inspected.toStringObject().str) catch return error.Fatal;
+        var first = true;
+        if (arguments) |values| {
+            for (values.elements.items) |v| {
+                if (!first) writer.writeAll(", ") catch return error.Fatal;
+                first = false;
+                const repr = try v.inspect(vm);
+                writer.writeAll(repr.toStringObject().str) catch return error.Fatal;
+            }
+        }
+        if (e.sequence_keywords) |keywords| {
+            for (keywords.entries.items) |entry| {
+                if (!first) writer.writeAll(", ") catch return error.Fatal;
+                first = false;
+                const repr = try entry.value.inspect(vm);
+                writer.print("{s}: {s}", .{ entry.key.toSymbolObject().name, repr.toStringObject().str }) catch return error.Fatal;
+            }
         }
         writer.writeAll(")") catch return error.Fatal;
     }
     writer.writeAll(")") catch return error.Fatal;
-    return vm.newString(buf.written(), false);
+    return vm.newString(buffer.written(), false);
+}
+
+fn builtinArithmeticSequenceEach(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
+    if (block == null) return receiver;
+    _ = try builtinEnumeratorEach(vm, receiver, args, block);
+    return receiver;
+}
+
+fn builtinArithmeticSequenceExcludeEnd(vm: *VM, receiver: Value, _: []Value, _: ?Block) VMError!Value {
+    return Value.boolean((try arithmeticSequenceData(vm, receiver)).exclude_end);
+}
+
+fn builtinArithmeticSequenceEqual(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    const other = args[0];
+    if (!vm.isClassOrSubclassOf(vm.getClass(other), vm.enumerator_arithmetic_sequence_class)) return Value.boolean(false);
+    const lhs = try arithmeticSequenceData(vm, receiver);
+    const rhs = try arithmeticSequenceData(vm, other);
+    if (lhs.exclude_end != rhs.exclude_end) return Value.boolean(false);
+    const left = [_]Value{ lhs.begin, lhs.end, lhs.step };
+    const right = [_]Value{ rhs.begin, rhs.end, rhs.step };
+    for (left, right) |a, b| {
+        var compare_args = [_]Value{b};
+        if (!(try vm.callMethodByName(a, "==", &compare_args, null)).isTruthy()) return Value.boolean(false);
+    }
+    return Value.boolean(true);
+}
+
+fn builtinArithmeticSequenceHash(vm: *VM, receiver: Value, _: []Value, _: ?Block) VMError!Value {
+    const data = try arithmeticSequenceData(vm, receiver);
+    var hash: u64 = @intFromBool(data.exclude_end);
+    for ([_]Value{ data.begin, data.end, data.step }) |v| hash = (hash *% 0x9e3779b97f4a7c15) ^ try vm.hashKeyHash(v);
+    return Value.integer(@as(i64, @bitCast(hash)) >> 1);
+}
+
+fn sequenceValueAt(vm: *VM, data: value.EnumeratorObject.ArithmeticSequence, index: Value) VMError!Value {
+    var multiply = [_]Value{index};
+    const offset = try vm.callMethodByName(data.step, "*", &multiply, null);
+    var add = [_]Value{offset};
+    return vm.callMethodByName(data.begin, "+", &add, null);
+}
+
+fn builtinArithmeticSequenceLast(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCountRange(args, 0, 1);
+    const data = try arithmeticSequenceData(vm, receiver);
+    if (data.end.isNil()) return vm.raiseExceptionFmt(vm.range_error_class, "cannot get the last element of endless arithmetic sequence", .{});
+    const size = try arithmetic.intervalSize(vm, data.begin, data.end, data.step, data.exclude_end);
+    if (size.isFloat()) return vm.raiseExceptionFmt(vm.float_domain_error_class, "Infinity", .{});
+    if (args.len == 0) {
+        if ((try vm.compareIntegerValues(size, Value.integer(0))) == .eq) return Value.nil();
+        return sequenceValueAt(vm, data, try vm.subIntegerValues(size, Value.integer(1)));
+    }
+    const amount = try args[0].coerceToIntegerValue(vm, "no implicit conversion into Integer", "can't convert to Integer");
+    if ((try vm.compareIntegerValues(amount, Value.integer(0))) == .lt) return vm.raiseExceptionFmt(vm.argument_error_class, "negative array size", .{});
+    var index = if ((try vm.compareIntegerValues(amount, size)) == .gt) Value.integer(0) else try vm.subIntegerValues(size, amount);
+    const result = try vm.createArray();
+    while ((try vm.compareIntegerValues(index, size)) == .lt) {
+        result.elements.append(vm.gc_allocator, try sequenceValueAt(vm, data, index)) catch return error.Fatal;
+        index = try vm.addIntegerValues(index, Value.integer(1));
+    }
+    return Value.fromObject(&result.object);
 }
 
 fn builtinEnumeratorInspect(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
@@ -472,14 +659,25 @@ fn builtinEnumeratorInspect(vm: *VM, receiver: Value, args: []Value, _: ?Block) 
     const enum_obj = receiver.toEnumeratorObject();
 
     switch (enum_obj.kind) {
+        .uninitialized => return vm.newString(std.fmt.allocPrint(vm.gc_allocator, "#<{s}: uninitialized>", .{vm.className(receiver)}) catch return error.Fatal, false),
+        .produce => return vm.newString("#<Enumerator: produce>", false),
         .method => |m| {
-            const class_name = vm.getClass(m.receiver).module.name.name;
-            const msg = std.fmt.allocPrint(
-                vm.gc_allocator,
-                "#<Enumerator: {s}:{s}>",
-                .{ class_name, m.method_name.name },
-            ) catch return error.Fatal;
-            return try vm.newString(msg, false);
+            const inspected = try m.receiver.inspect(vm);
+            var buffer: std.Io.Writer.Allocating = .init(vm.allocator);
+            defer buffer.deinit();
+            const writer = &buffer.writer;
+            writer.print("#<{s}: {s}:{s}", .{ vm.className(receiver), inspected.toStringObject().str, m.method_name.name }) catch return error.Fatal;
+            if (enum_obj.method_args) |arguments| {
+                writer.writeAll("(") catch return error.Fatal;
+                for (arguments.elements.items, 0..) |argument, index| {
+                    if (index != 0) writer.writeAll(", ") catch return error.Fatal;
+                    const repr = try argument.inspect(vm);
+                    writer.writeAll(repr.toStringObject().str) catch return error.Fatal;
+                }
+                writer.writeAll(")") catch return error.Fatal;
+            }
+            writer.writeAll(">") catch return error.Fatal;
+            return vm.newString(buffer.written(), false);
         },
         .generator => {
             const msg = std.fmt.allocPrint(
@@ -504,7 +702,7 @@ fn builtinEnumeratorInspect(vm: *VM, receiver: Value, args: []Value, _: ?Block) 
 
 fn builtinEnumeratorSize(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
-    const enum_obj = receiver.toEnumeratorObject();
+    const enum_obj = try initializedEnumerator(vm, receiver);
 
     if (enum_obj.kind == .chain) {
         const sources = try chainSources(vm, receiver);
@@ -520,15 +718,13 @@ fn builtinEnumeratorSize(vm: *VM, receiver: Value, args: []Value, _: ?Block) VME
     }
 
     if (enum_obj.size) |size| {
-        if (size.isProc()) {
-            return vm.callProcObject(size.toProcObject(), &[_]Value{}, null, null, null, null);
-        }
-        return size;
+        return (try vm.checkCallMethodByName(size, "call", false, &.{}, null)) orelse size;
     }
     if (enum_obj.size_fn) |size_fn| {
         switch (enum_obj.kind) {
             .method => |m| return size_fn(vm, m.receiver, enum_obj.method_args),
-            .generator => return Value.nil(),
+            .uninitialized => return vm.raiseExceptionFmt(vm.argument_error_class, "uninitialized enumerator", .{}),
+            .generator, .produce => return Value.nil(),
             .chain, .product => return Value.nil(),
             .chunk_while => return Value.nil(),
         }
@@ -585,6 +781,8 @@ fn enumeratorFiberBody(vm: *VM, args: []Value) VMError!Value {
     } } };
 
     switch (enum_obj.kind) {
+        .uninitialized => return vm.raiseExceptionFmt(vm.argument_error_class, "uninitialized enumerator", .{}),
+        .produce => |p| return enumerateProduce(vm, enum_val, p.initial, p.proc, yield_block),
         .method => |m| {
             var call_args_buf: [256]Value = undefined;
             var call_argc: usize = 0;
@@ -680,10 +878,12 @@ fn fetchNextYieldValues(vm: *VM, enum_obj: *value.EnumeratorObject) VMError!*val
     }
 
     var resume_args: [1]Value = .{Value.fromObject(&enum_obj.object)};
+    const resume_value = if (fiber.state != .created) enum_obj.feed_value orelse Value.nil() else Value.nil();
+    if (fiber.state != .created) enum_obj.feed_value = null;
     const result = vm.resumeFiber(
         fiber,
         if (fiber.state == .created) resume_args[0..1] else &[_]Value{},
-        Value.nil(),
+        resume_value,
     ) catch |err| {
         // The fiber died abnormally. A StopIteration leaves the enumerator
         // stopped until rewind, but any other exception is transient, so drop

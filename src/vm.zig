@@ -785,6 +785,8 @@ pub const VM = struct {
     enumerator_class: *value.ClassObject,
     enumerator_chain_class: *value.ClassObject,
     enumerator_arithmetic_sequence_class: *value.ClassObject,
+    enumerator_product_class: *value.ClassObject,
+    enumerator_lazy_class: *value.ClassObject,
     yielder_class: *value.ClassObject,
     method_class: *value.ClassObject,
     unbound_method_class: *value.ClassObject,
@@ -1027,6 +1029,8 @@ pub const VM = struct {
             .enumerator_class = undefined,
             .enumerator_chain_class = undefined,
             .enumerator_arithmetic_sequence_class = undefined,
+            .enumerator_product_class = undefined,
+            .enumerator_lazy_class = undefined,
             .yielder_class = undefined,
             .method_class = undefined,
             .unbound_method_class = undefined,
@@ -1638,6 +1642,10 @@ pub const VM = struct {
         const arithmetic_sequence_name_sym = try self.intern("ArithmeticSequence");
         const arithmetic_sequence_class_val = try self.newClass(arithmetic_sequence_name_sym, self.enumerator_class);
         self.enumerator_arithmetic_sequence_class = arithmetic_sequence_class_val.toClassObject();
+        const product_class_val = try self.newClass(try self.intern("Product"), self.enumerator_class);
+        self.enumerator_product_class = product_class_val.toClassObject();
+        const lazy_class_val = try self.newClass(try self.intern("Lazy"), self.enumerator_class);
+        self.enumerator_lazy_class = lazy_class_val.toClassObject();
 
         const yielder_name_sym = try self.intern("Yielder");
         const yielder_class_val = try self.newClass(yielder_name_sym, self.object_class);
@@ -1886,7 +1894,9 @@ pub const VM = struct {
         try self.registerErrnoClass(.NETDOWN, enetdown_class_val.toClassObject());
         self.object_class.module.constants.put(enumerator_name_sym, .{ .value = enumerator_class_val }) catch return error.Fatal;
         self.enumerator_class.module.constants.put(enumerator_chain_name_sym, .{ .value = enumerator_chain_class_val }) catch return error.Fatal;
-        self.enumerator_class.module.constants.put(arithmetic_sequence_name_sym, .{ .value = arithmetic_sequence_class_val }) catch return error.Fatal;
+        try self.setConstant(&self.enumerator_class.module, arithmetic_sequence_name_sym, arithmetic_sequence_class_val);
+        try self.setConstant(&self.enumerator_class.module, try self.intern("Product"), product_class_val);
+        try self.setConstant(&self.enumerator_class.module, try self.intern("Lazy"), lazy_class_val);
         self.enumerator_class.module.constants.put(yielder_name_sym, .{ .value = yielder_class_val }) catch return error.Fatal;
         self.object_class.module.constants.put(encoding_name_sym, .{ .value = encoding_class_val }) catch return error.Fatal;
         const ruby_engine_sym = try self.intern("RUBY_ENGINE");
@@ -9290,21 +9300,24 @@ pub const VM = struct {
 
     pub fn validateKeywordArgsConsumed(self: *VM) VMError!void {
         const ctx = self.builtin_keyword_ctx orelse return;
-        if (ctx.kw_values.len == 0) return;
-
-        var i: usize = 0;
-        while (i < ctx.kw_values.len) : (i += 1) {
-            if (!ctx.consumed[i]) {
-                const key = ctx.kw_keys[i];
-                if (key.isSymbol()) {
-                    return self.raiseExceptionFmt(self.argument_error_class, "unknown keyword: :{s}", .{key.toSymbolObject().name});
-                }
-                if (key.isString()) {
-                    return self.raiseExceptionFmt(self.argument_error_class, "unknown keyword: \"{s}\"", .{key.toStringObject().str});
-                }
-                return self.raiseExceptionFmt(self.argument_error_class, "unknown keyword", .{});
-            }
+        var count: usize = 0;
+        for (ctx.consumed[0..ctx.kw_values.len]) |consumed| {
+            if (!consumed) count += 1;
         }
+        if (count == 0) return;
+        var buffer: std.Io.Writer.Allocating = .init(self.allocator);
+        defer buffer.deinit();
+        const writer = &buffer.writer;
+        writer.writeAll(if (count == 1) "unknown keyword: " else "unknown keywords: ") catch return error.Fatal;
+        var first = true;
+        for (ctx.kw_keys, 0..) |key, index| {
+            if (ctx.consumed[index]) continue;
+            if (!first) writer.writeAll(", ") catch return error.Fatal;
+            first = false;
+            const inspected = try key.inspect(self);
+            writer.writeAll(inspected.toStringObject().str) catch return error.Fatal;
+        }
+        return self.raiseExceptionFmt(self.argument_error_class, "{s}", .{buffer.written()});
     }
 
     pub fn invokeResolvedMethodWithKeywords(

@@ -485,40 +485,40 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] core/enumerable/zip_spec.rb
 
 ### core/enumerator
-- [-] core/enumerator/each_spec.rb
+- [x] core/enumerator/each_spec.rb
 - [x] core/enumerator/each_with_index_spec.rb
 - [x] core/enumerator/each_with_object_spec.rb
 - [x] core/enumerator/enumerator_spec.rb
-- [ ] core/enumerator/feed_spec.rb
+- [x] core/enumerator/feed_spec.rb
 - [x] core/enumerator/first_spec.rb
-- [ ] core/enumerator/initialize_spec.rb
-- [ ] core/enumerator/inspect_spec.rb
-- [ ] core/enumerator/new_spec.rb
+- [x] core/enumerator/initialize_spec.rb
+- [x] core/enumerator/inspect_spec.rb
+- [x] core/enumerator/new_spec.rb
 - [x] core/enumerator/next_spec.rb
 - [x] core/enumerator/next_values_spec.rb
 - [x] core/enumerator/peek_spec.rb
 - [x] core/enumerator/peek_values_spec.rb
-- [ ] core/enumerator/plus_spec.rb
-- [ ] core/enumerator/produce_spec.rb
-- [ ] core/enumerator/product_spec.rb
-- [ ] core/enumerator/rewind_spec.rb
-- [ ] core/enumerator/size_spec.rb
+- [x] core/enumerator/plus_spec.rb
+- [x] core/enumerator/produce_spec.rb
+- [x] core/enumerator/product_spec.rb
+- [x] core/enumerator/rewind_spec.rb
+- [x] core/enumerator/size_spec.rb
 - [x] core/enumerator/with_index_spec.rb
 - [x] core/enumerator/with_object_spec.rb
 
 ### core/enumerator/arithmetic_sequence
-- [ ] core/enumerator/arithmetic_sequence/begin_spec.rb
-- [ ] core/enumerator/arithmetic_sequence/each_spec.rb
-- [ ] core/enumerator/arithmetic_sequence/end_spec.rb
-- [ ] core/enumerator/arithmetic_sequence/eq_spec.rb
-- [ ] core/enumerator/arithmetic_sequence/exclude_end_spec.rb
-- [ ] core/enumerator/arithmetic_sequence/first_spec.rb
-- [ ] core/enumerator/arithmetic_sequence/hash_spec.rb
-- [ ] core/enumerator/arithmetic_sequence/inspect_spec.rb
-- [ ] core/enumerator/arithmetic_sequence/last_spec.rb
-- [ ] core/enumerator/arithmetic_sequence/new_spec.rb
-- [ ] core/enumerator/arithmetic_sequence/size_spec.rb
-- [ ] core/enumerator/arithmetic_sequence/step_spec.rb
+- [x] core/enumerator/arithmetic_sequence/begin_spec.rb
+- [x] core/enumerator/arithmetic_sequence/each_spec.rb
+- [x] core/enumerator/arithmetic_sequence/end_spec.rb
+- [x] core/enumerator/arithmetic_sequence/eq_spec.rb
+- [x] core/enumerator/arithmetic_sequence/exclude_end_spec.rb
+- [x] core/enumerator/arithmetic_sequence/first_spec.rb
+- [x] core/enumerator/arithmetic_sequence/hash_spec.rb
+- [x] core/enumerator/arithmetic_sequence/inspect_spec.rb
+- [x] core/enumerator/arithmetic_sequence/last_spec.rb
+- [x] core/enumerator/arithmetic_sequence/new_spec.rb
+- [x] core/enumerator/arithmetic_sequence/size_spec.rb
+- [x] core/enumerator/arithmetic_sequence/step_spec.rb
 
 ### core/enumerator/chain
 - [x] core/enumerator/chain/each_spec.rb

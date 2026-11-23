@@ -241,3 +241,14 @@ environments. Only large atomic buffers use ignore-off-page allocation.
 ## Zig Notes
 
 Use unmanaged `ArrayList`: `field: ArrayList(*Value) = .empty`, passing the allocator to mutating operations.
+
+## Enumerator State
+
+EnumeratorObject distinguishes uninitialized allocations, method traversal,
+generators, and produce callbacks. External iteration owns a Fiber and a pending
+feed value; the first resume initializes that Fiber without consuming feed.
+Lookahead consumes values without advancing twice, and rewind clears the Fiber,
+lookahead, and feed state. Arithmetic sequences store native bounds, increment,
+exclusion, and original arguments for reflection and inspection. Product and Lazy
+classes are canonical VM-owned classes; Lazy's basic wrapper forwards each yields
+without repacking them. Transformation support is tracked separately in spec/TODO.
