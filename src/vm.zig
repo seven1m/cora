@@ -563,10 +563,14 @@ pub const RubyRandom = struct {
             self.index = 624;
             return self;
         }
-        self.state[0] = 19650218;
-        for (1..624) |i| self.state[i] = 1812433253 *% (self.state[i - 1] ^ (self.state[i - 1] >> 30)) +% @as(u32, @intCast(i));
         const keys = [_]u32{ @truncate(seed), @truncate(seed >> 32) };
-        const key_len: usize = if (keys[1] == 0) 1 else 2;
+        return initWords(keys[0..if (keys[1] == 1) @as(usize, 1) else 2]);
+    }
+
+    pub fn initWords(keys: []const u32) RubyRandom {
+        std.debug.assert(keys.len > 0);
+        var self = init(19650218);
+        const key_len = keys.len;
         var i: usize = 1;
         var j: usize = 0;
         var count: usize = @max(624, key_len);
@@ -854,7 +858,6 @@ pub const VM = struct {
     random_counter: u64 = 0,
     default_random: RubyRandom,
     default_random_seed: Value = Value.nil(),
-    random_states: std.AutoHashMap(usize, RubyRandom),
     recursion_guard: RecursionGuard = .{},
     disable_gems: bool = false,
     rubygems_loaded_on_miss: bool = false,
@@ -910,7 +913,6 @@ pub const VM = struct {
             .packed_pointer_targets = std.AutoHashMap(*StringObject, PackedPointerTargets).init(gc_allocator),
             .errno_classes = std.AutoHashMap(c_int, *ClassObject).init(gc_allocator),
             .finalizers_by_target = std.AutoHashMap(usize, *FinalizerGroup).init(allocator),
-            .random_states = std.AutoHashMap(usize, RubyRandom).init(allocator),
             .default_random = RubyRandom.init(0),
             .loaded_files = std.StringHashMap(void).init(gc_allocator),
             .loaded_feature_realpaths = std.StringHashMap(void).init(gc_allocator),
@@ -3095,7 +3097,6 @@ pub const VM = struct {
             handler(@ptrCast(self));
         }
         self.cext_at_exit_handlers.deinit(self.allocator);
-        self.random_states.deinit();
         self.unregisterPushOtherRootsForGc();
         if (self.gc_vm_root_registered) {
             self.unregisterVmRootForGc();

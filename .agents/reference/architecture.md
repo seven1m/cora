@@ -43,6 +43,11 @@ Prefer not to add new opcodes when an existing mechanism can be extended. When a
 
 **Classes/modules:** Classes store module-like method tables plus superclass and prepended/included module lists. Method lookup walks prepended modules -> class methods -> included modules -> superclass. `Class#new` consults `ClassObject.cext_alloc_func` first when present, so a C extension can install its own allocator for the Ruby wrapper.
 
+Random instances keep their seed and MT state in a GC-owned native object,
+initialized by Random's builtin allocator. Class copying preserves builtin and
+C extension allocators plus allocation policy, so copied classes retain the
+storage layout required by their methods.
+
 **Resolved methods:** Concrete lookups always record a definition node, including
 cache hits and copied method handles. A null node is explicit and reserved for
 synthetic handles returned through `respond_to_missing?`; those handles have no

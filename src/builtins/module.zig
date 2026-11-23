@@ -1280,6 +1280,9 @@ pub fn builtinModuleInitializeCopy(vm: *VM, receiver: Value, args: []Value, _: ?
         receiver_class.superclass = other_class.superclass;
         receiver_class.module.super = other_class.module.super;
         receiver_class.object_type = other_class.object_type;
+        receiver_class.builtin_alloc_func = other_class.builtin_alloc_func;
+        receiver_class.cext_alloc_func = other_class.cext_alloc_func;
+        receiver_class.allocation_policy = other_class.allocation_policy;
         receiver_class.struct_members = other_class.struct_members;
         receiver_class.struct_keyword_init = other_class.struct_keyword_init;
         try vm.copyModuleMetadata(&other_class.module, &receiver_class.module, false);

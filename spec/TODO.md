@@ -1736,15 +1736,15 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] core/queue/size_spec.rb
 
 ### core/random
-- [ ] core/random/bytes_spec.rb
+- [x] core/random/bytes_spec.rb
 - [x] core/random/default_spec.rb
 - [x] core/random/equal_value_spec.rb
 - [x] core/random/new_seed_spec.rb
-- [ ] core/random/new_spec.rb
+- [x] core/random/new_spec.rb
 - [x] core/random/rand_spec.rb
-- [ ] core/random/random_number_spec.rb
+- [x] core/random/random_number_spec.rb
 - [x] core/random/seed_spec.rb
-- [ ] core/random/srand_spec.rb
+- [x] core/random/srand_spec.rb
 - [x] core/random/urandom_spec.rb
 
 ### core/range
@@ -3572,11 +3572,11 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] library/rubygems/gem/load_path_insert_index_spec.rb
 
 ### library/securerandom
-- [ ] library/securerandom/base64_spec.rb
-- [ ] library/securerandom/bytes_spec.rb
+- [x] library/securerandom/base64_spec.rb
+- [x] library/securerandom/bytes_spec.rb
 - [x] library/securerandom/hex_spec.rb
 - [x] library/securerandom/random_bytes_spec.rb
-- [ ] library/securerandom/random_number_spec.rb
+- [x] library/securerandom/random_number_spec.rb
 
 ### library/shellwords
 - [x] library/shellwords/shellwords_spec.rb
