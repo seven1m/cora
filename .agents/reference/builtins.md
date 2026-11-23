@@ -28,7 +28,9 @@
   path is shared by Enumerable predicates, prefix methods such as `take`, and
   C extension `rb_block_call`.
   External iteration through `Enumerator#next` remains fiber-backed.
-  `Enumerator#map` and `collect` inherit the native Enumerable implementation;
+  `Enumerator#to_a` inherits Enumerable's fresh internal traversal rather than
+  consuming the external next/peek cursor. `Enumerator#map` and `collect` inherit
+  the native Enumerable implementation;
   internal mapping calls `each` without consuming the external next/peek cursor.
 - Internal collection callbacks for `flat_map`/`collect_concat`, `filter_map`, `each_with_object`, and
   `sort_by` dispatch directly to `each` in the caller's fiber. Promote captured
@@ -76,6 +78,14 @@ Mutex and Queue through `src/builtins/synchronization.zig`. Use identity-based
 removal and clear unused GC-scanned list slots. `mutex.reacquireMutex` preserves
 pending unwinds while waiting, ensuring sleep/wait callers own their lock before
 an interrupt reaches Ruby.
+
+Numeric#step and Range#step share interval-size arithmetic through
+`builtins/arithmetic_sequence.zig`. It keeps non-Float counts exact and uses
+Float endpoint error bounds for floating sequences. ArithmeticSequence producers
+initialize native begin/end/step metadata on EnumeratorObject; accessors must not
+infer a Range receiver. `module.removeOwnMethod` performs internal method removal
+and callbacks after caller validation; Numeric's default singleton-added hook
+uses it to roll back rejected methods even on frozen singleton classes.
 
 ## Array And String Coercion Helpers
 

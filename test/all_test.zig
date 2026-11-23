@@ -54,6 +54,7 @@ const core_nil_test = @import("core/nil_test.zig");
 const core_process_test = @import("core/process_test.zig");
 const core_signal_test = @import("core/signal_test.zig");
 const core_random_test = @import("core/random_test.zig");
+const core_numeric_test = @import("core/numeric_test.zig");
 const core_range_test = @import("core/range_test.zig");
 const core_set_test = @import("core/set_test.zig");
 const core_string_test = @import("core/string_test.zig");
@@ -169,6 +170,7 @@ comptime {
     _ = core_process_test;
     _ = core_signal_test;
     _ = core_random_test;
+    _ = core_numeric_test;
     _ = core_range_test;
     _ = core_set_test;
     _ = core_string_test;

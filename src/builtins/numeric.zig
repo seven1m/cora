@@ -1,6 +1,8 @@
 const std = @import("std");
 const vm_mod = @import("../vm.zig");
 const value = @import("../value.zig");
+const arithmetic = @import("arithmetic_sequence.zig");
+const module_builtin = @import("module.zig");
 
 const VM = vm_mod.VM;
 const VMError = vm_mod.VMError;
@@ -12,6 +14,9 @@ pub fn register(vm: *VM) !void {
     if (vm.object_class.module.constants.get(comparable_sym)) |comparable_val| {
         try vm.includeModule(&vm.numeric_class.module, comparable_val.value.toModuleObject());
     }
+
+    try vm.numeric_class.module.methods.put(try vm.intern("step"), value.MethodEntry.keywordBuiltin(&builtinNumericStep, .{ .variadic = 0 }));
+    try vm.numeric_class.module.methods.put(try vm.intern("singleton_method_added"), value.MethodEntry.builtinWithVisibility(&builtinNumericSingletonMethodAdded, .{ .exact = 1 }, .private));
 
     const zero_q_sym = try vm.intern("zero?");
     try vm.numeric_class.module.methods.put(zero_q_sym, value.MethodEntry.builtin(&builtinNumericZero, .{ .exact = 0 }));
@@ -453,4 +458,74 @@ pub fn builtinNumericI(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMErr
 pub fn builtinNumericToC(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
     return vm.newComplex(receiver, Value.integer(0));
+}
+
+fn builtinNumericSingletonMethodAdded(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    const singleton = try vm.getOrCreateSingletonClass(receiver);
+    const name = try vm.coerceToMethodNameSymbol(args[0]);
+    try module_builtin.removeOwnMethod(vm, Value.fromObject(&singleton.module.object), name);
+    return vm.raiseExceptionFmt(vm.type_error_class, "can't define singleton method \"{s}\" for {s}", .{ name.name, vm.className(receiver) });
+}
+
+fn numericStepSize(vm: *VM, receiver: Value, method_args: ?*value.ArrayObject) VMError!Value {
+    const args = method_args orelse return error.Fatal;
+    return arithmetic.intervalSize(vm, receiver, args.elements.items[0], args.elements.items[1], false);
+}
+
+fn builtinNumericStep(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
+    try vm.requireArgCountRange(args, 0, 2);
+    var keyword_to: ?Value = null;
+    var keyword_by: ?Value = null;
+    try vm.consumeKeywordArgs(.{ "to", "by" }, .{ &keyword_to, &keyword_by });
+    try vm.validateKeywordArgsConsumed();
+    if (keyword_to != null and args.len > 0) return vm.raiseExceptionFmt(vm.argument_error_class, "to is given twice", .{});
+    if (keyword_by != null and args.len > 1) return vm.raiseExceptionFmt(vm.argument_error_class, "step is given twice", .{});
+    const end = keyword_to orelse if (args.len > 0) args[0] else Value.nil();
+    var step = keyword_by orelse if (args.len > 1) args[1] else Value.integer(1);
+    if (step.isNil()) {
+        if (block != null and args.len > 1 and keyword_by == null) return vm.raiseExceptionFmt(vm.type_error_class, "step must be numeric", .{});
+        step = Value.integer(1);
+    }
+    var zero_args = [_]Value{Value.integer(0)};
+    if ((try vm.callMethodByName(step, "==", &zero_args, null)).isTruthy()) return vm.raiseExceptionFmt(vm.argument_error_class, "step can't be 0", .{});
+    const blk = block orelse {
+        const stored = try vm.createArray();
+        stored.elements.appendSlice(vm.gc_allocator, &.{ end, step }) catch return error.Fatal;
+        const is_sequence = (end.isNil() or vm.isClassOrSubclassOf(vm.getClass(end), vm.numeric_class)) and vm.isClassOrSubclassOf(vm.getClass(step), vm.numeric_class);
+        const class = if (is_sequence) vm.enumerator_arithmetic_sequence_class else vm.enumerator_class;
+        const result = try vm.newEnumeratorOfClass(class, .{ .method = .{ .receiver = receiver, .method_name = try vm.intern("step") } }, stored, null, &numericStepSize);
+        if (is_sequence) result.toEnumeratorObject().arithmetic_sequence = .{ .begin = receiver, .end = end, .step = step, .exclude_end = false };
+        return result;
+    };
+    const positive = (try vm.callMethodByName(step, ">", &zero_args, null)).isTruthy();
+    const infinite_limit = end.isNil() or (end.isFloat() and end.toFloatObject().val == (if (positive) std.math.inf(f64) else -std.math.inf(f64)));
+    const floating = receiver.isFloat() or step.isFloat() or (end.isFloat() and !infinite_limit);
+    if (floating) {
+        const begin_f = try arithmetic.toF64(vm, receiver);
+        const step_f = try arithmetic.toF64(vm, step);
+        const end_f = if (end.isNil()) (if (positive) std.math.inf(f64) else -std.math.inf(f64)) else try arithmetic.toF64(vm, end);
+        const count = arithmetic.floatStepSize(begin_f, end_f, step_f, false);
+        if (std.math.isInf(step_f)) {
+            if (count != 0) _ = try vm.yieldToBlock(blk, &.{try vm.newFloat(begin_f)});
+        } else {
+            var index: f64 = 0;
+            while (index < count) : (index += 1) {
+                var current = index * step_f + begin_f;
+                if (if (positive) current > end_f else current < end_f) current = end_f;
+                _ = try vm.yieldToBlock(blk, &.{try vm.newFloat(current)});
+            }
+        }
+        return receiver;
+    }
+    var current = receiver;
+    while (true) {
+        if (!infinite_limit) {
+            var compare_args = [_]Value{end};
+            if ((try vm.callMethodByName(current, if (positive) ">" else "<", &compare_args, null)).isTruthy()) break;
+        }
+        _ = try vm.yieldToBlock(blk, &.{current});
+        var add_args = [_]Value{step};
+        current = try vm.callMethodByName(current, "+", &add_args, null);
+    }
+    return receiver;
 }

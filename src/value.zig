@@ -734,9 +734,17 @@ pub const EnumeratorObject = struct {
     method_args: ?*ArrayObject,
     size: ?Value,
     size_fn: ?SizeFn,
+    arithmetic_sequence: ?ArithmeticSequence = null,
     fiber: ?*FiberObject,
     lookahead_values: ?*ArrayObject,
     has_lookahead_values: bool,
+
+    pub const ArithmeticSequence = struct {
+        begin: Value,
+        end: Value,
+        step: Value,
+        exclude_end: bool,
+    };
 
     pub const SizeFn = *const fn (vm: *VM, receiver: Value, method_args: ?*ArrayObject) VMError!Value;
 

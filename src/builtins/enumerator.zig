@@ -25,9 +25,6 @@ pub fn register(vm: *VM) !void {
     const each_with_index_sym = try vm.intern("each_with_index");
     try vm.enumerator_class.module.methods.put(each_with_index_sym, MethodEntry.builtin(&builtinEnumeratorEachWithIndex, .{ .exact = 0 }));
 
-    const to_a_sym = try vm.intern("to_a");
-    try vm.enumerator_class.module.methods.put(to_a_sym, MethodEntry.builtin(&builtinEnumeratorToA, .{ .variadic = 0 }));
-
     const next_sym = try vm.intern("next");
     try vm.enumerator_class.module.methods.put(next_sym, MethodEntry.builtin(&builtinEnumeratorNext, .{ .exact = 0 }));
 
@@ -80,7 +77,6 @@ pub fn register(vm: *VM) !void {
     try product_class.module.methods.put(each_sym, MethodEntry.builtin(&builtinProductEach, .{ .exact = 0 }));
     try product_class.module.methods.put(size_sym, MethodEntry.builtin(&builtinProductSize, .{ .exact = 0 }));
     try product_class.module.methods.put(rewind_sym, MethodEntry.builtin(&builtinProductRewind, .{ .exact = 0 }));
-    try product_class.module.methods.put(to_a_sym, enumerable.value.toModuleObject().methods.get(to_a_sym) orelse return error.Fatal);
     for ([_][]const u8{ "feed", "next", "next_values", "peek", "peek_values" }) |name| {
         try product_class.module.methods.put(try vm.intern(name), .{ .method = .{ .undefined = {} } });
     }
@@ -431,28 +427,20 @@ fn builtinEnumeratorRewind(vm: *VM, receiver: Value, args: []Value, _: ?Block) V
     return receiver;
 }
 
-fn arithmeticSequenceRange(vm: *VM, receiver: Value) VMError!*value.RangeObject {
-    const method = switch (receiver.toEnumeratorObject().kind) {
-        .method => |method| method,
-        else => return vm.raiseExceptionFmt(vm.type_error_class, "invalid arithmetic sequence", .{}),
-    };
-    if (!method.receiver.isRange()) return vm.raiseExceptionFmt(vm.type_error_class, "invalid arithmetic sequence", .{});
-    return method.receiver.toRangeObject();
+fn arithmeticSequenceData(vm: *VM, receiver: Value) VMError!value.EnumeratorObject.ArithmeticSequence {
+    return receiver.toEnumeratorObject().arithmetic_sequence orelse vm.raiseExceptionFmt(vm.type_error_class, "invalid arithmetic sequence", .{});
 }
 
 fn builtinArithmeticSequenceBegin(vm: *VM, receiver: Value, _: []Value, _: ?Block) VMError!Value {
-    return (try arithmeticSequenceRange(vm, receiver)).begin;
+    return (try arithmeticSequenceData(vm, receiver)).begin;
 }
 
 fn builtinArithmeticSequenceEnd(vm: *VM, receiver: Value, _: []Value, _: ?Block) VMError!Value {
-    return (try arithmeticSequenceRange(vm, receiver)).end;
+    return (try arithmeticSequenceData(vm, receiver)).end;
 }
 
-fn builtinArithmeticSequenceStep(_: *VM, receiver: Value, _: []Value, _: ?Block) VMError!Value {
-    if (receiver.toEnumeratorObject().method_args) |args| {
-        if (args.elements.items.len > 0) return args.elements.items[0];
-    }
-    return Value.integer(1);
+fn builtinArithmeticSequenceStep(vm: *VM, receiver: Value, _: []Value, _: ?Block) VMError!Value {
+    return (try arithmeticSequenceData(vm, receiver)).step;
 }
 
 fn builtinArithmeticSequenceInspect(vm: *VM, receiver: Value, _: []Value, _: ?Block) VMError!Value {
@@ -547,24 +535,6 @@ fn builtinEnumeratorSize(vm: *VM, receiver: Value, args: []Value, _: ?Block) VME
     }
 
     return Value.nil();
-}
-
-fn builtinEnumeratorToA(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
-    try vm.requireArgCount(args, 0);
-    const out = try vm.createArray();
-
-    while (true) {
-        const next_val = builtinEnumeratorNext(vm, receiver, &[_]Value{}, null) catch |err| {
-            if (err == error.Unwind and vm.pendingException() != null and vm.pendingException().?.object.class == vm.stop_iteration_class) {
-                vm.setPendingException(null);
-                break;
-            }
-            return err;
-        };
-        out.elements.append(vm.gc_allocator, next_val) catch return error.Fatal;
-    }
-
-    return Value.fromObject(&out.object);
 }
 
 // --- Yielder instance methods ---

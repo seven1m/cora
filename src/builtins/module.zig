@@ -2204,9 +2204,7 @@ pub fn builtinModuleUndefMethod(vm: *VM, receiver: Value, args: []Value, _: ?Blo
 pub fn builtinModuleRemoveMethod(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     if (args.len == 0) return receiver;
 
-    const methods = receiver.getModuleMethods() orelse {
-        unreachable; // receiver is not a Module
-    };
+    std.debug.assert(receiver.getModuleMethods() != null);
 
     var names: std.ArrayList(*SymbolObject) = .empty;
     defer names.deinit(vm.allocator);
@@ -2218,21 +2216,21 @@ pub fn builtinModuleRemoveMethod(vm: *VM, receiver: Value, args: []Value, _: ?Bl
         return vm.raiseExceptionFmt(vm.frozen_error_class, "can't modify frozen {s}", .{vm.className(receiver)});
     }
 
-    for (names.items) |name_sym| {
-        _ = getOwnDefinedMethodEntry(methods, name_sym) orelse {
-            const msg = std.fmt.allocPrint(
-                vm.gc_allocator,
-                "undefined method '{s}'",
-                .{name_sym.name},
-            ) catch return error.Fatal;
-            return vm.raiseExceptionFmt(vm.name_error_class, "{s}", .{msg});
-        };
-        _ = methods.remove(name_sym);
-        vm.markIntegerChangedForReceiver(receiver);
-        vm.bumpMethodStateVersion();
-        try vm.triggerMethodCallback(receiver, name_sym, .removed);
-    }
+    for (names.items) |name_sym| try removeOwnMethod(vm, receiver, name_sym);
     return receiver;
+}
+
+/// Internal method removal, after a caller's frozen/visibility validation.
+/// Numeric's added hook must remove a rejected method even on a frozen singleton.
+pub fn removeOwnMethod(vm: *VM, receiver: Value, name_sym: *SymbolObject) VMError!void {
+    const methods = receiver.getModuleMethods() orelse return error.Fatal;
+    _ = getOwnDefinedMethodEntry(methods, name_sym) orelse {
+        return vm.raiseExceptionFmt(vm.name_error_class, "undefined method '{s}'", .{name_sym.name});
+    };
+    _ = methods.remove(name_sym);
+    vm.markIntegerChangedForReceiver(receiver);
+    vm.bumpMethodStateVersion();
+    try vm.triggerMethodCallback(receiver, name_sym, .removed);
 }
 
 pub fn builtinModulePrivate(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {

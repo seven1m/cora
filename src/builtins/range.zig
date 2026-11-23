@@ -6,6 +6,7 @@ const kernel_builtin = @import("kernel.zig");
 const warning_builtin = @import("warning.zig");
 const enumerable_builtin = @import("enumerable.zig");
 const float_builtin = @import("float.zig");
+const arithmetic = @import("arithmetic_sequence.zig");
 
 const VM = vm_mod.VM;
 const VMError = vm_mod.VMError;
@@ -577,49 +578,7 @@ fn rangeStepSize(vm: *VM, receiver: Value, method_args: ?*value.ArrayObject) VME
 
     const step = if (method_args) |args| args.elements.items[0] else Value.integer(1);
     if (!isNumericValue(vm, step)) return Value.nil();
-    if (!range_obj.begin.isFloat() and !range_obj.end.isFloat() and !step.isFloat()) {
-        const direction = try rangeCompare(vm, step, Value.integer(0));
-        if (direction == 0) return vm.newFloat(std.math.inf(f64));
-        const comparison = if (direction < 0) "<" else ">";
-        var op_args = [_]Value{range_obj.end};
-        if ((try vm.callMethodByName(range_obj.begin, comparison, &op_args, null)).isTruthy()) return Value.integer(0);
-        op_args[0] = range_obj.begin;
-        const delta = try vm.callMethodByName(range_obj.end, "-", &op_args, null);
-        op_args[0] = step;
-        var count = try vm.callMethodByName(delta, "div", &op_args, null);
-        var include_last = !range_obj.exclude_end;
-        if (!include_last) {
-            const offset = try vm.callMethodByName(count, "*", &op_args, null);
-            op_args[0] = offset;
-            const last = try vm.callMethodByName(range_obj.begin, "+", &op_args, null);
-            op_args[0] = last;
-            include_last = (try vm.callMethodByName(range_obj.end, comparison, &op_args, null)).isTruthy();
-        }
-        if (include_last) {
-            op_args[0] = Value.integer(1);
-            count = try vm.callMethodByName(count, "+", &op_args, null);
-        }
-        return count;
-    }
-    const begin_f = try rangeStepToF64(vm, range_obj.begin);
-    const end_f = try rangeStepToF64(vm, range_obj.end);
-    const step_f = try rangeStepToF64(vm, step);
-    if (step_f == 0.0 or (end_f - begin_f) * step_f < 0.0) return Value.integer(0);
-    const span = (end_f - begin_f) / step_f;
-    var count = if (range_obj.exclude_end)
-        @ceil(span)
-    else
-        @floor(span + 1.0e-12) + 1.0;
-    if (range_obj.exclude_end and span > 0.0) {
-        const nearest = @round(span);
-        if (@abs(span - nearest) <= 1.0e-12) {
-            const candidate = begin_f + step_f * nearest;
-            if ((step_f > 0.0 and candidate < end_f) or (step_f < 0.0 and candidate > end_f)) count = nearest + 1.0;
-        }
-    }
-    if (count <= 0.0) return Value.integer(0);
-    if (std.math.isInf(count)) return vm.newFloat(count);
-    return vm.integerFromFloat(count);
+    return arithmetic.intervalSize(vm, range_obj.begin, range_obj.end, step, range_obj.exclude_end);
 }
 
 fn rangeStepToF64(vm: *VM, number: Value) VMError!f64 {
@@ -658,7 +617,11 @@ pub fn builtinRangeStep(vm: *VM, receiver: Value, args: []Value, block: ?Block) 
             vm.enumerator_arithmetic_sequence_class
         else
             vm.enumerator_class;
-        return vm.newEnumeratorOfClass(class, kind, stored_args, null, &rangeStepSize);
+        const result = try vm.newEnumeratorOfClass(class, kind, stored_args, null, &rangeStepSize);
+        if (class == vm.enumerator_arithmetic_sequence_class) {
+            result.toEnumeratorObject().arithmetic_sequence = .{ .begin = range_obj.begin, .end = range_obj.end, .step = step, .exclude_end = range_obj.exclude_end };
+        }
+        return result;
     };
 
     if (range_obj.begin.isNil()) {
