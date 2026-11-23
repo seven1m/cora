@@ -147,7 +147,7 @@ detection. When every live thread is permanently blocked, the idle scheduler
 delivers an internal fatal exception to main. Timers, I/O, ordinary sleep and
 pending interrupts prevent that diagnosis. Thread.ignore_deadlock disables
 the check so external events can release synchronization waits.
-Process signal handlers run on the main thread, waking it when necessary.
+VM preparation installs default process signal handlers alongside its trap modes, including for embedded execution. Signals are delivered on the main thread, waking it when necessary.
 
 New workers inherit `Thread.report_on_exception` when created. Unhandled worker
 exceptions are reported through Ruby `$stderr` before abort-on-exception delivery
@@ -207,7 +207,11 @@ Fiber scheduler sleep and I/O wait hooks is not connected yet.
 - Each chunk has an `exception_handlers` table.
 - `ExceptionHandler` tracks `try_start_ip`, `try_end_ip`, rescue handlers, optional `else_ip`, optional `ensure_ip`, and optional `ensure_end_ip`.
 - `RescueHandler` tracks exception-type expression chunk IDs, `catch_ip`, `catch_end_ip`, and optional `var_idx` for rescue binding.
-- The VM tracks `pending_exception` and `retry_point`.
+- `Chunk.source_kind` distinguishes file programs from inline CLI source and is propagated to their child chunks. Inline code uses `-e` in diagnostics but has no canonical filesystem identity and is not registered as a loaded file. Inline `__dir__` returns nil and `require_relative` cannot infer a base path.
+- `pending_unwind` carries exceptions and control flow. Each Fiber (or worker root Thread) owns its rescued-exception stack. Ruby rescue entries record their frame depth and catch range; native scheduler callbacks explicitly have no rescue scope. Same-frame jumps discard only scopes they leave, and every frame-exit path uses `popFrame` to restore `$!`.
+- Exception metadata (name, missing-method arguments, receiver, errno, StopIteration result, and SyntaxError path) lives in `ExceptionObject`, not Ruby instance variables. Copying an exception preserves this state. `formatExceptionFullMessage` shares detailed-message dispatch, keyword validation, highlighting, cause chains, and backtrace order between Ruby APIs and diagnostics.
+- Normal CLI shutdown cancels all other Threads before waiting for termination, allowing the active Fiber's ensure clauses to run. Suspended Fibers are not resumed for cleanup.
+- `Process::Status` owns immutable native PID and raw wait status. `newProcessStatus` constructs the object; `setLastProcessStatusFromWaitStatus` additionally publishes `$?`. `Process::Status.wait` leaves `$?` alone. Process wait APIs share `waitForChild`, including EINTR handling and async-event delivery.
 
 ## Memory Management
 

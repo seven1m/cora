@@ -413,3 +413,57 @@ test "All begin clauses together - with exception" {
     );
     try std.testing.expectEqual(@as(i64, 50), result.toInteger());
 }
+
+test "Nested rescue exits restore the caller exception across Proc returns" {
+    const result = try evalCode(
+        \\observed = []
+        \\inner = proc do
+        \\  begin
+        \\    begin
+        \\      raise StandardError, "first"
+        \\    rescue
+        \\      raise StandardError, "second"
+        \\    end
+        \\  rescue
+        \\    observed << $!.message
+        \\  end
+        \\  observed << $!.message
+        \\end
+        \\begin
+        \\  raise "outer"
+        \\rescue
+        \\  inner.call
+        \\  observed << $!.message
+        \\end
+        \\observed << $!
+        \\observed == ["second", "outer", "outer", nil]
+    );
+    try std.testing.expect(result.isTrue());
+}
+
+test "Retry and redo preserve rescue scopes containing their destination" {
+    const result = try evalCode(
+        \\observed = []
+        \\begin
+        \\  raise "outer"
+        \\rescue
+        \\  attempts = 0
+        \\  begin
+        \\    observed << $!.message
+        \\    attempts += 1
+        \\    raise "inner" if attempts == 1
+        \\  rescue
+        \\    observed << $!.message
+        \\    retry
+        \\  end
+        \\  iterations = 0
+        \\  while iterations < 2
+        \\    iterations += 1
+        \\    observed << $!.message
+        \\    redo if iterations == 1
+        \\  end
+        \\end
+        \\observed == ["outer", "inner", "outer", "outer", "outer"] && $!.nil?
+    );
+    try std.testing.expect(result.isTrue());
+}

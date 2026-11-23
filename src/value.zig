@@ -39,6 +39,7 @@ pub const ObjectTypeTag = enum(u8) {
     hash,
     range,
     exception,
+    process_status,
     proc,
     fiber,
     io,
@@ -430,9 +431,30 @@ pub const RangeObject = struct {
     exclude_end: bool,
 };
 
+pub const ProcessStatusObject = struct {
+    object: Object,
+    pid: i64,
+    status: c_int,
+};
+
+pub const RescuedException = struct {
+    exception: *ExceptionObject,
+    // Native callbacks can inherit an exception without entering a Ruby rescue.
+    rescue_scope: ?struct {
+        frame_depth: usize,
+        start_ip: usize,
+        end_ip: usize,
+    },
+};
+
 pub const ExceptionObject = struct {
     object: Object,
     message: *StringObject,
+    name: Value = Value.nil(),
+    method_args: Value = Value.nil(),
+    private_call: bool = false,
+    errno_number: ?i64 = null,
+    iteration_result: Value = Value.nil(),
     backtrace: ?*ArrayObject,
     backtrace_locations: ?*ArrayObject = null,
     cause: ?*ExceptionObject,
@@ -480,7 +502,7 @@ pub const FiberObject = struct {
     object: Object,
     active_catches: std.ArrayList(Value) = .empty,
     ensure_saved_unwinds: std.ArrayList(SavedUnwind) = .empty,
-    rescued_exceptions: std.ArrayList(*ExceptionObject) = .empty,
+    rescued_exceptions: std.ArrayList(RescuedException) = .empty,
     state: enum { created, running, suspended, terminated },
     block: ?Block,
     stack: FiberValueStack,
@@ -1019,6 +1041,14 @@ pub const Value = struct {
 
     // -- Convenience extractors for heap types --
 
+    pub inline fn isProcessStatus(self: Value) bool {
+        return self.isObject() and self.objectTypeTag() == .process_status;
+    }
+
+    pub inline fn toProcessStatusObject(self: Value) *ProcessStatusObject {
+        return self.toObject(ProcessStatusObject);
+    }
+
     pub inline fn toStringObject(self: Value) *StringObject {
         return @ptrFromInt(self.raw);
     }
@@ -1359,6 +1389,10 @@ pub const Value = struct {
         } else if (self.isObject()) {
             const tag = self.objectTypeTag();
             switch (tag) {
+                .process_status => {
+                    const status = self.toProcessStatusObject();
+                    try writer.print("#<Process::Status pid={d} status={d}>", .{ status.pid, status.status });
+                },
                 .binding => try writer.print("#<Binding:0x{x}>", .{self.raw}),
                 .string => try writer.print("\"{s}\"", .{self.toStringObject().str}),
                 .symbol => try writer.print(":{s}", .{self.toSymbolObject().name}),

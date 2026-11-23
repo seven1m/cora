@@ -420,7 +420,7 @@ fn classVariableNameString(vm: *VM, recv: Value, arg: Value) VMError![]const u8 
         const message = std.fmt.allocPrint(vm.gc_allocator, "`{s}' is not allowed as a class variable name", .{name}) catch return error.Fatal;
         const exc = try vm.createException(vm.name_error_class, message);
         exc.receiver = recv;
-        try vm.setInstanceVariable(Value.fromObject(&exc.object), "@name", arg);
+        exc.name = arg;
         vm.setPendingException(exc);
         return error.Unwind;
     }
@@ -2350,7 +2350,7 @@ pub fn builtinModuleConstMissing(vm: *VM, receiver: Value, args: []Value, _: ?Bl
         std.fmt.allocPrint(vm.gc_allocator, "uninitialized constant {s}::{s}", .{ vm.publicModuleName(receiver) orelse storedModuleName(receiver), name }) catch return error.Fatal;
     const exc = try vm.createException(vm.name_error_class, message);
     exc.receiver = receiver;
-    try vm.setInstanceVariable(Value.fromObject(&exc.object), "@name", args[0]);
+    exc.name = args[0];
     vm.setPendingException(exc);
     return error.Unwind;
 }

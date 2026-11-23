@@ -141,6 +141,7 @@ pub const Chunk = struct {
     post_required_count: u8 = 0,
     lexical_scope: ?*LexicalScope = null,
     exception_handlers: std.ArrayList(ExceptionHandler) = .empty,
+    source_kind: enum { file, inline_source } = .file,
     source_file: ?[]const u8 = null,
     source_absolute_path: ?[]const u8 = null,
     source_file_owned: bool = false,

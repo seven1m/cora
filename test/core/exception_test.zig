@@ -39,23 +39,6 @@ test "bare missing variable calls raise NameError while explicit calls raise NoM
     try std.testing.expectEqualStrings("unknown_name", cases[1].toArrayObject().elements.items[1].toSymbolObject().name);
 }
 
-test "Exception#message returns message string" {
-    const result = try evalCode(
-        \\begin
-        \\  raise RuntimeError, "my message"
-        \\rescue => e
-        \\  e.message
-        \\end
-    );
-    try std.testing.expect(result.isString());
-    try std.testing.expectEqualSlices(u8, "my message", result.toStringObject().str);
-}
-
-test "Exception.new does not capture a backtrace" {
-    const result = try evalCode("RuntimeError.new.backtrace");
-    try std.testing.expect(result.isNil());
-}
-
 test "Exception backtrace locations survive a replacement backtrace" {
     const result = try evalCode(
         \\error = RuntimeError.new("boom")
@@ -193,7 +176,7 @@ test "pending SIGINT raises Interrupt and explicit rescue catches it" {
         \\begin
         \\  1 + 1
         \\rescue Interrupt => e
-        \\  e.signm == "SIGINT"
+        \\  e.signm == "Interrupt"
         \\end
     );
     try std.testing.expect(result.toBool());

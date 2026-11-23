@@ -15,6 +15,9 @@ const pack = @import("app_pack.zig");
 fn exitForUnhandledException(virtual_machine: *vm.VM) noreturn {
     if (virtual_machine.unhandledExceptionExitStatus()) |status| std.process.exit(status);
     if (virtual_machine.unhandledExceptionSignal()) |signal| {
+        if (virtual_machine.pendingException()) |exception| {
+            if (virtual_machine.isClassOrSubclassOf(exception.object.class.?, virtual_machine.interrupt_class)) virtual_machine.printUnhandledException();
+        }
         signal_support.reraiseDefault(signal);
     }
     virtual_machine.printUnhandledException();
@@ -226,7 +229,6 @@ pub fn main(init: std.process.Init) !void {
 
     const allocator = init.gpa;
     const args = try init.minimal.args.toSlice(init.arena.allocator());
-    vm.installDefaultSignalHandlers();
 
     var extracted_package = pack.maybeExtract(allocator, init.io) catch |err| {
         std.debug.print("Error: invalid packaged application: {}\n", .{err});
@@ -394,9 +396,10 @@ pub fn main(init: std.process.Init) !void {
     var code_buffer: ?[]u8 = null;
     defer if (code_buffer) |buf| allocator.free(buf);
 
-    const raw_code = if (ruby_code) |code|
-        code
-    else if (filename) |file| blk: {
+    const raw_code = if (ruby_code) |code| blk: {
+        source_file = "-e";
+        break :blk code;
+    } else if (filename) |file| blk: {
         source_file = file;
         code_buffer = std.Io.Dir.cwd().readFileAlloc(init.io, file, allocator, .limited(std.math.maxInt(usize))) catch |err| {
             std.debug.print("Error: Could not read file '{s}': {}\n", .{ file, err });
@@ -431,6 +434,7 @@ pub fn main(init: std.process.Init) !void {
         return err;
     };
     defer program.deinit();
+    program.main_chunk.source_kind = if (ruby_code != null) .inline_source else .file;
 
     if (dump_bytecode) {
         // Print bytecode disassembly to stdout
@@ -493,6 +497,7 @@ pub fn main(init: std.process.Init) !void {
     const result = virtual_machine.run();
 
     const at_exit_result = virtual_machine.runAtExitHandlers();
+    try virtual_machine.shutdownOtherThreads();
     if (at_exit_result) |_| {
         // at_exit handlers completed
     } else |err| switch (err) {

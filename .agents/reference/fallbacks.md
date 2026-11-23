@@ -72,7 +72,7 @@ that introspection operation into execution lookup.
 | enclosingMethodEnvironment, forwardingFrame, callSuper | A Ruby method environment survives an escaped block; an active native frame has no Ruby method environment. | Captured environments supply durable method context. Native super uses the native frame's definition node. Forwarding uses the active method's incoming block while it exists, otherwise the block captured by the executing closure. An absent forwarded block is valid. |
 | CallFrame.method_name, backtrace_context.base_name | Top-level and body chunks are not named dispatched methods; some label contexts have no separate base name. | Use the chunk/context name for diagnostics. This does not invent a definition node or authorize super lookup from lexical nesting. |
 | evalSourceWithEncodingAndContext | Binding eval can supply a stored label context; ordinary eval can have a Ruby caller; host/top-level eval may have neither. | Use the supplied context, otherwise the caller context where applicable, otherwise the compiler's top-level context. |
-| Chunk.source_file / source_absolute_path, require_relative, backtrace locations | File chunks have a saved canonical identity; eval and inline source may have only a logical/display filename or no filename. | Preserve logical path versus canonical absolute_path. require_relative prefers saved identity, then the explicit logical source/loading context. Diagnostics may use a chunk name when no source filename exists. |
+| Chunk.source_file / source_absolute_path, require_relative, backtrace locations | File chunks have a saved canonical identity; eval and inline source may have only a logical/display filename or no filename. | Preserve logical path versus canonical absolute_path. require_relative prefers saved identity, then the explicit logical source/loading context. Inline CLI programs explicitly have no canonical file identity despite their `-e` display label. Diagnostics may use a chunk name when no source filename exists. |
 | publicModuleName, Class.module.classpath, Thread description | Anonymous classes/modules lack a public constant path. | Use the anonymous/display name or omit the owner qualifier. This is independent of the required Object.class pointer. |
 | VM.current_thread, rootFiberForCurrentThread, threadStorageForFiber | During construction, main execution buffers are installed before the main Thread and its ownership link. | Bootstrap-safe observers may find no thread; root buffer setup uses the VM's main fiber. Ruby execution begins only after those links are installed. |
 | threadBacktraceFrames, fiberLocalTarget | A running thread's live state is in the VM; suspended state is saved on its thread/fiber. | Use live VM state for the current thread and saved current_fiber for another. Worker root buffers belong to the Thread; main/ordinary Fiber buffers belong to the Fiber. Missing buffers before first use or after retirement are valid empty storage. |
@@ -102,10 +102,16 @@ not partially initialized interpreter metadata:
 - Hash iteration can fail to find a snapshot entry because Ruby code deleted it;
   skipping that entry preserves mutation semantics. This is not a missing Hash
   implementation field.
-- Exception causes/backtraces, LocalJumpError reasons, process status, Time zone
+- Exception causes/backtraces, LocalJumpError reasons, Time zone
   names, and thread names are optional Ruby state. Default messages, nil values,
   or fixed-offset formatting follow those states. An unmapped errno uses the
-  standard SystemCallError class.
+  standard SystemCallError class while retaining the original native errno.
+- Process::Status always owns an actual wait result and PID. `Status.wait`'s
+  ECHILD result deliberately has PID -1 and status 0; WNOHANG with a running
+  child returns nil. No process-status reader synthesizes a missing PID.
+- A rescued-exception entry created by a native scheduler-close callback has
+  no Ruby rescue scope. CATCH_START always supplies its actual frame depth and
+  catch range; jumps and frame exits require that metadata for Ruby rescues.
 - Method mutation ownership is resolved by methodDefinitionOwner for def, alias,
   and undef. Top-level ownership comes from Object's lexical scope; instance_eval
   supplies an explicit definition target. Missing both is an internal error; the

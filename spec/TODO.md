@@ -615,44 +615,44 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] core/env/values_spec.rb
 
 ### core/exception
-- [ ] core/exception/backtrace_locations_spec.rb
+- [x] core/exception/backtrace_locations_spec.rb
 - [x] core/exception/backtrace_spec.rb
-- [ ] core/exception/case_compare_spec.rb
-- [ ] core/exception/cause_spec.rb
-- [ ] core/exception/detailed_message_spec.rb
+- [x] core/exception/case_compare_spec.rb
+- [x] core/exception/cause_spec.rb
+- [x] core/exception/detailed_message_spec.rb
 - [x] core/exception/dup_spec.rb
 - [x] core/exception/equal_value_spec.rb
-- [ ] core/exception/errno_spec.rb
-- [ ] core/exception/exception_spec.rb
+- [x] core/exception/errno_spec.rb
+- [x] core/exception/exception_spec.rb
 - [x] core/exception/exit_value_spec.rb
-- [ ] core/exception/frozen_error_spec.rb
-- [ ] core/exception/full_message_spec.rb
+- [x] core/exception/frozen_error_spec.rb
+- [x] core/exception/full_message_spec.rb
 - [x] core/exception/hierarchy_spec.rb
 - [x] core/exception/inspect_spec.rb
-- [ ] core/exception/interrupt_spec.rb
-- [ ] core/exception/io_error_spec.rb
+- [x] core/exception/interrupt_spec.rb
+- [x] core/exception/io_error_spec.rb
 - [x] core/exception/key_error_spec.rb
 - [x] core/exception/load_error_spec.rb
 - [x] core/exception/message_spec.rb
 - [x] core/exception/name_error_spec.rb
 - [x] core/exception/name_spec.rb
 - [x] core/exception/new_spec.rb
-- [ ] core/exception/no_method_error_spec.rb
+- [x] core/exception/no_method_error_spec.rb
 - [x] core/exception/reason_spec.rb
 - [x] core/exception/receiver_spec.rb
-- [ ] core/exception/result_spec.rb
-- [ ] core/exception/set_backtrace_spec.rb
-- [ ] core/exception/signal_exception_spec.rb
-- [ ] core/exception/signm_spec.rb
-- [ ] core/exception/signo_spec.rb
+- [x] core/exception/result_spec.rb
+- [x] core/exception/set_backtrace_spec.rb
+- [x] core/exception/signal_exception_spec.rb
+- [x] core/exception/signm_spec.rb
+- [x] core/exception/signo_spec.rb
 - [x] core/exception/standard_error_spec.rb
 - [x] core/exception/status_spec.rb
 - [x] core/exception/success_spec.rb
-- [ ] core/exception/syntax_error_spec.rb
-- [ ] core/exception/system_call_error_spec.rb
+- [x] core/exception/syntax_error_spec.rb
+- [x] core/exception/system_call_error_spec.rb
 - [x] core/exception/system_exit_spec.rb
-- [-] core/exception/to_s_spec.rb
-- [ ] core/exception/top_level_spec.rb
+- [x] core/exception/to_s_spec.rb
+- [x] core/exception/top_level_spec.rb
 - [x] core/exception/uncaught_throw_error_spec.rb
 
 ### core/false
@@ -1667,23 +1667,23 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/process/gid/switch_spec.rb
 
 ### core/process/status
-- [ ] core/process/status/bit_and_spec.rb
-- [ ] core/process/status/coredump_spec.rb
-- [ ] core/process/status/equal_value_spec.rb
-- [ ] core/process/status/exited_spec.rb
-- [ ] core/process/status/exitstatus_spec.rb
-- [ ] core/process/status/inspect_spec.rb
-- [ ] core/process/status/pid_spec.rb
-- [ ] core/process/status/right_shift_spec.rb
-- [ ] core/process/status/signaled_spec.rb
-- [ ] core/process/status/stopped_spec.rb
-- [ ] core/process/status/stopsig_spec.rb
-- [ ] core/process/status/success_spec.rb
-- [ ] core/process/status/termsig_spec.rb
+- [x] core/process/status/bit_and_spec.rb
+- [x] core/process/status/coredump_spec.rb
+- [x] core/process/status/equal_value_spec.rb
+- [x] core/process/status/exited_spec.rb
+- [x] core/process/status/exitstatus_spec.rb
+- [x] core/process/status/inspect_spec.rb
+- [x] core/process/status/pid_spec.rb
+- [x] core/process/status/right_shift_spec.rb
+- [x] core/process/status/signaled_spec.rb
+- [x] core/process/status/stopped_spec.rb
+- [x] core/process/status/stopsig_spec.rb
+- [x] core/process/status/success_spec.rb
+- [x] core/process/status/termsig_spec.rb
 - [x] core/process/status/to_i_spec.rb
-- [ ] core/process/status/to_int_spec.rb
-- [ ] core/process/status/to_s_spec.rb
-- [ ] core/process/status/wait_spec.rb
+- [x] core/process/status/to_int_spec.rb
+- [x] core/process/status/to_s_spec.rb
+- [x] core/process/status/wait_spec.rb
 
 ### core/process/sys
 - [ ] core/process/sys/getegid_spec.rb

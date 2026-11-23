@@ -857,8 +857,11 @@ fn enumeratorFiberYieldBlock(vm: *VM, _: Value, args: []Value) VMError!Value {
     return vm.fiberYield(Value.fromObject(&arr.object));
 }
 
-fn raiseStopIteration(vm: *VM) VMError {
-    return vm.raiseExceptionFmt(vm.stop_iteration_class, "StopIteration", .{});
+fn raiseStopIteration(vm: *VM, result: Value) VMError {
+    const exception = vm.createException(vm.stop_iteration_class, "iteration reached an end") catch return error.Fatal;
+    exception.iteration_result = result;
+    vm.setPendingException(exception);
+    return error.Unwind;
 }
 
 fn collapseYieldValues(yield_values: *value.ArrayObject) Value {
@@ -874,7 +877,7 @@ fn fetchNextYieldValues(vm: *VM, enum_obj: *value.EnumeratorObject) VMError!*val
     const fiber = try ensureEnumeratorFiber(vm, enum_obj);
 
     if (fiber.state == .terminated) {
-        return raiseStopIteration(vm);
+        return raiseStopIteration(vm, fiber.coro_result);
     }
 
     var resume_args: [1]Value = .{Value.fromObject(&enum_obj.object)};
@@ -901,7 +904,7 @@ fn fetchNextYieldValues(vm: *VM, enum_obj: *value.EnumeratorObject) VMError!*val
     };
 
     if (fiber.state == .terminated) {
-        return raiseStopIteration(vm);
+        return raiseStopIteration(vm, fiber.coro_result);
     }
     if (!result.isArray()) return error.Fatal;
     return result.toArrayObject();

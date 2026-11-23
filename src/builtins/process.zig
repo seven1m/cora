@@ -26,6 +26,18 @@ pub fn register(vm: *VM) !void {
     const process_obj = Value.fromObject(&vm.process_module.object);
     const process_singleton = try vm.getOrCreateSingletonClass(process_obj);
 
+    try vm.setConstant(vm.process_module, try vm.intern("Status"), Value.fromObject(&vm.process_status_class.module.object));
+    inline for (.{
+        .{ "exitstatus", &statusExitstatus }, .{ "success?", &statusSuccess }, .{ "exited?", &statusExited },
+        .{ "signaled?", &statusSignaled },    .{ "termsig", &statusTermsig },  .{ "pid", &statusPid },
+        .{ "to_i", &statusToI },              .{ "to_s", &statusToS },         .{ "inspect", &statusInspect },
+        .{ "stopped?", &statusStopped },      .{ "stopsig", &statusStopsig },  .{ "coredump?", &statusCoredump },
+    }) |entry| try vm.process_status_class.module.methods.put(try vm.intern(entry[0]), value.MethodEntry.builtin(entry[1], .{ .exact = 0 }));
+    try vm.process_status_class.module.methods.put(try vm.intern("=="), value.MethodEntry.builtin(&statusEqual, .{ .exact = 1 }));
+    const status_singleton = try vm.getOrCreateSingletonClass(Value.fromObject(&vm.process_status_class.module.object));
+    try status_singleton.module.methods.put(try vm.intern("wait"), value.MethodEntry.builtin(&statusWait, .{ .variadic = 0 }));
+    try process_singleton.module.methods.put(try vm.intern("waitall"), value.MethodEntry.builtin(&processWaitall, .{ .exact = 0 }));
+
     var tms_members: [4]Value = undefined;
     for ([_][]const u8{ "utime", "stime", "cutime", "cstime" }, 0..) |name, index| {
         tms_members[index] = Value.fromObject(&(try vm.intern(name)).object);
@@ -404,41 +416,124 @@ pub fn builtinProcessClockGetres(vm: *VM, _: Value, args: []Value, _: ?Block) VM
     return vm.raiseExceptionFmt(vm.argument_error_class, "unexpected unit", .{});
 }
 
-pub fn builtinProcessWait(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
-    try vm.requireArgCountRange(args, 0, 2);
+pub const WaitResult = union(enum) {
+    child: struct { pid: i64, status: c_int },
+    not_ready,
+    no_children,
+};
 
-    if (builtin.os.tag == .windows) {
-        return vm.raiseExceptionFmt(vm.runtime_error_class, "Process.wait is not implemented on Windows", .{});
-    }
-
-    const wait_pid: i32 = if (args.len >= 1 and !args[0].isNil())
-        @intCast(try args[0].integerArgToI64(vm, "no implicit conversion into Integer", "pid out of range"))
-    else
-        -1;
-    const flags: c_int = if (args.len >= 2)
-        @intCast(try args[1].integerArgToI64(vm, "no implicit conversion into Integer", "flags out of range"))
-    else
-        0;
-
+pub fn waitForChild(vm: *VM, pid: i32, flags: c_int) VMError!WaitResult {
     var status: c_int = 0;
     while (true) {
         try vm.checkAsyncEvents();
-        const rc = std.c.waitpid(wait_pid, &status, flags);
-        if (rc < 0) {
-            switch (std.posix.errno(rc)) {
-                .INTR => {
-                    try vm.checkAsyncEvents();
-                    continue;
-                },
-                else => |errno_code| return vm.raiseErrnoFmt(errno_code, "waitpid failed", .{}),
-            }
+        const rc = std.c.waitpid(pid, &status, flags);
+        if (rc > 0) return .{ .child = .{ .pid = rc, .status = status } };
+        if (rc == 0) return .not_ready;
+        switch (std.posix.errno(rc)) {
+            .INTR => {
+                try vm.checkAsyncEvents();
+                continue;
+            },
+            .CHILD => return .no_children,
+            else => |errno_code| return vm.raiseErrnoFmt(errno_code, "waitpid failed", .{}),
         }
-        if (rc == 0) return Value.nil();
-        if (rc > 0) {
-            try vm.setLastProcessStatusFromWaitStatus(status, rc);
-        }
-        return Value.integer(@intCast(rc));
     }
+}
+
+fn waitArguments(vm: *VM, args: []Value) VMError!struct { pid: i32, flags: c_int } {
+    try vm.requireArgCountRange(args, 0, 2);
+    const pid = if (args.len > 0 and !args[0].isNil()) try args[0].coerceToI64ViaToInt(vm, "no implicit conversion into Integer", "to_int did not return Integer", "pid out of range") else -1;
+    const flags = if (args.len > 1) try args[1].coerceToI64ViaToInt(vm, "no implicit conversion into Integer", "to_int did not return Integer", "flags out of range") else 0;
+    return .{
+        .pid = std.math.cast(i32, pid) orelse return vm.raiseExceptionFmt(vm.range_error_class, "pid out of range", .{}),
+        .flags = std.math.cast(c_int, flags) orelse return vm.raiseExceptionFmt(vm.range_error_class, "flags out of range", .{}),
+    };
+}
+
+pub fn builtinProcessWait(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+    const options = try waitArguments(vm, args);
+    return switch (try waitForChild(vm, options.pid, options.flags)) {
+        .child => |child| blk: {
+            try vm.setLastProcessStatusFromWaitStatus(child.status, child.pid);
+            break :blk Value.integer(child.pid);
+        },
+        .not_ready => Value.nil(),
+        .no_children => vm.raiseErrnoFmt(.CHILD, "No child processes", .{}),
+    };
+}
+
+fn statusWait(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+    const options = try waitArguments(vm, args);
+    return switch (try waitForChild(vm, options.pid, options.flags)) {
+        .child => |child| vm.newProcessStatus(child.status, child.pid),
+        .not_ready => Value.nil(),
+        // Ruby represents wait's ECHILD result with a status whose PID is -1.
+        .no_children => vm.newProcessStatus(0, -1),
+    };
+}
+
+fn processWaitall(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    const results = try vm.createArray();
+    while (true) {
+        switch (try waitForChild(vm, -1, 0)) {
+            .no_children => break,
+            .not_ready => return error.Fatal,
+            .child => |child| {
+                const status = try vm.newProcessStatus(child.status, child.pid);
+                try vm.setGlobal("$?", status);
+                const pair = try vm.createArray();
+                pair.elements.appendSlice(vm.gc_allocator, &.{ Value.integer(child.pid), status }) catch return error.Fatal;
+                results.elements.append(vm.gc_allocator, Value.fromObject(&pair.object)) catch return error.Fatal;
+            },
+        }
+    }
+    return Value.fromObject(&results.object);
+}
+
+fn rawStatus(vm: *VM, receiver: Value) VMError!*value.ProcessStatusObject {
+    if (!receiver.isProcessStatus()) return vm.raiseExceptionFmt(vm.type_error_class, "uninitialized Process::Status", .{});
+    return receiver.toProcessStatusObject();
+}
+
+fn statusExitstatus(vm: *VM, receiver: Value, _: []Value, _: ?Block) VMError!Value {
+    const status = (try rawStatus(vm, receiver)).status;
+    return if (processExited(status)) Value.integer((status >> 8) & 255) else Value.nil();
+}
+fn statusSuccess(vm: *VM, receiver: Value, _: []Value, _: ?Block) VMError!Value {
+    const result = try statusExitstatus(vm, receiver, &.{}, null);
+    return if (result.isNil()) result else Value.boolean(result.toInteger() == 0);
+}
+fn statusExited(vm: *VM, receiver: Value, _: []Value, _: ?Block) VMError!Value {
+    return Value.boolean(processExited((try rawStatus(vm, receiver)).status));
+}
+fn statusSignaled(vm: *VM, receiver: Value, _: []Value, _: ?Block) VMError!Value {
+    return Value.boolean(processSignaled((try rawStatus(vm, receiver)).status));
+}
+fn statusTermsig(vm: *VM, receiver: Value, _: []Value, _: ?Block) VMError!Value {
+    const status = (try rawStatus(vm, receiver)).status;
+    return if (processSignaled(status)) Value.integer(status & 127) else Value.nil();
+}
+fn statusPid(vm: *VM, receiver: Value, _: []Value, _: ?Block) VMError!Value {
+    return Value.integer((try rawStatus(vm, receiver)).pid);
+}
+fn statusToI(vm: *VM, receiver: Value, _: []Value, _: ?Block) VMError!Value {
+    return Value.integer((try rawStatus(vm, receiver)).status);
+}
+fn statusStopped(vm: *VM, receiver: Value, _: []Value, _: ?Block) VMError!Value {
+    return Value.boolean(((try rawStatus(vm, receiver)).status & 255) == 127);
+}
+fn statusStopsig(vm: *VM, receiver: Value, _: []Value, _: ?Block) VMError!Value {
+    const status = (try rawStatus(vm, receiver)).status;
+    return if ((status & 255) == 127) Value.integer((status >> 8) & 255) else Value.nil();
+}
+fn statusCoredump(vm: *VM, receiver: Value, _: []Value, _: ?Block) VMError!Value {
+    return Value.boolean(((try rawStatus(vm, receiver)).status & 128) != 0);
+}
+fn statusEqual(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    const status = (try rawStatus(vm, receiver)).status;
+    const other = args[0];
+    return Value.boolean(if (other.isProcessStatus()) status == other.toProcessStatusObject().status else other.isInteger() and status == other.toInteger());
 }
 
 pub fn builtinProcessLastStatus(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
@@ -480,7 +575,8 @@ pub fn builtinProcessSpawn(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!
     }
 
     var chdir_value: ?Value = null;
-    try vm.consumeKeywordArgs(.{"chdir"}, .{&chdir_value});
+    var pgroup_value: ?Value = null;
+    try vm.consumeKeywordArgs(.{ "chdir", "pgroup" }, .{ &chdir_value, &pgroup_value });
     try vm.validateKeywordArgsConsumed();
 
     var env_map = try vm.currentEnvMap();
@@ -518,6 +614,10 @@ pub fn builtinProcessSpawn(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!
                 }
             }
 
+            if (key.isSymbol() and std.mem.eql(u8, key.toSymbolObject().name, "pgroup")) {
+                pgroup_value = val;
+                continue;
+            }
             // Determine target fd(s) from key
             var targets: [2]i32 = .{ -1, -1 };
             var target_count: usize = 0;
@@ -668,12 +768,22 @@ pub fn builtinProcessSpawn(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!
     if (vm.stdout) |out| _ = out.flush() catch {};
     if (vm.stderr) |err_out| _ = err_out.flush() catch {};
 
+    const process_group: ?i32 = if (pgroup_value) |group| blk: {
+        if (!group.isTruthy()) break :blk null;
+        if (group.isTrue()) break :blk 0;
+        const integer = try group.coerceToI64ViaToInt(vm, "no implicit conversion into Integer", "to_int did not return Integer", "process group out of range");
+        break :blk std.math.cast(i32, integer) orelse return vm.raiseExceptionFmt(vm.range_error_class, "process group out of range", .{});
+    } else null;
     const pid = std.c.fork();
     if (pid < 0) {
         return vm.raiseExceptionFmt(vm.runtime_error_class, "fork failed", .{});
     }
 
     if (pid == 0) {
+        if (process_group) |group| {
+            if (std.c.setpgid(0, group) != 0) std.c._exit(127);
+        }
+
         // Apply fd redirections
         for (redirects.items) |r| {
             if (r.source_fd == -1) {
@@ -745,5 +855,42 @@ pub fn builtinProcessKill(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!V
         delivered += 1;
     }
 
+    try vm.checkAsyncEvents();
     return Value.integer(delivered);
+}
+
+fn processExited(wait_status: c_int) bool {
+    return (wait_status & 0x7f) == 0;
+}
+
+fn processSignaled(wait_status: c_int) bool {
+    const signal_bits = wait_status & 0x7f;
+    return signal_bits != 0 and signal_bits != 0x7f;
+}
+
+fn statusDescription(vm: *VM, receiver: Value, inspect: bool) VMError!Value {
+    const data = try rawStatus(vm, receiver);
+    var output: std.Io.Writer.Allocating = .init(vm.allocator);
+    defer output.deinit();
+    if (inspect) output.writer.writeAll("#<Process::Status: ") catch return error.Fatal;
+    output.writer.print("pid {d}", .{data.pid}) catch return error.Fatal;
+    if ((data.status & 255) == 127) {
+        const signal = (data.status >> 8) & 255;
+        output.writer.writeAll(" stopped") catch return error.Fatal;
+        if (signal_support.fullName(signal)) |name| output.writer.print(" {s}", .{name}) catch return error.Fatal;
+        output.writer.print(" (signal {d})", .{signal}) catch return error.Fatal;
+    } else if (processSignaled(data.status)) {
+        const signal = data.status & 127;
+        if (signal_support.fullName(signal)) |name| output.writer.print(" {s}", .{name}) catch return error.Fatal;
+        output.writer.print(" (signal {d})", .{signal}) catch return error.Fatal;
+    } else if (processExited(data.status)) output.writer.print(" exit {d}", .{(data.status >> 8) & 255}) catch return error.Fatal;
+    if ((data.status & 128) != 0) output.writer.writeAll(" (core dumped)") catch return error.Fatal;
+    if (inspect) output.writer.writeByte('>') catch return error.Fatal;
+    return vm.newString(output.written(), false);
+}
+fn statusToS(vm: *VM, receiver: Value, _: []Value, _: ?Block) VMError!Value {
+    return statusDescription(vm, receiver, false);
+}
+fn statusInspect(vm: *VM, receiver: Value, _: []Value, _: ?Block) VMError!Value {
+    return statusDescription(vm, receiver, true);
 }

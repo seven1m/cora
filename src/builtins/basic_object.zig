@@ -157,7 +157,7 @@ pub fn builtinBasicObjectMethodMissing(vm: *VM, receiver: Value, args: []Value, 
     }
     if (args[0].isSymbol()) {
         const sym = args[0].toSymbolObject();
-        return vm.raiseNoMethod(receiver, sym.name);
+        return vm.raiseNoMethodWithArguments(receiver, sym.name, args[1..]);
     }
     unreachable;
 }

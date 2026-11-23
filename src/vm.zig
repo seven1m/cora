@@ -732,7 +732,7 @@ pub const VM = struct {
     thread_report_on_exception: bool = true,
     thread_active_catches: std.AutoHashMap(*value.ThreadObject, std.ArrayList(Value)) = undefined,
     thread_ensure_saved_unwinds: std.AutoHashMap(*value.ThreadObject, std.ArrayList(SavedUnwind)) = undefined,
-    thread_rescued_exceptions: std.AutoHashMap(*value.ThreadObject, std.ArrayList(*value.ExceptionObject)) = undefined,
+    thread_rescued_exceptions: std.AutoHashMap(*value.ThreadObject, std.ArrayList(value.RescuedException)) = undefined,
     thread_preempt_quantum_ops: u32 = DEFAULT_THREAD_PREEMPT_QUANTUM_OPS,
     gc_thread_handle: ?*anyopaque = null,
     main_stack_base: ?*anyopaque = null,
@@ -986,7 +986,7 @@ pub const VM = struct {
             .thread_report_on_exception = true,
             .thread_active_catches = std.AutoHashMap(*value.ThreadObject, std.ArrayList(Value)).init(allocator),
             .thread_ensure_saved_unwinds = std.AutoHashMap(*value.ThreadObject, std.ArrayList(SavedUnwind)).init(allocator),
-            .thread_rescued_exceptions = std.AutoHashMap(*value.ThreadObject, std.ArrayList(*value.ExceptionObject)).init(allocator),
+            .thread_rescued_exceptions = std.AutoHashMap(*value.ThreadObject, std.ArrayList(value.RescuedException)).init(allocator),
             .thread_preempt_quantum_ops = DEFAULT_THREAD_PREEMPT_QUANTUM_OPS,
             .fatal_exception_class = undefined,
             .exception_class = undefined,
@@ -1108,16 +1108,17 @@ pub const VM = struct {
         self.next_chunk_id = program.next_chunk_id;
         self.thread_preempt_quantum_ops = parseThreadPreemptQuantumOps();
         initializeDefaultSignalTrapModes(self);
+        installDefaultSignalHandlers();
         self.exit_signal_trap_mode = .system_default;
         self.exit_signal_trap_callable = Value.nil();
 
-        if (program.main_chunk.source_file) |main_file| {
+        if (program.main_chunk.source_kind == .file) if (program.main_chunk.source_file) |main_file| {
             const abs_path = try self.resolveAbsolutePath(main_file);
             try self.insertLoadedFile(abs_path);
             try self.recordLoadedFeatureRealpath(abs_path);
             self.allocator.free(abs_path);
             self.current_loading_file = self.loaded_paths.items[self.loaded_paths.items.len - 1];
-        }
+        };
 
         // --- Stage 1: Create Class and BasicObject ---
         const class_name_sym = try self.intern("Class");
@@ -1331,9 +1332,10 @@ pub const VM = struct {
         const enumerable_name_sym = try self.intern("Enumerable");
         const enumerable_module_val = try self.newModule(enumerable_name_sym);
 
-        const process_status_name_sym = try self.intern("InternalProcessStatus");
+        const process_status_name_sym = try self.intern("Process::Status");
         const process_status_class_val = try self.newClass(process_status_name_sym, self.object_class);
         self.process_status_class = process_status_class_val.toClassObject();
+        self.process_status_class.allocation_policy = .unavailable;
 
         // Exception class hierarchy
         const exception_name_sym = try self.intern("Exception");
@@ -1893,6 +1895,19 @@ pub const VM = struct {
         try self.registerErrnoClass(.HOSTUNREACH, ehostunreach_class_val.toClassObject());
         try self.registerErrnoClass(.ADDRNOTAVAIL, eaddrnotavail_class_val.toClassObject());
         try self.registerErrnoClass(.NETDOWN, enetdown_class_val.toClassObject());
+        inline for (@typeInfo(std.posix.E).@"enum".field_names) |field_name| {
+            const code = @field(std.posix.E, field_name);
+            const number: c_int = @intCast(@backingInt(code));
+            if (!self.errno_classes.contains(number)) {
+                const short_name = if (comptime std.mem.eql(u8, field_name, "SUCCESS")) "NOERROR" else "E" ++ field_name;
+                const class_value = try self.newClass(try self.intern("Errno::" ++ short_name), self.system_call_error_class);
+                try self.setConstant(self.errno_module, try self.intern(short_name), class_value);
+                try self.registerErrnoClass(code, class_value.toClassObject());
+            }
+        }
+        try self.setConstant(self.errno_module, try self.intern("EWOULDBLOCK"), eagain_class_val);
+        try self.setConstant(&self.io_class.module, try self.intern("EWOULDBLOCKWaitReadable"), Value.fromObject(&self.io_eagain_wait_readable_class.module.object));
+        try self.setConstant(&self.io_class.module, try self.intern("EWOULDBLOCKWaitWritable"), Value.fromObject(&self.io_eagain_wait_writable_class.module.object));
         self.object_class.module.constants.put(enumerator_name_sym, .{ .value = enumerator_class_val }) catch return error.Fatal;
         self.enumerator_class.module.constants.put(enumerator_chain_name_sym, .{ .value = enumerator_chain_class_val }) catch return error.Fatal;
         try self.setConstant(&self.enumerator_class.module, arithmetic_sequence_name_sym, arithmetic_sequence_class_val);
@@ -3249,6 +3264,24 @@ pub const VM = struct {
         return self.pop();
     }
 
+    pub fn shutdownOtherThreads(self: *VM) VMError!void {
+        if (self.skip_at_exit_handlers) return;
+        const original_unwind = self.pending_unwind;
+        self.pending_unwind = null;
+        defer self.pending_unwind = original_unwind;
+        const main = self.current_thread orelse return error.Fatal;
+        while (true) {
+            var target: ?*value.ThreadObject = null;
+            for (self.thread_list.items) |thread| {
+                if (thread == main or thread.state == .terminated) continue;
+                if (!thread.finishing) try self.enqueueThreadInterrupt(thread, .kill);
+                if (target == null) target = thread;
+            }
+            const thread = target orelse break;
+            try self.waitForThreadTermination(thread, null);
+        }
+    }
+
     pub fn setBacktraceLimit(self: *VM, limit: ?usize) void {
         self.backtrace_limit = limit;
     }
@@ -3399,7 +3432,8 @@ pub const VM = struct {
             self.interrupt_class
         else
             self.signal_exception_class;
-        const exc = try self.createException(class, signal_support.fullName(signo) orelse "SIG");
+        const message = if (class == self.interrupt_class) "Interrupt" else signal_support.fullName(signo) orelse "SignalException";
+        const exc = try self.createException(class, message);
         try self.setInstanceVariable(Value.fromObject(&exc.object), "@signo", Value.integer(signo));
         return exc;
     }
@@ -3779,13 +3813,17 @@ pub const VM = struct {
     }
 
     fn prepareProgramChunks(self: *VM) VMError!void {
-        const absolute_path = if (self.program.main_chunk.source_file) |path| try self.resolveAbsolutePath(path) else null;
+        const absolute_path = if (self.program.main_chunk.source_kind == .file)
+            if (self.program.main_chunk.source_file) |path| try self.resolveAbsolutePath(path) else null
+        else
+            null;
         defer if (absolute_path) |path| self.allocator.free(path);
         self.program.main_chunk.setSourceAbsolutePath(absolute_path) catch return error.Fatal;
         try self.prepareCompiledChunk(&self.program.main_chunk);
 
         var chunk_iter = self.program.child_chunks.valueIterator();
         while (chunk_iter.next()) |chunk_ptr| {
+            chunk_ptr.*.source_kind = self.program.main_chunk.source_kind;
             chunk_ptr.*.setSourceAbsolutePath(absolute_path) catch return error.Fatal;
             try self.prepareCompiledChunk(chunk_ptr.*);
         }
@@ -4403,7 +4441,7 @@ pub const VM = struct {
             const frame = self.frames.pop().?;
             const rescued_exceptions = self.currentRescuedExceptions();
             if (frame.active_rescue_exceptions > rescued_exceptions.items.len) return error.Fatal;
-            rescued_exceptions.shrinkRetainingCapacity(rescued_exceptions.items.len - frame.active_rescue_exceptions);
+            self.truncateRescuedExceptions(rescued_exceptions.items.len - frame.active_rescue_exceptions);
 
             // Restore current_lexical_scope from the previous frame
             if (self.frames.items.len > 0) {
@@ -4448,11 +4486,11 @@ pub const VM = struct {
         return self.thread_ensure_saved_unwinds.getPtr(thread).?;
     }
 
-    fn fiberRescuedExceptions(_: *VM, fiber: *FiberObject) *std.ArrayList(*value.ExceptionObject) {
+    fn fiberRescuedExceptions(_: *VM, fiber: *FiberObject) *std.ArrayList(value.RescuedException) {
         return &fiber.rescued_exceptions;
     }
 
-    fn threadRescuedExceptions(self: *VM, thread: *ThreadObject) *std.ArrayList(*value.ExceptionObject) {
+    fn threadRescuedExceptions(self: *VM, thread: *ThreadObject) *std.ArrayList(value.RescuedException) {
         return self.thread_rescued_exceptions.getPtr(thread).?;
     }
 
@@ -4477,19 +4515,29 @@ pub const VM = struct {
         return self.fiberCatchStack(self.current_fiber);
     }
 
-    fn currentRescuedExceptions(self: *VM) *std.ArrayList(*value.ExceptionObject) {
+    fn currentRescuedExceptions(self: *VM) *std.ArrayList(value.RescuedException) {
         if (self.threadStorageForFiber(self.current_fiber)) |thread| return self.threadRescuedExceptions(thread);
         return self.fiberRescuedExceptions(self.current_fiber);
     }
 
-    /// redo/retry jump within the frame and skip the CATCH_END that would pop
-    /// the rescue's `$!` entry, so pop it when leaving the rescue body.
-    fn exitRescueBodyForSameFrameJump(self: *VM, frame: *CallFrame) void {
-        if (frame.active_rescue_exceptions == 0) return;
-        const rescued_exceptions = self.currentRescuedExceptions();
-        if (rescued_exceptions.items.len == 0) return;
-        frame.active_rescue_exceptions -= 1;
-        _ = rescued_exceptions.pop();
+    fn truncateRescuedExceptions(self: *VM, length: usize) void {
+        const rescued = self.currentRescuedExceptions();
+        @memset(std.mem.sliceAsBytes(rescued.items[length..]), 0);
+        rescued.shrinkRetainingCapacity(length);
+    }
+
+    fn leaveRescueScopesForJump(self: *VM, frame_idx: usize, target_ip: usize) VMError!void {
+        const frame = &self.frames.items[frame_idx];
+        const rescued = self.currentRescuedExceptions();
+        while (frame.active_rescue_exceptions > 0) {
+            if (rescued.items.len == 0) return error.Fatal;
+            const current = rescued.items[rescued.items.len - 1];
+            const scope = current.rescue_scope orelse return error.Fatal;
+            if (scope.frame_depth != frame_idx + 1) return error.Fatal;
+            if (target_ip >= scope.start_ip and target_ip < scope.end_ip) break;
+            frame.active_rescue_exceptions -= 1;
+            self.truncateRescuedExceptions(rescued.items.len - 1);
+        }
     }
 
     pub fn saveFiberState(self: *VM, fiber: *FiberObject) void {
@@ -5558,12 +5606,17 @@ pub const VM = struct {
         var saved_cause = false;
         if (pending) |unwind| {
             if (unwind == .exception) {
-                self.currentRescuedExceptions().append(self.currentFiberStateAllocator(), unwind.exception) catch return error.Fatal;
+                // The scheduler callback temporarily inherits the terminating exception.
+                // It is owned by this native scope, rather than a Ruby rescue body.
+                self.currentRescuedExceptions().append(self.currentFiberStateAllocator(), .{
+                    .exception = unwind.exception,
+                    .rescue_scope = null,
+                }) catch return error.Fatal;
                 saved_cause = true;
             }
         }
         defer if (saved_cause) {
-            _ = self.currentRescuedExceptions().pop();
+            self.truncateRescuedExceptions(self.currentRescuedExceptions().items.len - 1);
         };
         self.pending_unwind = null;
         try self.closeFiberScheduler(thread);
@@ -7219,7 +7272,7 @@ pub const VM = struct {
                         try warning_builtin.writeWarning(self, "warning: argument of top-level return is ignored\n");
                     }
                     self.stack.shrinkRetainingCapacity(frame_locals_base);
-                    self.frames.items = self.frames.storage[0..0];
+                    while (self.frames.items.len > 0) try self.popFrame();
                     try self.push(Value.nil());
                     return;
                 }
@@ -7229,13 +7282,7 @@ pub const VM = struct {
                 // intervening ensure clauses run before the target frame is popped.
                 if (return_mode == 0) {
                     self.stack.shrinkRetainingCapacity(frame_locals_base);
-                    // Inline fast popFrame: just decrement frame length
-                    const new_frame_len = self.frames.items.len - 1;
-                    self.frames.items = self.frames.storage[0..new_frame_len];
-                    // Restore lexical scope from previous frame
-                    if (new_frame_len > 0) {
-                        self.current_lexical_scope = epLexScope(self.frames.storage[new_frame_len - 1].ep);
-                    }
+                    try self.popFrame();
                     try self.push(result);
                 } else if (CallFrame.hasLocalReturnSemantics(frame_type)) {
                     self.setPendingControlFlow(.{
@@ -7447,9 +7494,7 @@ pub const VM = struct {
 
                     // Pop the receiver from stack (compiled by compileMethod)
                     const receiver = self.pop();
-
-                    // Get or create singleton class for the receiver
-                    const singleton_class = try self.getOrCreateSingletonClass(receiver);
+                    const singleton_class = try self.singletonClassForDefinition(receiver);
 
                     // Store method on singleton class
                     singleton_class.module.methods.put(method_name_sym, .{
@@ -7624,11 +7669,7 @@ pub const VM = struct {
                 else
                     Value.nil();
                 self.stack.shrinkRetainingCapacity(halt_locals_base);
-                const new_frame_len = self.frames.items.len - 1;
-                self.frames.items = self.frames.storage[0..new_frame_len];
-                if (new_frame_len > 0) {
-                    self.current_lexical_scope = epLexScope(self.frames.storage[new_frame_len - 1].ep);
-                }
+                try self.popFrame();
                 try self.push(halt_result);
             },
 
@@ -7921,7 +7962,6 @@ pub const VM = struct {
 
             .REDO => {
                 const target_ip = readU16From(frame, operands, &operand_cursor);
-                self.exitRescueBodyForSameFrameJump(frame);
                 self.setPendingControlFlow(.{
                     .kind = .redo_,
                     .value = Value.nil(),
@@ -7946,7 +7986,7 @@ pub const VM = struct {
                     i -= 1;
                     raise_args[i] = self.pop();
                 }
-                return self.raiseFromArgs(raise_args[0..argc], "no current exception");
+                return self.raiseFromArgs(raise_args[0..argc]);
             },
 
             .TRY_BEGIN => {
@@ -7960,7 +8000,7 @@ pub const VM = struct {
                 const rescued_exceptions = self.currentRescuedExceptions();
                 if (frame.active_rescue_exceptions == 0 or rescued_exceptions.items.len == 0) return error.Fatal;
                 frame.active_rescue_exceptions -= 1;
-                _ = rescued_exceptions.pop();
+                self.truncateRescuedExceptions(rescued_exceptions.items.len - 1);
             },
 
             .ENSURE_START => {
@@ -7979,7 +8019,6 @@ pub const VM = struct {
 
             .RETRY => {
                 const target_ip = readU16From(frame, operands, &operand_cursor);
-                self.exitRescueBodyForSameFrameJump(frame);
                 self.setPendingControlFlow(.{
                     .kind = .retry_,
                     .value = Value.nil(),
@@ -8016,7 +8055,19 @@ pub const VM = struct {
                 const binding_depth = readByteFrom(frame, operands, &operand_cursor);
 
                 if (self.pendingException()) |exc| {
-                    self.currentRescuedExceptions().append(self.currentFiberStateAllocator(), exc) catch return error.Fatal;
+                    const catch_end = outer: for (frame.chunk.exception_handlers.items) |handler| {
+                        for (handler.rescue_handlers.items) |rescue| {
+                            if (rescue.catch_byte_offset == instr_idx) break :outer rescue.catch_end_byte_offset;
+                        }
+                    } else return error.Fatal;
+                    self.currentRescuedExceptions().append(self.currentFiberStateAllocator(), .{
+                        .exception = exc,
+                        .rescue_scope = .{
+                            .frame_depth = self.frames.items.len,
+                            .start_ip = instr_idx,
+                            .end_ip = catch_end,
+                        },
+                    }) catch return error.Fatal;
                     frame.active_rescue_exceptions += 1;
                 }
 
@@ -8433,7 +8484,7 @@ pub const VM = struct {
                             try warning_builtin.writeWarning(self, "warning: argument of top-level return is ignored\n");
                         }
                         self.stack.items = self.stack.storage[0..f.locals_base];
-                        self.frames.items = self.frames.storage[0..0];
+                        while (self.frames.items.len > 0) try self.popFrame();
                         const len = self.stack.items.len;
                         self.stack.storage[len] = Value.NIL;
                         self.stack.items = self.stack.storage[0 .. len + 1];
@@ -8441,12 +8492,7 @@ pub const VM = struct {
                         const s_len = self.stack.items.len;
                         const result = self.stack.storage[s_len - 1];
                         self.stack.items = self.stack.storage[0..f.locals_base];
-                        // Pop frame
-                        const new_frame_len = self.frames.items.len - 1;
-                        self.frames.items = self.frames.storage[0..new_frame_len];
-                        if (new_frame_len > 0) {
-                            self.current_lexical_scope = epLexScope(self.frames.storage[new_frame_len - 1].ep);
-                        }
+                        try self.popFrame();
                         const len = self.stack.items.len;
                         self.stack.storage[len] = result;
                         self.stack.items = self.stack.storage[0 .. len + 1];
@@ -8679,54 +8725,69 @@ pub const VM = struct {
         return .not_found;
     }
 
+    fn errorClassName(self: *VM, namespace: Value) VMError![]const u8 {
+        if (try self.enterRecursionGuard(.error_description, namespace, Value.nil())) {
+            return (try kernel_builtin.builtinKernelToS(self, namespace, &.{}, null)).toStringObject().str;
+        }
+        defer self.leaveRecursionGuard(.error_description, namespace, Value.nil());
+        const name = try self.callMethodByName(namespace, "name", &.{}, null);
+        if (name.isString()) return name.toStringObject().str;
+        return (try self.callMethodByName(namespace, "to_s", &.{}, null)).toStringObject().str;
+    }
+
     fn noMethodReceiverDescription(self: *VM, receiver: Value) VMError![]const u8 {
         if (receiver.isNil()) return "nil";
-        if (receiver.isBool()) return if (receiver.toBool()) "true" else "false";
-        if (receiver.isClass()) {
-            return std.fmt.allocPrint(
-                self.gc_allocator,
-                "class {s}",
-                .{receiver.toClassObject().module.name.name},
-            ) catch return error.Fatal;
-        }
-        if (receiver.isModule()) {
-            return std.fmt.allocPrint(
-                self.gc_allocator,
-                "module {s}",
-                .{receiver.toModuleObject().name.name},
-            ) catch return error.Fatal;
+        if (receiver.isBool()) return if (receiver.isTruthy()) "true" else "false";
+        if (receiver.isClass() or receiver.isModule()) {
+            return std.fmt.allocPrint(self.gc_allocator, "{s} {s}", .{ if (receiver.isClass()) "class" else "module", try self.errorClassName(receiver) }) catch return error.Fatal;
         }
         if (receiver.getSingletonClass() != null) {
-            if (receiver.eql(self.main_self)) return "main";
-            const description = try kernel_builtin.builtinKernelToS(self, receiver, &.{}, null);
-            return description.toStringObject().str;
+            if (receiver.raw == self.main_self.raw) return "main";
+            return (try kernel_builtin.builtinKernelToS(self, receiver, &.{}, null)).toStringObject().str;
         }
-        return std.fmt.allocPrint(
-            self.gc_allocator,
-            "an instance of {s}",
-            .{self.className(receiver)},
-        ) catch return error.Fatal;
+        return std.fmt.allocPrint(self.gc_allocator, "an instance of {s}", .{try self.errorClassName(Value.fromObject(&self.getClass(receiver).module.object))}) catch return error.Fatal;
+    }
+
+    pub fn raiseSyntaxError(self: *VM, source_file: ?[]const u8, message: []const u8) VMError {
+        const source = source_file orelse "(eval)";
+        const description = std.fmt.allocPrint(self.gc_allocator, "{s}: {s}", .{ source, message }) catch return error.Fatal;
+        const exception = self.createException(self.syntax_error_class, description) catch return error.Fatal;
+        exception.path = (self.newString(source, false) catch return error.Fatal).toStringObject();
+        self.setPendingException(exception);
+        return error.Unwind;
     }
 
     pub fn raiseNoMethod(self: *VM, receiver: Value, method_name: []const u8) VMError {
+        return self.raiseNoMethodWithArguments(receiver, method_name, &.{});
+    }
+
+    pub fn raiseNoMethodWithArguments(self: *VM, receiver: Value, method_name: []const u8, args: []const Value) VMError {
         const receiver_desc = self.noMethodReceiverDescription(receiver) catch return error.Fatal;
         const exc = try self.createException(self.no_method_error_class, std.fmt.allocPrint(self.gc_allocator, "undefined method '{s}' for {s}", .{ method_name, receiver_desc }) catch return error.Fatal);
         exc.receiver = receiver;
+        const method_args = try self.createArray();
+        method_args.elements.appendSlice(self.gc_allocator, args) catch return error.Fatal;
+        exc.method_args = Value.fromObject(&method_args.object);
         const name_sym = try self.intern(method_name);
-        try self.setInstanceVariable(Value.fromObject(&exc.object), "@name", Value.fromObject(&name_sym.object));
+        exc.name = Value.fromObject(&name_sym.object);
         self.setPendingException(exc);
         return error.Unwind;
     }
 
-    fn raiseMethodVisibilityError(self: *VM, receiver: Value, method_name: []const u8, visibility: MethodVisibility) VMError {
-        const message = std.fmt.allocPrint(self.gc_allocator, "{s} method `{s}' called", .{
+    fn raiseMethodVisibilityError(self: *VM, receiver: Value, method_name: []const u8, visibility: MethodVisibility, args: []const Value) VMError {
+        const message = std.fmt.allocPrint(self.gc_allocator, "{s} method `{s}' called for {s}", .{
             if (visibility == .private) "private" else "protected",
             method_name,
+            self.noMethodReceiverDescription(receiver) catch return error.Fatal,
         }) catch return error.Fatal;
         const exc = self.createException(self.no_method_error_class, message) catch return error.Fatal;
         exc.receiver = receiver;
+        exc.private_call = visibility == .private;
+        const method_args = self.createArray() catch return error.Fatal;
+        method_args.elements.appendSlice(self.gc_allocator, args) catch return error.Fatal;
+        exc.method_args = Value.fromObject(&method_args.object);
         const name_sym = self.intern(method_name) catch return error.Fatal;
-        self.setInstanceVariable(Value.fromObject(&exc.object), "@name", Value.fromObject(&name_sym.object)) catch return error.Fatal;
+        exc.name = Value.fromObject(&name_sym.object);
         self.setPendingException(exc);
         return error.Unwind;
     }
@@ -9532,7 +9593,7 @@ pub const VM = struct {
 
         if (resolved) |r| {
             if (r.entry.visibility != .public) {
-                return self.raiseMethodVisibilityError(receiver, method_name_sym.name, r.entry.visibility);
+                return self.raiseMethodVisibilityError(receiver, method_name_sym.name, r.entry.visibility, args);
             }
             return self.invokeResolvedMethodWithKeywords(r, receiver, args, block, keyword_ctx);
         }
@@ -9544,7 +9605,7 @@ pub const VM = struct {
         const resolved = try self.findMethod(receiver, method_name);
         if (resolved) |method| {
             if (public_only and method.entry.visibility != .public) {
-                return self.raiseMethodVisibilityError(receiver, method_name.name, method.entry.visibility);
+                return self.raiseMethodVisibilityError(receiver, method_name.name, method.entry.visibility, args);
             }
             return self.invokeResolvedMethodWithKeywords(method, receiver, args, block, self.builtin_keyword_ctx);
         }
@@ -10097,7 +10158,7 @@ pub const VM = struct {
                 const missing_sym = try self.intern("method_missing");
                 const missing_method = try self.findMethod(receiver, missing_sym);
                 if (missing_method == null or missing_method.?.owner_class == self.basic_object_class) {
-                    return self.raiseMethodVisibilityError(receiver, method_name_sym.name, inaccessible.entry.visibility);
+                    return self.raiseMethodVisibilityError(receiver, method_name_sym.name, inaccessible.entry.visibility, args);
                 }
             }
             if (call_style == .variable_call) {
@@ -10854,6 +10915,14 @@ pub const VM = struct {
         return self.finishSubcallFromStack(saved_frame_count, saved_stack_len, pending_unwind_before);
     }
 
+    pub fn singletonClassForDefinition(self: *VM, receiver: Value) VMError!*ClassObject {
+        const singleton = try kernel_builtin.builtinKernelSingletonClass(self, receiver, &.{}, null);
+        // nil/true/false definitions belong to their ordinary classes. Other
+        // receivers must permit mutation after singleton eligibility is checked.
+        try self.guardNotFrozen(if (receiver.isNil() or receiver.isBool()) singleton else receiver);
+        return singleton.toClassObject();
+    }
+
     pub fn getOrCreateSingletonClass(self: *VM, obj_val: value.Value) VMError!*ClassObject {
         if (obj_val.isNil()) return self.nil_class;
         if (obj_val.isBool()) return if (obj_val.toBool()) self.true_class else self.false_class;
@@ -11065,7 +11134,9 @@ pub const VM = struct {
     }
 
     fn registerErrnoClass(self: *VM, errno_code: std.posix.E, class_obj: *ClassObject) VMError!void {
-        self.errno_classes.put(@intCast(@backingInt(errno_code)), class_obj) catch return error.Fatal;
+        const number: c_int = @intCast(@backingInt(errno_code));
+        self.errno_classes.put(number, class_obj) catch return error.Fatal;
+        try self.setConstant(&class_obj.module, try self.intern("Errno"), Value.integer(number));
     }
 
     pub fn newModule(self: *VM, name: *SymbolObject) VMError!Value {
@@ -11601,6 +11672,7 @@ pub const VM = struct {
     }
 
     pub fn getGlobalValue(self: *VM, name: []const u8) Value {
+        if (std.mem.eql(u8, name, "$$")) return Value.integer(@intCast(std.c.getpid()));
         if (std.mem.eql(u8, name, "$+")) {
             const match_val = self.getGlobalValue("$~");
             if (!match_val.isMatchData()) return Value.nil();
@@ -11998,32 +12070,18 @@ pub const VM = struct {
         return captures[idx];
     }
 
-    fn processExited(wait_status: c_int) bool {
-        return (wait_status & 0x7f) == 0;
+    pub fn newProcessStatus(self: *VM, wait_status: c_int, pid: i64) VMError!Value {
+        const status = self.gc_allocator.create(value.ProcessStatusObject) catch return error.Fatal;
+        status.* = .{
+            .object = .{ .type_tag = .process_status, .flags = value.Object.FROZEN_FLAG, .class = self.process_status_class, .singleton_class = null, .instance_variables = null },
+            .pid = pid,
+            .status = wait_status,
+        };
+        return Value.fromObject(&status.object);
     }
 
-    fn processSignaled(wait_status: c_int) bool {
-        const signal_bits = wait_status & 0x7f;
-        return signal_bits != 0 and signal_bits != 0x7f;
-    }
-
-    pub fn setLastProcessStatus(self: *VM, exitstatus: i64) VMError!void {
-        return self.setLastProcessStatusFromWaitStatus(@intCast((exitstatus & 0xff) << 8), null);
-    }
-
-    pub fn setLastProcessStatusFromWaitStatus(self: *VM, wait_status: c_int, pid: ?i64) VMError!void {
-        const status_obj = try self.newInstance(self.process_status_class);
-        try self.setInstanceVariable(status_obj, "@raw_status", Value.integer(wait_status));
-        if (processExited(wait_status)) {
-            try self.setInstanceVariable(status_obj, "@exitstatus", Value.integer((wait_status >> 8) & 0xff));
-        }
-        if (processSignaled(wait_status)) {
-            try self.setInstanceVariable(status_obj, "@termsig", Value.integer(wait_status & 0x7f));
-        }
-        if (pid) |p| {
-            try self.setInstanceVariable(status_obj, "@pid", Value.integer(p));
-        }
-        try self.setGlobal("$?", status_obj);
+    pub fn setLastProcessStatusFromWaitStatus(self: *VM, wait_status: c_int, pid: i64) VMError!void {
+        try self.setGlobal("$?", try self.newProcessStatus(wait_status, pid));
     }
 
     pub fn getOrCreateCanonicalFString(self: *VM, str: []const u8, encoding: enc.Encoding) VMError!Value {
@@ -12791,8 +12849,10 @@ pub const VM = struct {
             break :blk self.current_loading_file orelse self.program.main_chunk.source_file;
         };
         chunk_ptr.setSourceFile(source_file) catch return error.Fatal;
-        if (self.currentRubyCallerFrame()) |frame|
+        if (self.currentRubyCallerFrame()) |frame| {
+            chunk_ptr.source_kind = frame.chunk.source_kind;
             chunk_ptr.setSourceAbsolutePath(frame.chunk.source_absolute_path) catch return error.Fatal;
+        }
         chunk_ptr.lexical_scope = self.current_lexical_scope;
         chunk_ptr.arity = if (kind == .reader) 0 else 1;
         chunk_ptr.locals_count = if (kind == .reader) 0 else 1;
@@ -12836,6 +12896,7 @@ pub const VM = struct {
             .hash => arg.isHash(),
             .range => arg.isRange(),
             .exception => arg.isException(),
+            .process_status => arg.isProcessStatus(),
             .proc => arg.isProc(),
             .fiber => arg.isFiber(),
             .io => arg.isIo(),
@@ -13134,7 +13195,7 @@ pub const VM = struct {
             const message = std.fmt.allocPrint(self.gc_allocator, "'{s}' is not allowed as an instance variable name", .{name_str}) catch return error.Fatal;
             const exc = try self.createException(self.name_error_class, message);
             exc.receiver = recv;
-            try self.setInstanceVariable(Value.fromObject(&exc.object), "@name", arg);
+            exc.name = arg;
             self.setPendingException(exc);
             return error.Unwind;
         }
@@ -13177,7 +13238,7 @@ pub const VM = struct {
     ) VMError {
         const msg = std.fmt.allocPrint(self.gc_allocator, fmt, args) catch return error.Fatal;
         const exc = self.createException(self.name_error_class, msg) catch return error.Fatal;
-        try self.setInstanceVariable(Value.fromObject(&exc.object), "@name", Value.fromObject(&name_sym.object));
+        exc.name = Value.fromObject(&name_sym.object);
         self.setPendingException(exc);
         return error.Unwind;
     }
@@ -13192,13 +13253,21 @@ pub const VM = struct {
         const msg = std.fmt.allocPrint(self.gc_allocator, fmt, args) catch return error.Fatal;
         const exc = self.createException(self.name_error_class, msg) catch return error.Fatal;
         exc.receiver = recv;
-        try self.setInstanceVariable(Value.fromObject(&exc.object), "@name", Value.fromObject(&name_sym.object));
+        exc.name = Value.fromObject(&name_sym.object);
         self.setPendingException(exc);
         return error.Unwind;
     }
 
     pub fn errnoClass(self: *VM, errno_number: c_int) *value.ClassObject {
         return self.errno_classes.get(errno_number) orelse self.system_call_error_class;
+    }
+
+    fn raiseFrozenErrorFmt(self: *VM, receiver: Value, comptime fmt: []const u8, args: anytype) VMError {
+        const message = std.fmt.allocPrint(self.gc_allocator, fmt, args) catch return error.Fatal;
+        const exception = self.createException(self.frozen_error_class, message) catch return error.Fatal;
+        exception.receiver = receiver;
+        self.setPendingException(exception);
+        return error.Unwind;
     }
 
     pub fn guardNotFrozen(self: *VM, receiver: Value) VMError!void {
@@ -13210,11 +13279,11 @@ pub const VM = struct {
             defer self.leaveRecursionGuard(.frozen_error, receiver, Value.NIL);
             if (try self.checkCallMethodByName(receiver, "inspect", true, &.{}, null)) |inspected| {
                 if (inspected.isString()) {
-                    return self.raiseExceptionFmt(self.frozen_error_class, "can't modify frozen {s}: {s}", .{ self.className(receiver), inspected.toStringObject().str });
+                    return self.raiseFrozenErrorFmt(receiver, "can't modify frozen {s}: {s}", .{ self.className(receiver), inspected.toStringObject().str });
                 }
             }
         }
-        return self.raiseExceptionFmt(self.frozen_error_class, "can't modify frozen {s}", .{self.className(receiver)});
+        return self.raiseFrozenErrorFmt(receiver, "can't modify frozen {s}: ...", .{self.className(receiver)});
     }
 
     fn objectFinalizerCallback(_: *anyopaque, data: ?*anyopaque) callconv(.c) void {
@@ -13347,11 +13416,18 @@ pub const VM = struct {
     }
 
     pub fn errnoNumberForClass(self: *VM, class_obj: *value.ClassObject) ?c_int {
-        var it = self.errno_classes.iterator();
-        while (it.next()) |entry| {
-            if (entry.value_ptr.* == class_obj) return entry.key_ptr.*;
+        var current: ?*ClassObject = class_obj;
+        while (current) |class| : (current = class.superclass) {
+            var it = self.errno_classes.iterator();
+            while (it.next()) |entry| if (entry.value_ptr.* == class) {
+                return entry.key_ptr.*;
+            };
         }
         return null;
+    }
+
+    pub fn errnoMessage(number: c_int) []const u8 {
+        return std.mem.span(strerror(number));
     }
 
     pub fn defaultExceptionMessageForClass(self: *VM, class_obj: *value.ClassObject) []const u8 {
@@ -13363,12 +13439,20 @@ pub const VM = struct {
         return if (class_obj.module.classpath) |classpath| classpath.str else class_obj.module.name.name;
     }
 
+    fn raiseErrnoNumberFmt(self: *VM, number: c_int, comptime fmt: []const u8, args: anytype) VMError {
+        const message = std.fmt.allocPrint(self.gc_allocator, fmt, args) catch return error.Fatal;
+        const exception = self.createException(self.errnoClass(number), message) catch return error.Fatal;
+        exception.errno_number = number;
+        self.setPendingException(exception);
+        return error.Unwind;
+    }
+
     pub fn raiseErrnoFmt(self: *VM, errno_code: std.posix.E, comptime fmt: []const u8, args: anytype) VMError {
-        return self.raiseExceptionFmt(self.errnoClass(@intCast(@backingInt(errno_code))), fmt, args);
+        return self.raiseErrnoNumberFmt(@intCast(@backingInt(errno_code)), fmt, args);
     }
 
     pub fn raiseLastErrnoFmt(self: *VM, comptime fmt: []const u8, args: anytype) VMError {
-        return self.raiseExceptionFmt(self.errnoClass(std.c._errno().*), fmt, args);
+        return self.raiseErrnoNumberFmt(std.c._errno().*, fmt, args);
     }
 
     pub fn raiseArgumentErrorWrongArgCount(self: *VM, given: usize, expected: usize) VMError {
@@ -13463,18 +13547,18 @@ pub const VM = struct {
         return exception;
     }
 
-    pub fn raiseFromArgs(self: *VM, args: []const Value, no_current_exception_message: []const u8) VMError {
+    pub fn raiseFromArgs(self: *VM, args: []const Value) VMError {
         if (args.len == 0) {
             const rescued_exceptions = self.currentRescuedExceptions();
             if (rescued_exceptions.items.len > 0) {
-                self.setPendingException(rescued_exceptions.items[rescued_exceptions.items.len - 1]);
+                self.setPendingException(rescued_exceptions.items[rescued_exceptions.items.len - 1].exception);
                 return error.Unwind;
             }
             if (self.pendingException()) |exc| {
                 self.setPendingException(exc);
                 return error.Unwind;
             }
-            return self.raiseExceptionFmt(self.runtime_error_class, "{s}", .{no_current_exception_message});
+            return self.raiseExceptionFmt(self.runtime_error_class, "", .{});
         }
 
         if (args.len == 1) {
@@ -13558,13 +13642,13 @@ pub const VM = struct {
         return self.raiseArgumentErrorWrongArgCountGeneric();
     }
 
-    pub fn raiseFromArgsWithCause(self: *VM, args: []const Value, no_current_exception_message: []const u8, cause: ?Value) VMError {
+    pub fn raiseFromArgsWithCause(self: *VM, args: []const Value, cause: ?Value) VMError {
         if (cause) |specified| {
             if (!specified.isNil() and !specified.isException()) {
                 return self.raiseExceptionFmt(self.type_error_class, "exception object expected", .{});
             }
         }
-        const raised = self.raiseFromArgs(args, no_current_exception_message);
+        const raised = self.raiseFromArgs(args);
         if (raised == error.Unwind) {
             if (cause) |specified| {
                 if (self.pendingException()) |exception| {
@@ -14124,7 +14208,7 @@ pub const VM = struct {
         var parser = prism.Parser.initWithOptions(self.allocator, code_buffer, .{ .source_file = absolute_path, .frozen_string_literal = self.frozen_string_literal }) catch return error.Fatal;
         defer parser.deinit();
         if (parser.firstError()) |message| {
-            return self.raiseExceptionFmt(self.syntax_error_class, "{s}: {s}", .{ absolute_path, message });
+            return self.raiseSyntaxError(absolute_path, message);
         }
 
         var program = compiler.Compiler.compileWithContext(self.allocator, &parser, self.next_chunk_id, .{ .backtrace_context = .{ .name = "<top (required)>" } }) catch return error.Fatal;
@@ -14259,11 +14343,11 @@ pub const VM = struct {
             .start_line = start_line,
             .frozen_string_literal = self.frozen_string_literal,
         }) catch {
-            return self.raiseExceptionFmt(self.syntax_error_class, "{s}: syntax error", .{source_file orelse "(eval)"});
+            return self.raiseSyntaxError(source_file, "syntax error");
         };
         defer parser.deinit();
         if (parser.firstError()) |message| {
-            return self.raiseExceptionFmt(self.syntax_error_class, "{s}: {s}", .{ source_file orelse "(eval)", message });
+            return self.raiseSyntaxError(source_file, message);
         }
 
         var eval_program = compiler.Compiler.compileWithContext(
@@ -14278,9 +14362,9 @@ pub const VM = struct {
             },
         ) catch |err| {
             if (compiler.syntaxErrorMessage(err)) |message| {
-                return self.raiseExceptionFmt(self.syntax_error_class, "{s}: {s}", .{ source_file orelse "(eval)", message });
+                return self.raiseSyntaxError(source_file, message);
             }
-            return self.raiseExceptionFmt(self.syntax_error_class, "{s}: syntax error", .{source_file orelse "(eval)"});
+            return self.raiseSyntaxError(source_file, "syntax error");
         };
         defer eval_program.child_chunks.deinit();
         var children_transferred = false;
@@ -14974,6 +15058,7 @@ pub const VM = struct {
                 .instance_variables = null,
             },
             .message = msg_str.toStringObject(),
+            .errno_number = if (self.errnoNumberForClass(class)) |number| @as(i64, number) else null,
             .backtrace = backtrace,
             .backtrace_locations = backtrace_locations,
             .cause = cause,
@@ -15113,7 +15198,7 @@ pub const VM = struct {
             if (pending == .thread_kill) return pending.thread_kill;
         }
         const rescued = self.currentRescuedExceptions();
-        if (rescued.items.len > 0) return rescued.items[rescued.items.len - 1];
+        if (rescued.items.len > 0) return rescued.items[rescued.items.len - 1].exception;
         return null;
     }
 
@@ -15137,45 +15222,96 @@ pub const VM = struct {
         return frame.chunk.getLine(ip);
     }
 
-    fn writeFormattedException(_: *VM, writer: anytype, exc: *value.ExceptionObject, limit: ?usize) VMError!void {
-        const class_name = exc.object.class.?.module.name.name;
-
-        if (exc.backtrace == null or exc.backtrace.?.elements.items.len == 0) {
-            writer.*.print("{s} ({s})\n", .{ exc.message.str, class_name }) catch return error.Fatal;
-            return;
-        }
-
-        const lines = exc.backtrace.?.elements.items;
-        writer.*.print("{s}: {s} ({s})\n", .{ lines[0].toStringObject().str, exc.message.str, class_name }) catch return error.Fatal;
-
-        const total_tail = lines.len - 1;
-        const shown_tail = if (limit) |tail_limit|
-            @min(total_tail, tail_limit)
-        else
-            total_tail;
-
-        var i: usize = 0;
-        while (i < shown_tail) : (i += 1) {
-            writer.*.print("\tfrom {s}\n", .{lines[i + 1].toStringObject().str}) catch return error.Fatal;
-        }
-
-        if (limit) |tail_limit| {
-            if (total_tail > tail_limit) {
-                writer.*.print("\t ... {d} levels...\n", .{total_tail - tail_limit}) catch return error.Fatal;
-            }
-        }
+    fn writeFormattedException(self: *VM, writer: anytype, exc: *value.ExceptionObject, limit: ?usize) VMError!void {
+        const result = try self.formatExceptionFullMessage(exc, null, limit);
+        writer.*.writeAll(result.toStringObject().str) catch return error.Fatal;
     }
 
     pub fn exceptionFullMessage(self: *VM, exc: *value.ExceptionObject) VMError!Value {
-        var buf: std.Io.Writer.Allocating = .init(self.allocator);
-        defer buf.deinit();
+        return self.formatExceptionFullMessage(exc, null, self.backtrace_limit);
+    }
 
-        const writer = &buf.writer;
-        try self.writeFormattedException(&writer, exc, self.backtrace_limit);
+    pub fn exceptionDisplayName(self: *VM, exception: *value.ExceptionObject) VMError!Value {
+        const class = Value.fromObject(&exception.object.class.?.module.object);
+        if (self.publicModuleName(class)) |name| return self.newString(name, false);
+        return self.callMethodByName(class, "to_s", &.{}, null);
+    }
 
-        const full_message = buf.toOwnedSlice() catch return error.Fatal;
-        defer self.allocator.free(full_message);
-        return try self.newString(full_message, false);
+    fn detailedExceptionMessage(self: *VM, exception: *value.ExceptionObject, keywords: Value, highlight: bool) VMError!Value {
+        const receiver = Value.fromObject(&exception.object);
+        if (try self.respondsToMethodByName(receiver, "detailed_message", true)) {
+            var pairs: TempKeywordPairs = .{};
+            defer pairs.deinit(self.allocator);
+            try pairs.initFromHash(self, keywords);
+            const result = try self.callMethodByNameWithKeywords(receiver, "detailed_message", &.{}, pairs.keys.slice, pairs.values.slice, null);
+            if (!result.isNil()) return result.coerceToStringValue(self, "no implicit conversion into String");
+        }
+        const name = try self.exceptionDisplayName(exception);
+        if (!highlight) return name;
+        const bytes = std.fmt.allocPrint(self.allocator, "\x1b[1;4m{s}\x1b[m", .{name.toStringObject().str}) catch return error.Fatal;
+        defer self.allocator.free(bytes);
+        return self.newString(bytes, false);
+    }
+
+    fn writeExceptionPart(self: *VM, writer: *std.Io.Writer, exception: *value.ExceptionObject, keywords: Value, highlight: bool, bottom: bool, limit: ?usize, primary: bool) VMError!void {
+        const detailed = try self.detailedExceptionMessage(exception, keywords, highlight);
+        const text = detailed.toStringObject().str;
+        const backtrace = if (exception.backtrace) |lines| lines.elements.items else &.{};
+        var location: ?[]const u8 = if (backtrace.len > 0) backtrace[0].toStringObject().str else null;
+        if (location == null and primary) {
+            if (self.currentRubyFrame()) |frame| {
+                location = std.fmt.allocPrint(self.gc_allocator, "{s}:{d}:in '{s}'", .{ frame.chunk.source_file orelse frame.chunk.name, self.backtraceLineForFrame(frame), try self.frameBacktraceLabel(frame) }) catch return error.Fatal;
+            }
+        }
+        const tail = if (backtrace.len > 0) backtrace.len - 1 else 0;
+        const shown = if (limit) |maximum| @min(tail, maximum) else tail;
+        if (bottom) {
+            var index = shown;
+            while (index > 0) : (index -= 1) writer.print("\t{d}: from {s}\n", .{ index, backtrace[index].toStringObject().str }) catch return error.Fatal;
+        }
+        if (location) |prefix| writer.print("{s}: ", .{prefix}) catch return error.Fatal;
+        writer.writeAll(text) catch return error.Fatal;
+        if (!std.mem.endsWith(u8, text, "\n")) writer.writeByte('\n') catch return error.Fatal;
+        if (!bottom) {
+            for (0..shown) |index| writer.print("\tfrom {s}\n", .{backtrace[index + 1].toStringObject().str}) catch return error.Fatal;
+        }
+        if (tail > shown) writer.print("\t ... {d} levels...\n", .{tail - shown}) catch return error.Fatal;
+    }
+
+    pub fn formatExceptionFullMessage(self: *VM, exception: *value.ExceptionObject, provided: ?Value, limit: ?usize) VMError!Value {
+        const keywords = try self.createHash();
+        if (provided) |hash| for (hash.toHashObject().entries.items) |entry| {
+            try self.hashSetEntry(keywords, entry.key, entry.value);
+        };
+        const highlight_key = Value.fromObject(&(try self.intern("highlight")).object);
+        const order_key = Value.fromObject(&(try self.intern("order")).object);
+        const highlight = if (try self.hashGetEntry(keywords, highlight_key)) |entry| entry.value else blk: {
+            const value_ = try self.callMethodByName(Value.fromObject(&self.exception_class.module.object), "to_tty?", &.{}, null);
+            try self.hashSetEntry(keywords, highlight_key, value_);
+            break :blk value_;
+        };
+        if (!highlight.isBool()) return self.raiseExceptionFmt(self.argument_error_class, "expected true or false as highlight", .{});
+        var bottom = false;
+        if (try self.hashGetEntry(keywords, order_key)) |entry| {
+            if (!entry.value.isSymbol()) return self.raiseExceptionFmt(self.argument_error_class, "expected :top or :bottom as order", .{});
+            const name = entry.value.toSymbolObject().name;
+            if (std.mem.eql(u8, name, "bottom")) bottom = true else if (!std.mem.eql(u8, name, "top")) return self.raiseExceptionFmt(self.argument_error_class, "expected :top or :bottom as order", .{});
+        }
+        var chain: std.ArrayList(*value.ExceptionObject) = .empty;
+        defer chain.deinit(self.allocator);
+        var current: ?*value.ExceptionObject = exception;
+        while (current) |node| : (current = node.cause) {
+            if (std.mem.indexOfScalar(*value.ExceptionObject, chain.items, node) != null) break;
+            chain.append(self.allocator, node) catch return error.Fatal;
+        }
+        var output: std.Io.Writer.Allocating = .init(self.allocator);
+        defer output.deinit();
+        if (bottom) output.writer.writeAll(if (highlight.isTruthy()) "\x1b[1mTraceback\x1b[m (most recent call last):\n" else "Traceback (most recent call last):\n") catch return error.Fatal;
+        for (0..chain.items.len) |index| {
+            const node = chain.items[if (bottom) chain.items.len - 1 - index else index];
+            try self.writeExceptionPart(&output.writer, node, Value.fromObject(&keywords.object), highlight.isTruthy(), bottom, limit, node == exception);
+        }
+        return self.newString(output.written(), false);
     }
 
     /// Unwind the call stack looking for exception handlers
@@ -15195,6 +15331,7 @@ pub const VM = struct {
     }
 
     fn setUnwindFrameIp(self: *VM, frame_idx: usize, ip: usize) VMError!void {
+        try self.leaveRescueScopesForJump(frame_idx, ip);
         // An abrupt exit skips ENSURE_END. Drop only the ensure scopes that the
         // destination leaves, preserving outer scopes and their saved unwinds.
         const saved_unwinds = self.currentEnsureSavedUnwinds();
@@ -15300,7 +15437,6 @@ pub const VM = struct {
             const ensure_byte_offset = handler.ensure_byte_offset orelse continue;
             for (handler.rescue_handlers.items) |rescue| {
                 if (ip >= rescue.catch_byte_offset and ip < rescue.catch_end_byte_offset) {
-                    self.exitRescueBodyForSameFrameJump(frame);
                     return ensure_byte_offset;
                 }
             }

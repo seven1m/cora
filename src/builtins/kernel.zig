@@ -461,27 +461,6 @@ pub fn register(vm: *VM) !void {
     const dir_sym = try vm.intern("__dir__");
     try vm.kernel_module.methods.put(dir_sym, MethodEntry.builtin(&builtinKernelDir, .{ .exact = 0 }));
 
-    const exitstatus_sym = try vm.intern("exitstatus");
-    try vm.process_status_class.module.methods.put(exitstatus_sym, value.MethodEntry.builtin(&builtinProcessStatusExitstatus, .{ .exact = 0 }));
-
-    const success_sym = try vm.intern("success?");
-    try vm.process_status_class.module.methods.put(success_sym, value.MethodEntry.builtin(&builtinProcessStatusSuccess, .{ .exact = 0 }));
-
-    const exited_sym = try vm.intern("exited?");
-    try vm.process_status_class.module.methods.put(exited_sym, value.MethodEntry.builtin(&builtinProcessStatusExited, .{ .exact = 0 }));
-
-    const signaled_sym = try vm.intern("signaled?");
-    try vm.process_status_class.module.methods.put(signaled_sym, value.MethodEntry.builtin(&builtinProcessStatusSignaled, .{ .exact = 0 }));
-
-    const termsig_sym = try vm.intern("termsig");
-    try vm.process_status_class.module.methods.put(termsig_sym, value.MethodEntry.builtin(&builtinProcessStatusTermsig, .{ .exact = 0 }));
-
-    const pid_sym = try vm.intern("pid");
-    try vm.process_status_class.module.methods.put(pid_sym, value.MethodEntry.builtin(&builtinProcessStatusPid, .{ .exact = 0 }));
-
-    const to_i_sym = try vm.intern("to_i");
-    try vm.process_status_class.module.methods.put(to_i_sym, value.MethodEntry.builtin(&builtinProcessStatusToI, .{ .exact = 0 }));
-
     const fork_sym = try vm.intern("fork");
     const fork_entry = value.MethodEntry.builtin(&builtinKernelFork, .{ .exact = 0 });
     try vm.kernel_module.methods.put(fork_sym, value.MethodEntry.builtinWithVisibility(&builtinKernelFork, .{ .exact = 0 }, .private));
@@ -886,6 +865,8 @@ pub fn builtinKernelRequireRelative(vm: *VM, _: Value, args: []Value, _: ?Block)
 
     const current_file = blk: {
         if (vm.frames.items.len > 0) {
+            if (vm.currentFrame().chunk.source_kind == .inline_source)
+                return vm.raiseExceptionFmt(vm.load_error_class, "cannot infer basepath", .{});
             // File chunks retain canonical identity; eval may supply only a
             // logical filename from which Ruby still resolves relative loads.
             if (vm.currentFrame().chunk.source_absolute_path orelse vm.currentFrame().chunk.source_file) |source_file| break :blk source_file;
@@ -1849,7 +1830,7 @@ pub fn builtinKernelRaise(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!V
     if (vm.frames.items.len > 0 and vm.currentFrame().frame_type == .builtin) {
         vm.popCurrentBuiltinFrame();
     }
-    return vm.raiseFromArgsWithCause(args, "No exception to re-raise", cause);
+    return vm.raiseFromArgsWithCause(args, cause);
 }
 
 fn moduleIncludedInChain(vm: *VM, receiver: Value, mod: *const ModuleObject) bool {
@@ -2347,10 +2328,7 @@ pub fn builtinKernelDefineSingletonMethod(vm: *VM, receiver: Value, args: []Valu
         break :blk .{ .method = .{ .proc = proc_val.toProcObject() }, .visibility = .public };
     };
 
-    const singleton_class = try vm.getOrCreateSingletonClass(receiver);
-    if ((singleton_class.module.object.flags & value.Object.FROZEN_FLAG) != 0) {
-        return vm.raiseExceptionFmt(vm.frozen_error_class, "can't modify frozen {s}", .{vm.className(receiver)});
-    }
+    const singleton_class = try vm.singletonClassForDefinition(receiver);
 
     singleton_class.module.origin.methods.put(name_sym, method_entry) catch return error.Fatal;
     vm.markIntegerChangedForReceiver(receiver);
@@ -2864,7 +2842,7 @@ pub fn builtinKernelSingletonClass(vm: *VM, receiver: Value, args: []Value, _: ?
 
     if (receiver.isNil()) return Value.fromObject(&vm.nil_class.module.object);
     if (receiver.isBool()) return Value.fromObject(&(if (receiver.toBool()) vm.true_class else vm.false_class).module.object);
-    if (receiver.isInteger() or receiver.isFloat() or receiver.isSymbol()) {
+    if (receiver.isInteger() or receiver.isBigInteger() or receiver.isFloat() or receiver.isSymbol()) {
         return vm.raiseExceptionFmt(vm.type_error_class, "can't define singleton", .{});
     }
     if (vm.isCanonicalFStringValue(receiver)) {
@@ -2878,7 +2856,7 @@ pub fn builtinKernelSingletonClass(vm: *VM, receiver: Value, args: []Value, _: ?
 pub fn builtinKernelDir(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
 
-    if (vm.frames.items.len > 0 and vm.currentFrame().dir_returns_nil) {
+    if (vm.frames.items.len > 0 and (vm.currentFrame().dir_returns_nil or vm.currentFrame().chunk.source_kind == .inline_source)) {
         return Value.nil();
     }
 
@@ -3021,49 +2999,6 @@ pub fn builtinKernelBacktick(vm: *VM, _: Value, args: []Value, _: ?Block) VMErro
     const status = try waitForPid(vm, pid);
     try vm.setLastProcessStatusFromWaitStatus(status, pid);
     return try vm.newString(stdout_bytes.items, false);
-}
-
-pub fn builtinProcessStatusExitstatus(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
-    try vm.requireArgCount(args, 0);
-    return vm.getInstanceVariable(receiver, "@exitstatus");
-}
-
-pub fn builtinProcessStatusSuccess(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
-    try vm.requireArgCount(args, 0);
-    const exitstatus = try vm.getInstanceVariable(receiver, "@exitstatus");
-    return Value.boolean(exitstatus.isInteger() and exitstatus.toInteger() == 0);
-}
-
-pub fn builtinProcessStatusExited(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
-    try vm.requireArgCount(args, 0);
-    const raw_status = try vm.getInstanceVariable(receiver, "@raw_status");
-    if (!raw_status.isInteger()) return Value.boolean(false);
-    return Value.boolean((raw_status.toInteger() & 0x7f) == 0);
-}
-
-pub fn builtinProcessStatusSignaled(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
-    try vm.requireArgCount(args, 0);
-    const raw_status = try vm.getInstanceVariable(receiver, "@raw_status");
-    if (!raw_status.isInteger()) return Value.boolean(false);
-    const signal_bits = raw_status.toInteger() & 0x7f;
-    return Value.boolean(signal_bits != 0 and signal_bits != 0x7f);
-}
-
-pub fn builtinProcessStatusTermsig(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
-    try vm.requireArgCount(args, 0);
-    return vm.getInstanceVariable(receiver, "@termsig");
-}
-
-pub fn builtinProcessStatusPid(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
-    try vm.requireArgCount(args, 0);
-    const pid = try vm.getInstanceVariable(receiver, "@pid");
-    if (pid.isNil()) return Value.nil();
-    return pid;
-}
-
-pub fn builtinProcessStatusToI(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
-    try vm.requireArgCount(args, 0);
-    return vm.getInstanceVariable(receiver, "@raw_status");
 }
 
 pub fn builtinKernelRand(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {

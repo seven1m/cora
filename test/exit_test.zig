@@ -94,3 +94,28 @@ test "cli syntax errors exit before executing recovered source" {
         try std.testing.expect(std.mem.indexOf(u8, result.stderr, "SyntaxError") != null);
     }
 }
+
+test "inline source retains its label without acquiring a filesystem identity" {
+    var threaded: std.Io.Threaded = .init(std.testing.allocator, .{});
+    defer threaded.deinit();
+    const source =
+        \\def location; [__FILE__, __dir__]; end
+        \\p location
+        \\p proc { __dir__ }.call
+        \\begin
+        \\  require_relative "missing"
+        \\rescue LoadError => error
+        \\  puts error.message
+        \\end
+    ;
+    const result = try std.process.run(std.testing.allocator, threaded.io(), .{
+        .argv = &.{ "zig-out/bin/cora", "-e", source },
+        .stdout_limit = .limited(4096),
+        .stderr_limit = .limited(4096),
+    });
+    defer std.testing.allocator.free(result.stdout);
+    defer std.testing.allocator.free(result.stderr);
+    try std.testing.expect(result.term == .exited and result.term.exited == 0);
+    try std.testing.expectEqualStrings("[\"-e\", nil]\nnil\ncannot infer basepath\n", result.stdout);
+    try std.testing.expectEqualStrings("", result.stderr);
+}

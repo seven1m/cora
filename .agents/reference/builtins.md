@@ -116,7 +116,8 @@ uses it to roll back rejected methods even on frozen singleton classes.
 ## Exception Raising Helpers
 
 - Prefer `VM.raiseExceptionFmt(class, fmt, args)` over manual `createException` + `setPendingException` + `return error.Unwind`. This single helper handles allocation, creation, and pending-exception setup.
-- Use `VM.raiseNameErrorFmt(name_sym, fmt, args)` for `NameError` with `@name` ivar — replaces the pattern of `createException` + `setInstanceVariable("@name")` + `setPendingException`.
+- Use `VM.raiseNameErrorFmt(name_sym, fmt, args)` to initialize the native NameError name field. Use `raiseNoMethodWithArguments` when the missing call supplies arguments, `raiseFrozenErrorFmt` for a frozen receiver, and `raiseSyntaxError` for source diagnostics with a path.
+- Use `VM.raiseErrnoNumberFmt` for numeric errno values; `raiseErrnoFmt` and `raiseLastErrnoFmt` delegate to it and retain the native error number.
 - Use `VM.raiseKeyErrorFmt(key, receiver, fmt, args)` for `KeyError` with key and receiver fields.
 - Do not manually construct format strings with `std.fmt.allocPrint` just to pass them to `createException`; use the `*Fmt` helpers instead.
 
@@ -129,6 +130,8 @@ uses it to roll back rejected methods even on frozen singleton classes.
 ## Frozen Object Guards
 
 - Use `VM.guardNotFrozen(receiver)` to check if an object is frozen and raise `FrozenError("can't modify frozen ...")` if so. It includes the inspected receiver when available and guards recursive inspection. This replaces the repetitive `if (receiver.isFrozen()) { return vm.raiseExceptionFmt(...); }` pattern.
+
+Use `VM.singletonClassForDefinition` when defining a singleton method. It checks singleton eligibility before frozen state, handles definitions on nil/true/false through their classes, and preserves the original frozen receiver.
 
 ## Method Change Hooks
 

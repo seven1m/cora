@@ -564,3 +564,17 @@ test "nonblocking popen loop drains child output" {
     try std.testing.expect(std.mem.indexOf(u8, result.toStringObject().str, "one") != null);
     try std.testing.expect(std.mem.indexOf(u8, result.toStringObject().str, "two") != null);
 }
+
+test "Process Status owns immutable wait metadata across garbage collection" {
+    const result = try evalCode(
+        \\require 'rbconfig'
+        \\pid = Process.spawn(RbConfig.ruby, "-e", "exit 7")
+        \\previous = $?
+        \\status = Process::Status.wait(pid)
+        \\GC.start
+        \\status.pid == pid && status.exitstatus == 7 && status.to_i == (7 << 8) &&
+        \\  status.exited? && !status.signaled? && status.frozen? &&
+        \\  status.instance_variables.empty? && $?.equal?(previous) && $$ == Process.pid
+    );
+    try std.testing.expect(result.isTrue());
+}

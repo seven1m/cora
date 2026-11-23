@@ -5,6 +5,7 @@ const Value = value.Value;
 
 pub const Kind = enum {
     frozen_error,
+    error_description,
     string_compare_fallback,
     array_inspect,
     enumerator_inspect,

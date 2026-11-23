@@ -12,9 +12,22 @@ pub fn register(vm: *VM) !void {
     try vm.local_jump_error_class.module.methods.put(try vm.intern("exit_value"), value.MethodEntry.builtin(&builtinLocalJumpErrorExitValue, .{ .exact = 0 }));
     try vm.local_jump_error_class.module.methods.put(try vm.intern("reason"), value.MethodEntry.builtin(&builtinLocalJumpErrorReason, .{ .exact = 0 }));
 
+    try vm.system_call_error_class.module.methods.put(try vm.intern("initialize"), value.MethodEntry.builtin(&builtinSystemCallErrorInitialize, .{ .variadic = 0 }));
+    try vm.system_call_error_class.module.methods.put(try vm.intern("errno"), value.MethodEntry.builtin(&builtinSystemCallErrorErrno, .{ .exact = 0 }));
+    const system_error_singleton = try vm.getOrCreateSingletonClass(Value.fromObject(&vm.system_call_error_class.module.object));
+    try system_error_singleton.module.methods.put(try vm.intern("==="), value.MethodEntry.builtin(&builtinSystemCallErrorCaseEqual, .{ .exact = 1 }));
+    try vm.no_method_error_class.module.methods.put(try vm.intern("initialize"), value.MethodEntry.keywordBuiltin(&builtinNoMethodErrorInitialize, .{ .variadic = 0 }));
+    try vm.no_method_error_class.module.methods.put(try vm.intern("args"), value.MethodEntry.builtin(&builtinNoMethodErrorArgs, .{ .exact = 0 }));
+    try vm.no_method_error_class.module.methods.put(try vm.intern("private_call?"), value.MethodEntry.builtin(&builtinNoMethodErrorPrivateCall, .{ .exact = 0 }));
+    try vm.frozen_error_class.module.methods.put(try vm.intern("initialize"), value.MethodEntry.keywordBuiltin(&builtinFrozenErrorInitialize, .{ .variadic = 0 }));
+    try vm.frozen_error_class.module.methods.put(try vm.intern("receiver"), value.MethodEntry.builtin(&builtinNameErrorReceiver, .{ .exact = 0 }));
+    try vm.syntax_error_class.module.methods.put(try vm.intern("path"), value.MethodEntry.builtin(&builtinLoadErrorPath, .{ .exact = 0 }));
+    try vm.stop_iteration_class.module.methods.put(try vm.intern("result"), value.MethodEntry.builtin(&builtinStopIterationResult, .{ .exact = 0 }));
     const exception_class_val = Value.fromObject(&vm.exception_class.module.object);
     const exception_singleton = try vm.getOrCreateSingletonClass(exception_class_val);
 
+    try exception_singleton.module.methods.put(try vm.intern("to_tty?"), value.MethodEntry.builtin(&builtinExceptionToTty, .{ .exact = 0 }));
+    try vm.exception_class.module.methods.put(try vm.intern("detailed_message"), value.MethodEntry.keywordBuiltin(&builtinExceptionDetailedMessage, .{ .exact = 0 }));
     const exception_sym = try vm.intern("exception");
     try exception_singleton.module.methods.put(exception_sym, value.MethodEntry.builtin(&builtinExceptionClassException, .{ .variadic = 0 }));
     try vm.exception_class.module.methods.put(exception_sym, value.MethodEntry.builtin(&builtinExceptionInstanceException, .{ .variadic = 0 }));
@@ -50,7 +63,7 @@ pub fn register(vm: *VM) !void {
     try vm.exception_class.module.methods.put(cause_sym, value.MethodEntry.builtin(&builtinExceptionCause, .{ .exact = 0 }));
 
     const full_message_sym = try vm.intern("full_message");
-    try vm.exception_class.module.methods.put(full_message_sym, value.MethodEntry.builtin(&builtinExceptionFullMessage, .{ .variadic = 0 }));
+    try vm.exception_class.module.methods.put(full_message_sym, value.MethodEntry.keywordBuiltin(&builtinExceptionFullMessage, .{ .variadic = 0 }));
 
     try vm.system_exit_class.module.methods.put(initialize_sym, value.MethodEntry.builtin(&builtinSystemExitInitialize, .{ .variadic = 0 }));
     try vm.signal_exception_class.module.methods.put(initialize_sym, value.MethodEntry.builtin(&builtinSignalExceptionInitialize, .{ .variadic = 0 }));
@@ -100,13 +113,13 @@ pub fn builtinExceptionInitialize(vm: *VM, receiver: Value, args: []Value, _: ?B
     try vm.requireArgCountRange(args, 0, 1);
 
     const exc = receiver.toExceptionObject();
-    const message = if (args.len == 1) blk: {
+    const message = if (args.len == 1 and !args[0].isNil()) blk: {
         const message_value = if (args[0].isString()) args[0] else try vm.callMethodByName(args[0], "to_s", &.{}, null);
         if (!message_value.isString()) {
             return vm.raiseExceptionFmt(vm.type_error_class, "to_s did not return String", .{});
         }
         break :blk message_value.toStringObject().str;
-    } else vm.defaultExceptionMessageForClass(exc.object.class.?);
+    } else (try vm.callMethodByName(Value.fromObject(&exc.object.class.?.module.object), "to_s", &.{}, null)).toStringObject().str;
     const msg_val = try vm.newString(message, false);
     exc.message = msg_val.toStringObject();
     return receiver;
@@ -127,6 +140,11 @@ pub fn builtinExceptionInitializeCopy(vm: *VM, receiver: Value, args: []Value, _
     const dst = receiver.toExceptionObject();
     const src = args[0].toExceptionObject();
     dst.message = src.message;
+    dst.name = src.name;
+    dst.method_args = src.method_args;
+    dst.private_call = src.private_call;
+    dst.errno_number = src.errno_number;
+    dst.iteration_result = src.iteration_result;
     dst.backtrace = src.backtrace;
     dst.backtrace_locations = src.backtrace_locations;
     dst.cause = src.cause;
@@ -150,23 +168,16 @@ pub fn builtinExceptionClassException(vm: *VM, receiver: Value, args: []Value, b
 }
 
 pub fn builtinExceptionInstanceException(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
-    if (args.len == 0 or args[0].isNil()) return receiver;
-
+    try vm.requireArgCountRange(args, 0, 1);
+    if (args.len == 0 or args[0].raw == receiver.raw) return receiver;
     const exc = receiver.toExceptionObject();
-    const msg = try args[0].coerceToStr(vm, "no implicit conversion into String");
-    const copy = try vm.createExceptionWithoutBacktrace(exc.object.class.?, msg);
-    copy.exit_value = exc.exit_value;
-    copy.jump_reason = exc.jump_reason;
-    const copy_val = Value.fromObject(&copy.object);
-
-    const ivar_names = try vm.getInstanceVariableNames(receiver);
-    for (ivar_names.elements.items) |name_val| {
-        const name_str = try vm.callMethodByName(name_val, "to_s", &.{}, null);
-        const val = try vm.getInstanceVariable(receiver, name_str.toStringObject().str);
-        try vm.setInstanceVariable(copy_val, name_str.toStringObject().str, val);
-    }
-
-    return copy_val;
+    const copy = try vm.createExceptionWithoutBacktrace(exc.object.class.?, "");
+    const result = Value.fromObject(&copy.object);
+    var copy_args = [_]Value{receiver};
+    _ = try builtinExceptionInitializeCopy(vm, result, &copy_args, null);
+    try vm.copyObjectInstanceVariables(&exc.object, &copy.object);
+    _ = try builtinExceptionInitialize(vm, result, args, null);
+    return result;
 }
 
 pub fn builtinSystemExitInitialize(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
@@ -233,8 +244,10 @@ pub fn builtinSignalExceptionInitialize(vm: *VM, receiver: Value, args: []Value,
         if (args.len != 1) return vm.raiseExceptionFmt(vm.argument_error_class, "wrong number of arguments", .{});
         const name = if (args[0].isSymbol())
             args[0].toSymbolObject().name
-        else
-            try args[0].coerceToStr(vm, "no implicit conversion into String");
+        else switch (try vm.probeToStringValue(args[0])) {
+            .string => |string| string.toStringObject().str,
+            .missing, .nil_result => return vm.raiseExceptionFmt(vm.argument_error_class, "bad signal type {s}", .{vm.className(args[0])}),
+        };
         const info = signal_support.infoByName(name) orelse {
             return vm.raiseExceptionFmt(vm.argument_error_class, "unsupported signal '{s}'", .{name});
         };
@@ -329,6 +342,12 @@ pub fn builtinExceptionSetBacktrace(vm: *VM, receiver: Value, args: []Value, _: 
         exc.backtrace = null;
         return backtrace_value;
     }
+    if (backtrace_value.isString()) {
+        const lines = try vm.createArray();
+        lines.elements.append(vm.gc_allocator, backtrace_value) catch return error.Fatal;
+        exc.backtrace = lines;
+        return backtrace_value;
+    }
     if (!backtrace_value.isArray()) {
         return vm.raiseExceptionFmt(vm.type_error_class, "exception backtrace must be Array or nil", .{});
     }
@@ -362,7 +381,8 @@ pub fn builtinExceptionCause(vm: *VM, receiver: Value, args: []Value, _: ?Block)
 
 pub fn builtinExceptionFullMessage(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
-    return try vm.exceptionFullMessage(receiver.toExceptionObject());
+    const keywords = try vm.consumeKeywordArgHash();
+    return vm.formatExceptionFullMessage(receiver.toExceptionObject(), keywords, vm.backtrace_limit);
 }
 
 pub fn builtinSystemExitStatus(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
@@ -424,7 +444,7 @@ pub fn builtinKeyErrorKey(vm: *VM, receiver: Value, args: []Value, _: ?Block) VM
 
 pub fn builtinNameErrorName(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
-    return try vm.getInstanceVariable(receiver, "@name");
+    return receiver.toExceptionObject().name;
 }
 
 pub fn builtinLoadErrorPath(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
@@ -454,12 +474,8 @@ pub fn builtinNameErrorInitialize(vm: *VM, receiver: Value, args: []Value, _: ?B
     const message_args = if (args.len >= 1) args[0..1] else args[0..0];
     _ = try builtinExceptionInitialize(vm, receiver, message_args, null);
 
-    if (args.len == 2) {
-        try vm.setInstanceVariable(receiver, "@name", args[1]);
-    }
-    if (kw_receiver) |kw_value| {
-        receiver.toExceptionObject().receiver = kw_value;
-    }
+    receiver.toExceptionObject().name = if (args.len == 2) args[1] else Value.nil();
+    receiver.toExceptionObject().receiver = kw_receiver;
     return receiver;
 }
 
@@ -479,4 +495,132 @@ fn builtinLocalJumpErrorExitValue(_: *VM, receiver: Value, _: []Value, _: ?Block
 fn builtinLocalJumpErrorReason(_: *VM, receiver: Value, _: []Value, _: ?Block) VMError!Value {
     const reason = receiver.toExceptionObject().jump_reason orelse return Value.nil();
     return Value.fromObject(&reason.object);
+}
+
+fn builtinNoMethodErrorInitialize(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCountRange(args, 0, 4);
+    _ = try builtinNameErrorInitialize(vm, receiver, args[0..@min(args.len, 2)], null);
+    const exception = receiver.toExceptionObject();
+    exception.method_args = if (args.len > 2) args[2] else Value.nil();
+    exception.private_call = args.len > 3 and args[3].isTruthy();
+    return receiver;
+}
+fn builtinNoMethodErrorArgs(_: *VM, receiver: Value, _: []Value, _: ?Block) VMError!Value {
+    return receiver.toExceptionObject().method_args;
+}
+fn builtinNoMethodErrorPrivateCall(_: *VM, receiver: Value, _: []Value, _: ?Block) VMError!Value {
+    return Value.boolean(receiver.toExceptionObject().private_call);
+}
+fn builtinFrozenErrorInitialize(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    const error_receiver = try vm.consumeKeywordArg("receiver");
+    try vm.validateKeywordArgsConsumed();
+    _ = try builtinExceptionInitialize(vm, receiver, args, null);
+    receiver.toExceptionObject().receiver = error_receiver;
+    return receiver;
+}
+
+fn implicitString(vm: *VM, arg: Value) VMError!Value {
+    const message = std.fmt.allocPrint(vm.allocator, "no implicit conversion of {s} into String", .{vm.className(arg)}) catch return error.Fatal;
+    defer vm.allocator.free(message);
+    return arg.coerceToStringValue(vm, message);
+}
+fn builtinSystemCallErrorInitialize(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    const exception = receiver.toExceptionObject();
+    const class = exception.object.class.?;
+    const class_errno = vm.errnoNumberForClass(class);
+    try vm.requireArgCountRange(args, if (class_errno == null) 1 else 0, if (class_errno == null) 3 else 2);
+    var number: ?i64 = if (class_errno) |code| code else null;
+    var message = Value.nil();
+    var location = Value.nil();
+    if (class_errno != null) {
+        if (args.len > 0) message = args[0];
+        if (args.len > 1) location = args[1];
+    } else {
+        if (args.len == 1 and args[0].isInteger()) {
+            number = args[0].toInteger();
+        } else {
+            message = args[0];
+            if (args.len > 1 and !args[1].isNil()) {
+                const arg = if (args[1].isComplex()) try vm.callMethodByName(args[1], "to_i", &.{}, null) else args[1];
+                const error_message = std.fmt.allocPrint(vm.allocator, "no implicit conversion of {s} into Integer", .{vm.className(arg)}) catch return error.Fatal;
+                defer vm.allocator.free(error_message);
+                number = try arg.coerceToI64ViaToInt(vm, error_message, "to_int did not return Integer", "errno out of range");
+            }
+            if (args.len > 2) location = args[2];
+        }
+    }
+    const base = if (number) |code| VM.errnoMessage(std.math.cast(c_int, code) orelse return vm.raiseExceptionFmt(vm.range_error_class, "errno out of range", .{})) else "unknown error";
+    var buffer: std.Io.Writer.Allocating = .init(vm.allocator);
+    defer buffer.deinit();
+    buffer.writer.writeAll(base) catch return error.Fatal;
+    if (!location.isNil()) {
+        const text = try vm.objectAsString(location);
+        buffer.writer.print(" @ {s}", .{text.toStringObject().str}) catch return error.Fatal;
+    }
+    if (!message.isNil()) {
+        const text = try implicitString(vm, message);
+        buffer.writer.print(" - {s}", .{text.toStringObject().str}) catch return error.Fatal;
+    }
+    exception.message = (try vm.newString(buffer.written(), false)).toStringObject();
+    exception.errno_number = number;
+    if (class == vm.system_call_error_class) {
+        if (number) |code| exception.object.class = vm.errnoClass(@intCast(code));
+    }
+    return receiver;
+}
+fn builtinSystemCallErrorErrno(_: *VM, receiver: Value, _: []Value, _: ?Block) VMError!Value {
+    return if (receiver.toExceptionObject().errno_number) |number| Value.integer(number) else Value.nil();
+}
+fn builtinSystemCallErrorCaseEqual(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    const other = args[0];
+    if (!other.isException() or !vm.isClassOrSubclassOf(vm.getClass(other), vm.system_call_error_class)) return Value.boolean(false);
+    const class = receiver.toClassObject();
+    if (class == vm.system_call_error_class) return Value.boolean(true);
+    if (vm.errnoNumberForClass(class)) |number| return Value.boolean(other.toExceptionObject().errno_number == number);
+    return Value.boolean(vm.isClassOrSubclassOf(vm.getClass(other), class));
+}
+
+fn builtinExceptionToTty(vm: *VM, _: Value, _: []Value, _: ?Block) VMError!Value {
+    const stderr = vm.getGlobalValue("$stderr");
+    if (try vm.checkCallMethodByName(stderr, "tty?", false, &.{}, null)) |result| return Value.boolean(result.isTruthy());
+    return Value.boolean(false);
+}
+
+fn builtinExceptionDetailedMessage(vm: *VM, receiver: Value, _: []Value, _: ?Block) VMError!Value {
+    const highlight_arg = try vm.consumeKeywordArg("highlight");
+    _ = try vm.consumeKeywordArgHash();
+    const highlight = highlight_arg orelse Value.boolean(false);
+    if (!highlight.isBool()) return vm.raiseExceptionFmt(vm.argument_error_class, "expected true or false as highlight", .{});
+    const message = try vm.callMethodByName(receiver, "message", &.{}, null);
+    const text = try message.coerceToStr(vm, "no implicit conversion into String");
+    const exception = receiver.toExceptionObject();
+    const name = (try vm.exceptionDisplayName(exception)).toStringObject().str;
+    const public_name = vm.publicModuleName(Value.fromObject(&exception.object.class.?.module.object));
+    var output: std.Io.Writer.Allocating = .init(vm.allocator);
+    defer output.deinit();
+    if (text.len == 0) {
+        const empty_message = if (exception.object.class.? == vm.runtime_error_class) "unhandled exception" else name;
+        output.writer.print("{s}{s}{s}", .{ if (highlight.isTruthy()) "\x1b[1;4m" else "", empty_message, if (highlight.isTruthy()) "\x1b[m" else "" }) catch return error.Fatal;
+    } else {
+        const first_end = std.mem.indexOfScalar(u8, text, '\n') orelse text.len;
+        output.writer.print("{s}{s}", .{ if (highlight.isTruthy()) "\x1b[1m" else "", text[0..first_end] }) catch return error.Fatal;
+        if (public_name) |class_name| {
+            output.writer.print(" ({s}{s}{s})", .{ if (highlight.isTruthy()) "\x1b[1;4m" else "", class_name, if (highlight.isTruthy()) "\x1b[m\x1b[1m" else "" }) catch return error.Fatal;
+        }
+        if (highlight.isTruthy()) output.writer.writeAll("\x1b[m") catch return error.Fatal;
+        var start = first_end;
+        while (start < text.len) {
+            output.writer.writeByte('\n') catch return error.Fatal;
+            start += 1;
+            if (start == text.len) break;
+            const end = if (std.mem.indexOfScalarPos(u8, text, start, '\n')) |position| position else text.len;
+            output.writer.print("{s}{s}{s}", .{ if (highlight.isTruthy()) "\x1b[1m" else "", text[start..end], if (highlight.isTruthy()) "\x1b[m" else "" }) catch return error.Fatal;
+            start = end;
+        }
+    }
+    return vm.newString(output.written(), false);
+}
+
+fn builtinStopIterationResult(_: *VM, receiver: Value, _: []Value, _: ?Block) VMError!Value {
+    return receiver.toExceptionObject().iteration_result;
 }
