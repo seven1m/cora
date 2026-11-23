@@ -2893,9 +2893,9 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] library/digest/hexencode_spec.rb
 
 ### library/digest/instance
-- [ ] library/digest/instance/append_spec.rb
-- [ ] library/digest/instance/new_spec.rb
-- [ ] library/digest/instance/update_spec.rb
+- [x] library/digest/instance/append_spec.rb
+- [x] library/digest/instance/new_spec.rb
+- [x] library/digest/instance/update_spec.rb
 
 ### library/digest/md5
 - [x] library/digest/md5/append_spec.rb
@@ -2915,11 +2915,11 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] library/digest/md5/update_spec.rb
 
 ### library/digest/sha1
-- [ ] library/digest/sha1/digest_spec.rb
-- [ ] library/digest/sha1/file_spec.rb
+- [x] library/digest/sha1/digest_spec.rb
+- [x] library/digest/sha1/file_spec.rb
 
 ### library/digest/sha2
-- [ ] library/digest/sha2/hexdigest_spec.rb
+- [x] library/digest/sha2/hexdigest_spec.rb
 
 ### library/digest/sha256
 - [x] library/digest/sha256/append_spec.rb

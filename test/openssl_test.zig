@@ -1,5 +1,6 @@
 const std = @import("std");
 
+const evalCode = @import("test_helper.zig").evalCode;
 const evalCodeWithOutput = @import("test_helper.zig").evalCodeWithOutput;
 
 test "require lazily registers OpenSSL" {
@@ -199,4 +200,37 @@ test "require loads RubyGems security with OpenSSL cipher defaults" {
 
     try std.testing.expect(result.term == .exited and result.term.exited == 0);
     try std.testing.expectEqualSlices(u8, "AES-256-CBC\n", result.stdout);
+}
+
+test "Digest copies own independent native contexts and algorithm metadata" {
+    const result = try evalCode(
+        \\require "digest"
+        \\original = Digest::SHA1.new
+        \\original << "a"
+        \\hidden = original.instance_variables.empty?
+        \\copy = original.dup
+        \\clone = original.clone
+        \\original << "bc"
+        \\copy << "x"
+        \\original.instance_variable_set(:@algorithm_name, "MD5")
+        \\original.reset
+        \\hidden && original.name == "SHA1" && original.hexdigest == Digest::SHA1.hexdigest("") &&
+        \\  copy.hexdigest == Digest::SHA1.hexdigest("ax") && clone.hexdigest == Digest::SHA1.hexdigest("a")
+    );
+    try std.testing.expect(result.isTrue());
+}
+
+test "Digest SHA2 preserves variant selection when creating reset copies" {
+    const result = try evalCode(
+        \\require "digest/sha2"
+        \\[256, 384, 512].all? do |bits|
+        \\  digest = Digest::SHA2.new(bits)
+        \\  digest << "abc"
+        \\  expected = OpenSSL::Digest.hexdigest("SHA#{bits}", "abc")
+        \\  digest.hexdigest == expected && Digest::SHA2.hexdigest("abc", bits) == expected &&
+        \\    digest.new.digest_length == bits / 8 && digest.new.hexdigest == OpenSSL::Digest.hexdigest("SHA#{bits}", "") &&
+        \\    digest.hexdigest == expected
+        \\end
+    );
+    try std.testing.expect(result.isTrue());
 }

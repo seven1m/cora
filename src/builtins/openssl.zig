@@ -1,6 +1,7 @@
 const std = @import("std");
 const enc = @import("../encoding.zig");
 const io_builtin = @import("io.zig");
+const kernel_builtin = @import("kernel.zig");
 const vm_mod = @import("../vm.zig");
 const value = @import("../value.zig");
 const c = @import("openssl_c");
@@ -26,6 +27,11 @@ const DigestAlgorithm = enum {
     sha256,
     sha384,
     sha512,
+};
+
+const NativeDigest = struct {
+    ctx: *c.EVP_MD_CTX,
+    algorithm: ?DigestAlgorithm = null,
 };
 
 const NativeCipher = struct {
@@ -105,6 +111,8 @@ pub fn register(vm: *VM) !void {
         digest_initialize_sym,
         value.MethodEntry.builtinWithVisibility(&builtinOpenSSLDigestInitialize, .{ .variadic = 1 }, .private),
     );
+
+    try digest_class.module.methods.put(try vm.intern("initialize_copy"), value.MethodEntry.builtinWithVisibility(&builtinOpenSSLDigestInitializeCopy, .{ .exact = 1 }, .private));
 
     const digest_update_sym = try vm.intern("update");
     try digest_class.module.methods.put(digest_update_sym, value.MethodEntry.builtin(&builtinOpenSSLDigestUpdate, .{ .exact = 1 }));
@@ -550,9 +558,7 @@ fn raiseDigestError(vm: *VM, name: []const u8) VMError {
 fn resolveDigestAlgorithmFromValue(vm: *VM, arg: Value) VMError!DigestAlgorithm {
     const digest_klass = try digestClass(vm);
     if (vm.isClassOrSubclassOf(vm.getClass(arg), digest_klass)) {
-        const name_value = try vm.getInstanceVariable(arg, "@algorithm_name");
-        if (!name_value.isString()) return error.Fatal;
-        return resolveDigestAlgorithmByName(name_value.toStringObject().str) orelse return error.Fatal;
+        return digestAlgorithmForReceiver(vm, arg);
     }
 
     const name_value = try coerceToStringValueExact(vm, arg);
@@ -659,15 +665,16 @@ fn evpMd(alg: DigestAlgorithm) ?*const c.EVP_MD {
     };
 }
 
+fn nativeDigest(receiver: Value) *NativeDigest {
+    return @ptrCast(@alignCast(receiver.toTypedDataObject().data));
+}
+
 fn digestCtxFromReceiver(receiver: Value) *c.EVP_MD_CTX {
-    const typed = receiver.toTypedDataObject();
-    return @ptrCast(@alignCast(typed.data));
+    return nativeDigest(receiver).ctx;
 }
 
 fn digestAlgorithmForReceiver(vm: *VM, receiver: Value) VMError!DigestAlgorithm {
-    const name_value = try vm.getInstanceVariable(receiver, "@algorithm_name");
-    if (!name_value.isString()) return error.Fatal;
-    return resolveDigestAlgorithmByName(name_value.toStringObject().str) orelse return error.Fatal;
+    return nativeDigest(receiver).algorithm orelse vm.raiseExceptionFmt(vm.runtime_error_class, "Digest CTX not initialized", .{});
 }
 
 fn digestDupAndFinalize(ctx: *c.EVP_MD_CTX, extra: ?[]const u8, out: *[64]u8) VMError!usize {
@@ -930,15 +937,18 @@ pub fn builtinOpenSSLDigestAllocate(vm: *VM, receiver: Value, args: []Value, _: 
     const class_obj = receiver.toClassObject();
     const ctx = c.EVP_MD_CTX_new();
     if (ctx == null) return error.Fatal;
+    errdefer c.EVP_MD_CTX_destroy(ctx);
     const callbacks = value.TypedDataCallbacks{
         .dfree = struct {
             fn free(ptr: *anyopaque) callconv(.c) void {
-                const md_ctx: *c.EVP_MD_CTX = @ptrCast(@alignCast(ptr));
-                c.EVP_MD_CTX_destroy(md_ctx);
+                const digest: *NativeDigest = @ptrCast(@alignCast(ptr));
+                c.EVP_MD_CTX_destroy(digest.ctx);
             }
         }.free,
     };
-    return vm.newTypedData(class_obj, @ptrCast(ctx), null, callbacks);
+    const digest = vm.gc_allocator.create(NativeDigest) catch return error.Fatal;
+    digest.* = .{ .ctx = @ptrCast(ctx) };
+    return vm.newTypedData(class_obj, digest, null, callbacks);
 }
 
 pub fn builtinOpenSSLDigestInitialize(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
@@ -949,7 +959,7 @@ pub fn builtinOpenSSLDigestInitialize(vm: *VM, receiver: Value, args: []Value, _
     if (c.EVP_DigestInit_ex(ctx, md, null) != 1) {
         return raiseDigestError(vm, canonicalDigestName(alg));
     }
-    try vm.setInstanceVariable(receiver, "@algorithm_name", try vm.newString(canonicalDigestName(alg), false));
+    nativeDigest(receiver).algorithm = alg;
     if (args.len == 2) {
         const initial_data = (try coerceToStringValueExact(vm, args[1])).toStringObject().str;
         if (initial_data.len > 0) {
@@ -959,9 +969,21 @@ pub fn builtinOpenSSLDigestInitialize(vm: *VM, receiver: Value, args: []Value, _
     return receiver;
 }
 
+pub fn builtinOpenSSLDigestInitializeCopy(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
+    _ = try kernel_builtin.builtinKernelInitializeCopy(vm, receiver, args, block);
+    if (receiver.raw == args[0].raw) return receiver;
+    const algorithm = try digestAlgorithmForReceiver(vm, args[0]);
+    if (c.EVP_MD_CTX_copy_ex(digestCtxFromReceiver(receiver), digestCtxFromReceiver(args[0])) != 1) {
+        return raiseDigestError(vm, canonicalDigestName(algorithm));
+    }
+    nativeDigest(receiver).algorithm = algorithm;
+    return receiver;
+}
+
 pub fn builtinOpenSSLDigestUpdate(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 1);
     const chunk = (try coerceToStringValueExact(vm, args[0])).toStringObject().str;
+    _ = try digestAlgorithmForReceiver(vm, receiver);
     const ctx = digestCtxFromReceiver(receiver);
     if (c.EVP_DigestUpdate(ctx, chunk.ptr, chunk.len) != 1) {
         return raiseDigestError(vm, canonicalDigestName(try digestAlgorithmForReceiver(vm, receiver)));
@@ -1013,6 +1035,7 @@ pub fn builtinOpenSSLDigestBlockLength(vm: *VM, receiver: Value, args: []Value, 
 
 pub fn builtinOpenSSLDigestDigest(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCountRange(args, 0, 1);
+    _ = try digestAlgorithmForReceiver(vm, receiver);
     const ctx = digestCtxFromReceiver(receiver);
     var extra: ?[]const u8 = null;
     if (args.len == 1) {
@@ -1030,6 +1053,7 @@ pub fn builtinOpenSSLDigestDigest(vm: *VM, receiver: Value, args: []Value, _: ?B
 
 pub fn builtinOpenSSLDigestHexdigest(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
+    _ = try digestAlgorithmForReceiver(vm, receiver);
     const ctx = digestCtxFromReceiver(receiver);
     var digest_buf: [64]u8 = undefined;
     const len = try digestDupAndFinalize(ctx, null, &digest_buf);
@@ -1038,6 +1062,7 @@ pub fn builtinOpenSSLDigestHexdigest(vm: *VM, receiver: Value, args: []Value, _:
 
 pub fn builtinOpenSSLDigestHexdigestBang(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
+    _ = try digestAlgorithmForReceiver(vm, receiver);
     const ctx = digestCtxFromReceiver(receiver);
     var digest_buf: [64]u8 = undefined;
     const len = try digestFinalizeAndReinit(ctx, &digest_buf);
@@ -1046,6 +1071,7 @@ pub fn builtinOpenSSLDigestHexdigestBang(vm: *VM, receiver: Value, args: []Value
 
 pub fn builtinOpenSSLDigestBase64digest(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
+    _ = try digestAlgorithmForReceiver(vm, receiver);
     const ctx = digestCtxFromReceiver(receiver);
     var digest_buf: [64]u8 = undefined;
     const len = try digestDupAndFinalize(ctx, null, &digest_buf);

@@ -7,22 +7,44 @@ def Digest(name)
 end
 
 module Digest
+  module Instance
+    def update(string)
+      raise RuntimeError, "#{self.class} does not implement update()"
+    end
+    alias << update
+
+    def new
+      clone.reset
+    end
+
+    def hexdigest(*args)
+      digest(*args).unpack1("H*")
+    end
+
+    def base64digest(*args)
+      [digest(*args)].pack("m0")
+    end
+  end
+
   class Base < OpenSSL::Digest
+    include Instance
+    define_method :update, OpenSSL::Digest.instance_method(:update)
+    alias << update
     class << self
       def file(name, *args)
         new(*args).file(name)
       end
 
-      def digest(data)
-        new(data).digest
+      def digest(data, *args)
+        new(*args).digest(data)
       end
 
-      def hexdigest(data)
-        new(data).hexdigest
+      def hexdigest(data, *args)
+        new(*args).hexdigest(data)
       end
 
-      def base64digest(data)
-        new(data).base64digest
+      def base64digest(data, *args)
+        new(*args).base64digest(data)
       end
     end
 
@@ -45,6 +67,19 @@ module Digest
   class SHA1 < Base
     def initialize(data = nil)
       data.nil? ? super("SHA1") : super("SHA1", data)
+    end
+  end
+
+  class SHA2 < Base
+    def initialize(bit_length = 256)
+      algorithm = case bit_length
+      when 256 then "SHA256"
+      when 384 then "SHA384"
+      when 512 then "SHA512"
+      else
+        raise ArgumentError, "unsupported bit length: #{bit_length}"
+      end
+      super(algorithm)
     end
   end
 
