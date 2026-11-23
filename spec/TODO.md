@@ -3957,8 +3957,8 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] library/time/iso8601_spec.rb
 - [x] library/time/rfc2822_spec.rb
 - [x] library/time/rfc822_spec.rb
-- [ ] library/time/to_time_spec.rb
-- [ ] library/time/xmlschema_spec.rb
+- [x] library/time/to_time_spec.rb
+- [x] library/time/xmlschema_spec.rb
 
 ### library/timeout
 - [x] library/timeout/error_spec.rb

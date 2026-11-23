@@ -336,3 +336,27 @@ test "Marshal.load restores marshaled Time values" {
     try std.testing.expectEqualStrings("2024-06-15 12:34:56 UTC", items[0].toStringObject().str);
     try std.testing.expectEqual(true, items[1].toBool());
 }
+
+test "Time constructors normalize leap seconds and reject out-of-range seconds" {
+    const result = try evalCode(
+        \\constructors = [
+        \\  ->(second) { Time.utc(1990, 12, 31, 23, 59, second) },
+        \\  ->(second) { Time.local(1990, 12, 31, 23, 59, second) },
+        \\  ->(second) { Time.new(1990, 12, 31, 23, 59, second, "+00:00") }
+        \\]
+        \\constructors.all? do |constructor|
+        \\  time = constructor.call(Rational(121, 2))
+        \\  normalized = [time.year, time.month, time.day, time.hour, time.min, time.sec, time.subsec] == [1991, 1, 1, 0, 0, 0, Rational(1, 2)]
+        \\  rejected = [-1, 61].all? do |second|
+        \\    begin
+        \\      constructor.call(second)
+        \\      false
+        \\    rescue ArgumentError
+        \\      true
+        \\    end
+        \\  end
+        \\  normalized && rejected
+        \\end
+    );
+    try std.testing.expectEqual(true, result.toBool());
+}

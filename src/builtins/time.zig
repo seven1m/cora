@@ -554,7 +554,8 @@ fn validateUtcComponents(vm: *VM, year: Value, month: i64, day: i64, hour: i64, 
     if (day < 1 or day > max_day) {
         return vm.raiseExceptionFmt(vm.argument_error_class, "invalid day", .{});
     }
-    if (hour < 0 or hour > 23 or minute < 0 or minute > 59 or second < 0 or second > 59) {
+    // A leap second is valid input; epoch arithmetic normalizes it to the next minute.
+    if (hour < 0 or hour > 23 or minute < 0 or minute > 59 or second < 0 or second > 60) {
         return vm.raiseExceptionFmt(vm.argument_error_class, "invalid time", .{});
     }
 }
@@ -590,7 +591,7 @@ fn parseMarshalDumpedUtcNanoseconds(vm: *VM, raw: []const u8) VMError!?Value {
 
     if (month < 1 or month > 12) return null;
     if (day < 1 or day > try daysInMonth(vm, Value.integer(year), @intCast(month))) return null;
-    if (hour > 23 or minute > 59 or second > 59) return null;
+    if (hour > 23 or minute > 59 or second > 60) return null;
 
     return try epochNanosecondsFromUtcComponents(vm, Value.integer(year), month, day, hour, minute, second, microsecond * 1000);
 }
@@ -1184,7 +1185,7 @@ pub fn builtinTimeNew(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMErro
         const second_exact = try coerceExactNumeric(vm, args[5]);
         const second_whole = try exactFloorDivByInteger(vm, second_exact, 1);
         if ((try vm.compareIntegerValues(second_whole, Value.integer(0))) == .lt or
-            (try vm.compareIntegerValues(second_whole, Value.integer(59))) == .gt)
+            (try vm.compareIntegerValues(second_whole, Value.integer(60))) == .gt)
         {
             return vm.raiseExceptionFmt(vm.argument_error_class, "invalid time", .{});
         }
@@ -1228,9 +1229,8 @@ pub fn builtinTimeNew(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMErro
         if ((try exactCompare(vm, zone_offset, offset_integer)) != .eq) {
             return vm.raiseExceptionFmt(vm.argument_error_class, "utc_offset must be an exact number", .{});
         }
-        offset_nanos = if (offset_integer.isInteger()) offset_integer.toInteger() else
-            offset_integer.toBigIntegerObject().value.toInt(i64) catch
-                return vm.raiseExceptionFmt(vm.argument_error_class, "utc_offset out of range", .{});
+        offset_nanos = if (offset_integer.isInteger()) offset_integer.toInteger() else offset_integer.toBigIntegerObject().value.toInt(i64) catch
+            return vm.raiseExceptionFmt(vm.argument_error_class, "utc_offset out of range", .{});
         if (offset_nanos <= -86400 * nanos_per_second or offset_nanos >= 86400 * nanos_per_second) {
             return vm.raiseExceptionFmt(vm.argument_error_class, "utc_offset out of range", .{});
         }
@@ -1299,9 +1299,8 @@ fn applyZoneToInstant(vm: *VM, class_obj: *value.ClassObject, result: Value, zon
     if ((try exactCompare(vm, offset_value, offset_integer)) != .eq) {
         return vm.raiseExceptionFmt(vm.argument_error_class, "utc_offset must be an exact number", .{});
     }
-    const offset_nanos = if (offset_integer.isInteger()) offset_integer.toInteger() else
-        offset_integer.toBigIntegerObject().value.toInt(i64) catch
-            return vm.raiseExceptionFmt(vm.argument_error_class, "utc_offset out of range", .{});
+    const offset_nanos = if (offset_integer.isInteger()) offset_integer.toInteger() else offset_integer.toBigIntegerObject().value.toInt(i64) catch
+        return vm.raiseExceptionFmt(vm.argument_error_class, "utc_offset out of range", .{});
     if (offset_nanos <= -86400 * nanos_per_second or offset_nanos >= 86400 * nanos_per_second) {
         return vm.raiseExceptionFmt(vm.argument_error_class, "utc_offset out of range", .{});
     }
