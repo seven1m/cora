@@ -147,3 +147,7 @@ Use `VM.singletonClassForDefinition` when defining a singleton method. It checks
 - For Ruby `!` methods, use a `Bang` suffix in the Zig handler name, for example `builtinStringUpcaseBang`.
 - For Ruby `?` methods, prefer descriptive names without punctuation, for example `builtinStringEmpty` or `builtinKernelRespondTo`.
 - If a `?` method has a non-`?` sibling with the same stem, use a `Q` suffix to disambiguate, for example `builtinModuleInclude` and `builtinModuleIncludeQ`, or `builtinStringCasecmp` and `builtinStringCasecmpQ`.
+
+`Value.coerceToStringValue` and `VM.coerceToPathValue` accept a null error message
+to request Ruby's standard implicit String conversion error, using the actual
+candidate's type. An explicit message retains the caller's existing API wording.

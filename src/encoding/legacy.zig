@@ -50,6 +50,7 @@ pub const Id = enum {
     mac_ukraine,
     euc_kr,
     cp50221,
+    ibm037,
 };
 
 pub const count = @typeInfo(Id).@"enum".field_names.len;
@@ -133,6 +134,7 @@ pub const LegacyEncoding = struct {
             .mac_ukraine => "MAC-UKRAINE",
             .euc_kr => "EUC-KR",
             .cp50221 => "CP50221",
+            .ibm037 => "IBM037",
         };
     }
 
@@ -186,11 +188,19 @@ pub const LegacyEncoding = struct {
             .mac_ukraine => "MacUkraine",
             .euc_kr => "EUC_KR",
             .cp50221 => "CP50221",
+            .ibm037 => "IBM037",
         };
     }
 
     pub fn nextCodepoint(self: LegacyEncoding, bytes: []const u8, index: *usize) encoding.CodepointResult {
         if (index.* >= bytes.len) return .{ .valid = true, .len = 0, .codepoint = 0 };
+        // Ruby treats EBCDIC's dummy encoding as single-byte for String APIs;
+        // Unicode conversion still uses its actual iconv codec below.
+        if (self.id == .ibm037) {
+            const byte = bytes[index.*];
+            index.* += 1;
+            return .{ .valid = true, .len = 1, .codepoint = byte };
+        }
         const decoded = iconv.decodeFirst(self.iconvName(), bytes[index.*..]) orelse {
             if (self.isSingleByte()) {
                 const byte = bytes[index.*];
@@ -222,7 +232,7 @@ pub const LegacyEncoding = struct {
     }
 
     pub fn isDummy(self: LegacyEncoding) bool {
-        return self.id == .cp50221;
+        return self.id == .cp50221 or self.id == .ibm037;
     }
 
     pub fn isUnicode(_: LegacyEncoding) bool {
@@ -237,7 +247,7 @@ pub const LegacyEncoding = struct {
     }
 
     pub fn fromUnicodeCodepoint(self: LegacyEncoding, codepoint: u32, out: *[4]u8) ?usize {
-        if (codepoint <= 0x7F) {
+        if (self.id != .ibm037 and codepoint <= 0x7F) {
             out[0] = @intCast(codepoint);
             return 1;
         }
@@ -245,7 +255,7 @@ pub const LegacyEncoding = struct {
     }
 
     pub fn toUnicodeCodepoint(self: LegacyEncoding, bytes: []const u8) ?u32 {
-        if (bytes.len == 1 and bytes[0] <= 0x7F) return bytes[0];
+        if (self.id != .ibm037 and bytes.len == 1 and bytes[0] <= 0x7F) return bytes[0];
         const decoded = iconv.decodeFirst(self.iconvName(), bytes) orelse return null;
         if (decoded.consumed != bytes.len) return null;
         return decoded.codepoint;

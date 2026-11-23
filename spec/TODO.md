@@ -3038,9 +3038,9 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] library/getoptlong/terminated_spec.rb
 
 ### library/io-wait
-- [-] library/io-wait/wait_readable_spec.rb
-- [-] library/io-wait/wait_spec.rb
-- [-] library/io-wait/wait_writable_spec.rb
+- [x] library/io-wait/wait_readable_spec.rb
+- [x] library/io-wait/wait_spec.rb
+- [x] library/io-wait/wait_writable_spec.rb
 
 ### library/ipaddr
 - [ ] library/ipaddr/hton_spec.rb
@@ -3477,23 +3477,23 @@ Source baseline: ../ruby_spec compared to local spec/
 
 ### library/pathname
 - [x] library/pathname/absolute_spec.rb
-- [-] library/pathname/ascend_spec.rb
-- [ ] library/pathname/birthtime_spec.rb
-- [ ] library/pathname/case_compare_spec.rb
-- [ ] library/pathname/divide_spec.rb
-- [ ] library/pathname/empty_spec.rb
+- [x] library/pathname/ascend_spec.rb
+- [x] library/pathname/birthtime_spec.rb
+- [x] library/pathname/case_compare_spec.rb
+- [x] library/pathname/divide_spec.rb
+- [x] library/pathname/empty_spec.rb
 - [x] library/pathname/equal_value_spec.rb
-- [ ] library/pathname/glob_spec.rb
+- [x] library/pathname/glob_spec.rb
 - [x] library/pathname/hash_spec.rb
 - [x] library/pathname/inspect_spec.rb
-- [ ] library/pathname/join_spec.rb
-- [ ] library/pathname/new_spec.rb
+- [x] library/pathname/join_spec.rb
+- [x] library/pathname/new_spec.rb
 - [x] library/pathname/parent_spec.rb
 - [x] library/pathname/pathname_spec.rb
 - [x] library/pathname/plus_spec.rb
-- [ ] library/pathname/realdirpath_spec.rb
-- [ ] library/pathname/realpath_spec.rb
-- [ ] library/pathname/relative_path_from_spec.rb
+- [x] library/pathname/realdirpath_spec.rb
+- [x] library/pathname/realpath_spec.rb
+- [x] library/pathname/relative_path_from_spec.rb
 - [x] library/pathname/relative_spec.rb
 - [x] library/pathname/root_spec.rb
 - [x] library/pathname/sub_spec.rb
@@ -3937,15 +3937,15 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] library/syslog/warning_spec.rb
 
 ### library/tempfile
-- [ ] library/tempfile/_close_spec.rb
-- [ ] library/tempfile/close_spec.rb
-- [ ] library/tempfile/create_spec.rb
-- [ ] library/tempfile/delete_spec.rb
-- [ ] library/tempfile/initialize_spec.rb
+- [x] library/tempfile/_close_spec.rb
+- [x] library/tempfile/close_spec.rb
+- [x] library/tempfile/create_spec.rb
+- [x] library/tempfile/delete_spec.rb
+- [x] library/tempfile/initialize_spec.rb
 - [x] library/tempfile/length_spec.rb
-- [ ] library/tempfile/open_spec.rb
-- [ ] library/tempfile/path_spec.rb
-- [ ] library/tempfile/size_spec.rb
+- [x] library/tempfile/open_spec.rb
+- [x] library/tempfile/path_spec.rb
+- [x] library/tempfile/size_spec.rb
 - [x] library/tempfile/unlink_spec.rb
 
 ### library/thread

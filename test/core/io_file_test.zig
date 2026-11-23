@@ -1142,3 +1142,36 @@ test "StringIO encoded getc shares its byte cursor with getbyte" {
     try std.testing.expectEqual(@as(i64, 0), values[3].toInteger());
     try std.testing.expectEqual(@as(i64, 3), values[4].toInteger());
 }
+
+test "IO wait methods preserve scheduler readiness and no-event results" {
+    const result = try evalCode(
+        \\class ReadinessScheduler
+        \\  attr_accessor :ready
+        \\  def block(*); end
+        \\  def unblock(*); end
+        \\  def kernel_sleep(*); end
+        \\  def fiber_interrupt(*); end
+        \\  def io_wait(*); @ready; end
+        \\end
+        \\reader, writer = IO.pipe
+        \\scheduler = ReadinessScheduler.new
+        \\Fiber.set_scheduler(scheduler)
+        \\observed = []
+        \\Fiber.new(blocking: false) do
+        \\  scheduler.ready = IO::READABLE
+        \\  observed << reader.wait(IO::READABLE, 0)
+        \\  observed << reader.wait_readable(0).equal?(reader)
+        \\  scheduler.ready = IO::WRITABLE
+        \\  observed << writer.wait_writable(0).equal?(writer)
+        \\  scheduler.ready = false
+        \\  observed << reader.wait_readable(0)
+        \\  scheduler.ready = nil
+        \\  observed << reader.wait(IO::READABLE, 0)
+        \\end.resume
+        \\Fiber.set_scheduler(nil)
+        \\reader.close
+        \\writer.close
+        \\observed == [IO::READABLE, true, true, nil, nil]
+    );
+    try std.testing.expect(result.isTrue());
+}

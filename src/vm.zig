@@ -13113,7 +13113,7 @@ pub const VM = struct {
         return path_value.toStringObject().str;
     }
 
-    pub fn coerceToPathValue(self: *VM, arg: Value, type_error_message: []const u8) VMError!Value {
+    pub fn coerceToPathValue(self: *VM, arg: Value, type_error_message: ?[]const u8) VMError!Value {
         const maybe_candidate = try self.checkCallMethodByName(arg, "to_path", false, &[_]Value{}, null);
         const candidate = maybe_candidate orelse arg;
 

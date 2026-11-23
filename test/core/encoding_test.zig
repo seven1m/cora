@@ -574,3 +574,16 @@ test "ENV collections use locale encoding independently of default external" {
     );
     try std.testing.expectEqual(true, result.toBool());
 }
+
+test "IBM037 owns EBCDIC metadata and transcodes ASCII instead of preserving its bytes" {
+    const result = try evalCode(
+        \\encoding = Encoding.find("IBM037")
+        \\encoded = "Az0 ".encode(encoding)
+        \\encoding.equal?(Encoding.find("ebcdic-cp-us")) &&
+        \\  encoding.equal?(Encoding::IBM037) && encoding.dummy? &&
+        \\  !encoding.ascii_compatible? && encoded.valid_encoding? &&
+        \\  encoded.bytes == [193, 169, 240, 64] && encoded.ord == 193 &&
+        \\  encoded.encode("UTF-8") == "Az0 "
+    );
+    try std.testing.expect(result.isTrue());
+}

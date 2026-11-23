@@ -2,6 +2,7 @@ const std = @import("std");
 const builtin = @import("builtin");
 const enc = @import("../encoding.zig");
 const encoding_builtin = @import("encoding.zig");
+const io_builtin = @import("io.zig");
 const vm_mod = @import("../vm.zig");
 const value = @import("../value.zig");
 
@@ -1121,13 +1122,15 @@ fn fileOpenConfig(vm: *VM, args: []Value) VMError!FileOpenConfig {
     var perm: ?Value = null;
     var mode_kw: ?Value = null;
     var flags_kw: ?Value = null;
+    var binmode_kw: ?Value = null;
+    var textmode_kw: ?Value = null;
     var newline_kw: ?Value = null;
     var universal_newline_kw: ?Value = null;
     var cr_newline_kw: ?Value = null;
     var crlf_newline_kw: ?Value = null;
     try vm.consumeKeywordArgs(
-        .{ "encoding", "external_encoding", "internal_encoding", "autoclose", "path", "perm", "mode", "flags", "newline", "universal_newline", "cr_newline", "crlf_newline" },
-        .{ &encoding_kw, &external_encoding, &internal_encoding, &autoclose, &path, &perm, &mode_kw, &flags_kw, &newline_kw, &universal_newline_kw, &cr_newline_kw, &crlf_newline_kw },
+        .{ "encoding", "external_encoding", "internal_encoding", "autoclose", "path", "perm", "mode", "flags", "newline", "universal_newline", "cr_newline", "crlf_newline", "binmode", "textmode" },
+        .{ &encoding_kw, &external_encoding, &internal_encoding, &autoclose, &path, &perm, &mode_kw, &flags_kw, &newline_kw, &universal_newline_kw, &cr_newline_kw, &crlf_newline_kw, &binmode_kw, &textmode_kw },
     );
     try vm.validateKeywordArgsConsumed();
 
@@ -1168,6 +1171,10 @@ fn fileOpenConfig(vm: *VM, args: []Value) VMError!FileOpenConfig {
         );
         applyExtraModeBits(&mode, raw_flags);
     }
+
+    try io_builtin.validateTextBinaryModeKeywords(vm, mode.binary, mode.textmode, binmode_kw, textmode_kw);
+    if (binmode_kw) |keyword| mode.binary = mode.binary or keyword.isTruthy();
+    if (textmode_kw) |keyword| mode.textmode = mode.textmode or keyword.isTruthy();
 
     var config = FileOpenConfig{
         .path = coerced_path,
@@ -2989,7 +2996,7 @@ pub fn builtinFilePath(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Valu
         }
         return Value.nil();
     }
-    const path = try vm.coerceToPathValue(arg, "no implicit conversion into String");
+    const path = try vm.coerceToPathValue(arg, null);
     return vm.newStringWithEncoding(path.toStringObject().str, false, path.toStringObject().encoding);
 }
 

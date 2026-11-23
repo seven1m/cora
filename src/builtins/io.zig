@@ -1302,6 +1302,15 @@ fn requireIoReceiver(vm: *VM, receiver: Value) VMError!*IoObject {
     return vm.raiseExceptionFmt(vm.type_error_class, "receiver is not an IO", .{});
 }
 
+pub fn validateTextBinaryModeKeywords(vm: *VM, binary: bool, textmode: bool, binary_keyword: ?Value, text_keyword: ?Value) VMError!void {
+    if ((binary or textmode) and (binary_keyword != null or text_keyword != null)) {
+        return vm.raiseExceptionFmt(vm.argument_error_class, "binmode/textmode specified twice", .{});
+    }
+    if (binary_keyword != null and text_keyword != null and binary_keyword.?.isTruthy() and text_keyword.?.isTruthy()) {
+        return vm.raiseExceptionFmt(vm.argument_error_class, "both textmode and binmode specified", .{});
+    }
+}
+
 const IoOpenMode = struct {
     readable: bool,
     writable: bool,
@@ -1597,17 +1606,13 @@ pub fn builtinIoInitialize(vm: *VM, receiver: Value, args: []Value, _: ?Block) V
         encoding_keyword = null;
     }
 
-    if (parsed.mode.binary or parsed.mode.textmode) {
-        if (binmode_keyword != null or textmode_keyword != null or
-            (universal_newline_keyword != null and universal_newline_keyword.?.isTruthy()) or
+    try validateTextBinaryModeKeywords(vm, parsed.mode.binary, parsed.mode.textmode, binmode_keyword, textmode_keyword);
+    if ((parsed.mode.binary or parsed.mode.textmode) and
+        ((universal_newline_keyword != null and universal_newline_keyword.?.isTruthy()) or
             (cr_newline_keyword != null and cr_newline_keyword.?.isTruthy()) or
-            (crlf_newline_keyword != null and crlf_newline_keyword.?.isTruthy()))
-        {
-            return vm.raiseExceptionFmt(vm.argument_error_class, "binmode/textmode specified twice", .{});
-        }
-    }
-    if (binmode_keyword != null and textmode_keyword != null and binmode_keyword.?.isTruthy() and textmode_keyword.?.isTruthy()) {
-        return vm.raiseExceptionFmt(vm.argument_error_class, "both textmode and binmode specified", .{});
+            (crlf_newline_keyword != null and crlf_newline_keyword.?.isTruthy())))
+    {
+        return vm.raiseExceptionFmt(vm.argument_error_class, "binmode/textmode specified twice", .{});
     }
     if (parsed.mode.binary and ((universal_newline_keyword != null and universal_newline_keyword.?.isTruthy()) or
         (cr_newline_keyword != null and cr_newline_keyword.?.isTruthy()) or
@@ -1885,6 +1890,18 @@ fn waitForIo(vm: *VM, io: *IoObject, events: i16, timeout_ms: i32, include_hup: 
         thread.state = .sleeping;
         try vm.threadYield();
     }
+}
+
+fn waitForIoWithScheduler(vm: *VM, receiver: Value, io: *IoObject, events: i16, timeout: Value, timeout_ms: i32, include_hup: bool) VMError!i16 {
+    if (vm.currentFiberScheduler()) |scheduler| {
+        var args = [_]Value{ receiver, Value.integer(events), timeout };
+        const result = try vm.callMethodByName(scheduler, "io_wait", &args, null);
+        if (!result.isTruthy()) return 0;
+        const mask = try result.coerceToI64ViaToInt(vm, "no implicit conversion into Integer", "to_int did not return Integer", "integer out of range");
+        const flags: u16 = @truncate(@as(u64, @bitCast(mask)));
+        return @bitCast(flags & @as(u16, @bitCast(events)));
+    }
+    return waitForIo(vm, io, events, timeout_ms, include_hup);
 }
 
 pub fn waitReadable(vm: *VM, io: *IoObject, timeout_ms: i32) VMError!bool {
@@ -2821,9 +2838,10 @@ pub fn builtinIoWaitReadable(vm: *VM, receiver: Value, args: []Value, _: ?Block)
     const io = try requireIoReceiver(vm, receiver);
     try ensureIoReadable(vm, io);
 
-    const timeout_ms = if (args.len == 1) try timeoutArgToPollMilliseconds(vm, args[0]) else -1;
+    const timeout = if (args.len == 1) args[0] else Value.nil();
+    const timeout_ms = try timeoutArgToPollMilliseconds(vm, timeout);
     if (pendingIoBytes(io) > 0) return receiver;
-    return if (try waitReadable(vm, io, timeout_ms)) receiver else Value.nil();
+    return if (try waitForIoWithScheduler(vm, receiver, io, std.posix.POLL.IN, timeout, timeout_ms, true) != 0) receiver else Value.nil();
 }
 
 pub fn builtinIoWaitWritable(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
@@ -2831,8 +2849,9 @@ pub fn builtinIoWaitWritable(vm: *VM, receiver: Value, args: []Value, _: ?Block)
     const io = try requireIoReceiver(vm, receiver);
     try ensureIoWritable(vm, io);
 
-    const timeout_ms = if (args.len == 1) try timeoutArgToPollMilliseconds(vm, args[0]) else -1;
-    return if (try waitWritable(vm, io, timeout_ms)) receiver else Value.nil();
+    const timeout = if (args.len == 1) args[0] else Value.nil();
+    const timeout_ms = try timeoutArgToPollMilliseconds(vm, timeout);
+    return if (try waitForIoWithScheduler(vm, receiver, io, std.posix.POLL.OUT, timeout, timeout_ms, false) != 0) receiver else Value.nil();
 }
 
 pub fn builtinIoWait(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
@@ -2871,7 +2890,7 @@ pub fn builtinIoWait(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError
         return if (return_io) Value.boolean(true) else Value.integer(std.posix.POLL.IN);
     }
     const timeout_ms = try timeoutArgToPollMilliseconds(vm, timeout);
-    const ready = try waitForIo(vm, io, events, timeout_ms, (events & std.posix.POLL.IN) != 0);
+    const ready = try waitForIoWithScheduler(vm, receiver, io, events, timeout, timeout_ms, (events & std.posix.POLL.IN) != 0);
     if (ready == 0) return Value.nil();
     return if (return_io) receiver else Value.integer(ready);
 }

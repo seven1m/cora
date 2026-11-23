@@ -1,4 +1,23 @@
 class Pathname
+  include Comparable
+  def self.glob(pattern, flags = 0, base: nil, &block)
+    paths = Dir.glob(pattern, flags, base: base).map { |path| new(path) }
+    return paths unless block
+
+    paths.each(&block)
+    nil
+  end
+
+  def glob(pattern, flags = 0, &block)
+    paths = Dir.glob(pattern, flags, base: @path).map do |path|
+      self.class.new(File.join(@path, path))
+    end
+    return paths unless block
+
+    paths.each(&block)
+    nil
+  end
+
   def self.getwd
     new(Dir.getwd)
   end
@@ -26,6 +45,13 @@ class Pathname
   end
 
   alias eql? ==
+  alias === ==
+
+  def <=>(other)
+    return nil unless other.is_a?(Pathname)
+
+    @path.tr(File::SEPARATOR, "\0") <=> other.to_path.tr(File::SEPARATOR, "\0")
+  end
 
   def hash
     @path.hash
@@ -74,15 +100,48 @@ class Pathname
   end
 
   def join(*args)
-    Pathname.new(File.join(@path, *args))
+    return self if args.empty?
+
+    result = args.pop
+    result = Pathname.new(result) unless result.is_a?(Pathname)
+    return result if result.absolute?
+
+    args.reverse_each do |path|
+      path = Pathname.new(path) unless path.is_a?(Pathname)
+      result = path + result
+      return result if result.absolute?
+    end
+    self + result
   end
 
   def +(other)
-    other_path = Pathname.new(other).to_path
-    return Pathname.new(other_path) if other_path.start_with?(File::SEPARATOR)
+    suffix = other.is_a?(Pathname) ? other.to_path : Pathname.new(other).to_path
+    return Pathname.new(suffix) if suffix.start_with?(File::SEPARATOR)
 
-    join(other_path)
+    base = normalize_join_base(@path)
+    loop do
+      if suffix == "." || suffix.start_with?("./")
+        suffix = suffix == "." ? "" : suffix[2..]
+      elsif suffix == ".." || suffix.start_with?("../")
+        break if base.empty? || File.basename(base) == ".."
+
+        base = normalize_join_base(File.dirname(base)) unless base.match?(/\A\/+\z/)
+        suffix = suffix == ".." ? "" : suffix[3..]
+      else
+        break
+      end
+      suffix = suffix.sub(/\A\/+/, "")
+    end
+    path = if suffix.empty?
+      base.empty? ? "." : base
+    elsif base.empty?
+      suffix
+    else
+      File.join(base, suffix)
+    end
+    Pathname.new(path)
   end
+  alias / +
 
   def exist?
     File.exist?(@path)
@@ -114,6 +173,14 @@ class Pathname
 
   def executable?
     File.executable?(@path)
+  end
+
+  def empty?
+    directory? ? Dir.empty?(@path) : File.zero?(@path)
+  end
+
+  def birthtime
+    stat.birthtime
   end
 
   def size
@@ -199,28 +266,54 @@ class Pathname
   end
 
   def relative_path_from(base)
-    base = base.to_s if base.is_a?(Pathname)
-    base = base.to_str
+    base = Pathname.new(base) unless base.is_a?(Pathname)
+    raise ArgumentError, "different prefix" unless absolute? == base.absolute?
 
-    # Split paths into components
-    src_parts = @path.sub(/\/+\z/, "").split("/")
-    dst_parts = base.sub(/\/+\z/, "").split("/")
-
-    # Remove common prefix
-    common = 0
-    while common < src_parts.length && common < dst_parts.length && src_parts[common] == dst_parts[common]
-      common += 1
+    destination = clean_components(@path)
+    origin = clean_components(base.to_path)
+    while !destination.empty? && !origin.empty? && destination.first == origin.first
+      destination.shift
+      origin.shift
     end
+    raise ArgumentError, "base_directory has .." if origin.include?("..")
 
-    # Build result: "../" for each remaining component in base, then remaining in path
-    result = []
-    (dst_parts.length - common).times { result << ".." }
-    src_parts[common..].each { |part| result << part }
-
-    result = result.join("/")
-    result = "." if result.empty?
-    Pathname.new(result)
+    components = Array.new(origin.length, "..") + destination
+    Pathname.new(components.empty? ? "." : components.join(File::SEPARATOR))
   end
+
+  private
+
+  def normalize_join_base(path)
+    path = path.sub(/\/+\z/, "") unless path.match?(/\A\/+\z/)
+    while File.basename(path) == "."
+      parent = File.dirname(path)
+      return "" if parent == path
+
+      path = parent
+    end
+    path
+  end
+
+  def clean_components(path)
+    components = []
+    absolute = path.start_with?(File::SEPARATOR)
+    path.split(File::SEPARATOR).each do |part|
+      case part
+      when "", "."
+        next
+      when ".."
+        if !components.empty? && components.last != ".."
+          components.pop
+        elsif !absolute
+          components << part
+        end
+      else
+        components << part
+      end
+    end
+    components
+  end
+
 end
 
 module Kernel

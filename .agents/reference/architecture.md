@@ -198,8 +198,11 @@ Callbacks may acquire new locks; cleanup drains those locks too. Callback errors
 do not prevent the remaining released locks from notifying their waiters.
 Mutex#sleep dispatches to scheduler `kernel_sleep` in a nonblocking fiber and
 reacquires the lock before propagating any pending interrupt or sleep-hook error.
-Kernel sleep and I/O waits still use the native thread scheduler; dispatch to Ruby
-Fiber scheduler sleep and I/O wait hooks is not connected yet.
+`IO#wait`, `wait_readable`, and `wait_writable` dispatch the scheduler's `io_wait`
+for nonblocking Fibers, retaining the original Ruby timeout and requested event
+mask. Blocking Fibers and Threads without a scheduler use native polling. Kernel
+sleep and the lower-level I/O read/write paths still use the native thread
+scheduler.
 
 ## Exception Handling
 
@@ -268,3 +271,12 @@ relation; graph bookkeeping compares nodes by identity. Flattening tracks the
 active ancestry by identity and rejects cycles before modifying the receiver.
 After `set` is required, native `inspect`/`to_s` share a MethodEntry and the VM's
 per-context recursion guard, reusing Array inspection and String encoding helpers.
+
+## Pathname and File Options
+
+Pathname joins simplify only the boundary between paths, preserving interior
+components and absolute roots; relative paths normalize components without
+consulting the filesystem. Globbing delegates to Dir's shared implementation,
+and birth times come from File::Stat. File and IO share binary/text-mode keyword
+validation. IBM037 is a distinct dummy, ASCII-incompatible EBCDIC codec in the
+legacy encoding registry, with iconv transcoding.

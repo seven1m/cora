@@ -40,6 +40,8 @@ const EncodingLookup = enum {
 const LegacyEncodingId = enc.LegacyEncodingId;
 
 const legacy_encoding_name_map = std.StaticStringMap(LegacyEncodingId).initComptime(.{
+    .{ "IBM037", .ibm037 },
+    .{ "EBCDIC_CP_US", .ibm037 },
     .{ "CP50221", .cp50221 },
     .{ "ISO_8859_2", .iso_8859_2 },
     .{ "ISO8859_2", .iso_8859_2 },
