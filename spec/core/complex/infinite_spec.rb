@@ -2,9 +2,7 @@ require_relative '../../spec_helper'
 
 describe "Complex#infinite?" do
   it "returns nil if magnitude is finite" do
-    # Upstream uses (1+1i); the `1i` imaginary literal (ImaginaryNode) is not
-    # supported by the compiler yet, so use the equivalent Complex() form.
-    Complex(1, 1).infinite?.should == nil
+    (1+1i).infinite?.should == nil
   end
 
   it "returns 1 for positive infinity" do

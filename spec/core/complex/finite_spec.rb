@@ -2,9 +2,7 @@ require_relative '../../spec_helper'
 
 describe "Complex#finite?" do
   it "returns true if magnitude is finite" do
-    # Upstream uses (1+1i); the `1i` imaginary literal (ImaginaryNode) is not
-    # supported by the compiler yet, so use the equivalent Complex() form.
-    Complex(1, 1).should.finite?
+    (1+1i).should.finite?
   end
 
   it "returns false for positive infinity" do

@@ -188,6 +188,9 @@ pub fn register(vm: *VM) !void {
     const plus_sym = try vm.intern("+");
     try vm.complex_class.module.methods.put(plus_sym, value.MethodEntry.builtin(&builtinComplexPlus, .{ .exact = 1 }));
 
+    const power_sym = try vm.intern("**");
+    try vm.complex_class.module.methods.put(power_sym, value.MethodEntry.builtin(&builtinComplexPower, .{ .exact = 1 }));
+
     const multiply_sym = try vm.intern("*");
     try vm.complex_class.module.methods.put(multiply_sym, value.MethodEntry.builtin(&builtinComplexMultiply, .{ .exact = 1 }));
 
@@ -225,6 +228,10 @@ pub fn register(vm: *VM) !void {
     const singleton_rectangular_entry = value.MethodEntry.builtin(&builtinComplexRectangularSingleton, .{ .variadic = 0 });
     try complex_singleton.module.methods.put(rectangular_sym, singleton_rectangular_entry);
     try complex_singleton.module.methods.put(rect_sym, singleton_rectangular_entry);
+
+    const polar_sym = try vm.intern("polar");
+    try vm.complex_class.module.methods.put(polar_sym, value.MethodEntry.builtin(&builtinComplexPolar, .{ .exact = 0 }));
+    try complex_singleton.module.methods.put(polar_sym, value.MethodEntry.builtin(&builtinComplexPolarSingleton, .{ .variadic = 0 }));
 
     // MRI undefines Numeric#positive? on Complex; it raises NoMethodError.
     const positive_q_sym = try vm.intern("positive?");
@@ -553,6 +560,96 @@ fn builtinComplexAbs2(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMErro
     return vm.callMethodByName(real_sq, "+", sum_arg[0..], null);
 }
 
+fn coerceAndCallComplexArithmetic(vm: *VM, receiver: Value, other: Value, op: []const u8) VMError!Value {
+    var coerce_args = [_]Value{receiver};
+    const coerced = try vm.checkCallMethodByName(other, "coerce", true, &coerce_args, null) orelse {
+        return vm.raiseExceptionFmt(vm.type_error_class, "{s} can't be coerced into Complex", .{vm.className(other)});
+    };
+    if (!coerced.isArray() or coerced.toArrayObject().elements.items.len != 2) {
+        return vm.raiseExceptionFmt(vm.type_error_class, "coerce must return [x, y]", .{});
+    }
+    const pair = coerced.toArrayObject().elements.items;
+    var args = [_]Value{pair[1]};
+    return vm.callMethodByName(pair[0], op, &args, null);
+}
+
+fn complexZero(vm: *VM, part: Value) VMError!bool {
+    return (try vm.callMethodByName(part, "zero?", &.{}, null)).isTruthy();
+}
+
+fn builtinComplexPower(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    var exponent = args[0];
+    if (exponent.isComplex()) {
+        const parts = exponent.toComplexObject();
+        if (!parts.imaginary.isFloat() and try complexZero(vm, parts.imaginary)) exponent = parts.real;
+    }
+    if (exponent.isRational()) {
+        const parts = exponent.toRationalObject();
+        if ((try vm.compareIntegerValues(parts.denominator, Value.integer(1))) == .eq) exponent = parts.numerator;
+    }
+    if (exponent.isInteger() or exponent.isBigInteger()) {
+        var n = exponent;
+        var base = receiver;
+        const one = try vm.newComplex(Value.integer(1), Value.integer(0));
+        const sign = try vm.compareIntegerValues(n, Value.integer(0));
+        if (sign == .eq) return one;
+        if (sign == .lt) {
+            var reciprocal_args = [_]Value{base};
+            base = try builtinComplexDivide(vm, one, &reciprocal_args, null);
+            n = try vm.subIntegerValues(Value.integer(0), n);
+        }
+        const base_parts = base.toComplexObject();
+        if ((try vm.compareIntegerValues(n, Value.integer(1))) == .eq) return vm.newComplex(base_parts.real, base_parts.imaginary);
+        var power_args = [_]Value{n};
+        if (try complexZero(vm, base_parts.imaginary)) {
+            return vm.newComplex(try vm.callMethodByName(base_parts.real, "**", &power_args, null), base_parts.imaginary);
+        }
+        if (try complexZero(vm, base_parts.real)) {
+            var part = try vm.callMethodByName(base_parts.imaginary, "**", &power_args, null);
+            var modulo_args = [_]Value{Value.integer(4)};
+            const phase = (try vm.callMethodByName(n, "%", &modulo_args, null)).toInteger();
+            if (phase >= 2) part = try vm.callMethodByName(part, "-@", &.{}, null);
+            return if (@mod(phase, 2) == 0) vm.newComplex(part, base_parts.real) else vm.newComplex(base_parts.real, part);
+        }
+        var result = one;
+        while ((try vm.compareIntegerValues(n, Value.integer(0))) != .eq) {
+            const half = try vm.divTruncIntegerValues(n, Value.integer(2));
+            const twice_half = try vm.mulIntegerValues(half, Value.integer(2));
+            if ((try vm.compareIntegerValues(n, twice_half)) != .eq) {
+                var multiply_args = [_]Value{base};
+                result = try builtinComplexMultiply(vm, result, &multiply_args, null);
+            }
+            n = half;
+            if ((try vm.compareIntegerValues(n, Value.integer(0))) != .eq) {
+                var square_args = [_]Value{base};
+                base = try builtinComplexMultiply(vm, base, &square_args, null);
+            }
+        }
+        return result;
+    }
+    const parts = receiver.toComplexObject();
+    if (exponent.isComplex()) {
+        const power = exponent.toComplexObject();
+        const x = try complexPartToF64(vm, parts.real);
+        const y = try complexPartToF64(vm, parts.imaginary);
+        const a = try complexPartToF64(vm, power.real);
+        const b = try complexPartToF64(vm, power.imaginary);
+        const radius = std.math.hypot(x, y);
+        const angle = std.math.atan2(y, x);
+        return complexFromPolar(vm, try vm.newFloat(@exp(a * @log(radius) - b * angle)), try vm.newFloat(a * angle + b * @log(radius)));
+    }
+    if (vm.isClassOrSubclassOf(vm.getClass(exponent), vm.numeric_class) and
+        (try vm.callMethodByName(exponent, "real?", &.{}, null)).isTruthy())
+    {
+        const x = try complexPartToF64(vm, parts.real);
+        const y = try complexPartToF64(vm, parts.imaginary);
+        const power = try complexPartToF64(vm, exponent);
+        return complexFromPolar(vm, try vm.newFloat(std.math.pow(f64, std.math.hypot(x, y), power)), try vm.newFloat(std.math.atan2(y, x) * power));
+    }
+    return coerceAndCallComplexArithmetic(vm, receiver, exponent, "**");
+}
+
 fn builtinComplexMinus(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 1);
     const lhs = receiver.toComplexObject();
@@ -575,20 +672,7 @@ fn builtinComplexMinus(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMErr
         }
     }
 
-    var coerce_args = [_]Value{receiver};
-    const maybe_coerced = try vm.checkCallMethodByName(other, "coerce", true, coerce_args[0..], null);
-    const coerced = maybe_coerced orelse {
-        return vm.raiseExceptionFmt(vm.type_error_class, "{s} can't be coerced into Complex", .{vm.className(other)});
-    };
-    if (!coerced.isArray()) {
-        return vm.raiseExceptionFmt(vm.type_error_class, "coerce must return [x, y]", .{});
-    }
-    const coerced_items = coerced.toArrayObject().elements.items;
-    if (coerced_items.len != 2) {
-        return vm.raiseExceptionFmt(vm.type_error_class, "coerce must return [x, y]", .{});
-    }
-    var op_args = [_]Value{coerced_items[1]};
-    return vm.callMethodByName(coerced_items[0], "-", op_args[0..], null);
+    return coerceAndCallComplexArithmetic(vm, receiver, other, "-");
 }
 
 fn builtinComplexPlus(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
@@ -613,20 +697,7 @@ fn builtinComplexPlus(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMErro
         }
     }
 
-    var coerce_args = [_]Value{receiver};
-    const maybe_coerced = try vm.checkCallMethodByName(other, "coerce", true, coerce_args[0..], null);
-    const coerced = maybe_coerced orelse {
-        return vm.raiseExceptionFmt(vm.type_error_class, "{s} can't be coerced into Complex", .{vm.className(other)});
-    };
-    if (!coerced.isArray()) {
-        return vm.raiseExceptionFmt(vm.type_error_class, "coerce must return [x, y]", .{});
-    }
-    const coerced_items = coerced.toArrayObject().elements.items;
-    if (coerced_items.len != 2) {
-        return vm.raiseExceptionFmt(vm.type_error_class, "coerce must return [x, y]", .{});
-    }
-    var op_args = [_]Value{coerced_items[1]};
-    return vm.callMethodByName(coerced_items[0], "+", op_args[0..], null);
+    return coerceAndCallComplexArithmetic(vm, receiver, other, "+");
 }
 
 fn builtinComplexMultiply(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
@@ -661,20 +732,7 @@ fn builtinComplexMultiply(vm: *VM, receiver: Value, args: []Value, _: ?Block) VM
         }
     }
 
-    var coerce_args = [_]Value{receiver};
-    const maybe_coerced = try vm.checkCallMethodByName(other, "coerce", true, coerce_args[0..], null);
-    const coerced = maybe_coerced orelse {
-        return vm.raiseExceptionFmt(vm.type_error_class, "{s} can't be coerced into Complex", .{vm.className(other)});
-    };
-    if (!coerced.isArray()) {
-        return vm.raiseExceptionFmt(vm.type_error_class, "coerce must return [x, y]", .{});
-    }
-    const coerced_items = coerced.toArrayObject().elements.items;
-    if (coerced_items.len != 2) {
-        return vm.raiseExceptionFmt(vm.type_error_class, "coerce must return [x, y]", .{});
-    }
-    var op_args = [_]Value{coerced_items[1]};
-    return vm.callMethodByName(coerced_items[0], "*", op_args[0..], null);
+    return coerceAndCallComplexArithmetic(vm, receiver, other, "*");
 }
 
 fn builtinComplexDivide(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
@@ -751,20 +809,7 @@ fn builtinComplexDivide(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMEr
         }
     }
 
-    var coerce_args = [_]Value{receiver};
-    const maybe_coerced = try vm.checkCallMethodByName(other, "coerce", true, coerce_args[0..], null);
-    const coerced = maybe_coerced orelse {
-        return vm.raiseExceptionFmt(vm.type_error_class, "{s} can't be coerced into Complex", .{vm.className(other)});
-    };
-    if (!coerced.isArray()) {
-        return vm.raiseExceptionFmt(vm.type_error_class, "coerce must return [x, y]", .{});
-    }
-    const coerced_items = coerced.toArrayObject().elements.items;
-    if (coerced_items.len != 2) {
-        return vm.raiseExceptionFmt(vm.type_error_class, "coerce must return [x, y]", .{});
-    }
-    var op_args = [_]Value{coerced_items[1]};
-    return vm.callMethodByName(coerced_items[0], "quo", op_args[0..], null);
+    return coerceAndCallComplexArithmetic(vm, receiver, other, "quo");
 }
 
 fn builtinComplexAbs(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
@@ -804,9 +849,7 @@ fn builtinMathSqrt(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
             return vm.raiseExceptionFmt(vm.type_error_class, "can't convert {s} into Float", .{vm.className(arg)});
         }
         break :blk float_val.toFloatObject().val;
-    }
-    else
-        return vm.raiseExceptionFmt(vm.type_error_class, "can't convert {s} into Float", .{vm.className(arg)});
+    } else return vm.raiseExceptionFmt(vm.type_error_class, "can't convert {s} into Float", .{vm.className(arg)});
     if (f < 0.0)
         return vm.raiseExceptionFmt(vm.math_domain_error_class, "Numerical argument is out of domain - \"sqrt\"", .{});
     return vm.newFloat(std.math.sqrt(f));
@@ -828,8 +871,7 @@ fn builtinMathCbrt(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
             return vm.raiseExceptionFmt(vm.type_error_class, "can't convert {s} into Float", .{vm.className(arg)});
         }
         break :blk float_val.toFloatObject().val;
-    } else
-        return vm.raiseExceptionFmt(vm.type_error_class, "can't convert {s} into Float", .{vm.className(arg)});
+    } else return vm.raiseExceptionFmt(vm.type_error_class, "can't convert {s} into Float", .{vm.className(arg)});
     return vm.newFloat(std.math.cbrt(f));
 }
 
@@ -849,8 +891,7 @@ fn builtinMathExp(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
             return vm.raiseExceptionFmt(vm.type_error_class, "can't convert {s} into Float", .{vm.className(arg)});
         }
         break :blk float_val.toFloatObject().val;
-    } else
-        return vm.raiseExceptionFmt(vm.type_error_class, "can't convert {s} into Float", .{vm.className(arg)});
+    } else return vm.raiseExceptionFmt(vm.type_error_class, "can't convert {s} into Float", .{vm.className(arg)});
     return vm.newFloat(std.math.exp(f));
 }
 
@@ -870,8 +911,7 @@ fn builtinMathSinh(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
             return vm.raiseExceptionFmt(vm.type_error_class, "can't convert {s} into Float", .{vm.className(arg)});
         }
         break :blk float_val.toFloatObject().val;
-    } else
-        return vm.raiseExceptionFmt(vm.type_error_class, "can't convert {s} into Float", .{vm.className(arg)});
+    } else return vm.raiseExceptionFmt(vm.type_error_class, "can't convert {s} into Float", .{vm.className(arg)});
     return vm.newFloat(std.math.sinh(f));
 }
 
@@ -891,8 +931,7 @@ fn builtinMathTanh(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
             return vm.raiseExceptionFmt(vm.type_error_class, "can't convert {s} into Float", .{vm.className(arg)});
         }
         break :blk float_val.toFloatObject().val;
-    } else
-        return vm.raiseExceptionFmt(vm.type_error_class, "can't convert {s} into Float", .{vm.className(arg)});
+    } else return vm.raiseExceptionFmt(vm.type_error_class, "can't convert {s} into Float", .{vm.className(arg)});
     return vm.newFloat(std.math.tanh(f));
 }
 
@@ -912,8 +951,7 @@ fn builtinMathTan(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
             return vm.raiseExceptionFmt(vm.type_error_class, "can't convert {s} into Float", .{vm.className(arg)});
         }
         break :blk float_val.toFloatObject().val;
-    }     else
-        return vm.raiseExceptionFmt(vm.type_error_class, "can't convert {s} into Float", .{vm.className(arg)});
+    } else return vm.raiseExceptionFmt(vm.type_error_class, "can't convert {s} into Float", .{vm.className(arg)});
     return vm.newFloat(std.math.tan(f));
 }
 
@@ -933,8 +971,7 @@ fn builtinMathSin(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
             return vm.raiseExceptionFmt(vm.type_error_class, "can't convert {s} into Float", .{vm.className(arg)});
         }
         break :blk float_val.toFloatObject().val;
-    } else
-        return vm.raiseExceptionFmt(vm.type_error_class, "can't convert {s} into Float", .{vm.className(arg)});
+    } else return vm.raiseExceptionFmt(vm.type_error_class, "can't convert {s} into Float", .{vm.className(arg)});
     return vm.newFloat(std.math.sin(f));
 }
 
@@ -954,8 +991,7 @@ fn builtinMathAtan(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
             return vm.raiseExceptionFmt(vm.type_error_class, "can't convert {s} into Float", .{vm.className(arg)});
         }
         break :blk float_val.toFloatObject().val;
-    } else
-        return vm.raiseExceptionFmt(vm.type_error_class, "can't convert {s} into Float", .{vm.className(arg)});
+    } else return vm.raiseExceptionFmt(vm.type_error_class, "can't convert {s} into Float", .{vm.className(arg)});
     return vm.newFloat(std.math.atan(f));
 }
 
@@ -975,8 +1011,7 @@ fn builtinMathAcos(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
             return vm.raiseExceptionFmt(vm.type_error_class, "can't convert {s} into Float", .{vm.className(arg)});
         }
         break :blk float_val.toFloatObject().val;
-    } else
-        return vm.raiseExceptionFmt(vm.type_error_class, "can't convert {s} into Float", .{vm.className(arg)});
+    } else return vm.raiseExceptionFmt(vm.type_error_class, "can't convert {s} into Float", .{vm.className(arg)});
     if (f < -1.0 or f > 1.0)
         return vm.raiseExceptionFmt(vm.math_domain_error_class, "Numerical argument is out of domain - \"acos\"", .{});
     return vm.newFloat(std.math.acos(f));
@@ -998,8 +1033,7 @@ fn builtinMathAsin(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
             return vm.raiseExceptionFmt(vm.type_error_class, "can't convert {s} into Float", .{vm.className(arg)});
         }
         break :blk float_val.toFloatObject().val;
-    } else
-        return vm.raiseExceptionFmt(vm.type_error_class, "can't convert {s} into Float", .{vm.className(arg)});
+    } else return vm.raiseExceptionFmt(vm.type_error_class, "can't convert {s} into Float", .{vm.className(arg)});
     if (f < -1.0 or f > 1.0)
         return vm.raiseExceptionFmt(vm.math_domain_error_class, "Numerical argument is out of domain - \"asin\"", .{});
     return vm.newFloat(std.math.asin(f));
@@ -1021,8 +1055,7 @@ fn builtinMathCosh(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
             return vm.raiseExceptionFmt(vm.type_error_class, "can't convert {s} into Float", .{vm.className(arg)});
         }
         break :blk float_val.toFloatObject().val;
-    } else
-        return vm.raiseExceptionFmt(vm.type_error_class, "can't convert {s} into Float", .{vm.className(arg)});
+    } else return vm.raiseExceptionFmt(vm.type_error_class, "can't convert {s} into Float", .{vm.className(arg)});
     return vm.newFloat(std.math.cosh(f));
 }
 
@@ -1042,8 +1075,7 @@ fn builtinMathCos(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
             return vm.raiseExceptionFmt(vm.type_error_class, "can't convert {s} into Float", .{vm.className(arg)});
         }
         break :blk float_val.toFloatObject().val;
-    } else
-        return vm.raiseExceptionFmt(vm.type_error_class, "can't convert {s} into Float", .{vm.className(arg)});
+    } else return vm.raiseExceptionFmt(vm.type_error_class, "can't convert {s} into Float", .{vm.className(arg)});
     return vm.newFloat(std.math.cos(f));
 }
 
@@ -1063,8 +1095,7 @@ fn builtinMathAcosh(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
             return vm.raiseExceptionFmt(vm.type_error_class, "can't convert {s} into Float", .{vm.className(arg)});
         }
         break :blk float_val.toFloatObject().val;
-    } else
-        return vm.raiseExceptionFmt(vm.type_error_class, "can't convert {s} into Float", .{vm.className(arg)});
+    } else return vm.raiseExceptionFmt(vm.type_error_class, "can't convert {s} into Float", .{vm.className(arg)});
     if (f < 1.0)
         return vm.raiseExceptionFmt(vm.math_domain_error_class, "Numerical argument is out of domain - \"acosh\"", .{});
     return vm.newFloat(std.math.acosh(f));
@@ -1086,8 +1117,7 @@ fn builtinMathAsinh(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
             return vm.raiseExceptionFmt(vm.type_error_class, "can't convert {s} into Float", .{vm.className(arg)});
         }
         break :blk float_val.toFloatObject().val;
-    } else
-        return vm.raiseExceptionFmt(vm.type_error_class, "can't convert {s} into Float", .{vm.className(arg)});
+    } else return vm.raiseExceptionFmt(vm.type_error_class, "can't convert {s} into Float", .{vm.className(arg)});
     return vm.newFloat(std.math.asinh(f));
 }
 
@@ -1108,8 +1138,7 @@ fn builtinMathAtan2(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
                 return vm.raiseExceptionFmt(vm.type_error_class, "can't convert {s} into Float", .{vm.className(arg)});
             }
             break :blk float_val.toFloatObject().val;
-        } else
-            return vm.raiseExceptionFmt(vm.type_error_class, "can't convert {s} into Float", .{vm.className(arg)});
+        } else return vm.raiseExceptionFmt(vm.type_error_class, "can't convert {s} into Float", .{vm.className(arg)});
     }
     return vm.newFloat(std.math.atan2(fs[0], fs[1]));
 }
@@ -1130,8 +1159,7 @@ fn builtinMathAtanh(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
             return vm.raiseExceptionFmt(vm.type_error_class, "can't convert {s} into Float", .{vm.className(arg)});
         }
         break :blk float_val.toFloatObject().val;
-    } else
-        return vm.raiseExceptionFmt(vm.type_error_class, "can't convert {s} into Float", .{vm.className(arg)});
+    } else return vm.raiseExceptionFmt(vm.type_error_class, "can't convert {s} into Float", .{vm.className(arg)});
     if (@abs(f) > 1.0)
         return vm.raiseExceptionFmt(vm.math_domain_error_class, "Numerical argument is out of domain - \"atanh\"", .{});
     return vm.newFloat(std.math.atanh(f));
@@ -1154,8 +1182,7 @@ fn builtinMathHypot(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
                 return vm.raiseExceptionFmt(vm.type_error_class, "can't convert {s} into Float", .{vm.className(arg)});
             }
             break :blk float_val.toFloatObject().val;
-        } else
-            return vm.raiseExceptionFmt(vm.type_error_class, "can't convert {s} into Float", .{vm.className(arg)});
+        } else return vm.raiseExceptionFmt(vm.type_error_class, "can't convert {s} into Float", .{vm.className(arg)});
     }
     return vm.newFloat(std.math.hypot(fs[0], fs[1]));
 }
@@ -1176,8 +1203,7 @@ fn builtinMathLog10(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
             return vm.raiseExceptionFmt(vm.type_error_class, "can't convert {s} into Float", .{vm.className(arg)});
         }
         break :blk float_val.toFloatObject().val;
-    } else
-        return vm.raiseExceptionFmt(vm.type_error_class, "can't convert {s} into Float", .{vm.className(arg)});
+    } else return vm.raiseExceptionFmt(vm.type_error_class, "can't convert {s} into Float", .{vm.className(arg)});
     if (f < 0.0)
         return vm.raiseExceptionFmt(vm.math_domain_error_class, "Numerical argument is out of domain - \"log10\"", .{});
     return vm.newFloat(std.math.log10(f));
@@ -1199,8 +1225,7 @@ fn builtinMathLog2(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
             return vm.raiseExceptionFmt(vm.type_error_class, "can't convert {s} into Float", .{vm.className(arg)});
         }
         break :blk float_val.toFloatObject().val;
-    } else
-        return vm.raiseExceptionFmt(vm.type_error_class, "can't convert {s} into Float", .{vm.className(arg)});
+    } else return vm.raiseExceptionFmt(vm.type_error_class, "can't convert {s} into Float", .{vm.className(arg)});
     if (f < 0.0)
         return vm.raiseExceptionFmt(vm.math_domain_error_class, "Numerical argument is out of domain - \"log2\"", .{});
     if (std.math.isInf(f) and (arg.isInteger() or arg.isBigInteger())) {
@@ -1239,8 +1264,7 @@ fn builtinMathLog(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
                 return vm.raiseExceptionFmt(vm.type_error_class, "can't convert {s} into Float", .{vm.className(arg)});
             }
             break :blk float_val.toFloatObject().val;
-        } else
-            return vm.raiseExceptionFmt(vm.type_error_class, "can't convert {s} into Float", .{vm.className(arg)});
+        } else return vm.raiseExceptionFmt(vm.type_error_class, "can't convert {s} into Float", .{vm.className(arg)});
     }
     if (fs[0] < 0.0)
         return vm.raiseExceptionFmt(vm.math_domain_error_class, "Numerical argument is out of domain - \"log\"", .{});
@@ -1265,8 +1289,7 @@ fn builtinMathFrexp(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
             return vm.raiseExceptionFmt(vm.type_error_class, "can't convert {s} into Float", .{vm.className(arg)});
         }
         break :blk float_val.toFloatObject().val;
-    } else
-        return vm.raiseExceptionFmt(vm.type_error_class, "can't convert {s} into Float", .{vm.className(arg)});
+    } else return vm.raiseExceptionFmt(vm.type_error_class, "can't convert {s} into Float", .{vm.className(arg)});
     const parts = std.math.frexp(f);
     const result = try vm.createArray();
     result.elements.append(vm.gc_allocator, try vm.newFloat(parts.significand)) catch return error.Fatal;
@@ -1292,8 +1315,7 @@ fn builtinMathExpm1(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
             return vm.raiseExceptionFmt(vm.type_error_class, "can't convert {s} into Float", .{vm.className(arg)});
         }
         break :blk float_val.toFloatObject().val;
-    } else
-        return vm.raiseExceptionFmt(vm.type_error_class, "can't convert {s} into Float", .{vm.className(arg)});
+    } else return vm.raiseExceptionFmt(vm.type_error_class, "can't convert {s} into Float", .{vm.className(arg)});
     return vm.newFloat(std.math.expm1(f));
 }
 
@@ -1315,8 +1337,7 @@ fn builtinMathGamma(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
             return vm.raiseExceptionFmt(vm.type_error_class, "can't convert {s} into Float", .{vm.className(arg)});
         }
         break :blk float_val.toFloatObject().val;
-    } else
-        return vm.raiseExceptionFmt(vm.type_error_class, "can't convert {s} into Float", .{vm.className(arg)});
+    } else return vm.raiseExceptionFmt(vm.type_error_class, "can't convert {s} into Float", .{vm.className(arg)});
     // Gamma has poles at negative integers (and -infinity compares equal to
     // its own truncation); MRI raises DomainError instead of returning NaN.
     if (f < 0.0 and f == @trunc(f))
@@ -1352,8 +1373,7 @@ fn builtinMathLog1p(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
             return vm.raiseExceptionFmt(vm.type_error_class, "can't convert {s} into Float", .{vm.className(arg)});
         }
         break :blk float_val.toFloatObject().val;
-    } else
-        return vm.raiseExceptionFmt(vm.type_error_class, "can't convert {s} into Float", .{vm.className(arg)});
+    } else return vm.raiseExceptionFmt(vm.type_error_class, "can't convert {s} into Float", .{vm.className(arg)});
     if (f < -1.0)
         return vm.raiseExceptionFmt(vm.math_domain_error_class, "Numerical argument is out of domain - log1p", .{});
     return vm.newFloat(std.math.log1p(f));
@@ -1377,8 +1397,7 @@ fn builtinMathLdexp(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
             return vm.raiseExceptionFmt(vm.type_error_class, "can't convert {s} into Float", .{vm.className(arg)});
         }
         break :blk float_val.toFloatObject().val;
-    } else
-        return vm.raiseExceptionFmt(vm.type_error_class, "can't convert {s} into Float", .{vm.className(arg)});
+    } else return vm.raiseExceptionFmt(vm.type_error_class, "can't convert {s} into Float", .{vm.className(arg)});
     // The exponent follows Integer() semantics: Float truncates via to_int
     // (NaN/Infinity raise RangeError there), other objects convert via to_int.
     const exp_val = try args[1].coerceToIntegerValue(
@@ -1415,8 +1434,7 @@ fn builtinMathLgamma(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value 
             return vm.raiseExceptionFmt(vm.type_error_class, "can't convert {s} into Float", .{vm.className(arg)});
         }
         break :blk float_val.toFloatObject().val;
-    } else
-        return vm.raiseExceptionFmt(vm.type_error_class, "can't convert {s} into Float", .{vm.className(arg)});
+    } else return vm.raiseExceptionFmt(vm.type_error_class, "can't convert {s} into Float", .{vm.className(arg)});
     // MRI raises DomainError for -Infinity; +Infinity and NaN pass through
     // with a sign of 1.
     if (std.math.isNegativeInf(f))
@@ -1469,8 +1487,7 @@ fn builtinMathErf(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
             return vm.raiseExceptionFmt(vm.type_error_class, "can't convert {s} into Float", .{vm.className(arg)});
         }
         break :blk float_val.toFloatObject().val;
-    } else
-        return vm.raiseExceptionFmt(vm.type_error_class, "can't convert {s} into Float", .{vm.className(arg)});
+    } else return vm.raiseExceptionFmt(vm.type_error_class, "can't convert {s} into Float", .{vm.className(arg)});
     return vm.newFloat(erf(f));
 }
 
@@ -1492,8 +1509,7 @@ fn builtinMathErfc(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
             return vm.raiseExceptionFmt(vm.type_error_class, "can't convert {s} into Float", .{vm.className(arg)});
         }
         break :blk float_val.toFloatObject().val;
-    } else
-        return vm.raiseExceptionFmt(vm.type_error_class, "can't convert {s} into Float", .{vm.className(arg)});
+    } else return vm.raiseExceptionFmt(vm.type_error_class, "can't convert {s} into Float", .{vm.className(arg)});
     return vm.newFloat(erfc(f));
 }
 
@@ -1584,6 +1600,7 @@ fn complexPartToF64(vm: *VM, part: Value) VMError!f64 {
         return rational.numerator.integerToF64() / rational.denominator.integerToF64();
     }
     const float_part = try vm.callMethodByName(part, "to_f", &.{}, null);
+    if (!float_part.isFloat()) return vm.raiseExceptionFmt(vm.type_error_class, "can't convert {s} into Float", .{vm.className(part)});
     return float_part.toFloatObject().val;
 }
 
@@ -1615,20 +1632,7 @@ fn builtinComplexFdiv(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMErro
         }
     }
 
-    var coerce_args = [_]Value{receiver};
-    const maybe_coerced = try vm.checkCallMethodByName(other, "coerce", true, coerce_args[0..], null);
-    const coerced = maybe_coerced orelse {
-        return vm.raiseExceptionFmt(vm.type_error_class, "{s} can't be coerced into Complex", .{vm.className(other)});
-    };
-    if (!coerced.isArray()) {
-        return vm.raiseExceptionFmt(vm.type_error_class, "coerce must return [x, y]", .{});
-    }
-    const coerced_items = coerced.toArrayObject().elements.items;
-    if (coerced_items.len != 2) {
-        return vm.raiseExceptionFmt(vm.type_error_class, "coerce must return [x, y]", .{});
-    }
-    var op_args = [_]Value{coerced_items[1]};
-    return vm.callMethodByName(coerced_items[0], "fdiv", op_args[0..], null);
+    return coerceAndCallComplexArithmetic(vm, receiver, other, "fdiv");
 }
 
 fn builtinComplexHash(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
@@ -1690,12 +1694,43 @@ fn builtinComplexRectangular(vm: *VM, receiver: Value, args: []Value, _: ?Block)
 
 fn builtinComplexRectangularSingleton(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCountRange(args, 1, 2);
-    const real = args[0];
-    const imaginary = if (args.len == 2) args[1] else Value.integer(0);
-    if (!vm.isClassOrSubclassOf(vm.getClass(real), vm.numeric_class) or real.isComplex() or
-        !vm.isClassOrSubclassOf(vm.getClass(imaginary), vm.numeric_class) or imaginary.isComplex())
-    {
-        return vm.raiseExceptionFmt(vm.type_error_class, "not a real", .{});
-    }
+    const real = try complexRealArgument(vm, args[0]);
+    const imaginary = if (args.len == 2) try complexRealArgument(vm, args[1]) else Value.integer(0);
     return vm.newComplex(real, imaginary);
+}
+
+fn complexRealArgument(vm: *VM, argument: Value) VMError!Value {
+    if (argument.isComplex()) {
+        const parts = argument.toComplexObject();
+        if (try complexZero(vm, parts.imaginary)) return parts.real;
+    } else if (vm.isClassOrSubclassOf(vm.getClass(argument), vm.numeric_class) and
+        (try vm.callMethodByName(argument, "real?", &.{}, null)).isTruthy()) return argument;
+    return vm.raiseExceptionFmt(vm.type_error_class, "not a real", .{});
+}
+
+fn complexFromPolar(vm: *VM, radius: Value, angle: Value) VMError!Value {
+    if (try complexZero(vm, radius) or try complexZero(vm, angle)) return vm.newComplex(radius, try vm.newFloat(0));
+    const theta = try complexPartToF64(vm, angle);
+    const pi: f64 = std.math.pi;
+    if (theta == pi) return vm.newComplex(try vm.callMethodByName(radius, "-@", &.{}, null), try vm.newFloat(0));
+    if (theta == pi / 2) return vm.newComplex(try vm.newFloat(0), radius);
+    if (theta == 3 * pi / 2) return vm.newComplex(try vm.newFloat(0), try vm.callMethodByName(radius, "-@", &.{}, null));
+    var cosine = [_]Value{try vm.newFloat(@cos(theta))};
+    var sine = [_]Value{try vm.newFloat(@sin(theta))};
+    return vm.newComplex(try vm.callMethodByName(radius, "*", &cosine, null), try vm.callMethodByName(radius, "*", &sine, null));
+}
+
+fn builtinComplexPolarSingleton(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCountRange(args, 1, 2);
+    const radius = try complexRealArgument(vm, args[0]);
+    const angle = if (args.len == 2) try complexRealArgument(vm, args[1]) else Value.integer(0);
+    return complexFromPolar(vm, radius, angle);
+}
+
+fn builtinComplexPolar(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    const result = try vm.createArray();
+    result.elements.append(vm.gc_allocator, try builtinComplexAbs(vm, receiver, &.{}, null)) catch return error.Fatal;
+    result.elements.append(vm.gc_allocator, try builtinComplexArg(vm, receiver, &.{}, null)) catch return error.Fatal;
+    return Value.fromObject(&result.object);
 }

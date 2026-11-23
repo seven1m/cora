@@ -67,6 +67,10 @@
   validated mode and precision for native callers such as `Float#round`.
 - Regexp predicates use the capture-free `onigmo.searchAt` path. Share source coercion, encoding validation, and character-offset normalization through `prepareRegexpSearch` in `src/builtins/regexp.zig`; only paths needing match details or updating Ruby backreferences should construct capture arrays and MatchData.
 
+Complex arithmetic shares `coerceAndCallComplexArithmetic` for the two-element
+`coerce` protocol. Polar and rectangular constructors share `complexRealArgument`,
+which accepts real Numerics and unwraps Complex arguments with a zero imaginary part.
+
 ## Array And String Coercion Helpers
 
 - `VM.probeToAry` centralizes low-level `to_ary` coercion. It distinguishes array, missing method, and nil result, and raises `TypeError` when `to_ary` returns a non-Array.

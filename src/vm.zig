@@ -6072,15 +6072,7 @@ pub const VM = struct {
             .PUSH_CONST => {
                 const idx = readU16From(frame, operands, &operand_cursor);
                 const constant = constants[idx];
-                const val = switch (constant) {
-                    .integer => |i| if (std.math.cast(i63, i) != null) Value.integer(i) else try self.newBigIntegerFromI64(i),
-                    .big_integer_decimal => |digits| try self.newBigIntegerFromDecimalString(digits),
-                    .float => |f| try self.newFloat(f),
-                    .rational => |r| try self.newRational(r.numerator, r.denominator),
-                    .string => |s| try self.newStringWithEncoding(s, false, literalStringEncodingForChunk(frame.chunk.source_encoding, s)),
-                    .encoded_string => |s| try self.newStringWithEncoding(s.bytes, false, s.encoding),
-                    .symbol => |s| Value.fromObject(&s.object),
-                };
+                const val = try self.literalConstantValue(frame.chunk, constant);
                 try self.push(val);
             },
 
@@ -12118,6 +12110,19 @@ pub const VM = struct {
 
     pub fn newRational(self: *VM, numerator: i64, denominator: i64) VMError!Value {
         return self.newRationalValues(Value.integer(numerator), Value.integer(denominator));
+    }
+
+    fn literalConstantValue(self: *VM, constant_chunk: *Chunk, constant: chunk.Constant) VMError!Value {
+        return switch (constant) {
+            .integer => |i| if (std.math.cast(i63, i) != null) Value.integer(i) else try self.newBigIntegerFromI64(i),
+            .big_integer_decimal => |digits| try self.newBigIntegerFromDecimalString(digits),
+            .float => |f| try self.newFloat(f),
+            .rational => |r| try self.newRationalValues(try self.literalConstantValue(constant_chunk, constant_chunk.constants.items[r.numerator]), try self.literalConstantValue(constant_chunk, constant_chunk.constants.items[r.denominator])),
+            .imaginary => |idx| try self.newComplex(Value.integer(0), try self.literalConstantValue(constant_chunk, constant_chunk.constants.items[idx])),
+            .string => |bytes| try self.newStringWithEncoding(bytes, false, literalStringEncodingForChunk(constant_chunk.source_encoding, bytes)),
+            .encoded_string => |bytes| try self.newStringWithEncoding(bytes.bytes, false, bytes.encoding),
+            .symbol => |symbol| Value.fromObject(&symbol.object),
+        };
     }
 
     pub fn newComplex(self: *VM, real: Value, imaginary: Value) VMError!Value {

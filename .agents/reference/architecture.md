@@ -25,7 +25,7 @@
 
 **Bytecode chunks:** Each chunk contains code, constants, `constant_names` (HashMap for named constants), line info, name, `chunk_id`, arity, `is_lambda`, `optional_params` (with `param_index` and `default_chunk_id`), `rest_param_index`, `post_required_count`, keyword metadata (required/optional keywords, `**kwargs` slot, `**nil` flag), `block_param_index`, `exception_handlers`, `lexical_scope`, and `source_file`. Module bodies, class bodies, methods, blocks, procs, and lambdas are all separate chunks.
 
-**Constants:** Compile-time constants are integers, strings, and symbols. Strings and symbols are borrowed from the Prism AST rather than newly allocated.
+**Constants:** Compile-time constants include integer and Float values, strings, symbols, and numeric composites. Rational constants reference numerator and denominator entries; imaginary constants reference their numeric coefficient. `VM.literalConstantValue` materializes these through the native factories, preserving arbitrary-sized integer components without Ruby constructor dispatch. Chunk-owned strings and decimal integer digits are duplicated when added to the pool.
 
 **OpCodes:** Defined in `bytecode.zig`. Existing families include literals, variable and constant access, control flow, method calls (`CALL`, `CALL_KW`), OOP definitions, blocks/procs/lambdas (`YIELD`, `PUSH_LAMBDA`, `BREAK`), constant path resolution (`GET_CONST_PATH`), exception handling, `super`, regexp support, aliasing, and multi-assignment prep. `RETURN` uses an operand to distinguish implicit (`0`) from explicit (`1`) returns for lambda semantics.
 

@@ -441,6 +441,26 @@ pub const Compiler = struct {
         std.debug.print("{s}", .{pretty});
     }
 
+    fn addIntegerLiteralConstant(self: *Compiler, integer: *const prism.Integer) !u32 {
+        if (prism.Parser.integerToI64(integer)) |n| return self.current_chunk.addConstant(.{ .integer = n });
+        const digits = try self.parser.integerToDecimalString(integer);
+        defer self.allocator.free(digits);
+        return self.current_chunk.addConstant(.{ .big_integer_decimal = digits });
+    }
+
+    fn addNumericLiteralConstant(self: *Compiler, node: prism.Node) !u32 {
+        return switch (node) {
+            .integer => |integer_node| self.addIntegerLiteralConstant(&integer_node.value),
+            .float => |float_node| self.current_chunk.addConstant(.{ .float = float_node.value }),
+            .rational => |rational_node| blk: {
+                const numerator = try self.addIntegerLiteralConstant(&rational_node.numerator);
+                const denominator = try self.addIntegerLiteralConstant(&rational_node.denominator);
+                break :blk self.current_chunk.addConstant(.{ .rational = .{ .numerator = @intCast(numerator), .denominator = @intCast(denominator) } });
+            },
+            else => error.UnhandledNode,
+        };
+    }
+
     fn compileNode(self: *Compiler, node: prism.Node, _: i64) anyerror!void {
         const line = self.nodeLine(node);
 
@@ -472,33 +492,24 @@ pub const Compiler = struct {
             },
 
             .integer => |int_node| {
-                if (self.parser.integerNodeToI64(int_node)) |int_val| {
-                    if (int_val >= -128 and int_val <= 127) {
-                        try self.current_chunk.emitOpI8(.PUSH_I8, @intCast(int_val), line);
-                    } else {
-                        const idx = try self.current_chunk.addConstant(.{ .integer = int_val });
-                        try self.current_chunk.emitOpU16(.PUSH_CONST, @intCast(idx), line);
-                    }
+                const integer = self.parser.integerNodeToI64(int_node);
+                if (integer != null and integer.? >= -128 and integer.? <= 127) {
+                    try self.current_chunk.emitOpI8(.PUSH_I8, @intCast(integer.?), line);
                 } else {
-                    const decimal = try self.parser.integerNodeToDecimalString(int_node);
-                    defer self.allocator.free(decimal);
-                    const idx = try self.current_chunk.addConstant(.{ .big_integer_decimal = decimal });
+                    const idx = try self.addNumericLiteralConstant(node);
                     try self.current_chunk.emitOpU16(.PUSH_CONST, @intCast(idx), line);
                 }
             },
-
-            .float => |float_node| {
-                const idx = try self.current_chunk.addConstant(.{ .float = float_node.value });
+            .float, .rational => {
+                const idx = try self.addNumericLiteralConstant(node);
                 try self.current_chunk.emitOpU16(.PUSH_CONST, @intCast(idx), line);
             },
 
-            .rational => |rational_node| {
-                if (self.parser.rationalNodeToI64Pair(rational_node)) |pair| {
-                    const idx = try self.current_chunk.addConstant(.{ .rational = .{ .numerator = pair[0], .denominator = pair[1] } });
-                    try self.current_chunk.emitOpU16(.PUSH_CONST, @intCast(idx), line);
-                } else {
-                    try self.current_chunk.emitOp(.PUSH_NIL, line);
-                }
+            .imaginary => |imaginary_node| {
+                const numeric = try self.parser.asNode(@ptrCast(imaginary_node.numeric));
+                const coefficient = try self.addNumericLiteralConstant(numeric);
+                const idx = try self.current_chunk.addConstant(.{ .imaginary = @intCast(coefficient) });
+                try self.current_chunk.emitOpU16(.PUSH_CONST, @intCast(idx), line);
             },
 
             .string => |string_node| {

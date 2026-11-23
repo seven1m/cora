@@ -280,13 +280,13 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] core/complex/divide_spec.rb
 - [x] core/complex/eql_spec.rb
 - [x] core/complex/equal_value_spec.rb
-- [ ] core/complex/exponent_spec.rb
+- [x] core/complex/exponent_spec.rb
 - [x] core/complex/fdiv_spec.rb
-- [-] core/complex/finite_spec.rb
+- [x] core/complex/finite_spec.rb
 - [x] core/complex/hash_spec.rb
 - [x] core/complex/imag_spec.rb
 - [x] core/complex/imaginary_spec.rb
-- [-] core/complex/infinite_spec.rb
+- [x] core/complex/infinite_spec.rb
 - [x] core/complex/inspect_spec.rb
 - [x] core/complex/integer_spec.rb
 - [x] core/complex/magnitude_spec.rb
@@ -297,13 +297,13 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] core/complex/numerator_spec.rb
 - [x] core/complex/phase_spec.rb
 - [x] core/complex/plus_spec.rb
-- [ ] core/complex/polar_spec.rb
+- [x] core/complex/polar_spec.rb
 - [x] core/complex/positive_spec.rb
 - [x] core/complex/quo_spec.rb
 - [x] core/complex/rationalize_spec.rb
 - [x] core/complex/real_spec.rb
 - [x] core/complex/rect_spec.rb
-- [ ] core/complex/rectangular_spec.rb
+- [x] core/complex/rectangular_spec.rb
 - [x] core/complex/to_c_spec.rb
 - [x] core/complex/to_f_spec.rb
 - [x] core/complex/to_i_spec.rb
