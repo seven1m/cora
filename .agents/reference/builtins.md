@@ -53,6 +53,7 @@
 - Use `VM.probeRangeValues` for the range-like protocol (`begin`, `end`, and
   `exclude_end?`). Actual Ranges expose their native fields, ArithmeticSequence
   objects are excluded, and missing protocol methods return null.
+- IO-compatible native output uses `io.printValues` and `io.putsValues`, which dispatch through the receiver's `write` method. The puts helper shares optional `to_ary` coercion, object string conversion, and a fiber-scoped recursion guard with IO and StringIO.
 - Native Hash traversals that call Ruby can share `hash.hashIterationSnapshot`
   and `hash.hashIterationEntry`. Hold `iteration_depth` for the traversal so new
   keys are rejected, and resolve each snapshot entry again to observe deletions

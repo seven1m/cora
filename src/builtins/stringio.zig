@@ -1,4 +1,4 @@
-const enc = @import("../encoding.zig");
+const io = @import("io.zig");
 const vm_mod = @import("../vm.zig");
 const value = @import("../value.zig");
 
@@ -27,6 +27,8 @@ pub fn register(vm: *VM) !void {
                 value.MethodEntry.builtin(&builtinStringIOGetbyte, .{ .exact = 0 }),
             );
 
+            try stringio_class.module.methods.put(try vm.intern("print"), value.MethodEntry.builtin(&builtinStringIOPrint, .{ .variadic = 0 }));
+            try stringio_class.module.methods.put(try vm.intern("puts"), value.MethodEntry.builtin(&builtinStringIOPuts, .{ .variadic = 0 }));
             const tty_q_entry = value.MethodEntry.builtin(&builtinStringIOTtyQ, .{ .exact = 0 });
             try stringio_class.module.methods.put(tty_q_sym, tty_q_entry);
             try stringio_class.module.methods.put(isatty_sym, tty_q_entry);
@@ -40,6 +42,9 @@ pub fn builtinStringIOTtyQ(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!
 }
 
 pub fn builtinStringIOGetc(vm: *VM, receiver: Value, _: []Value, _: ?Block) VMError!Value {
+    if ((try vm.getInstanceVariable(receiver, "@closed_read")).isTruthy()) {
+        return vm.raiseExceptionFmt(vm.io_error_class, "not opened for reading", .{});
+    }
     const string_val = try vm.getInstanceVariable(receiver, "@string");
     if (!string_val.isString()) {
         return vm.raiseNoMethod(receiver, "getc");
@@ -58,15 +63,12 @@ pub fn builtinStringIOGetc(vm: *VM, receiver: Value, _: []Value, _: ?Block) VMEr
         return Value.nil();
     }
 
+    const encoding_val = try vm.getInstanceVariable(receiver, "@external_encoding");
+    const encoding = if (encoding_val.isNil()) string_obj.encoding else encoding_val.toEncodingObject().encoding;
     var byte_index = pos;
-    const result = string_obj.encoding.nextChar(string_obj.str, &byte_index);
-
-    if (!result.valid or result.len == 0) {
-        return Value.nil();
-    }
-
-    const char_bytes = string_obj.str[pos..byte_index];
-    const char_val = try vm.newString(char_bytes, false);
+    _ = encoding.nextChar(string_obj.str, &byte_index);
+    if (byte_index == pos) byte_index += 1;
+    const char_val = try vm.newStringWithEncoding(string_obj.str[pos..byte_index], false, encoding);
 
     const new_pos = @as(i64, @intCast(byte_index));
     try vm.setInstanceVariable(receiver, "@pos", Value.integer(new_pos));
@@ -103,4 +105,19 @@ pub fn builtinStringIOGetbyte(vm: *VM, receiver: Value, _: []Value, _: ?Block) V
     try vm.setInstanceVariable(receiver, "@pos", Value.integer(@as(i64, @intCast(new_pos))));
 
     return Value.integer(@as(i64, @intCast(byte)));
+}
+fn requireWritable(vm: *VM, receiver: Value) VMError!void {
+    if ((try vm.getInstanceVariable(receiver, "@closed_write")).isTruthy()) {
+        return vm.raiseExceptionFmt(vm.io_error_class, "not opened for writing", .{});
+    }
+}
+
+fn builtinStringIOPrint(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try requireWritable(vm, receiver);
+    return io.printValues(vm, receiver, args);
+}
+
+fn builtinStringIOPuts(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try requireWritable(vm, receiver);
+    return io.putsValues(vm, receiver, args);
 }

@@ -2531,12 +2531,34 @@ pub fn builtinIoWriteNonblock(vm: *VM, receiver: Value, args: []Value, _: ?Block
     return Value.integer(@intCast(written));
 }
 
-pub fn builtinIoPrint(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
-    const io = try requireIoReceiver(vm, receiver);
-    for (args) |arg| {
-        _ = try ioWriteValue(vm, receiver, io, arg);
+/// Shared print semantics for IO-compatible receivers, including StringIO.
+pub fn printValues(vm: *VM, receiver: Value, args: []Value) VMError!Value {
+    const field_separator = vm.getGlobalValue("$,");
+    const record_separator = vm.getGlobalValue("$\\");
+    if (args.len == 0) {
+        var arg = [_]Value{try vm.objectAsString(vm.getGlobalValue("$_"))};
+        _ = try vm.callMethodByName(receiver, "write", &arg, null);
+    } else {
+        for (args, 0..) |arg, index| {
+            if (index > 0 and !field_separator.isNil()) {
+                var separator = [_]Value{field_separator};
+                _ = try vm.callMethodByName(receiver, "write", &separator, null);
+            }
+            var string = [_]Value{try vm.objectAsString(arg)};
+            _ = try vm.callMethodByName(receiver, "write", &string, null);
+        }
+    }
+    if (!record_separator.isNil()) {
+        var separator = [_]Value{record_separator};
+        _ = try vm.callMethodByName(receiver, "write", &separator, null);
     }
     return Value.nil();
+}
+
+pub fn builtinIoPrint(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    const io = try requireIoReceiver(vm, receiver);
+    try ensureIoOpen(vm, io);
+    return printValues(vm, receiver, args);
 }
 
 pub fn builtinIoPrintf(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
@@ -2555,32 +2577,42 @@ pub fn builtinIoPrintf(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMErr
 
 pub fn builtinIoPuts(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     const io = try requireIoReceiver(vm, receiver);
-    if (args.len == 0) {
-        _ = try ioWriteBytes(vm, io, "\n");
-        _ = try builtinIoFlush(vm, receiver, &[_]Value{}, null);
-        return Value.nil();
-    }
+    try ensureIoOpen(vm, io);
+    const result = try putsValues(vm, receiver, args);
+    _ = try builtinIoFlush(vm, receiver, &.{}, null);
+    return result;
+}
 
-    for (args) |arg| {
-        try ioPutsValue(vm, receiver, io, arg);
-    }
-    _ = try builtinIoFlush(vm, receiver, &[_]Value{}, null);
+/// Recursively writes puts arguments through the receiver's write protocol.
+pub fn putsValues(vm: *VM, receiver: Value, args: []Value) VMError!Value {
+    if (args.len == 0) try putsValue(vm, receiver, try vm.newString("", false));
+    for (args) |arg| try putsValue(vm, receiver, arg);
     return Value.nil();
 }
 
-fn ioPutsValue(vm: *VM, receiver: Value, io: *IoObject, arg: Value) VMError!void {
-    if (arg.isArray()) {
-        for (arg.toArrayObject().elements.items) |elem| {
-            try ioPutsValue(vm, receiver, io, elem);
-        }
-        return;
+fn putsValue(vm: *VM, receiver: Value, arg: Value) VMError!void {
+    switch (try vm.probeToAry(arg)) {
+        .array => |array| {
+            if (try vm.enterRecursionGuard(.puts, array, Value.nil())) {
+                try putsValue(vm, receiver, try vm.newString("[...]", false));
+                return;
+            }
+            defer vm.leaveRecursionGuard(.puts, array, Value.nil());
+            var index: usize = 0;
+            while (index < array.toArrayObject().elements.items.len) : (index += 1) {
+                try putsValue(vm, receiver, array.toArrayObject().elements.items[index]);
+            }
+            return;
+        },
+        .missing, .nil_result => {},
     }
-
-    const string = try ioStringValue(vm, arg);
-    const str = string.toStringObject().str;
-    _ = try ioWriteValue(vm, receiver, io, string);
-    if (!std.mem.endsWith(u8, str, "\n")) {
-        _ = try ioWriteBytes(vm, io, "\n");
+    const string = try vm.objectAsString(arg);
+    const needs_newline = !std.mem.endsWith(u8, string.toStringObject().str, "\n");
+    var strings = [_]Value{string};
+    _ = try vm.callMethodByName(receiver, "write", &strings, null);
+    if (needs_newline) {
+        var newline = [_]Value{try vm.newString("\n", false)};
+        _ = try vm.callMethodByName(receiver, "write", &newline, null);
     }
 }
 

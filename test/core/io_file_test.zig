@@ -1101,3 +1101,44 @@ test "IO read consumes bytes buffered by gets" {
     try std.testing.expectEqualStrings("tail\n", items[2].toStringObject().str);
     try std.testing.expectEqualStrings("rest", items[3].toStringObject().str);
 }
+
+test "StringIO puts releases recursive array guards after a write exception" {
+    const result = try evalCode(
+        \\require "stringio"
+        \\class InterruptibleOutput < StringIO
+        \\  attr_accessor :reject
+        \\  def write(value)
+        \\    raise "interrupted" if reject
+        \\    super
+        \\  end
+        \\end
+        \\io = InterruptibleOutput.new
+        \\array = ["value"]
+        \\array << array
+        \\io.reject = true
+        \\begin
+        \\  io.puts(array)
+        \\rescue RuntimeError
+        \\end
+        \\io.reject = false
+        \\io.puts(array)
+        \\io.string
+    );
+    try std.testing.expectEqualStrings("value\n[...]\n", result.toStringObject().str);
+}
+
+test "StringIO encoded getc shares its byte cursor with getbyte" {
+    const result = try evalCode(
+        \\require "stringio"
+        \\io = StringIO.new("\x00\xE9\x00\x78".b)
+        \\io.set_encoding(Encoding::UTF_16BE)
+        \\char = io.getc
+        \\[char.encoding == Encoding::UTF_16BE, char.ord, io.pos, io.getbyte, io.pos]
+    );
+    const values = result.toArrayObject().elements.items;
+    try std.testing.expect(values[0].isTrue());
+    try std.testing.expectEqual(@as(i64, 233), values[1].toInteger());
+    try std.testing.expectEqual(@as(i64, 2), values[2].toInteger());
+    try std.testing.expectEqual(@as(i64, 0), values[3].toInteger());
+    try std.testing.expectEqual(@as(i64, 3), values[4].toInteger());
+}

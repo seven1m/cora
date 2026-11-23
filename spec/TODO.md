@@ -3803,69 +3803,69 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] library/socket/unixsocket/socketpair_spec.rb
 
 ### library/stringio
-- [ ] library/stringio/append_spec.rb
+- [x] library/stringio/append_spec.rb
 - [x] library/stringio/binmode_spec.rb
-- [ ] library/stringio/close_read_spec.rb
+- [x] library/stringio/close_read_spec.rb
 - [x] library/stringio/close_spec.rb
-- [ ] library/stringio/close_write_spec.rb
+- [x] library/stringio/close_write_spec.rb
 - [x] library/stringio/closed_read_spec.rb
 - [x] library/stringio/closed_spec.rb
 - [x] library/stringio/closed_write_spec.rb
-- [ ] library/stringio/each_byte_spec.rb
-- [ ] library/stringio/each_char_spec.rb
-- [ ] library/stringio/each_codepoint_spec.rb
-- [-] library/stringio/each_line_spec.rb
+- [x] library/stringio/each_byte_spec.rb
+- [x] library/stringio/each_char_spec.rb
+- [x] library/stringio/each_codepoint_spec.rb
+- [x] library/stringio/each_line_spec.rb
 - [x] library/stringio/each_spec.rb
-- [ ] library/stringio/eof_spec.rb
-- [ ] library/stringio/external_encoding_spec.rb
-- [ ] library/stringio/fcntl_spec.rb
-- [ ] library/stringio/fileno_spec.rb
+- [x] library/stringio/eof_spec.rb
+- [x] library/stringio/external_encoding_spec.rb
+- [x] library/stringio/fcntl_spec.rb
+- [x] library/stringio/fileno_spec.rb
 - [x] library/stringio/flush_spec.rb
-- [ ] library/stringio/fsync_spec.rb
+- [x] library/stringio/fsync_spec.rb
 - [x] library/stringio/getbyte_spec.rb
-- [ ] library/stringio/getc_spec.rb
-- [ ] library/stringio/getch_spec.rb
-- [ ] library/stringio/getpass_spec.rb
+- [x] library/stringio/getc_spec.rb
+- [x] library/stringio/getch_spec.rb
+- [x] library/stringio/getpass_spec.rb
 - [x] library/stringio/gets_spec.rb
-- [-] library/stringio/initialize_spec.rb
+- [x] library/stringio/initialize_spec.rb
 - [x] library/stringio/inspect_spec.rb
 - [x] library/stringio/internal_encoding_spec.rb
 - [x] library/stringio/isatty_spec.rb
 - [x] library/stringio/length_spec.rb
-- [ ] library/stringio/lineno_spec.rb
+- [x] library/stringio/lineno_spec.rb
 - [x] library/stringio/new_spec.rb
-- [ ] library/stringio/open_spec.rb
+- [x] library/stringio/open_spec.rb
 - [x] library/stringio/path_spec.rb
-- [ ] library/stringio/pid_spec.rb
+- [x] library/stringio/pid_spec.rb
 - [x] library/stringio/pos_spec.rb
-- [ ] library/stringio/print_spec.rb
+- [x] library/stringio/print_spec.rb
 - [x] library/stringio/printf_spec.rb
-- [ ] library/stringio/putc_spec.rb
-- [ ] library/stringio/puts_spec.rb
-- [ ] library/stringio/read_nonblock_spec.rb
+- [x] library/stringio/putc_spec.rb
+- [x] library/stringio/puts_spec.rb
+- [x] library/stringio/read_nonblock_spec.rb
 - [x] library/stringio/read_spec.rb
 - [x] library/stringio/readbyte_spec.rb
-- [ ] library/stringio/readchar_spec.rb
-- [ ] library/stringio/readline_spec.rb
-- [ ] library/stringio/readlines_spec.rb
-- [ ] library/stringio/readpartial_spec.rb
-- [ ] library/stringio/reopen_spec.rb
+- [x] library/stringio/readchar_spec.rb
+- [x] library/stringio/readline_spec.rb
+- [x] library/stringio/readlines_spec.rb
+- [x] library/stringio/readpartial_spec.rb
+- [x] library/stringio/reopen_spec.rb
 - [x] library/stringio/rewind_spec.rb
-- [ ] library/stringio/seek_spec.rb
-- [ ] library/stringio/set_encoding_by_bom_spec.rb
+- [x] library/stringio/seek_spec.rb
+- [x] library/stringio/set_encoding_by_bom_spec.rb
 - [x] library/stringio/set_encoding_spec.rb
 - [x] library/stringio/size_spec.rb
 - [x] library/stringio/string_spec.rb
-- [ ] library/stringio/stringio_spec.rb
+- [x] library/stringio/stringio_spec.rb
 - [x] library/stringio/sync_spec.rb
-- [ ] library/stringio/sysread_spec.rb
-- [ ] library/stringio/syswrite_spec.rb
+- [x] library/stringio/sysread_spec.rb
+- [x] library/stringio/syswrite_spec.rb
 - [x] library/stringio/tell_spec.rb
 - [x] library/stringio/truncate_spec.rb
 - [x] library/stringio/tty_spec.rb
-- [ ] library/stringio/ungetbyte_spec.rb
-- [ ] library/stringio/ungetc_spec.rb
-- [ ] library/stringio/write_nonblock_spec.rb
+- [x] library/stringio/ungetbyte_spec.rb
+- [x] library/stringio/ungetc_spec.rb
+- [x] library/stringio/write_nonblock_spec.rb
 - [x] library/stringio/write_spec.rb
 
 ### library/stringscanner

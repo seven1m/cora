@@ -26,6 +26,7 @@ pub const Kind = enum {
     hash_eql,
     hash_hash,
     file_join,
+    puts,
 };
 
 const Entry = struct {
