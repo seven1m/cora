@@ -1751,7 +1751,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] core/range/begin_spec.rb
 - [x] core/range/bsearch_spec.rb
 - [x] core/range/case_compare_spec.rb
-- [ ] core/range/clamp_spec.rb
+- [x] core/range/clamp_spec.rb
 - [x] core/range/clone_spec.rb
 - [x] core/range/count_spec.rb
 - [x] core/range/cover_spec.rb
@@ -1772,17 +1772,17 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] core/range/max_spec.rb
 - [x] core/range/member_spec.rb
 - [x] core/range/min_spec.rb
-- [ ] core/range/minmax_spec.rb
+- [x] core/range/minmax_spec.rb
 - [x] core/range/new_spec.rb
 - [x] core/range/overlap_spec.rb
-- [ ] core/range/percent_spec.rb
+- [x] core/range/percent_spec.rb
 - [x] core/range/range_spec.rb
-- [ ] core/range/reverse_each_spec.rb
+- [x] core/range/reverse_each_spec.rb
 - [x] core/range/size_spec.rb
 - [x] core/range/step_spec.rb
 - [x] core/range/to_a_spec.rb
 - [x] core/range/to_s_spec.rb
-- [ ] core/range/to_set_spec.rb
+- [x] core/range/to_set_spec.rb
 
 ### core/rational
 - [x] core/rational/abs_spec.rb

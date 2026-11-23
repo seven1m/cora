@@ -151,7 +151,7 @@ fn builtinEnumerableChunkWhile(vm: *VM, receiver: Value, args: []Value, block: ?
     );
 }
 
-fn builtinEnumerableToSet(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
+pub fn builtinEnumerableToSet(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
     try vm.requireArgCountRange(args, 0, 1);
 
     const feature = try vm.newString("set", false);
@@ -1223,7 +1223,7 @@ fn enumerableBlockResultSign(vm: *VM, cmp_value: Value) VMError!i8 {
     );
 }
 
-fn builtinEnumerableMinMax(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
+pub fn builtinEnumerableMinMax(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
     const enum_value = try vm.createMethodEnumerator(receiver, try vm.intern("each"), &.{});
 
@@ -1431,7 +1431,7 @@ fn builtinEnumerableSortBy(vm: *VM, receiver: Value, args: []Value, block: ?Bloc
     return Value.fromObject(&out.object);
 }
 
-fn builtinEnumerableReverseEach(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
+pub fn builtinEnumerableReverseEach(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
     const blk = block orelse {
         const method_name = try vm.intern("reverse_each");
         if (try vm.checkCallMethodByName(receiver, "size", false, &.{}, null)) |size| {
@@ -1440,7 +1440,7 @@ fn builtinEnumerableReverseEach(vm: *VM, receiver: Value, args: []Value, block: 
         return vm.createMethodEnumerator(receiver, method_name, args);
     };
 
-    const ary = try vm.callMethodByName(receiver, "to_a", args, null);
+    const ary = try builtinEnumerableToA(vm, receiver, args, null);
     const items = ary.toArrayObject().elements.items;
     var i: usize = items.len;
     while (i > 0) {

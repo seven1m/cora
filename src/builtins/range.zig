@@ -4,6 +4,8 @@ const vm_mod = @import("../vm.zig");
 const value = @import("../value.zig");
 const kernel_builtin = @import("kernel.zig");
 const warning_builtin = @import("warning.zig");
+const enumerable_builtin = @import("enumerable.zig");
+const float_builtin = @import("float.zig");
 
 const VM = vm_mod.VM;
 const VMError = vm_mod.VMError;
@@ -86,6 +88,12 @@ pub fn register(vm: *VM) !void {
 
     const min_sym = try vm.intern("min");
     try vm.range_class.module.methods.put(min_sym, value.MethodEntry.builtin(&builtinRangeMin, .{ .variadic = 0 }));
+
+    try vm.range_class.module.methods.put(try vm.intern("clamp"), value.MethodEntry.builtin(&builtinRangeClamp, .{ .variadic = 1 }));
+    try vm.range_class.module.methods.put(try vm.intern("minmax"), value.MethodEntry.builtin(&builtinRangeMinMax, .{ .exact = 0 }));
+    try vm.range_class.module.methods.put(try vm.intern("reverse_each"), value.MethodEntry.builtin(&builtinRangeReverseEach, .{ .exact = 0 }));
+    try vm.range_class.module.methods.put(try vm.intern("%"), value.MethodEntry.builtin(&builtinRangePercent, .{ .exact = 1 }));
+    try vm.range_class.module.methods.put(try vm.intern("to_set"), value.MethodEntry.builtin(&builtinRangeToSet, .{ .exact = 0 }));
 
     const last_sym = try vm.intern("last");
     try vm.range_class.module.methods.put(last_sym, value.MethodEntry.builtin(&builtinRangeLast, .{ .variadic = 0 }));
@@ -562,15 +570,40 @@ pub fn builtinRangeEach(vm: *VM, receiver: Value, args: []Value, block: ?Block) 
 }
 
 fn rangeStepSize(vm: *VM, receiver: Value, method_args: ?*value.ArrayObject) VMError!Value {
-    const range_obj = receiver.toRangeObject();
+    const bounds = receiver.toRangeObject().*;
+    const range_obj = &bounds;
     if (range_obj.begin.isNil() or range_obj.end.isNil()) return vm.newFloat(std.math.inf(f64));
     if (!isNumericValue(vm, range_obj.begin) or !isNumericValue(vm, range_obj.end)) return Value.nil();
 
     const step = if (method_args) |args| args.elements.items[0] else Value.integer(1);
     if (!isNumericValue(vm, step)) return Value.nil();
-    const begin_f = rangeStepToF64(range_obj.begin);
-    const end_f = rangeStepToF64(range_obj.end);
-    const step_f = rangeStepToF64(step);
+    if (!range_obj.begin.isFloat() and !range_obj.end.isFloat() and !step.isFloat()) {
+        const direction = try rangeCompare(vm, step, Value.integer(0));
+        if (direction == 0) return vm.newFloat(std.math.inf(f64));
+        const comparison = if (direction < 0) "<" else ">";
+        var op_args = [_]Value{range_obj.end};
+        if ((try vm.callMethodByName(range_obj.begin, comparison, &op_args, null)).isTruthy()) return Value.integer(0);
+        op_args[0] = range_obj.begin;
+        const delta = try vm.callMethodByName(range_obj.end, "-", &op_args, null);
+        op_args[0] = step;
+        var count = try vm.callMethodByName(delta, "div", &op_args, null);
+        var include_last = !range_obj.exclude_end;
+        if (!include_last) {
+            const offset = try vm.callMethodByName(count, "*", &op_args, null);
+            op_args[0] = offset;
+            const last = try vm.callMethodByName(range_obj.begin, "+", &op_args, null);
+            op_args[0] = last;
+            include_last = (try vm.callMethodByName(range_obj.end, comparison, &op_args, null)).isTruthy();
+        }
+        if (include_last) {
+            op_args[0] = Value.integer(1);
+            count = try vm.callMethodByName(count, "+", &op_args, null);
+        }
+        return count;
+    }
+    const begin_f = try rangeStepToF64(vm, range_obj.begin);
+    const end_f = try rangeStepToF64(vm, range_obj.end);
+    const step_f = try rangeStepToF64(vm, step);
     if (step_f == 0.0 or (end_f - begin_f) * step_f < 0.0) return Value.integer(0);
     const span = (end_f - begin_f) / step_f;
     var count = if (range_obj.exclude_end)
@@ -585,18 +618,20 @@ fn rangeStepSize(vm: *VM, receiver: Value, method_args: ?*value.ArrayObject) VME
         }
     }
     if (count <= 0.0) return Value.integer(0);
-    if (count <= @as(f64, @floatFromInt(std.math.maxInt(i64)))) return Value.integer(@intFromFloat(count));
-    return vm.newFloat(count);
+    if (std.math.isInf(count)) return vm.newFloat(count);
+    return vm.integerFromFloat(count);
 }
 
-fn rangeStepToF64(number: Value) f64 {
+fn rangeStepToF64(vm: *VM, number: Value) VMError!f64 {
     if (number.isFloat()) return number.toFloatObject().val;
-    return number.integerToF64();
+    if (number.isInteger() or number.isBigInteger()) return number.integerToF64();
+    return (try float_builtin.coerceArgToFloat(vm, number)).toFloatObject().val;
 }
 
 pub fn builtinRangeStep(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
     try vm.requireArgCountRange(args, 0, 1);
-    const range_obj = receiver.toRangeObject();
+    const bounds = receiver.toRangeObject().*;
+    const range_obj = &bounds;
     const step = if (args.len == 1) args[0] else Value.integer(1);
 
     const numeric_range = !range_obj.begin.isNil() and isNumericValue(vm, range_obj.begin) and
@@ -631,8 +666,10 @@ pub fn builtinRangeStep(vm: *VM, receiver: Value, args: []Value, block: ?Block) 
     }
     if (step_is_zero) return receiver;
 
-    if (numeric_range and isNumericValue(vm, step)) {
-        return rangeStepNumeric(vm, receiver, range_obj, step, blk);
+    if (numeric_range and isNumericValue(vm, step) and
+        (range_obj.begin.isFloat() or range_obj.end.isFloat() or step.isFloat()))
+    {
+        return rangeStepFloat(vm, receiver, range_obj, step, blk);
     }
 
     var add_args = [_]Value{step};
@@ -673,11 +710,10 @@ pub fn builtinRangeStep(vm: *VM, receiver: Value, args: []Value, block: ?Block) 
     return receiver;
 }
 
-fn rangeStepNumeric(vm: *VM, receiver: Value, range_obj: *value.RangeObject, step: Value, block: Block) VMError!Value {
-    const begin_f = rangeStepToF64(range_obj.begin);
-    const step_f = rangeStepToF64(step);
-    const end_f = if (range_obj.end.isNil()) 0.0 else rangeStepToF64(range_obj.end);
-    const yields_float = range_obj.begin.isFloat() or (!range_obj.end.isNil() and range_obj.end.isFloat()) or step.isFloat();
+fn rangeStepFloat(vm: *VM, receiver: Value, range_obj: *const value.RangeObject, step: Value, block: Block) VMError!Value {
+    const begin_f = try rangeStepToF64(vm, range_obj.begin);
+    const step_f = try rangeStepToF64(vm, step);
+    const end_f = if (range_obj.end.isNil()) 0.0 else try rangeStepToF64(vm, range_obj.end);
     if (!range_obj.end.isNil() and (end_f - begin_f) * step_f < 0.0) return receiver;
 
     var index: i64 = 0;
@@ -695,10 +731,7 @@ fn rangeStepNumeric(vm: *VM, receiver: Value, range_obj: *value.RangeObject, ste
                 current_f < end_f or (range_obj.exclude_end and current_f <= end_f);
             if (past) break;
         }
-        const current = if (yields_float)
-            try vm.newFloat(current_f)
-        else
-            Value.integer(@intFromFloat(current_f));
+        const current = try vm.newFloat(current_f);
         _ = try vm.yieldToBlock(block, &.{current});
     }
     return receiver;
@@ -731,30 +764,10 @@ pub fn rangeSizeValue(vm: *VM, receiver: Value) VMError!Value {
         return vm.newFloat(std.math.inf(f64));
     }
 
-    if (begin_val.isInteger() and end_val.isInteger()) {
-        const diff: i128 = @as(i128, end_val.toInteger()) - @as(i128, begin_val.toInteger());
-        const count: i128 = if (range_obj.exclude_end) diff else diff + 1;
-        if (count <= 0) return Value.integer(0);
-        if (count > std.math.maxInt(i64)) {
-            return vm.newFloat(@floatFromInt(count));
-        }
-        return Value.integer(@intCast(count));
-    }
-
-    if (begin_val.isBigInteger() and (end_val.isInteger() or end_val.isBigInteger())) {
-        // Approximate huge-interval sizes as a Float via f64 endpoints.
-        const beg_f64 = if (begin_val.isInteger())
-            @as(f64, @floatFromInt(begin_val.toInteger()))
-        else
-            begin_val.toBigIntegerObject().value.toFloat(f64, .nearest_even)[0];
-        const end_f64 = if (end_val.isInteger())
-            @as(f64, @floatFromInt(end_val.toInteger()))
-        else
-            end_val.toBigIntegerObject().value.toFloat(f64, .nearest_even)[0];
-        var count = @floor(end_f64 - beg_f64);
-        if (!range_obj.exclude_end) count += 1.0;
-        if (count <= 0.0) return Value.integer(0);
-        return vm.newFloat(count);
+    if ((begin_val.isInteger() or begin_val.isBigInteger()) and (end_val.isInteger() or end_val.isBigInteger())) {
+        var count = try vm.subIntegerValues(end_val, begin_val);
+        if (!range_obj.exclude_end) count = try vm.addIntegerValues(count, Value.integer(1));
+        return if ((try vm.compareIntegerValues(count, Value.integer(0))) == .lt) Value.integer(0) else count;
     }
 
     if ((begin_val.isInteger() or begin_val.isBigInteger()) and end_val.isFloat() and
@@ -1769,4 +1782,118 @@ fn bsearchFloatRange(vm: *VM, blk: Block, start_f: f64, end_f: f64) VMError!Valu
 
     if (satisfied) return try vm.newFloat(orderedToF64(low_bits));
     return Value.nil();
+}
+
+fn rangeCompare(vm: *VM, left: Value, right: Value) VMError!i64 {
+    const order = try rLess(vm, left, right);
+    if (order == r_less_stop) return vm.raiseExceptionFmt(vm.argument_error_class, "comparison of {s} with {s} failed", .{ vm.className(left), vm.className(right) });
+    return order;
+}
+
+fn builtinRangeClamp(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCountRange(args, 1, 2);
+    const range = receiver.toRangeObject();
+    var begin = range.begin;
+    var end = range.end;
+    var excluded = range.exclude_end;
+    const bounds = if (args.len == 1)
+        (try vm.probeRangeValues(args[0])) orelse return vm.raiseExceptionFmt(vm.type_error_class, "wrong argument type {s} (expected Range)", .{vm.className(args[0])})
+    else
+        VM.RangeValues{ .begin = args[0], .end = args[1], .exclude_end = false };
+    if (!bounds.begin.isNil() and !bounds.end.isNil() and try rangeCompare(vm, bounds.begin, bounds.end) > 0) {
+        return vm.raiseExceptionFmt(vm.argument_error_class, "min argument must be less than or equal to max argument", .{});
+    }
+    var clamped_begin: i8 = 0;
+    var clamped_end: i8 = 0;
+    if (!bounds.begin.isNil()) {
+        if (begin.isNil() or try rangeCompare(vm, begin, bounds.begin) < 0) {
+            clamped_begin = -1;
+            begin = bounds.begin;
+        }
+        if (!end.isNil() and try rangeCompare(vm, end, bounds.begin) < 0) {
+            clamped_end = -1;
+            end = bounds.begin;
+        }
+    }
+    if (!bounds.end.isNil()) {
+        if (clamped_begin == 0 and !begin.isNil() and try rangeCompare(vm, begin, bounds.end) > 0) {
+            clamped_begin = 1;
+            begin = bounds.end;
+        }
+        if (clamped_end == 0) {
+            const comparison = if (end.isNil()) @as(i64, 1) else try rangeCompare(vm, end, bounds.end);
+            if (comparison > 0) {
+                clamped_end = 1;
+                end = bounds.end;
+                excluded = bounds.exclude_end;
+            } else if (comparison == 0) {
+                excluded = excluded or bounds.exclude_end;
+            }
+        }
+    }
+    if (clamped_begin != 0 and clamped_begin == clamped_end) excluded = true;
+    const result = try vm.newRange(vm.range_class);
+    var init_args = [_]Value{ begin, end, Value.boolean(excluded) };
+    _ = try builtinRangeInitialize(vm, result, &init_args, null);
+    return result;
+}
+
+fn builtinRangeMinMax(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    if (block != null) return enumerable_builtin.builtinEnumerableMinMax(vm, receiver, args, block);
+    const min = try vm.callMethodByName(receiver, "min", &.{}, null);
+    const max = try vm.callMethodByName(receiver, "max", &.{}, null);
+    const result = try vm.createArray();
+    result.elements.appendSlice(vm.gc_allocator, &.{ min, max }) catch return error.Fatal;
+    return Value.fromObject(&result.object);
+}
+
+fn rangeReverseSize(vm: *VM, receiver: Value, _: ?*value.ArrayObject) VMError!Value {
+    const range = receiver.toRangeObject();
+    if (range.end.isNil()) return vm.raiseExceptionFmt(vm.type_error_class, "can't iterate from NilClass", .{});
+    if (range.begin.isInteger() or range.begin.isBigInteger()) {
+        if (!isNumericValue(vm, range.end)) return vm.raiseExceptionFmt(vm.type_error_class, "can't iterate from {s}", .{vm.className(range.end)});
+        if (range.end.isInteger() or range.end.isBigInteger()) return rangeSizeValue(vm, receiver);
+        return rangeStepSize(vm, receiver, null);
+    }
+    if (range.begin.isNil()) {
+        if (range.end.isInteger() or range.end.isBigInteger()) return vm.newFloat(std.math.inf(f64));
+        return vm.raiseExceptionFmt(vm.type_error_class, "can't iterate from {s}", .{vm.className(range.end)});
+    }
+    if (!try vm.respondsToMethodByName(range.begin, "succ", false)) return vm.raiseExceptionFmt(vm.type_error_class, "can't iterate from {s}", .{vm.className(range.end)});
+    return Value.nil();
+}
+
+fn builtinRangeReverseEach(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    const blk = block orelse return vm.createMethodEnumeratorWithSizeFn(receiver, try vm.intern("reverse_each"), &.{}, &rangeReverseSize);
+    const range = receiver.toRangeObject();
+    const begin = range.begin;
+    const end = range.end;
+    const excluded = range.exclude_end;
+    if (end.isNil()) return vm.raiseExceptionFmt(vm.type_error_class, "can't iterate from NilClass", .{});
+    if ((begin.isNil() or begin.isInteger() or begin.isBigInteger()) and (end.isInteger() or end.isBigInteger())) {
+        var current = end;
+        if (excluded) current = try vm.subIntegerValues(current, Value.integer(1));
+        while (begin.isNil() or (try vm.compareIntegerValues(current, begin)) != .lt) {
+            try vm.checkAsyncEvents();
+            _ = try vm.yieldToBlock(blk, &.{current});
+            current = try vm.subIntegerValues(current, Value.integer(1));
+        }
+        return receiver;
+    }
+    return enumerable_builtin.builtinEnumerableReverseEach(vm, receiver, args, blk);
+}
+
+fn builtinRangePercent(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    const result = try builtinRangeStep(vm, receiver, args, block);
+    if (block == null) result.toEnumeratorObject().kind.method.method_name = try vm.intern("%");
+    return result;
+}
+
+fn builtinRangeToSet(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    if (receiver.toRangeObject().end.isNil()) return vm.raiseExceptionFmt(vm.range_error_class, "cannot convert endless range to a set", .{});
+    return enumerable_builtin.builtinEnumerableToSet(vm, receiver, args, block);
 }

@@ -11232,6 +11232,25 @@ pub const VM = struct {
         return false;
     }
 
+    pub const RangeValues = struct {
+        begin: Value,
+        end: Value,
+        exclude_end: bool,
+    };
+
+    /// Ruby's range-like protocol, excluding ArithmeticSequence objects.
+    pub fn probeRangeValues(self: *VM, input: Value) VMError!?RangeValues {
+        if (input.isRange()) {
+            const range = input.toRangeObject();
+            return .{ .begin = range.begin, .end = range.end, .exclude_end = range.exclude_end };
+        }
+        if (self.isClassOrSubclassOf(self.getClass(input), self.enumerator_arithmetic_sequence_class)) return null;
+        const begin = (try self.checkCallMethodByName(input, "begin", false, &.{}, null)) orelse return null;
+        const end = (try self.checkCallMethodByName(input, "end", false, &.{}, null)) orelse return null;
+        const excluded = (try self.checkCallMethodByName(input, "exclude_end?", false, &.{}, null)) orelse return null;
+        return .{ .begin = begin, .end = end, .exclude_end = excluded.isTruthy() };
+    }
+
     pub fn newRange(self: *VM, class_obj: *ClassObject) VMError!Value {
         const range_obj = self.gc_allocator.create(value.RangeObject) catch return error.Fatal;
         range_obj.* = .{

@@ -902,7 +902,7 @@ pub fn builtinFloatCoerce(vm: *VM, receiver: Value, args: []Value, _: ?Block) VM
     return Value.fromObject(&result.object);
 }
 
-fn coerceArgToFloat(vm: *VM, arg: Value) VMError!Value {
+pub fn coerceArgToFloat(vm: *VM, arg: Value) VMError!Value {
     if (arg.isFloat()) return arg;
     if (arg.isInteger()) return try vm.newFloat(@floatFromInt(arg.toInteger()));
     if (arg.isBigInteger()) return try vm.newFloat(arg.toBigIntegerObject().value.toFloat(f64, .nearest_even)[0]);

@@ -48,6 +48,9 @@
   `VM.yieldToBlock` for ordinary raw argument lists; the distinction matters for
   `sort_by` versus `filter_map`, and for zero/multiple yielded values.
 - Use `VM.copyObjectInstanceVariables` for dup/clone-style shallow ivar copying.
+- Use `VM.probeRangeValues` for the range-like protocol (`begin`, `end`, and
+  `exclude_end?`). Actual Ranges expose their native fields, ArithmeticSequence
+  objects are excluded, and missing protocol methods return null.
 - Native Hash traversals that call Ruby can share `hash.hashIterationSnapshot`
   and `hash.hashIterationEntry`. Hold `iteration_depth` for the traversal so new
   keys are rejected, and resolve each snapshot entry again to observe deletions
