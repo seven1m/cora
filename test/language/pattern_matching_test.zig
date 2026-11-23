@@ -3,15 +3,16 @@ const test_helper = @import("../test_helper.zig");
 
 const evalCode = test_helper.evalCode;
 
-test "required array pattern returns the matched value" {
+test "required array pattern cannot be used as a value expression" {
     const result = try evalCode(
-        \\value = [1, 2, 3]
-        \\matched = (value => [Integer, Integer, Integer])
-        \\[matched.equal?(value), matched]
+        \\begin
+        \\  eval("value = [1, 2, 3]; matched = (value => [Integer, Integer, Integer])")
+        \\  false
+        \\rescue SyntaxError => error
+        \\  error.message.include?("void value expression")
+        \\end
     );
-    const values = result.toArrayObject().elements.items;
-    try std.testing.expect(values[0].isTrue());
-    try std.testing.expectEqual(@as(usize, 3), values[1].toArrayObject().elements.items.len);
+    try std.testing.expect(result.isTrue());
 }
 
 test "required array pattern raises on a length mismatch" {

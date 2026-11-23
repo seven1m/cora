@@ -408,9 +408,13 @@ pub fn main(init: std.process.Init) !void {
     const code = if (strip_leading_garbage) stripLeadingGarbage(raw_code) else raw_code;
     var parser = prism.Parser.initWithOptions(allocator, code, .{ .source_file = source_file, .frozen_string_literal = frozen_string_literal }) catch {
         std.debug.print("{s}: syntax error (SyntaxError)\n", .{source_file orelse "(eval)"});
-        return;
+        std.process.exit(1);
     };
     defer parser.deinit();
+    if (parser.firstError()) |message| {
+        std.debug.print("{s}: {s} (SyntaxError)\n", .{ source_file orelse "(eval)", message });
+        std.process.exit(1);
+    }
 
     if (print_ast) {
         const output = try parser.prettyPrint(allocator);
@@ -422,7 +426,7 @@ pub fn main(init: std.process.Init) !void {
     var program = compiler.Compiler.compile(allocator, &parser, 1) catch |err| {
         if (compiler.syntaxErrorMessage(err)) |message| {
             std.debug.print("{s}: {s} (SyntaxError)\n", .{ source_file orelse "(eval)", message });
-            return;
+            std.process.exit(1);
         }
         return err;
     };
@@ -452,7 +456,14 @@ pub fn main(init: std.process.Init) !void {
 
     var virtual_machine = vm.VM.initEmpty(allocator, gc_allocator.scanned, gc_allocator.atomic, init.io, init.minimal.environ);
     virtual_machine.frozen_string_literal = frozen_string_literal;
-    try virtual_machine.prepare(&program);
+    virtual_machine.initial_verbose = verbose;
+    virtual_machine.prepare(&program) catch |err| switch (err) {
+        error.Unwind, error.UnhandledException => {
+            virtual_machine.setupOutput();
+            exitForUnhandledException(&virtual_machine);
+        },
+        else => return err,
+    };
     cext.setupGlobals(&virtual_machine);
     if (verbose) {
         var stdout_buf: [8192]u8 = undefined;

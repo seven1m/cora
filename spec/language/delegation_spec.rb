@@ -73,6 +73,24 @@ describe "delegation with def(...)" do
     h2 = a.new.delegate(h)
     h2.should.equal?(h)
   end
+
+  it "preserves positional arguments when forwarding to super" do
+    forwarding = Module.new
+    forwarding.module_eval(<<-RUBY)
+      def initialize(...)
+        super(...)
+      end
+    RUBY
+
+    prepended = included = nil
+    -> {
+      prepended = Struct.new(:a, :b, :c) { prepend forwarding }.new(1, 2, 3)
+      included = Struct.new(:a, :b, :c) { include forwarding }.new(1, 2, 3)
+    }.should_not complain
+
+    [prepended.a, prepended.b, prepended.c].should == [1, 2, 3]
+    [included.a, included.b, included.c].should == [1, 2, 3]
+  end
 end
 
 describe "delegation with def(x, ...)" do
@@ -125,11 +143,9 @@ describe "delegation with def(*)" do
 
   context "within a block that accepts anonymous rest within a method that accepts anonymous rest" do
     it "does not allow delegating rest" do
-      CORAFIXME "Anonymous rest parameter shadowing is not rejected", exception: SpecExpectationNotMetError do
-        -> {
-          eval "def m(*); proc { |*| n(*) } end"
-        }.should.raise(SyntaxError, /anonymous rest parameter is also used within block/)
-      end
+      -> {
+        eval "def m(*); proc { |*| n(*) } end"
+      }.should.raise(SyntaxError, /anonymous rest parameter is also used within block/)
     end
   end
 end
@@ -148,11 +164,9 @@ describe "delegation with def(**)" do
 
   context "within a block that accepts anonymous kwargs within a method that accepts anonymous kwargs" do
     it "does not allow delegating kwargs" do
-      CORAFIXME "Anonymous keyword rest parameter shadowing is not rejected", exception: SpecExpectationNotMetError do
-        -> {
-          eval "def m(**); proc { |**| n(**) } end"
-        }.should.raise(SyntaxError, /anonymous keyword rest parameter is also used within block/)
-      end
+      -> {
+        eval "def m(**); proc { |**| n(**) } end"
+      }.should.raise(SyntaxError, /anonymous keyword rest parameter is also used within block/)
     end
   end
 end
@@ -172,11 +186,9 @@ describe "delegation with def(&)" do
 
   context "within a block that accepts anonymous block within a method that accepts anonymous block" do
     it "does not allow delegating a block" do
-      CORAFIXME "Anonymous block parameter shadowing is not rejected", exception: SpecExpectationNotMetError do
-        -> {
-          eval "def m(&); proc { |&| n(&) } end"
-        }.should.raise(SyntaxError, /anonymous block parameter is also used within block/)
-      end
+      -> {
+        eval "def m(&); proc { |&| n(&) } end"
+      }.should.raise(SyntaxError, /anonymous block parameter is also used within block/)
     end
   end
 end

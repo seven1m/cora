@@ -198,26 +198,6 @@ test "Regexp inequality different flags" {
     try std.testing.expectEqual(false, result.toBool());
 }
 
-test "Invalid regexp raises RegexpError" {
-    var stdout_buf: [8192]u8 = undefined;
-    var stderr_buf: [8192]u8 = undefined;
-
-    const result = evalCodeWithOutput(
-        \\begin
-        \\  /(/
-        \\rescue RegexpError => e
-        \\  e.message
-        \\end
-    , &stdout_buf, &stderr_buf);
-
-    if (result.err) |_| {
-        // The error should have been caught by rescue
-        try std.testing.expect(false);
-    } else {
-        try std.testing.expect(result.value.isString());
-    }
-}
-
 test "Regexp to_s" {
     const result = try evalCode("/hello/.to_s");
     try std.testing.expect(result.isString());
@@ -423,6 +403,100 @@ test "Regexp security regressions bound case-insensitive operands and backrefere
         \\end
         \\!/(k\0)\1/i.match?("k\0\u212a") &&
         \\  /(k)\1/i.match?("k\u212a") && /(k\0)\1/i.match?("k\0\u212a\0")
+    );
+    try std.testing.expect(result.isTrue());
+}
+
+test "Regexp once caches successful interpolation and retries after exceptions" {
+    const result = try evalCode(
+        \\class PatternSource
+        \\  attr_accessor :calls
+        \\  def initialize; @calls = 0; end
+        \\  def to_s
+        \\    @calls += 1
+        \\    raise "retry" if @calls == 1
+        \\    "cached"
+        \\  end
+        \\end
+        \\def once(source); /#{source}/o; end
+        \\def other_once(source); /#{source}/o; end
+        \\source = PatternSource.new
+        \\begin; once(source); rescue RuntimeError; end
+        \\first = once(source)
+        \\GC.start
+        \\same = once(source)
+        \\other = other_once(source)
+        \\fresh = 5.times.map { |i| eval('/#{i}/o').source }
+        \\first.equal?(same) && !first.equal?(other) && source.calls == 3 &&
+        \\  fresh == %w[0 1 2 3 4]
+    );
+    try std.testing.expect(result.isTrue());
+}
+
+test "eval rejects parser recovery and invalid method literals before side effects" {
+    const result = try evalCode(
+        \\$ran_invalid_source = false
+        \\sources = ["$ran_invalid_source = true; /foo/a", "$ran_invalid_source = true; def bad; /(/; end"]
+        \\errors = sources.map do |source|
+        \\  begin; eval(source); false; rescue SyntaxError; true; end
+        \\end
+        \\errors.all? && !$ran_invalid_source
+    );
+    try std.testing.expect(result.isTrue());
+}
+
+test "Regexp allocation owns uninitialized state and later compiled storage" {
+    const result = try evalCode(
+        \\class AllocatedPattern < Regexp; end
+        \\pattern = AllocatedPattern.allocate
+        \\initial = pattern.encoding == Encoding::BINARY && !pattern.fixed_encoding?
+        \\errors = [:source, :options, :names, :to_s].map do |name|
+        \\  begin; pattern.send(name); false; rescue TypeError; true; end
+        \\end
+        \\pattern.send(:initialize, "é", Regexp::IGNORECASE)
+        \\GC.start
+        \\initial && errors.all? && pattern.class == AllocatedPattern && pattern.match?("É")
+    );
+    try std.testing.expect(result.isTrue());
+}
+
+test "Regexp interpolation constructs native literals independently of Ruby constructors" {
+    const result = try evalCode(
+        \\module LiteralScope
+        \\  Regexp = Object.new
+        \\  def self.literal(value); /#{value}/o; end
+        \\end
+        \\class << Regexp
+        \\  def new(*args); raise "Ruby constructor called"; end
+        \\end
+        \\value = "é"
+        \\dynamic = /#{value}/
+        \\once = LiteralScope.literal(value)
+        \\dynamic.source == value && once.source == value && once.equal?(LiteralScope.literal("other"))
+    );
+    try std.testing.expect(result.isTrue());
+}
+
+test "Regexp initialization preserves storage installed by a warning callback" {
+    const result = try evalCode(
+        \\require "stringio"
+        \\pattern = Regexp.allocate
+        \\output = StringIO.new
+        \\output.define_singleton_method(:write) { |text| pattern.send(:initialize, "inner") }
+        \\previous = $stderr
+        \\begin
+        \\  $stderr = output
+        \\  begin
+        \\    pattern.send(:initialize, "[:alnum:]+")
+        \\    rejected = false
+        \\  rescue TypeError
+        \\    rejected = true
+        \\  end
+        \\ensure
+        \\  $stderr = previous
+        \\end
+        \\GC.start
+        \\rejected && pattern.source == "inner" && pattern.match?("inner")
     );
     try std.testing.expect(result.isTrue());
 }

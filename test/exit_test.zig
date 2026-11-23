@@ -77,3 +77,20 @@ test "frozen string literal cli defaults apply to loaded files and eval" {
         try std.testing.expectEqualStrings("", result.stderr);
     }
 }
+
+test "cli syntax errors exit before executing recovered source" {
+    var threaded: std.Io.Threaded = .init(std.testing.allocator, .{});
+    defer threaded.deinit();
+    for ([_][]const u8{ "puts 'executed'; /foo/a", "puts 'executed'; def bad; /(/; end", "puts 'executed'; break" }) |source| {
+        const result = try std.process.run(std.testing.allocator, threaded.io(), .{
+            .argv = &.{ "zig-out/bin/cora", "-e", source },
+            .stdout_limit = .limited(4096),
+            .stderr_limit = .limited(4096),
+        });
+        defer std.testing.allocator.free(result.stdout);
+        defer std.testing.allocator.free(result.stderr);
+        try std.testing.expect(result.term == .exited and result.term.exited == 1);
+        try std.testing.expectEqualStrings("", result.stdout);
+        try std.testing.expect(std.mem.indexOf(u8, result.stderr, "SyntaxError") != null);
+    }
+}

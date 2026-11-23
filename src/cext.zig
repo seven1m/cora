@@ -2465,11 +2465,10 @@ export fn rb_reg_onig_match(
     const vm = getVM();
     const regexp = (Value{ .raw = re_raw }).toRegexpObject();
     const source = (Value{ .raw = str_raw }).toStringObject();
-    if (enc.negotiate(source.encoding, source.str, regexp.encoding, regexp.pattern) == null) {
-        _ = vm.raiseExceptionFmt(vm.encoding_compatibility_error_class, "incompatible encoding regexp match ({s} regexp with {s} string)", .{ regexp.encoding.name(), source.encoding.name() }) catch {};
+    regexp_builtin.validateSourceEncoding(vm, regexp, source) catch {
         if (vm.cext_jmp_buf) |buf| siglongjmp(buf, 1);
         return -1;
-    }
+    };
     const prepared = regexp_builtin.regexpForSourceEncoding(vm, regexp, source.encoding) catch {
         if (vm.cext_jmp_buf) |buf| siglongjmp(buf, 1);
         return -1;

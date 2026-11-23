@@ -151,6 +151,7 @@ pub const FindPatternNode = c.pm_find_pattern_node_t;
 pub const PinnedVariableNode = c.pm_pinned_variable_node_t;
 pub const PinnedExpressionNode = c.pm_pinned_expression_node_t;
 
+pub const REGEXP_FLAGS_ONCE = c.PM_REGULAR_EXPRESSION_FLAGS_ONCE;
 pub const REGEXP_FLAGS_IGNORE_CASE = c.PM_REGULAR_EXPRESSION_FLAGS_IGNORE_CASE;
 pub const REGEXP_FLAGS_EXTENDED = c.PM_REGULAR_EXPRESSION_FLAGS_EXTENDED;
 pub const REGEXP_FLAGS_MULTI_LINE = c.PM_REGULAR_EXPRESSION_FLAGS_MULTI_LINE;
@@ -429,6 +430,33 @@ pub const Parser = struct {
             .ast = @ptrCast(@alignCast(ast)),
             .source_file = parse_options.source_file,
         };
+    }
+
+    pub fn firstError(self: *const Parser) ?[]const u8 {
+        const node = self.internal.error_list.head orelse return null;
+        const diagnostic: *const c.pm_diagnostic_t = @ptrCast(@alignCast(node));
+        return std.mem.span(diagnostic.message);
+    }
+
+    pub const WarningIterator = struct {
+        next_node: ?*c.pm_list_node_t,
+
+        pub const Warning = struct { message: []const u8, cursor: u32, verbose: bool };
+
+        pub fn next(self: *WarningIterator) ?Warning {
+            const node = self.next_node orelse return null;
+            const diagnostic: *const c.pm_diagnostic_t = @ptrCast(@alignCast(node));
+            self.next_node = node.next;
+            return .{
+                .message = std.mem.span(diagnostic.message),
+                .cursor = diagnostic.location.start,
+                .verbose = diagnostic.level == c.PM_WARNING_LEVEL_VERBOSE,
+            };
+        }
+    };
+
+    pub fn warnings(self: *const Parser) WarningIterator {
+        return .{ .next_node = self.internal.warning_list.head };
     }
 
     /// Free parser and AST

@@ -140,6 +140,9 @@ pub fn evalCodeWithOutputAndPath(ruby_code: []const u8, stdout_buf: []u8, stderr
         };
     };
     defer parser.deinit();
+    if (parser.firstError()) |message| {
+        return syntaxErrorResult(stderr_buf, source_path, message);
+    }
 
     var threaded: std.Io.Threaded = .init(allocator, .{});
     defer threaded.deinit();

@@ -855,6 +855,7 @@ pub const VM = struct {
     load_path_snapshot_cwd: ?[]const u8 = null,
     current_loading_file: ?[]const u8 = null,
     runtime_ready: bool = false,
+    initial_verbose: bool = false,
     env_object: ?Value = null,
     next_chunk_id: u16 = 1,
     method_state_version: u64 = 1,
@@ -1972,7 +1973,7 @@ pub const VM = struct {
         try self.setGlobal("$stdout", stdout_obj);
         try self.aliasGlobalVariable("$>", "$stdout");
         try self.setGlobal("$stderr", stderr_obj);
-        try self.setGlobal("$VERBOSE", Value.boolean(false));
+        try self.setGlobal("$VERBOSE", Value.boolean(self.initial_verbose));
         try self.setGlobal("$/", try self.newString("\n", false));
         try self.setGlobal("$-0", Value.nil());
 
@@ -3738,7 +3739,41 @@ pub const VM = struct {
         }
     }
 
+    fn prepareRegexpLiteral(self: *VM, ch: *Chunk, offset: usize) VMError!Value {
+        const key = RegexpLiteralKey{ .chunk = ch, .byte_offset = offset };
+        if (self.regexp_literals.get(key)) |cached| return cached;
+        var ip = offset + 1;
+        const pattern_idx = Chunk.readU16(ch.code.items, &ip);
+        const options = Chunk.readU16(ch.code.items, &ip);
+        const constant = ch.constants.items[pattern_idx];
+        const pattern = switch (constant) {
+            .string => |bytes| bytes,
+            .encoded_string => |encoded| encoded.bytes,
+            else => return error.Fatal,
+        };
+        const encoding = switch (constant) {
+            .string => ch.source_encoding,
+            .encoded_string => |encoded| encoded.encoding,
+            else => return error.Fatal,
+        };
+        const normalized = self.normalizeRegexpEncoding(pattern, encoding, options);
+        const result = try self.compileRegexp(null, pattern, normalized.options, normalized.encoding, self.syntax_error_class);
+        self.regexp_literals.put(key, result) catch return error.Fatal;
+        return result;
+    }
+
     fn prepareCompiledChunk(self: *VM, ch: *Chunk) VMError!void {
+        for (ch.parse_warnings.items) |warning| {
+            const verbose = self.getGlobalValue("$VERBOSE");
+            if (verbose.isNil() or (warning.verbose and !verbose.isTruthy())) continue;
+            const message = std.fmt.allocPrint(self.allocator, "{s}:{d}: warning: {s}\n", .{ ch.source_file orelse "(eval)", warning.line, warning.message }) catch return error.Fatal;
+            defer self.allocator.free(message);
+            try warning_builtin.writeWarning(self, message);
+        }
+        for (ch.regexp_literal_offsets.items) |offset| {
+            if (ch.code.items[offset] != @backingInt(bytecode.OpCode.PUSH_REGEXP)) continue;
+            _ = try self.prepareRegexpLiteral(ch, offset);
+        }
         try self.buildChunkCallsiteDescriptors(ch);
         try self.internLiteralSymbolsInChunk(ch);
     }
@@ -7736,28 +7771,29 @@ pub const VM = struct {
                 try self.push(proc_val);
             },
 
+            .GET_REGEXP_CACHE => {
+                const slot = readU16From(frame, operands, &operand_cursor);
+                try self.push(self.regexp_literals.get(.{ .chunk = frame.chunk, .byte_offset = slot }) orelse Value.nil());
+            },
+            .SET_REGEXP_CACHE => {
+                const slot = readU16From(frame, operands, &operand_cursor);
+                self.regexp_literals.put(.{ .chunk = frame.chunk, .byte_offset = slot }, self.peek(0)) catch return error.Fatal;
+            },
             .PUSH_REGEXP => {
-                const pattern_idx = readU16From(frame, operands, &operand_cursor);
-                const options = readU16From(frame, operands, &operand_cursor);
-                const key = RegexpLiteralKey{ .chunk = frame.chunk, .byte_offset = instr_idx };
-                if (self.regexp_literals.get(key)) |cached| {
-                    try self.push(cached);
+                const encoding_idx = readU16From(frame, operands, &operand_cursor);
+                const flags = readU16From(frame, operands, &operand_cursor);
+                if ((flags & bytecode.REGEXP_STACK_PATTERN) != 0) {
+                    const pattern = self.pop().toStringObject();
+                    const encoding = switch (constants[encoding_idx]) {
+                        .encoded_string => |encoded| encoded.encoding,
+                        .string => pattern.encoding,
+                        else => return error.Fatal,
+                    };
+                    const normalized = self.normalizeRegexpEncoding(pattern.str, encoding, flags & ~bytecode.REGEXP_STACK_PATTERN);
+                    try self.push(try self.newRegexpWithEncoding(pattern.str, normalized.options, normalized.encoding));
                     return;
                 }
-                const pattern_constant = constants[pattern_idx];
-                const pattern: []const u8 = switch (pattern_constant) {
-                    .string => |bytes| bytes,
-                    .encoded_string => |encoded| encoded.bytes,
-                    else => return error.Fatal,
-                };
-                const source_encoding: enc.Encoding = switch (pattern_constant) {
-                    .string => frame.chunk.source_encoding,
-                    .encoded_string => |encoded| encoded.encoding,
-                    else => return error.Fatal,
-                };
-                const normalized = self.normalizeRegexpEncoding(pattern, source_encoding, options);
-                const result = try self.newRegexpWithEncoding(pattern, normalized.options, normalized.encoding);
-                self.regexp_literals.put(key, result) catch return error.Fatal;
+                const result = self.regexp_literals.get(.{ .chunk = frame.chunk, .byte_offset = instr_idx }) orelse return error.Fatal;
                 try self.push(result);
             },
 
@@ -11351,6 +11387,14 @@ pub const VM = struct {
             return .{ .encoding = source_encoding, .options = options | 16 };
         }
 
+        var cursor: usize = 0;
+        while (cursor + 1 < pattern.len) : (cursor += 1) {
+            if (pattern[cursor] != '\\') continue;
+            cursor += 1;
+            if (pattern[cursor] == 'p' or pattern[cursor] == 'P') {
+                return .{ .encoding = source_encoding, .options = options | 16 };
+            }
+        }
         if (ascii_only) {
             return .{ .encoding = .{ .us_ascii = .{} }, .options = options & ~@as(u16, 16) };
         }
@@ -11359,6 +11403,16 @@ pub const VM = struct {
     }
 
     pub fn newRegexpWithEncoding(self: *VM, pattern: []const u8, options: u16, encoding: enc.Encoding) VMError!Value {
+        return self.compileRegexp(null, pattern, options, encoding, self.regexp_error_class);
+    }
+
+    pub fn initializeRegexp(self: *VM, target: *value.RegexpObject, pattern: []const u8, options: u16, encoding: enc.Encoding) VMError!Value {
+        try self.guardNotFrozen(Value.fromObject(&target.object));
+        if (target.regex != null) return self.raiseExceptionFmt(self.type_error_class, "already initialized regexp", .{});
+        return self.compileRegexp(target, pattern, options, encoding, self.regexp_error_class);
+    }
+
+    fn compileRegexp(self: *VM, target: ?*value.RegexpObject, pattern: []const u8, options: u16, encoding: enc.Encoding, error_class: *ClassObject) VMError!Value {
         // Map our option bits to Onigmo options
         var onig_options: u32 = 0;
         if ((options & 1) != 0) onig_options |= onigmo.OPTION_IGNORECASE;
@@ -11383,28 +11437,47 @@ pub const VM = struct {
             else => onigmo.ENCODING_UTF_8,
         };
 
-        const result = onigmo.compileWithEncoding(pattern.ptr, pattern.ptr + pattern.len, onig_options, onig_encoding);
-
+        var warnings = onigmo.WarningBuffer{ .allocator = self.allocator };
+        defer warnings.deinit();
+        const result = onigmo.compileWithWarnings(pattern.ptr, pattern.ptr + pattern.len, onig_options, onig_encoding, &warnings);
+        errdefer if (result.regex) |regex| onigmo.free(regex);
+        if (warnings.failed) return error.Fatal;
+        if (warnings.bytes.items.len != 0 and !self.getGlobalValue("$VERBOSE").isNil()) {
+            // The engine reports complete warning lines; route them through Ruby stderr.
+            var lines = std.mem.splitScalar(u8, warnings.bytes.items, '\n');
+            while (lines.next()) |message| {
+                if (message.len == 0) continue;
+                const warning = std.fmt.allocPrint(self.allocator, "warning: {s}\n", .{message}) catch return error.Fatal;
+                defer self.allocator.free(warning);
+                try warning_builtin.writeWarning(self, warning);
+            }
+        }
         if (result.err) |err| {
             return self.raiseExceptionFmt(
-                self.regexp_error_class,
+                error_class,
                 "{s}",
                 .{err.message[0..err.len]},
             );
         }
 
+        // Warning output may run Ruby and reenter initialization of the target.
+        if (target) |existing| {
+            try self.guardNotFrozen(Value.fromObject(&existing.object));
+            if (existing.regex != null) return self.raiseExceptionFmt(self.type_error_class, "already initialized regexp", .{});
+        }
         // Duplicate the pattern string so it's owned by GC
         const pattern_copy = self.gc_allocator_atomic.dupe(u8, pattern) catch return error.Fatal;
 
-        const regexp_obj = self.gc_allocator.create(value.RegexpObject) catch return error.Fatal;
+        const regexp_obj = target orelse (self.gc_allocator.create(value.RegexpObject) catch return error.Fatal);
+        const object_header = if (target != null) regexp_obj.object else value.Object{
+            .type_tag = .regexp,
+            .flags = value.Object.FROZEN_FLAG,
+            .class = self.regexp_class,
+            .singleton_class = null,
+            .instance_variables = null,
+        };
         regexp_obj.* = .{
-            .object = .{
-                .type_tag = .regexp,
-                .flags = value.Object.FROZEN_FLAG,
-                .class = self.regexp_class,
-                .singleton_class = null,
-                .instance_variables = null,
-            },
+            .object = object_header,
             .pattern = pattern_copy,
             .encoding = encoding,
             .options = options,
@@ -14050,9 +14123,21 @@ pub const VM = struct {
 
         var parser = prism.Parser.initWithOptions(self.allocator, code_buffer, .{ .source_file = absolute_path, .frozen_string_literal = self.frozen_string_literal }) catch return error.Fatal;
         defer parser.deinit();
+        if (parser.firstError()) |message| {
+            return self.raiseExceptionFmt(self.syntax_error_class, "{s}: {s}", .{ absolute_path, message });
+        }
 
         var program = compiler.Compiler.compileWithContext(self.allocator, &parser, self.next_chunk_id, .{ .backtrace_context = .{ .name = "<top (required)>" } }) catch return error.Fatal;
         defer program.child_chunks.deinit();
+        var children_transferred = false;
+        defer if (!children_transferred) {
+            var unowned = program.child_chunks.valueIterator();
+            while (unowned.next()) |child| {
+                self.releaseChunkCaches(child.*);
+                child.*.deinit();
+                self.allocator.destroy(child.*);
+            }
+        };
         const main_chunk = try self.allocateOwnedMainChunk(&program);
         defer {
             self.releaseChunkCaches(main_chunk);
@@ -14074,6 +14159,7 @@ pub const VM = struct {
         while (iter.next()) |entry| {
             self.program.child_chunks.put(entry.key_ptr.*, entry.value_ptr.*) catch return error.Fatal;
         }
+        children_transferred = true;
 
         const prev_file = self.current_loading_file;
         self.current_loading_file = main_chunk.source_file orelse absolute_path;
@@ -14176,6 +14262,9 @@ pub const VM = struct {
             return self.raiseExceptionFmt(self.syntax_error_class, "{s}: syntax error", .{source_file orelse "(eval)"});
         };
         defer parser.deinit();
+        if (parser.firstError()) |message| {
+            return self.raiseExceptionFmt(self.syntax_error_class, "{s}: {s}", .{ source_file orelse "(eval)", message });
+        }
 
         var eval_program = compiler.Compiler.compileWithContext(
             self.allocator,
@@ -14194,6 +14283,15 @@ pub const VM = struct {
             return self.raiseExceptionFmt(self.syntax_error_class, "{s}: syntax error", .{source_file orelse "(eval)"});
         };
         defer eval_program.child_chunks.deinit();
+        var children_transferred = false;
+        defer if (!children_transferred) {
+            var unowned = eval_program.child_chunks.valueIterator();
+            while (unowned.next()) |child| {
+                self.releaseChunkCaches(child.*);
+                child.*.deinit();
+                self.allocator.destroy(child.*);
+            }
+        };
         const eval_main_chunk = try self.allocateOwnedMainChunk(&eval_program);
         defer {
             self.releaseChunkCaches(eval_main_chunk);
@@ -14213,6 +14311,7 @@ pub const VM = struct {
         while (ownership_iter.next()) |entry| {
             self.program.child_chunks.put(entry.key_ptr.*, entry.value_ptr.*) catch return error.Fatal;
         }
+        children_transferred = true;
 
         if (context) |ctx| {
             const result = try self.executeChunkInContext(eval_main_chunk, ctx.self_value, ctx.parent_ep, ctx.lexical_scope, .{

@@ -33,6 +33,8 @@ pub const ENCODING_ISO_8859_1 = c.ONIG_ENCODING_ISO_8859_1;
 pub const ENCODING_ISO_8859_9 = c.ONIG_ENCODING_ISO_8859_9;
 pub const ENCODING_ISO_8859_15 = c.ONIG_ENCODING_ISO_8859_15;
 
+pub const CompileResult = struct { regex: ?OnigRegex, err: ?CompileError };
+
 pub const CompileError = struct {
     message: [c.ONIG_MAX_ERROR_MESSAGE_LEN]u8 = undefined,
     len: usize = 0,
@@ -61,12 +63,49 @@ pub const CaseMapResult = struct {
     flags: OnigCaseFoldType,
 };
 
+pub const WarningBuffer = struct {
+    allocator: std.mem.Allocator,
+    bytes: std.ArrayList(u8) = .empty,
+    failed: bool = false,
+
+    pub fn deinit(self: *WarningBuffer) void {
+        self.bytes.deinit(self.allocator);
+    }
+};
+
+threadlocal var active_warnings: ?*WarningBuffer = null;
+var warning_hook_state = std.atomic.Value(u8).init(0);
+
+fn captureWarning(message: [*c]const u8) callconv(.c) void {
+    const buffer = active_warnings orelse return;
+    buffer.bytes.appendSlice(buffer.allocator, std.mem.span(message)) catch {
+        buffer.failed = true;
+        return;
+    };
+    buffer.bytes.append(buffer.allocator, '\n') catch {
+        buffer.failed = true;
+    };
+}
+
+pub fn compileWithWarnings(pattern: [*]const u8, pattern_end: [*]const u8, options: c.OnigOptionType, encoding: OnigEncoding, warnings: *WarningBuffer) CompileResult {
+    if (warning_hook_state.cmpxchgStrong(0, 1, .acq_rel, .acquire) == null) {
+        c.onig_set_warn_func(&captureWarning);
+        warning_hook_state.store(2, .release);
+    } else {
+        while (warning_hook_state.load(.acquire) != 2) std.atomic.spinLoopHint();
+    }
+    const previous = active_warnings;
+    active_warnings = warnings;
+    defer active_warnings = previous;
+    return compileWithEncoding(pattern, pattern_end, options, encoding);
+}
+
 pub fn compileWithEncoding(
     pattern: [*]const u8,
     pattern_end: [*]const u8,
     options: c.OnigOptionType,
     encoding: OnigEncoding,
-) struct { regex: ?OnigRegex, err: ?CompileError } {
+) CompileResult {
     var regex: OnigRegex = undefined;
     var einfo: c.OnigErrorInfo = undefined;
 
@@ -90,7 +129,7 @@ pub fn compileWithEncoding(
     return .{ .regex = regex, .err = null };
 }
 
-pub fn compile(pattern: [*]const u8, pattern_end: [*]const u8, options: c.OnigOptionType) struct { regex: ?OnigRegex, err: ?CompileError } {
+pub fn compile(pattern: [*]const u8, pattern_end: [*]const u8, options: c.OnigOptionType) CompileResult {
     return compileWithEncoding(pattern, pattern_end, options, c.ONIG_ENCODING_UTF_8);
 }
 

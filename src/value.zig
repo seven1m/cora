@@ -715,6 +715,7 @@ pub const RegexpObject = struct {
     pattern: []const u8,
     encoding: Encoding,
     options: u16,
+    // Null is the documented Regexp.allocate state, before initialize compiles a pattern.
     regex: onigmo.OnigRegex,
     encoding_variants: std.ArrayList(*RegexpObject) = .empty,
 };

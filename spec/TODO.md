@@ -2384,7 +2384,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] language/constants_spec.rb
 - [ ] language/def_spec.rb
 - [ ] language/defined_spec.rb
-- [-] language/delegation_spec.rb
+- [x] language/delegation_spec.rb
 - [ ] language/encoding_spec.rb
 - [ ] language/ensure_spec.rb
 - [ ] language/execution_spec.rb
@@ -2443,15 +2443,15 @@ Source baseline: ../ruby_spec compared to local spec/
 
 ### language/regexp
 - [x] language/regexp/anchors_spec.rb
-- [ ] language/regexp/back-references_spec.rb
-- [ ] language/regexp/character_classes_spec.rb
+- [x] language/regexp/back-references_spec.rb
+- [x] language/regexp/character_classes_spec.rb
 - [x] language/regexp/empty_checks_spec.rb
-- [ ] language/regexp/encoding_spec.rb
-- [ ] language/regexp/escapes_spec.rb
-- [ ] language/regexp/grouping_spec.rb
+- [x] language/regexp/encoding_spec.rb
+- [x] language/regexp/escapes_spec.rb
+- [x] language/regexp/grouping_spec.rb
 - [x] language/regexp/interpolation_spec.rb
-- [ ] language/regexp/modifiers_spec.rb
-- [ ] language/regexp/repetition_spec.rb
+- [x] language/regexp/modifiers_spec.rb
+- [x] language/regexp/repetition_spec.rb
 - [x] language/regexp/subexpression_call_spec.rb
 
 ### library/English

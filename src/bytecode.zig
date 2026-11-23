@@ -1,5 +1,7 @@
 const std = @import("std");
 
+pub const REGEXP_STACK_PATTERN: u16 = 1 << 15;
+
 pub const OpCode = enum(u8) {
     // Literals
     PUSH_NIL, // No operands
@@ -115,7 +117,9 @@ pub const OpCode = enum(u8) {
     FORWARDING_SUPER, // Operands: u16 block_chunk_id, u8 mode (0 bare; prefix argc + 1 for ...)
 
     // Regexp
-    PUSH_REGEXP, // Operands: u16 (pattern constant index), u16 (options)
+    GET_REGEXP_CACHE, // u16 cache slot; pushes cached regexp or nil
+    SET_REGEXP_CACHE, // u16 cache slot; caches the top stack value
+    PUSH_REGEXP, // u16 pattern/encoding constant, u16 options (REGEXP_STACK_PATTERN reads pattern from stack)
 
     // Aliasing
     ALIAS_METHOD, // Operands: u16 (new_name constant index), u16 (old_name constant index)
@@ -268,6 +272,8 @@ pub fn opcodeOperandSize(op: OpCode) usize {
         .PUSH_ARRAY,
         .PUSH_HASH,
         .HASH_SET_CONST_KEY,
+        .GET_REGEXP_CACHE,
+        .SET_REGEXP_CACHE,
         => 2,
 
         // 4-byte operands (u8 + u16 + u8)
@@ -491,6 +497,8 @@ pub fn opcodeName(op: OpCode) []const u8 {
         .FORWARD_ARGS_CALL => "FORWARD_ARGS_CALL",
         .FORWARD_ARGS_CALL_WITH_PREFIX => "FORWARD_ARGS_CALL_WITH_PREFIX",
         .PUSH_REGEXP => "PUSH_REGEXP",
+        .GET_REGEXP_CACHE => "GET_REGEXP_CACHE",
+        .SET_REGEXP_CACHE => "SET_REGEXP_CACHE",
         .ALIAS_METHOD => "ALIAS_METHOD",
         .ALIAS_GLOBAL_VARIABLE => "ALIAS_GLOBAL_VARIABLE",
         .UNDEF_METHOD => "UNDEF_METHOD",

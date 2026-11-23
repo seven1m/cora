@@ -96,9 +96,6 @@ fn literalRegexpConstant(bytes: []const u8, flags: u16) chunk.Constant {
     if ((flags & prism.REGEXP_FLAGS_UTF_8) != 0 or (flags & prism.REGEXP_FLAGS_FORCED_UTF8_ENCODING) != 0) {
         return .{ .encoded_string = .{ .bytes = bytes, .encoding = .{ .utf8 = .{} } } };
     }
-    if ((flags & prism.REGEXP_FLAGS_FORCED_US_ASCII_ENCODING) != 0) {
-        return .{ .encoded_string = .{ .bytes = bytes, .encoding = .{ .us_ascii = .{} } } };
-    }
     return .{ .string = bytes };
 }
 
@@ -184,6 +181,7 @@ fn isScopeControlContext(kind: ControlContextKind) bool {
 
 pub fn syntaxErrorMessage(err: anyerror) ?[]const u8 {
     return switch (err) {
+        error.InvalidSyntax => "syntax error",
         error.BreakOutsideLoop => "Invalid break",
         error.NextOutsideLoop => "Invalid next",
         error.RedoOutsideLoop => "Invalid redo",
@@ -339,6 +337,7 @@ pub const Compiler = struct {
         starting_chunk_id: u16,
         context: CompileContext,
     ) !CompiledProgram {
+        if (parser.firstError() != null) return error.InvalidSyntax;
         var compiler = Compiler.init(allocator, parser, starting_chunk_id);
         defer compiler.deinit();
         if (context.outer_local_scopes) |scopes| {
@@ -362,6 +361,13 @@ pub const Compiler = struct {
                 allocator.destroy(entry.value_ptr.*);
             }
             compiler.child_chunks.deinit();
+        }
+
+        var warnings = parser.warnings();
+        while (warnings.next()) |warning| {
+            const message = try allocator.dupe(u8, warning.message);
+            errdefer allocator.free(message);
+            try main_chunk.parse_warnings.append(allocator, .{ .message = message, .line = parser.lineColumn(warning.cursor).line, .verbose = warning.verbose });
         }
 
         const root = try parser.root();
@@ -551,20 +557,25 @@ pub const Compiler = struct {
             },
 
             .interpolated_regular_expression => |interp_regexp_node| {
-                const regexp_const_idx = try self.current_chunk.addConstant(.{ .string = "Regexp" });
-                try self.current_chunk.emitOpU16(.GET_CONST, @intCast(regexp_const_idx), line);
-
+                const flags = interp_regexp_node.base.flags;
+                const once = (flags & prism.REGEXP_FLAGS_ONCE) != 0;
+                const cache_slot: u16 = if (once) std.math.cast(u16, self.current_chunk.code.items.len) orelse return error.TooMuchBytecode else 0;
+                var cached_jump: ?usize = null;
+                if (once) {
+                    try self.current_chunk.regexp_literal_offsets.append(self.allocator, cache_slot);
+                    try self.current_chunk.emitOpU16(.GET_REGEXP_CACHE, cache_slot, line);
+                    try self.current_chunk.emitOp(.DUP, line);
+                    cached_jump = try self.current_chunk.emitJump(.JUMP_IF_TRUE, line);
+                    try self.current_chunk.emitOp(.POP, line);
+                }
                 const part_count = try self.compileInterpolatedParts(interp_regexp_node.parts, line);
                 try self.current_chunk.emitOpU8(.INTERPOLATE_STRING, part_count, line);
-
-                const flags = interp_regexp_node.base.flags;
-                const options: i64 = regexpOptionsFromFlags(flags);
-                const options_idx = try self.current_chunk.addConstant(.{ .integer = options });
-                try self.current_chunk.emitOpU16(.PUSH_CONST, @intCast(options_idx), line);
-
-                const new_idx = try self.current_chunk.addConstant(.{ .string = "new" });
-                const call_flags = bytecode.encodeCallFlags(.explicit, false);
-                try self.current_chunk.emitCall(@intCast(new_idx), 2, call_flags, 0, line);
+                const encoding_idx = try self.current_chunk.addConstant(literalRegexpConstant("", flags));
+                try self.current_chunk.emitOpU16U16(.PUSH_REGEXP, @intCast(encoding_idx), regexpOptionsFromFlags(flags) | bytecode.REGEXP_STACK_PATTERN, line);
+                if (once) {
+                    try self.current_chunk.emitOpU16(.SET_REGEXP_CACHE, cache_slot, line);
+                    try self.current_chunk.patchJump(cached_jump.?);
+                }
             },
 
             .interpolated_string => |interp_node| {

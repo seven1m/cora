@@ -3,6 +3,7 @@ const enc = @import("../encoding.zig");
 const vm_mod = @import("../vm.zig");
 const value = @import("../value.zig");
 const onigmo = @import("../onigmo.zig");
+const kernel_builtin = @import("kernel.zig");
 const warning_builtin = @import("warning.zig");
 
 const VM = vm_mod.VM;
@@ -17,6 +18,7 @@ const OPTION_FIXEDENCODING: u16 = 16;
 const OPTION_NOENCODING: u16 = 32;
 
 pub fn register(vm: *VM) !void {
+    vm.regexp_class.builtin_alloc_func = &builtinRegexpAllocate;
     const initialize_sym = try vm.intern("initialize");
     try vm.regexp_class.module.methods.put(initialize_sym, value.MethodEntry.builtinWithVisibility(&builtinRegexpInitialize, .{ .variadic = 0 }, .private));
 
@@ -103,9 +105,41 @@ pub fn register(vm: *VM) !void {
     try regexp_singleton.module.methods.put(union_sym, value.MethodEntry.builtin(&builtinRegexpUnion, .{ .variadic = 0 }));
 }
 
-fn builtinRegexpInitialize(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+fn builtinRegexpAllocate(vm: *VM, receiver: Value, _: []Value, _: ?Block) VMError!Value {
+    const regexp = vm.gc_allocator.create(value.RegexpObject) catch return error.Fatal;
+    regexp.* = .{
+        .object = .{ .type_tag = .regexp, .flags = 0, .class = receiver.toClassObject(), .singleton_class = null, .instance_variables = null },
+        .pattern = "",
+        .encoding = .{ .ascii_8bit = .{} },
+        .options = 0,
+        .regex = null,
+    };
+    return Value.fromObject(&regexp.object);
+}
+
+fn requireInitialized(vm: *VM, receiver: Value) VMError!void {
+    if (!receiver.isRegexp() or receiver.toRegexpObject().regex == null) {
+        return vm.raiseExceptionFmt(vm.type_error_class, "uninitialized Regexp", .{});
+    }
+}
+
+fn builtinRegexpInitialize(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCountRange(args, 1, 2);
-    return Value.nil();
+    try vm.guardNotFrozen(receiver);
+    if (receiver.toRegexpObject().regex != null) return vm.raiseExceptionFmt(vm.type_error_class, "already initialized regexp", .{});
+    if (args[0].isRegexp()) {
+        try requireInitialized(vm, args[0]);
+        if (args.len == 2 and !args[1].isNil() and !args[1].isFalse()) try warning_builtin.writeWarning(vm, "warning: flags ignored\n");
+        const source = args[0].toRegexpObject();
+        return vm.initializeRegexp(receiver.toRegexpObject(), source.pattern, source.options, source.encoding);
+    }
+    const coercion_error = std.fmt.allocPrint(vm.allocator, "no implicit conversion of {s} into String", .{vm.className(args[0])}) catch return error.Fatal;
+    defer vm.allocator.free(coercion_error);
+    const pattern = try args[0].coerceToStringValue(vm, coercion_error);
+    const source = pattern.toStringObject();
+    const options = if (args.len == 2) try parseRegexpOptions(vm, args[1]) else 0;
+    const normalized = vm.normalizeRegexpEncoding(source.str, source.encoding, options);
+    return vm.initializeRegexp(receiver.toRegexpObject(), source.str, normalized.options, normalized.encoding);
 }
 
 fn builtinRegexpTryConvert(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
@@ -124,11 +158,6 @@ fn builtinRegexpTryConvert(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!
         "can't convert {s} into Regexp ({s}#to_regexp gives {s})",
         .{ vm.className(arg), vm.className(arg), vm.className(converted) },
     );
-}
-
-fn normalizeRegexpConstruction(vm: *VM, pattern: []const u8, encoding: enc.Encoding, options: u16) VMError!Value {
-    const normalized = vm.normalizeRegexpEncoding(pattern, encoding, options);
-    return try vm.newRegexpWithEncoding(pattern, normalized.options, normalized.encoding);
 }
 
 fn parseRegexpOptionFlags(vm: *VM, flags: []const u8) VMError!u16 {
@@ -166,36 +195,9 @@ fn parseRegexpOptions(vm: *VM, arg: Value) VMError!u16 {
 
 fn builtinRegexpNew(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCountRange(args, 1, 2);
-
-    const class_ptr = if (receiver.isClass()) receiver.toClassObject() else vm.regexp_class;
-
-    var result: Value = undefined;
-    if (args[0].isRegexp()) {
-        if (args.len == 2 and !args[1].isNil() and !args[1].isFalse()) {
-            try warning_builtin.writeWarning(vm, "warning: flags ignored\n");
-        }
-        const regexp = args[0].toRegexpObject();
-        result = try vm.newRegexpWithEncoding(regexp.pattern, regexp.options, regexp.encoding);
-    } else {
-        const pattern_value = switch (try vm.probeToStringValue(args[0])) {
-            .string => |s| s,
-            .missing, .nil_result => return vm.raiseExceptionFmt(
-                vm.type_error_class,
-                "no implicit conversion of {s} into String",
-                .{vm.className(args[0])},
-            ),
-        };
-        const pattern_obj = pattern_value.toStringObject();
-        const options: u16 = if (args.len == 2) try parseRegexpOptions(vm, args[1]) else 0;
-        result = try normalizeRegexpConstruction(vm, pattern_obj.str, pattern_obj.encoding, options);
-    }
-
-    if (class_ptr != vm.regexp_class) {
-        const regexp_obj = result.toRegexpObject();
-        regexp_obj.object.class = class_ptr;
-        regexp_obj.object.flags &= ~@as(u32, value.Object.FROZEN_FLAG);
-    }
+    const result = try vm.newObjectForClass(receiver.toClassObject());
     _ = try vm.callMethodByName(result, "initialize", args, null);
+    if (receiver.toClassObject() == vm.regexp_class) result.toRegexpObject().object.flags |= value.Object.FROZEN_FLAG;
     return result;
 }
 
@@ -260,6 +262,7 @@ fn builtinRegexpEscapeCoerceArg(vm: *VM, arg: Value) VMError!Value {
 }
 
 fn builtinRegexpSource(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try requireInitialized(vm, receiver);
     try vm.requireArgCount(args, 0);
     const regexp = receiver.toRegexpObject();
     return try vm.newStringWithEncoding(regexp.pattern, false, regexp.encoding);
@@ -271,14 +274,13 @@ fn builtinRegexpEncoding(vm: *VM, receiver: Value, args: []Value, _: ?Block) VME
 }
 
 fn builtinRegexpOptions(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try requireInitialized(vm, receiver);
     try vm.requireArgCount(args, 0);
-    if (!receiver.isRegexp()) {
-        return vm.raiseExceptionFmt(vm.type_error_class, "uninitialized Regexp", .{});
-    }
     return Value.integer(@intCast(receiver.toRegexpObject().options));
 }
 
 fn builtinRegexpHash(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try requireInitialized(vm, receiver);
     try vm.requireArgCount(args, 0);
     const regexp = receiver.toRegexpObject();
     const semantic_options = regexp.options & ~OPTION_NOENCODING;
@@ -447,6 +449,7 @@ fn buildRegexpToSBytes(vm: *VM, regexp: *value.RegexpObject) VMError![]u8 {
 }
 
 fn builtinRegexpInspect(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    if (receiver.toRegexpObject().regex == null) return kernel_builtin.builtinKernelToS(vm, receiver, args, null);
     try vm.requireArgCount(args, 0);
     const r = receiver.toRegexpObject();
 
@@ -485,6 +488,7 @@ fn builtinRegexpInspect(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMEr
 }
 
 fn builtinRegexpToS(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try requireInitialized(vm, receiver);
     try vm.requireArgCount(args, 0);
     const r = receiver.toRegexpObject();
     const str = try buildRegexpToSBytes(vm, r);
@@ -504,11 +508,13 @@ fn buildNamedCaptureNamesArray(vm: *VM, regexp: *value.RegexpObject) VMError!Val
 }
 
 fn builtinRegexpNames(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try requireInitialized(vm, receiver);
     try vm.requireArgCount(args, 0);
     return buildNamedCaptureNamesArray(vm, receiver.toRegexpObject());
 }
 
 fn builtinRegexpNamedCaptures(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try requireInitialized(vm, receiver);
     try vm.requireArgCount(args, 0);
 
     const regexp = receiver.toRegexpObject();
@@ -553,6 +559,7 @@ fn raiseUnionEncodingError(vm: *VM, lhs: enc.Encoding, rhs: enc.Encoding) VMErro
 
 fn captureUnionSegment(vm: *VM, arg: Value) VMError!UnionSegment {
     if (arg.isRegexp()) {
+        try requireInitialized(vm, arg);
         const regexp = arg.toRegexpObject();
         return .{
             .bytes = try buildRegexpToSBytes(vm, regexp),
@@ -677,12 +684,14 @@ fn builtinRegexpUnion(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value
 }
 
 fn builtinRegexpEq(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try requireInitialized(vm, receiver);
     try vm.requireArgCount(args, 1);
     const other = args[0];
     if (!other.isRegexp()) {
         return Value.boolean(false);
     }
     const self_r = receiver.toRegexpObject();
+    try requireInitialized(vm, other);
     const other_r = other.toRegexpObject();
     return Value.boolean(
         std.mem.eql(u8, self_r.pattern, other_r.pattern) and
@@ -691,6 +700,7 @@ fn builtinRegexpEq(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!V
 }
 
 fn builtinRegexpCasefold(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try requireInitialized(vm, receiver);
     try vm.requireArgCount(args, 0);
     return Value.boolean((receiver.toRegexpObject().options & 1) != 0);
 }
@@ -701,6 +711,7 @@ fn builtinRegexpFixedEncoding(vm: *VM, receiver: Value, args: []Value, _: ?Block
 }
 
 fn builtinRegexpCaseEqual(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try requireInitialized(vm, receiver);
     try vm.requireArgCount(args, 1);
     if (args[0].isNil()) return Value.boolean(false);
 
@@ -731,6 +742,7 @@ const RegexpSearchResult = struct {
 // Keep encoding-specific compiled patterns with their owning regexp, so repeated
 // matches do not allocate a new Ruby object and recompile the same pattern.
 pub fn regexpForSourceEncoding(vm: *VM, regexp: *value.RegexpObject, encoding: enc.Encoding) VMError!*value.RegexpObject {
+    if (regexp.regex == null) return vm.raiseExceptionFmt(vm.type_error_class, "uninitialized Regexp", .{});
     if (!regexp.encoding.eql(.{ .us_ascii = .{} }) or !encoding.isAsciiCompatible() or encoding.eql(.{ .us_ascii = .{} })) return regexp;
 
     for (regexp.encoding_variants.items) |variant| {
@@ -739,6 +751,23 @@ pub fn regexpForSourceEncoding(vm: *VM, regexp: *value.RegexpObject, encoding: e
     const variant = (try vm.newRegexpWithEncoding(regexp.pattern, regexp.options, encoding)).toRegexpObject();
     regexp.encoding_variants.append(vm.gc_allocator, variant) catch return error.Fatal;
     return variant;
+}
+
+pub fn validateSourceEncoding(vm: *VM, regexp: *value.RegexpObject, source: *value.StringObject) VMError!void {
+    if (regexp.regex == null) return vm.raiseExceptionFmt(vm.type_error_class, "uninitialized Regexp", .{});
+    const same_encoding = regexp.encoding.eql(source.encoding);
+    const incompatible = !same_encoding and
+        (!regexp.encoding.isAsciiCompatible() or !source.encoding.isAsciiCompatible() or
+            ((regexp.options & OPTION_FIXEDENCODING) != 0 and !source.encoding.isAsciiOnlyString(source.str)) or
+            enc.negotiate(source.encoding, source.str, regexp.encoding, regexp.pattern) == null);
+    if (incompatible) {
+        return vm.raiseExceptionFmt(vm.encoding_compatibility_error_class, "incompatible encoding regexp match ({s} regexp with {s} string)", .{ regexp.encoding.name(), source.encoding.name() });
+    }
+    if ((regexp.options & OPTION_NOENCODING) != 0 and source.encoding != .ascii_8bit and !source.encoding.isAsciiOnlyString(source.str) and !vm.getGlobalValue("$VERBOSE").isNil()) {
+        const warning = std.fmt.allocPrint(vm.allocator, "warning: historical binary regexp match /.../n against {s} string\n", .{source.encoding.name()}) catch return error.Fatal;
+        defer vm.allocator.free(warning);
+        try warning_builtin.writeWarning(vm, warning);
+    }
 }
 
 const PreparedRegexpSearch = struct {
@@ -760,13 +789,7 @@ fn prepareRegexpSearch(
     const source_val = source_val_opt.?;
     const source_obj = source_val.toStringObject();
 
-    if (enc.negotiate(source_obj.encoding, source_obj.str, regexp_obj.encoding, regexp_obj.pattern) == null) {
-        return vm.raiseExceptionFmt(
-            vm.encoding_compatibility_error_class,
-            "incompatible encoding regexp match ({s} regexp with {s} string)",
-            .{ regexp_obj.encoding.name(), source_obj.encoding.name() },
-        );
-    }
+    try validateSourceEncoding(vm, regexp_obj, source_obj);
 
     var start_byte: usize = 0;
     if (start_pos) |raw_start| {
@@ -903,13 +926,7 @@ pub fn regexpRindexAt(
     const source_val = source_val_opt.?;
     const source_obj = source_val.toStringObject();
 
-    if (enc.negotiate(source_obj.encoding, source_obj.str, regexp_obj.encoding, regexp_obj.pattern) == null) {
-        return vm.raiseExceptionFmt(
-            vm.encoding_compatibility_error_class,
-            "incompatible encoding regexp match ({s} regexp with {s} string)",
-            .{ regexp_obj.encoding.name(), source_obj.encoding.name() },
-        );
-    }
+    try validateSourceEncoding(vm, regexp_obj, source_obj);
 
     const char_len: i64 = @intCast(source_obj.encoding.charCount(source_obj.str));
 
@@ -997,13 +1014,7 @@ pub fn regexpMatchOpAtByte(
     const source_val = source_val_opt.?;
     const source_obj = source_val.toStringObject();
 
-    if (enc.negotiate(source_obj.encoding, source_obj.str, regexp_obj.encoding, regexp_obj.pattern) == null) {
-        return vm.raiseExceptionFmt(
-            vm.encoding_compatibility_error_class,
-            "incompatible encoding regexp match ({s} regexp with {s} string)",
-            .{ regexp_obj.encoding.name(), source_obj.encoding.name() },
-        );
-    }
+    try validateSourceEncoding(vm, regexp_obj, source_obj);
 
     const effective_regexp = try regexpForSourceEncoding(vm, regexp_obj, source_obj.encoding);
 
@@ -1073,13 +1084,7 @@ pub fn regexpRindexAtByte(
     const source_val = source_val_opt.?;
     const source_obj = source_val.toStringObject();
 
-    if (enc.negotiate(source_obj.encoding, source_obj.str, regexp_obj.encoding, regexp_obj.pattern) == null) {
-        return vm.raiseExceptionFmt(
-            vm.encoding_compatibility_error_class,
-            "incompatible encoding regexp match ({s} regexp with {s} string)",
-            .{ regexp_obj.encoding.name(), source_obj.encoding.name() },
-        );
-    }
+    try validateSourceEncoding(vm, regexp_obj, source_obj);
 
     const effective_regexp = try regexpForSourceEncoding(vm, regexp_obj, source_obj.encoding);
 
@@ -1135,14 +1140,13 @@ pub fn regexpRindexAtByte(
 }
 
 fn builtinRegexpMatchOp(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try requireInitialized(vm, receiver);
     try vm.requireArgCount(args, 1);
-    if (!receiver.isRegexp()) {
-        return vm.raiseExceptionFmt(vm.type_error_class, "uninitialized Regexp", .{});
-    }
     return regexpMatchOp(vm, receiver.toRegexpObject(), args[0]);
 }
 
 fn builtinRegexpMatch(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
+    try requireInitialized(vm, receiver);
     try vm.requireArgCountRange(args, 1, 2);
     const start_pos = if (args.len == 2)
         try args[1].coerceToI64ViaToInt(
@@ -1166,6 +1170,7 @@ fn builtinRegexpMatch(vm: *VM, receiver: Value, args: []Value, block: ?Block) VM
 }
 
 fn builtinRegexpMatchQ(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try requireInitialized(vm, receiver);
     try vm.requireArgCountRange(args, 1, 2);
     const start_pos = if (args.len == 2)
         try args[1].coerceToI64ViaToInt(
@@ -1185,6 +1190,7 @@ fn builtinRegexpMatchQ(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMErr
 }
 
 fn builtinRegexpDup(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try requireInitialized(vm, receiver);
     try vm.requireArgCount(args, 0);
 
     const regexp = receiver.toRegexpObject();

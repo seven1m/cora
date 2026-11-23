@@ -113,7 +113,10 @@ pub const BacktraceContext = struct {
     base_name: ?[]const u8 = null,
 };
 
+pub const ParseWarning = struct { message: []const u8, line: i64, verbose: bool };
+
 pub const Chunk = struct {
+    parse_warnings: std.ArrayList(ParseWarning) = .empty,
     // Flat bytecode stream
     code: std.ArrayList(u8) = .empty,
 
@@ -175,6 +178,8 @@ pub const Chunk = struct {
     }
 
     pub fn deinit(self: *Chunk) void {
+        for (self.parse_warnings.items) |warning| self.allocator.free(warning.message);
+        self.parse_warnings.deinit(self.allocator);
         if (self.backtrace_name_owned) {
             self.allocator.free(self.backtrace_context.name);
             if (self.backtrace_context.base_name) |base_name| self.allocator.free(base_name);
@@ -629,7 +634,7 @@ pub const Chunk = struct {
                 try writer.print("WHEN_SPLAT {d}\n", .{mode});
             },
 
-            .GET_LOCAL, .SET_LOCAL => {
+            .GET_LOCAL, .SET_LOCAL, .GET_REGEXP_CACHE, .SET_REGEXP_CACHE => {
                 const lo: u16 = self.code.items[ip];
                 const hi: u16 = self.code.items[ip + 1];
                 const idx = lo | (hi << 8);

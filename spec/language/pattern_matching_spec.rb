@@ -53,7 +53,8 @@ describe "Pattern matching" do
   describe "pinned expression" do
     it "supports pinning expressions in hash patterns" do
       expected = "value"
-      matched = ({ key: "value" } => { key: ^(expected.upcase.downcase) })
+      matched = { key: "value" }
+      matched => { key: ^(expected.upcase.downcase) }
       matched.should == { key: "value" }
     end
   end
