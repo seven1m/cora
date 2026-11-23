@@ -560,12 +560,12 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/enumerator/lazy/zip_spec.rb
 
 ### core/enumerator/product
-- [ ] core/enumerator/product/each_spec.rb
-- [ ] core/enumerator/product/initialize_copy_spec.rb
-- [ ] core/enumerator/product/initialize_spec.rb
-- [ ] core/enumerator/product/inspect_spec.rb
-- [ ] core/enumerator/product/rewind_spec.rb
-- [ ] core/enumerator/product/size_spec.rb
+- [x] core/enumerator/product/each_spec.rb
+- [x] core/enumerator/product/initialize_copy_spec.rb
+- [x] core/enumerator/product/initialize_spec.rb
+- [x] core/enumerator/product/inspect_spec.rb
+- [x] core/enumerator/product/rewind_spec.rb
+- [x] core/enumerator/product/size_spec.rb
 
 ### core/env
 - [x] core/env/assoc_spec.rb

@@ -472,3 +472,49 @@ test "Chain rewind tolerates reinitialization during iteration" {
     );
     try std.testing.expectEqual(true, result.toBool());
 }
+
+test "Product stops lazy sources and runs ensure handlers on break and return" {
+    const result = try evalCode(
+        \\events = []
+        \\source = Enumerator.new do |y|
+        \\  begin
+        \\    i = 0
+        \\    loop { events << i; y << i; i += 1 }
+        \\  ensure
+        \\    events << :ensure
+        \\  end
+        \\end
+        \\product = Enumerator::Product.new(source, [:a, :b])
+        \\taken = product.take(3)
+        \\broken = product.each { break :done }
+        \\def first_product(product)
+        \\  product.each { |tuple| return tuple }
+        \\end
+        \\returned = first_product(product)
+        \\taken == [[0, :a], [0, :b], [1, :a]] && broken == :done &&
+        \\  returned == [0, :a] && events == [0, 1, :ensure, 0, :ensure, 0, :ensure]
+    );
+    try std.testing.expectEqual(true, result.toBool());
+}
+
+test "Product nested iteration keeps independent tuples and each_entry semantics" {
+    const result = try evalCode(
+        \\source = Object.new
+        \\def source.each_entry
+        \\  yield
+        \\  yield 1, 2
+        \\end
+        \\product = Enumerator::Product.new(source, [:a])
+        \\tuples = []
+        \\product.each { |outer| product.each { |inner| tuples << [outer, inner] } }
+        \\expected = [[nil, :a], [1, :a]]
+        \\source.singleton_class.send(:include, Enumerable)
+        \\def source.each
+        \\  yield 1, 2
+        \\end
+        \\source.singleton_class.send(:remove_method, :each_entry)
+        \\tuples == expected.product(expected) && product.to_a == [[[1, 2], :a]] &&
+        \\  Enumerator::Product.new.to_a == [[]]
+    );
+    try std.testing.expectEqual(true, result.toBool());
+}

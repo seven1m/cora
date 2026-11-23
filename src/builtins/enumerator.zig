@@ -2,6 +2,7 @@ const std = @import("std");
 const vm_mod = @import("../vm.zig");
 const value = @import("../value.zig");
 const class_builtin = @import("class.zig");
+const kernel_builtin = @import("kernel.zig");
 
 const VM = vm_mod.VM;
 const VMError = vm_mod.VMError;
@@ -68,6 +69,22 @@ pub fn register(vm: *VM) !void {
     try chain_singleton.module.methods.put(new_sym, MethodEntry.keywordBuiltin(&class_builtin.builtinClassNew, .{ .variadic = 0 }));
     try vm.enumerator_chain_class.module.methods.put(try vm.intern("initialize"), MethodEntry.builtinWithVisibility(&builtinChainInitialize, .{ .variadic = 0 }, .private));
 
+    const product_value = try vm.newClass(try vm.intern("Product"), vm.enumerator_class);
+    const product_class = product_value.toClassObject();
+    try vm.setConstant(&vm.enumerator_class.module, try vm.intern("Product"), product_value);
+    product_class.builtin_alloc_func = &builtinProductAllocate;
+    const product_singleton = try vm.getOrCreateSingletonClass(product_value);
+    try product_singleton.module.methods.put(new_sym, MethodEntry.keywordBuiltin(&class_builtin.builtinClassNew, .{ .variadic = 0 }));
+    try product_class.module.methods.put(try vm.intern("initialize"), MethodEntry.keywordBuiltinWithVisibility(&builtinProductInitialize, .{ .variadic = 0 }, .private));
+    try product_class.module.methods.put(try vm.intern("initialize_copy"), MethodEntry.builtinWithVisibility(&builtinProductInitializeCopy, .{ .exact = 1 }, .private));
+    try product_class.module.methods.put(each_sym, MethodEntry.builtin(&builtinProductEach, .{ .exact = 0 }));
+    try product_class.module.methods.put(size_sym, MethodEntry.builtin(&builtinProductSize, .{ .exact = 0 }));
+    try product_class.module.methods.put(rewind_sym, MethodEntry.builtin(&builtinProductRewind, .{ .exact = 0 }));
+    try product_class.module.methods.put(to_a_sym, enumerable.value.toModuleObject().methods.get(to_a_sym) orelse return error.Fatal);
+    for ([_][]const u8{ "feed", "next", "next_values", "peek", "peek_values" }) |name| {
+        try product_class.module.methods.put(try vm.intern(name), .{ .method = .{ .undefined = {} } });
+    }
+
     // Yielder instance methods
     const yield_push_sym = try vm.intern("<<");
     try vm.yielder_class.module.methods.put(yield_push_sym, MethodEntry.builtin(&builtinYielderPush, .{ .exact = 1 }));
@@ -114,6 +131,127 @@ fn enumerateChain(vm: *VM, receiver: Value, args: []Value, block: Block) VMError
     return receiver;
 }
 
+fn builtinProductAllocate(vm: *VM, receiver: Value, _: []Value, _: ?Block) VMError!Value {
+    return vm.newEnumeratorOfClass(receiver.toClassObject(), .{ .product = .{ .sources = null } }, null, null, null);
+}
+
+fn builtinProductInitialize(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.validateKeywordArgsConsumed();
+    try vm.guardNotFrozen(receiver);
+    const sources = try vm.createArray();
+    sources.elements.appendSlice(vm.gc_allocator, args) catch return error.Fatal;
+    var sources_value = Value.fromObject(&sources.object);
+    sources_value.freeze();
+    receiver.toEnumeratorObject().kind = .{ .product = .{ .sources = sources } };
+    return receiver;
+}
+
+fn productSources(vm: *VM, receiver: Value) VMError!*value.ArrayObject {
+    return receiver.toEnumeratorObject().kind.product.sources orelse
+        vm.raiseExceptionFmt(vm.argument_error_class, "uninitialized product", .{});
+}
+
+fn builtinProductInitializeCopy(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
+    _ = try kernel_builtin.builtinKernelInitializeCopy(vm, receiver, args, block);
+    if (receiver.raw == args[0].raw) return receiver;
+    receiver.toEnumeratorObject().kind = .{ .product = .{ .sources = try productSources(vm, args[0]) } };
+    return receiver;
+}
+
+fn productSize(vm: *VM, receiver: Value, _: ?*value.ArrayObject) VMError!Value {
+    return builtinProductSize(vm, receiver, &.{}, null);
+}
+
+fn builtinProductSize(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    const sources = try productSources(vm, receiver);
+    const sizes = try vm.createArray();
+    for (sources.elements.items) |source| {
+        const size = (try vm.checkCallMethodByName(source, "size", false, &.{}, null)) orelse Value.nil();
+        if (size.isInteger() and size.toInteger() == 0) return size;
+        sizes.elements.append(vm.gc_allocator, size) catch return error.Fatal;
+    }
+    var total = Value.integer(1);
+    for (sizes.elements.items) |size| {
+        if (size.isNil() or (size.isFloat() and std.math.isInf(size.toFloatObject().val))) return size;
+        if (!size.isInteger() and !size.isBigInteger()) return Value.nil();
+        var multiply_args = [_]Value{size};
+        total = try vm.callMethodByName(total, "*", &multiply_args, null);
+    }
+    return total;
+}
+
+fn builtinProductRewind(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    const sources = try productSources(vm, receiver);
+    for (sources.elements.items) |source| {
+        _ = try vm.checkCallMethodByName(source, "rewind", false, &.{}, null);
+    }
+    return receiver;
+}
+
+const ProductContext = struct {
+    product: Value,
+    sources: *value.ArrayObject,
+    values: []Value,
+    block: Block,
+    index: usize = 0,
+};
+
+fn builtinProductEach(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    const blk = block orelse return vm.createMethodEnumeratorWithSizeFn(receiver, try vm.intern("each"), &.{}, &productSize);
+    const sources = try productSources(vm, receiver);
+    const context = vm.gc_allocator.create(ProductContext) catch return error.Fatal;
+    const values = vm.gc_allocator.alloc(Value, sources.elements.items.len) catch return error.Fatal;
+    @memset(values, Value.nil());
+    context.* = .{
+        .product = receiver,
+        .sources = sources,
+        .values = values,
+        .block = (try vm.procValueForBlock(blk)).toProcObject().block,
+    };
+    try iterateProduct(vm, context);
+    return receiver;
+}
+
+fn iterateProduct(vm: *VM, context: *ProductContext) VMError!void {
+    if (context.index == context.values.len) {
+        const tuple = try vm.createArray();
+        tuple.elements.appendSlice(vm.gc_allocator, context.values) catch return error.Fatal;
+        _ = try vm.yieldToBlock(context.block, &.{Value.fromObject(&tuple.object)});
+        return;
+    }
+    const callback = Block{ .kind = .{ .receiver_builtin = .{
+        .receiver = .{ .raw = @intFromPtr(context) },
+        .func = &productEachEntry,
+        .arity = -1,
+    } } };
+    _ = try vm.callMethodByName(context.sources.elements.items[context.index], "each_entry", &.{}, callback);
+}
+
+fn productEachEntry(vm: *VM, receiver: Value, args: []Value) VMError!Value {
+    const context: *ProductContext = @ptrFromInt(receiver.raw);
+    // each_entry normally packs values itself. A custom implementation that
+    // yields multiple arguments contributes only its first argument, like MRI.
+    context.values[context.index] = if (args.len == 0) Value.nil() else args[0];
+    context.index += 1;
+    defer context.index -= 1;
+    try iterateProduct(vm, context);
+    return context.product;
+}
+
+fn inspectComposite(vm: *VM, receiver: Value, sources: ?*value.ArrayObject) VMError!Value {
+    const description = if (sources) |array| blk: {
+        if (try vm.enterRecursionGuard(.enumerator_inspect, receiver, Value.nil())) break :blk "...";
+        defer vm.leaveRecursionGuard(.enumerator_inspect, receiver, Value.nil());
+        const inspected = try Value.fromObject(&array.object).inspect(vm);
+        break :blk inspected.toStringObject().str;
+    } else "uninitialized";
+    const message = std.fmt.allocPrint(vm.gc_allocator, "#<{s}: {s}>", .{ vm.className(receiver), description }) catch return error.Fatal;
+    return vm.newString(message, false);
+}
+
 // --- Enumerator instance methods ---
 
 fn builtinEnumeratorEach(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
@@ -140,6 +278,7 @@ fn builtinEnumeratorEach(vm: *VM, receiver: Value, args: []Value, block: ?Block)
             .generator => {
                 return vm.newEnumerator(enum_obj.kind, null, enum_obj.size, enum_obj.size_fn);
             },
+            .product => return builtinProductEach(vm, receiver, args, null),
             .chain => {
                 return vm.newEnumeratorOfClass(enum_obj.object.class.?, enum_obj.kind, null, enum_obj.size, enum_obj.size_fn);
             },
@@ -173,6 +312,7 @@ fn builtinEnumeratorEach(vm: *VM, receiver: Value, args: []Value, block: ?Block)
             return vm.callProcObject(g.proc, &proc_args, null, null, null, null);
         },
         .chain => return enumerateChain(vm, receiver, args, blk),
+        .product => return builtinProductEach(vm, receiver, args, blk),
         .chunk_while => |chunk_while| return enumerateChunkWhile(vm, receiver, chunk_while.receiver, chunk_while.predicate, blk),
     }
 }
@@ -273,6 +413,10 @@ fn builtinEnumeratorPeekValues(vm: *VM, receiver: Value, args: []Value, _: ?Bloc
 fn builtinEnumeratorRewind(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
     const enum_obj = receiver.toEnumeratorObject();
+    if (enum_obj.kind == .method) {
+        _ = try vm.checkCallMethodByName(enum_obj.kind.method.receiver, "rewind", false, &.{}, null);
+    }
+    if (enum_obj.kind == .product) return builtinProductRewind(vm, receiver, args, null);
     if (enum_obj.kind == .chain) {
         const sources = try chainSources(vm, receiver);
         while (enum_obj.kind.chain.iterated_count > 0 and enum_obj.kind.chain.iterated_count <= sources.elements.items.len) {
@@ -357,17 +501,8 @@ fn builtinEnumeratorInspect(vm: *VM, receiver: Value, args: []Value, _: ?Block) 
             ) catch return error.Fatal;
             return try vm.newString(msg, false);
         },
-        .chain => |chain| {
-            const class_name = vm.className(receiver);
-            const description = if (chain.sources) |sources| blk: {
-                if (try vm.enterRecursionGuard(.enumerator_inspect, receiver, Value.nil())) break :blk "...";
-                defer vm.leaveRecursionGuard(.enumerator_inspect, receiver, Value.nil());
-                const inspected = try Value.fromObject(&sources.object).inspect(vm);
-                break :blk inspected.toStringObject().str;
-            } else "uninitialized";
-            const msg = std.fmt.allocPrint(vm.gc_allocator, "#<{s}: {s}>", .{ class_name, description }) catch return error.Fatal;
-            return vm.newString(msg, false);
-        },
+        .chain => |chain| return inspectComposite(vm, receiver, chain.sources),
+        .product => |product| return inspectComposite(vm, receiver, product.sources),
         .chunk_while => {
             const msg = std.fmt.allocPrint(
                 vm.gc_allocator,
@@ -406,7 +541,7 @@ fn builtinEnumeratorSize(vm: *VM, receiver: Value, args: []Value, _: ?Block) VME
         switch (enum_obj.kind) {
             .method => |m| return size_fn(vm, m.receiver, enum_obj.method_args),
             .generator => return Value.nil(),
-            .chain => return Value.nil(),
+            .chain, .product => return Value.nil(),
             .chunk_while => return Value.nil(),
         }
     }
@@ -498,6 +633,7 @@ fn enumeratorFiberBody(vm: *VM, args: []Value) VMError!Value {
             return vm.callProcObject(g.proc, &proc_args, null, null, null, null);
         },
         .chain => return enumerateChain(vm, enum_val, &.{}, yield_block),
+        .product => return builtinProductEach(vm, enum_val, &.{}, yield_block),
         .chunk_while => |chunk_while| return enumerateChunkWhile(vm, enum_val, chunk_while.receiver, chunk_while.predicate, yield_block),
     }
 }

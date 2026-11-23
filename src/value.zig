@@ -745,6 +745,9 @@ pub const EnumeratorObject = struct {
             sources: ?*ArrayObject,
             iterated_count: usize = 0,
         },
+        product: struct {
+            sources: ?*ArrayObject,
+        },
         chunk_while: struct {
             receiver: Value,
             predicate: *ProcObject,
