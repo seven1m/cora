@@ -21,6 +21,38 @@ module Digest
       digest(*args).unpack1("H*")
     end
 
+    def digest!
+      result = digest
+      reset
+      result
+    end
+
+    def ==(other)
+      if Instance === other
+        left, right = digest, other.digest
+      else
+        left = hexdigest
+        right = String.try_convert(other)
+        return false if right.nil?
+      end
+      left = String.try_convert(left) or raise TypeError, "no implicit conversion into String"
+      right = String.try_convert(right) or raise TypeError, "no implicit conversion into String"
+      left == right
+    end
+
+    def inspect
+      "#<#{self.class}: #{hexdigest}>"
+    end
+
+    def to_s
+      hexdigest
+    end
+
+    def length
+      digest_length
+    end
+    alias size length
+
     def base64digest(*args)
       [digest(*args)].pack("m0")
     end

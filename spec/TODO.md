@@ -2900,18 +2900,18 @@ Source baseline: ../ruby_spec compared to local spec/
 ### library/digest/md5
 - [x] library/digest/md5/append_spec.rb
 - [x] library/digest/md5/block_length_spec.rb
-- [ ] library/digest/md5/digest_bang_spec.rb
+- [x] library/digest/md5/digest_bang_spec.rb
 - [x] library/digest/md5/digest_length_spec.rb
 - [x] library/digest/md5/digest_spec.rb
-- [ ] library/digest/md5/equal_spec.rb
-- [ ] library/digest/md5/file_spec.rb
+- [x] library/digest/md5/equal_spec.rb
+- [x] library/digest/md5/file_spec.rb
 - [x] library/digest/md5/hexdigest_bang_spec.rb
-- [ ] library/digest/md5/hexdigest_spec.rb
-- [ ] library/digest/md5/inspect_spec.rb
-- [ ] library/digest/md5/length_spec.rb
+- [x] library/digest/md5/hexdigest_spec.rb
+- [x] library/digest/md5/inspect_spec.rb
+- [x] library/digest/md5/length_spec.rb
 - [x] library/digest/md5/reset_spec.rb
-- [ ] library/digest/md5/size_spec.rb
-- [ ] library/digest/md5/to_s_spec.rb
+- [x] library/digest/md5/size_spec.rb
+- [x] library/digest/md5/to_s_spec.rb
 - [x] library/digest/md5/update_spec.rb
 
 ### library/digest/sha1
@@ -2941,35 +2941,35 @@ Source baseline: ../ruby_spec compared to local spec/
 ### library/digest/sha384
 - [x] library/digest/sha384/append_spec.rb
 - [x] library/digest/sha384/block_length_spec.rb
-- [ ] library/digest/sha384/digest_bang_spec.rb
+- [x] library/digest/sha384/digest_bang_spec.rb
 - [x] library/digest/sha384/digest_length_spec.rb
-- [ ] library/digest/sha384/digest_spec.rb
-- [ ] library/digest/sha384/equal_spec.rb
-- [ ] library/digest/sha384/file_spec.rb
+- [x] library/digest/sha384/digest_spec.rb
+- [x] library/digest/sha384/equal_spec.rb
+- [x] library/digest/sha384/file_spec.rb
 - [x] library/digest/sha384/hexdigest_bang_spec.rb
-- [ ] library/digest/sha384/hexdigest_spec.rb
-- [ ] library/digest/sha384/inspect_spec.rb
-- [ ] library/digest/sha384/length_spec.rb
+- [x] library/digest/sha384/hexdigest_spec.rb
+- [x] library/digest/sha384/inspect_spec.rb
+- [x] library/digest/sha384/length_spec.rb
 - [x] library/digest/sha384/reset_spec.rb
-- [ ] library/digest/sha384/size_spec.rb
-- [ ] library/digest/sha384/to_s_spec.rb
+- [x] library/digest/sha384/size_spec.rb
+- [x] library/digest/sha384/to_s_spec.rb
 - [x] library/digest/sha384/update_spec.rb
 
 ### library/digest/sha512
 - [x] library/digest/sha512/append_spec.rb
 - [x] library/digest/sha512/block_length_spec.rb
-- [ ] library/digest/sha512/digest_bang_spec.rb
+- [x] library/digest/sha512/digest_bang_spec.rb
 - [x] library/digest/sha512/digest_length_spec.rb
-- [ ] library/digest/sha512/digest_spec.rb
-- [ ] library/digest/sha512/equal_spec.rb
-- [ ] library/digest/sha512/file_spec.rb
+- [x] library/digest/sha512/digest_spec.rb
+- [x] library/digest/sha512/equal_spec.rb
+- [x] library/digest/sha512/file_spec.rb
 - [x] library/digest/sha512/hexdigest_bang_spec.rb
-- [ ] library/digest/sha512/hexdigest_spec.rb
-- [ ] library/digest/sha512/inspect_spec.rb
-- [ ] library/digest/sha512/length_spec.rb
+- [x] library/digest/sha512/hexdigest_spec.rb
+- [x] library/digest/sha512/inspect_spec.rb
+- [x] library/digest/sha512/length_spec.rb
 - [x] library/digest/sha512/reset_spec.rb
-- [ ] library/digest/sha512/size_spec.rb
-- [ ] library/digest/sha512/to_s_spec.rb
+- [x] library/digest/sha512/size_spec.rb
+- [x] library/digest/sha512/to_s_spec.rb
 - [x] library/digest/sha512/update_spec.rb
 
 ### library/drb

@@ -234,3 +234,32 @@ test "Digest SHA2 preserves variant selection when creating reset copies" {
     );
     try std.testing.expect(result.isTrue());
 }
+
+test "Digest equality rejects incompatible values without changing digest state" {
+    const result = try evalCode(
+        \\require "digest"
+        \\digest = Digest::MD5.new.update("abc")
+        \\same = Digest::MD5.new.update("abc")
+        \\different = Digest::MD5.new.update("different")
+        \\before = digest.digest
+        \\nil_conversion = Object.new
+        \\def nil_conversion.to_str; nil; end
+        \\wrong_type = Object.new
+        \\def wrong_type.to_str; 42; end
+        \\invalid_digest = Class.new do
+        \\  include Digest::Instance
+        \\  def digest; 42; end
+        \\end.new
+        \\errors = [wrong_type, invalid_digest].all? do |other|
+        \\  begin
+        \\    digest == other
+        \\    false
+        \\  rescue TypeError
+        \\    true
+        \\  end
+        \\end
+        \\digest == same && digest != different && digest != nil && digest != Object.new &&
+        \\  digest != BasicObject.new && digest != nil_conversion && errors && digest.digest == before
+    );
+    try std.testing.expect(result.isTrue());
+}
