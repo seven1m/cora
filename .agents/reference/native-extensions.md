@@ -231,3 +231,12 @@ new test in `test/all_test.zig`, then re-run `zig build test`.
 When porting real gems with native extensions (like `psych` and `strscan`),
 prefer keeping the upstream `ext/<gem>/ext/<gem>/extconf.rb` and `Makefile`
 working as-is. The build pipeline in `build.zig` is the integration point.
+
+## Shared Keyword And Regexp Dispatch
+
+All C method call paths use `VM.invokeCExtWithKeywords` to append the keyword
+Hash and install the C keyword context together. This includes calls forwarded
+through native builtins, Method objects, and super. `rb_reg_onig_match` negotiates
+String/Regexp encodings and shares the Regexp-owned compiled encoding variants
+with Ruby regexp matching. Native printf-style helpers share `formatCVarargs`,
+including bounded `%.*s` strings; `rb_enc_sprintf` preserves its supplied encoding.

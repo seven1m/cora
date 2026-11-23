@@ -8980,6 +8980,30 @@ pub const VM = struct {
         return result;
     }
 
+    fn invokeCExtWithKeywords(
+        self: *VM,
+        method: CExtMethod,
+        resolved: ResolvedMethod,
+        receiver: Value,
+        args: []const Value,
+        block: ?Block,
+        keys: ?[]const Value,
+        values: ?[]const Value,
+    ) VMError!Value {
+        var arguments: TempValueSlice = .{};
+        defer arguments.deinit(self.allocator);
+        if (values) |keywords| {
+            if (keywords.len > 0) {
+                const combined = try arguments.initUninitialized(self, args.len + 1);
+                @memcpy(combined[0..args.len], args);
+                const hash = try self.createHashFromKeywordPairs(keys.?, keywords);
+                combined[args.len] = hash;
+                return self.dispatchCExtMethod(method, resolved, receiver, combined, block, hash);
+            }
+        }
+        return self.dispatchCExtMethod(method, resolved, receiver, args, block, null);
+    }
+
     fn dispatchCExtMethod(
         self: *VM,
         cext_method: CExtMethod,
@@ -9376,7 +9400,7 @@ pub const VM = struct {
                 return self.invokeBuiltinMethod(fun_ptr, receiver, resolved.name.name, @constCast(dispatch.args), block, dispatch_keyword_ctx, resolved.defining_node);
             },
             .cext => |cext_method| {
-                const result = try self.dispatchCExtMethod(cext_method, resolved, receiver, @constCast(dispatch.args), block, null);
+                const result = try self.invokeCExtWithKeywords(cext_method, resolved, receiver, dispatch.args, block, dispatch.kw_keys, dispatch.kw_values);
                 return result;
             },
             .proc => |proc_obj| {
@@ -10128,19 +10152,7 @@ pub const VM = struct {
                 try self.push(result);
             },
             .cext => |cext_method| {
-                var cext_args_temp: TempValueSlice = .{};
-                defer cext_args_temp.deinit(self.allocator);
-                var cext_args = @constCast(dispatch.args);
-                var keyword_hash: ?Value = null;
-                if (dispatch_kwargc > 0) {
-                    const kw_hash = try self.createHashFromKeywordPairs(dispatch_kw_keys.?, dispatch_kw_values.?);
-                    const combined = try cext_args_temp.initUninitialized(self, dispatch.args.len + 1);
-                    @memcpy(combined[0..dispatch.args.len], dispatch.args);
-                    combined[dispatch.args.len] = kw_hash;
-                    cext_args = combined;
-                    keyword_hash = kw_hash;
-                }
-                const result = try self.dispatchCExtMethod(cext_method, method, receiver, cext_args, block, keyword_hash);
+                const result = try self.invokeCExtWithKeywords(cext_method, method, receiver, dispatch.args, block, dispatch_kw_keys, dispatch_kw_values);
                 try self.push(result);
             },
             .proc => |proc_obj| {
@@ -10777,8 +10789,7 @@ pub const VM = struct {
                 try self.push(result);
             },
             .cext => |cext_method| {
-                const keyword_hash = if (dispatch.kw_keys) |keys| try self.createHashFromKeywordPairs(keys, dispatch.kw_values.?) else null;
-                const result = try self.dispatchCExtMethod(cext_method, resolved, receiver, dispatch.args, block, keyword_hash);
+                const result = try self.invokeCExtWithKeywords(cext_method, resolved, receiver, dispatch.args, block, dispatch.kw_keys, dispatch.kw_values);
                 try self.push(result);
             },
             .proc => |proc_obj| {

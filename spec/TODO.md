@@ -3869,23 +3869,23 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] library/stringio/write_spec.rb
 
 ### library/stringscanner
-- [ ] library/stringscanner/append_spec.rb
+- [x] library/stringscanner/append_spec.rb
 - [x] library/stringscanner/beginning_of_line_spec.rb
 - [x] library/stringscanner/bol_spec.rb
-- [ ] library/stringscanner/captures_spec.rb
+- [x] library/stringscanner/captures_spec.rb
 - [x] library/stringscanner/charpos_spec.rb
-- [ ] library/stringscanner/check_spec.rb
-- [ ] library/stringscanner/check_until_spec.rb
+- [x] library/stringscanner/check_spec.rb
+- [x] library/stringscanner/check_until_spec.rb
 - [x] library/stringscanner/concat_spec.rb
 - [x] library/stringscanner/dup_spec.rb
-- [ ] library/stringscanner/element_reference_spec.rb
+- [x] library/stringscanner/element_reference_spec.rb
 - [x] library/stringscanner/eos_spec.rb
-- [ ] library/stringscanner/exist_spec.rb
-- [ ] library/stringscanner/fixed_anchor_spec.rb
-- [ ] library/stringscanner/get_byte_spec.rb
-- [ ] library/stringscanner/getch_spec.rb
-- [ ] library/stringscanner/initialize_spec.rb
-- [ ] library/stringscanner/inspect_spec.rb
+- [x] library/stringscanner/exist_spec.rb
+- [x] library/stringscanner/fixed_anchor_spec.rb
+- [x] library/stringscanner/get_byte_spec.rb
+- [x] library/stringscanner/getch_spec.rb
+- [x] library/stringscanner/initialize_spec.rb
+- [x] library/stringscanner/inspect_spec.rb
 - [x] library/stringscanner/match_spec.rb
 - [x] library/stringscanner/matched_size_spec.rb
 - [x] library/stringscanner/matched_spec.rb
@@ -3898,21 +3898,21 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] library/stringscanner/post_match_spec.rb
 - [x] library/stringscanner/pre_match_spec.rb
 - [x] library/stringscanner/reset_spec.rb
-- [ ] library/stringscanner/rest_size_spec.rb
+- [x] library/stringscanner/rest_size_spec.rb
 - [x] library/stringscanner/rest_spec.rb
-- [ ] library/stringscanner/scan_byte_spec.rb
+- [x] library/stringscanner/scan_byte_spec.rb
 - [x] library/stringscanner/scan_full_spec.rb
-- [ ] library/stringscanner/scan_integer_spec.rb
-- [ ] library/stringscanner/scan_spec.rb
-- [ ] library/stringscanner/scan_until_spec.rb
-- [ ] library/stringscanner/search_full_spec.rb
+- [x] library/stringscanner/scan_integer_spec.rb
+- [x] library/stringscanner/scan_spec.rb
+- [x] library/stringscanner/scan_until_spec.rb
+- [x] library/stringscanner/search_full_spec.rb
 - [x] library/stringscanner/size_spec.rb
 - [x] library/stringscanner/skip_spec.rb
-- [ ] library/stringscanner/skip_until_spec.rb
-- [ ] library/stringscanner/string_spec.rb
+- [x] library/stringscanner/skip_until_spec.rb
+- [x] library/stringscanner/string_spec.rb
 - [x] library/stringscanner/terminate_spec.rb
 - [x] library/stringscanner/unscan_spec.rb
-- [ ] library/stringscanner/values_at_spec.rb
+- [x] library/stringscanner/values_at_spec.rb
 
 ### library/syslog
 - [ ] library/syslog/alert_spec.rb

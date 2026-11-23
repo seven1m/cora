@@ -1319,3 +1319,32 @@ test "C extension Random class export identifies the runtime Random class" {
     );
     try std.testing.expect(result.isTruthy());
 }
+
+test "C extension keywords survive send Method call and super forwarding" {
+    const result = try evalCode(
+        \\$LOAD_PATH << "zig-out/cext"
+        \\require "fixture.so"
+        \\expected = [2, "one", 2, {exception: false}]
+        \\raise "send" unless CoraCExt.send(:scan_keywords, "one", 2, exception: false) == expected
+        \\raise "method call" unless CoraCExt.method(:scan_keywords).call("one", 2, exception: false) == expected
+        \\klass = Class.new do
+        \\  include CoraCExt
+        \\  def scan_keywords(*args, **keywords)
+        \\    super(*args, **keywords)
+        \\  end
+        \\end
+        \\raise "super" unless klass.new.scan_keywords("one", 2, exception: false) == expected
+        \\true
+    );
+    try std.testing.expect(result.isTruthy());
+}
+
+test "C extension string precision consumes arguments and preserves encoding" {
+    const result = try evalCode(
+        \\$LOAD_PATH << "zig-out/cext"
+        \\require "fixture.so"
+        \\plain, encoded = CoraCExt.precision_format
+        \\plain == "abc:7:XY" && encoded == "abc:9" && encoded.encoding == Encoding::BINARY
+    );
+    try std.testing.expect(result.isTruthy());
+}

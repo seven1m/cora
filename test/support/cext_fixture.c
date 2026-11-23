@@ -720,6 +720,15 @@ cext_raise_formatted(VALUE self)
 }
 
 static VALUE
+cext_precision_format(VALUE self)
+{
+    (void)self;
+    VALUE plain = rb_sprintf("%.*s:%d:%.*s", 3, "abcdef", 7, 2, "XYZ");
+    VALUE encoded = rb_enc_sprintf(rb_ascii8bit_encoding(), "%.*s:%d", 3, "abcdef", 9);
+    return rb_ary_new3(2, plain, encoded);
+}
+
+static VALUE
 cext_format_class(VALUE self, VALUE obj)
 {
     (void)self;
@@ -995,6 +1004,7 @@ void Init_fixture(void)
     rb_define_module_function(mCoraCExt, "check_array_type", cext_check_array_type, 1);
     rb_define_module_function(mCoraCExt, "raise_formatted", cext_raise_formatted, 0);
     rb_define_module_function(mCoraCExt, "format_class", cext_format_class, 1);
+    rb_define_module_function(mCoraCExt, "precision_format", cext_precision_format, 0);
     rb_define_module_function(mCoraCExt, "st_table", cext_st_table, 0);
     rb_define_module_function(mCoraCExt, "alloc_and_init", cext_alloc_and_init, 2);
     rb_define_module_function(mCoraCExt, "object_identity", cext_object_identity, 1);

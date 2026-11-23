@@ -730,7 +730,7 @@ const RegexpSearchResult = struct {
 
 // Keep encoding-specific compiled patterns with their owning regexp, so repeated
 // matches do not allocate a new Ruby object and recompile the same pattern.
-fn regexpForSourceEncoding(vm: *VM, regexp: *value.RegexpObject, encoding: enc.Encoding) VMError!*value.RegexpObject {
+pub fn regexpForSourceEncoding(vm: *VM, regexp: *value.RegexpObject, encoding: enc.Encoding) VMError!*value.RegexpObject {
     if (!regexp.encoding.eql(.{ .us_ascii = .{} }) or !encoding.isAsciiCompatible() or encoding.eql(.{ .us_ascii = .{} })) return regexp;
 
     for (regexp.encoding_variants.items) |variant| {

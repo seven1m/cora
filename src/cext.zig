@@ -7,6 +7,7 @@ const vm_mod = @import("vm.zig");
 const VM = vm_mod.VM;
 const enc = @import("encoding.zig");
 const encoding_builtin = @import("builtins/encoding.zig");
+const regexp_builtin = @import("builtins/regexp.zig");
 const cext_globals = @import("cext_globals.zig");
 const onigmo = @import("onigmo.zig");
 const bdwgc = @import("bdwgc");
@@ -771,6 +772,20 @@ fn formatCVarargs(vm: *VM, fmt: [*c]const u8, ap: *std.builtin.VaList, out: *std
             out.append(vm.allocator, '%') catch return false;
             continue;
         }
+        if (s[i] == '.' and i + 2 < s.len and s[i + 1] == '*' and s[i + 2] == 's') {
+            const precision = @cVaArg(ap, c_int);
+            const ptr = @cVaArg(ap, [*c]const u8);
+            if (ptr == null) {
+                const text = "(null)";
+                out.appendSlice(vm.allocator, if (precision < 0) text else text[0..@min(text.len, @as(usize, @intCast(precision)))]) catch return false;
+            } else {
+                var length: usize = 0;
+                while ((precision < 0 or length < @as(usize, @intCast(precision))) and ptr[length] != 0) : (length += 1) {}
+                out.appendSlice(vm.allocator, ptr[0..length]) catch return false;
+            }
+            i += 2;
+            continue;
+        }
         if (s[i] == 'l' and i + 1 < s.len and s[i + 1] == 'd') {
             var buf: [32]u8 = undefined;
             const rendered = std.fmt.bufPrint(&buf, "{d}", .{@cVaArg(ap, c_long)}) catch return false;
@@ -924,16 +939,26 @@ export fn rb_must_asciicompat(obj_raw: VALUE) void {
     if (!obj.isString()) return;
     if (!obj.toStringObject().encoding.isAsciiCompatible()) {
         const vm = getVM();
-        _ = vm.raiseExceptionFmt(vm.encoding_error_class, "ASCII incompatible encoding", .{}) catch {};
+        _ = vm.raiseExceptionFmt(vm.encoding_compatibility_error_class, "ASCII incompatible encoding: {s}", .{obj.toStringObject().encoding.name()}) catch {};
+        if (vm.cext_jmp_buf) |buf| siglongjmp(buf, 1);
     }
 }
 
 export fn rb_enc_raise(enc_ptr: ?*anyopaque, exc_raw: VALUE, fmt: [*c]const u8, ...) void {
-    _ = enc_ptr;
-    if (fmt == null) return;
     const vm = getVM();
-    const exc: *value.ClassObject = @ptrFromInt(exc_raw);
-    _ = vm.raiseExceptionFmt(exc, "{s}", .{std.mem.span(fmt)}) catch {};
+    var ap = @cVaStart();
+    var rendered: std.ArrayList(u8) = .empty;
+    const formatted = formatCVarargs(vm, fmt, &ap, &rendered);
+    @cVaEnd(&ap);
+    _ = vm.raiseExceptionFmt(@ptrFromInt(exc_raw), "{s}", .{if (formatted) rendered.items else ""}) catch {};
+    if (enc_ptr) |ptr| {
+        if (vm.pendingException()) |exception| {
+            exception.message.encoding = (@as(*const enc.Encoding, @ptrCast(@alignCast(ptr)))).*;
+            exception.message.validity = .unknown;
+        }
+    }
+    rendered.deinit(vm.allocator);
+    if (vm.cext_jmp_buf) |buf| siglongjmp(buf, 1);
 }
 
 export fn rb_str_export_to_enc(str_raw: VALUE, enc_ptr: ?*anyopaque) VALUE {
@@ -2151,9 +2176,11 @@ export fn INT2NUM(v: c_long) VALUE {
 fn numToLong(v_raw: VALUE) c_long {
     const vm = getVM();
     const val = Value{ .raw = v_raw };
+    if (val.isInteger()) return val.toInteger();
+    const missing_message = std.fmt.allocPrint(vm.gc_allocator, "no implicit conversion of {s} into Integer", .{vm.className(val)}) catch return 0;
     return val.coerceToI64ViaToInt(
         vm,
-        "no implicit conversion into Integer",
+        missing_message,
         "no implicit conversion into Integer",
         "bignum too big to convert into 'long'",
     ) catch {
@@ -2435,10 +2462,20 @@ export fn rb_reg_onig_match(
     regs: ?*anyopaque,
 ) isize {
     if (match_fn == null) return 0;
-    const regexp = Value{ .raw = re_raw };
-    const result = match_fn.?(regexp.toRegexpObject().regex, str_raw, regs, args);
+    const vm = getVM();
+    const regexp = (Value{ .raw = re_raw }).toRegexpObject();
+    const source = (Value{ .raw = str_raw }).toStringObject();
+    if (enc.negotiate(source.encoding, source.str, regexp.encoding, regexp.pattern) == null) {
+        _ = vm.raiseExceptionFmt(vm.encoding_compatibility_error_class, "incompatible encoding regexp match ({s} regexp with {s} string)", .{ regexp.encoding.name(), source.encoding.name() }) catch {};
+        if (vm.cext_jmp_buf) |buf| siglongjmp(buf, 1);
+        return -1;
+    }
+    const prepared = regexp_builtin.regexpForSourceEncoding(vm, regexp, source.encoding) catch {
+        if (vm.cext_jmp_buf) |buf| siglongjmp(buf, 1);
+        return -1;
+    };
+    const result = match_fn.?(prepared.regex, str_raw, regs, args);
     if (result < 0 and result != -1) {
-        const vm = getVM();
         _ = vm.raiseExceptionFmt(vm.runtime_error_class, "regexp buffer overflow", .{}) catch {};
     }
     return result;
@@ -2719,49 +2756,14 @@ export fn rb_enc_copy(dest_raw: VALUE, src_raw: VALUE) VALUE {
 }
 
 export fn rb_enc_sprintf(enc_ptr: ?*anyopaque, fmt: [*c]const u8, ...) VALUE {
-    _ = enc_ptr;
     var ap = @cVaStart();
     defer @cVaEnd(&ap);
-    if (fmt == null) return 0;
     const vm = getVM();
-    var out: std.ArrayList(u8) = .empty;
-    defer out.deinit(vm.allocator);
-    const s = std.mem.span(fmt);
-    var i: usize = 0;
-    while (i < s.len) : (i += 1) {
-        if (s[i] != '%') {
-            out.append(vm.allocator, s[i]) catch return 0;
-            continue;
-        }
-        i += 1;
-        if (i >= s.len) break;
-        if (s[i] == '%') {
-            out.append(vm.allocator, '%') catch return 0;
-            continue;
-        }
-        if (s[i] == 'l' and i + 1 < s.len and s[i + 1] == 'd') {
-            var buf: [32]u8 = undefined;
-            const rendered = std.fmt.bufPrint(&buf, "{d}", .{@cVaArg(&ap, c_long)}) catch return 0;
-            out.appendSlice(vm.allocator, rendered) catch return 0;
-            i += 1;
-            continue;
-        }
-        if (s[i] == 'd') {
-            var buf: [32]u8 = undefined;
-            const rendered = std.fmt.bufPrint(&buf, "{d}", .{@cVaArg(&ap, c_int)}) catch return 0;
-            out.appendSlice(vm.allocator, rendered) catch return 0;
-            continue;
-        }
-        if (s[i] == 's') {
-            const ptr = @cVaArg(&ap, [*c]const u8);
-            out.appendSlice(vm.allocator, if (ptr != null) std.mem.span(ptr) else "(null)") catch return 0;
-            continue;
-        }
-        out.append(vm.allocator, '%') catch return 0;
-        out.append(vm.allocator, s[i]) catch return 0;
-    }
-    const str_val = vm.newString(out.items, false) catch return 0;
-    return str_val.raw;
+    var rendered: std.ArrayList(u8) = .empty;
+    defer rendered.deinit(vm.allocator);
+    if (!formatCVarargs(vm, fmt, &ap, &rendered)) return 0;
+    const encoding: enc.Encoding = if (enc_ptr) |ptr| (@as(*const enc.Encoding, @ptrCast(@alignCast(ptr)))).* else .{ .utf8 = .{} };
+    return (vm.newStringWithEncoding(rendered.items, false, encoding) catch return 0).raw;
 }
 
 export fn rb_str_format(argc: c_int, argv: [*c]const VALUE, fmt_raw: VALUE) VALUE {
