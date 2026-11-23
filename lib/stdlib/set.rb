@@ -41,6 +41,7 @@ class Set
     @hash.key?(obj)
   end
   alias member? include?
+  alias === include?
 
   def compare_by_identity
     raise FrozenError, "can't modify frozen Set: Set[]" if frozen?
@@ -96,6 +97,15 @@ class Set
     self if size != original_size
   end
 
+  def select!
+    return enum_for(:select!) unless block_given?
+
+    original_size = size
+    keep_if { |object| yield object }
+    self if size != original_size
+  end
+  alias filter! select!
+
   def clear
     @hash.clear
     self
@@ -112,6 +122,86 @@ class Set
 
   def to_a
     @hash.keys
+  end
+
+  def join(separator = nil)
+    to_a.join(separator)
+  end
+
+  def classify
+    return enum_for(:classify) { size } unless block_given?
+
+    groups = {}
+    each do |object|
+      key = yield object
+      (groups[key] ||= empty_set).add(object)
+    end
+    groups
+  end
+
+  def divide(&block)
+    return enum_for(:divide) { size } unless block
+    return Set.new(classify(&block).values) unless block.arity == 2
+
+    # A binary relation partitions the set into strongly connected components.
+    # Compare graph nodes by identity, including for identity-comparing Sets.
+    nodes = to_a
+    edges = {}.compare_by_identity
+    nodes.each do |node|
+      edges[node] = nodes.select do |other|
+        !node.equal?(other) && block.call(node, other)
+      end
+    end
+    indices = {}.compare_by_identity
+    lowlinks = {}.compare_by_identity
+    active = {}.compare_by_identity
+    stack = []
+    groups = []
+    index = 0
+    visit = nil
+    visit = lambda do |node|
+      indices[node] = index
+      lowlinks[node] = index
+      index += 1
+      stack << node
+      active[node] = true
+      edges[node].each do |other|
+        unless indices.key?(other)
+          visit.call(other)
+          lowlinks[node] = [lowlinks[node], lowlinks[other]].min
+        else
+          lowlinks[node] = [lowlinks[node], indices[other]].min if active[other]
+        end
+      end
+      if lowlinks[node] == indices[node]
+        component = empty_set
+        loop do
+          member = stack.pop
+          active.delete(member)
+          component.add(member)
+          break if member.equal?(node)
+        end
+        groups << component
+      end
+    end
+    nodes.each { |node| visit.call(node) unless indices.key?(node) }
+    Set.new(groups)
+  end
+
+  def flatten
+    result = empty_set
+    flatten_into(result, {}.compare_by_identity)
+    result
+  end
+
+  def flatten!
+    return nil unless any? { |object| object.is_a?(Set) }
+
+    replace(flatten)
+  end
+
+  def pretty_print_cycle(printer)
+    printer.text("#{self.class}[...]")
   end
 
   def hash
@@ -219,16 +309,48 @@ class Set
   end
   alias difference -
 
-  def &(other)
-    other = other.to_set unless other.is_a?(Set)
-    result = self.class.new
-    each do |obj|
-      result.add(obj) if other.include?(obj)
+  def &(enum)
+    other = enum.is_a?(Set) ? enum : empty_set.merge(enum)
+    result = empty_set
+    each { |object| result.add(object) if other.include?(object) }
+    result
+  end
+  alias intersection &
+
+  def ^(enum)
+    other = empty_set.merge(enum)
+    result = dup
+    other.each do |object|
+      include?(object) ? result.delete(object) : result.add(object)
     end
     result
   end
 
   private
+
+  def empty_set
+    result = self.class.new
+    result.compare_by_identity if compare_by_identity?
+    result
+  end
+
+  def flatten_into(result, visiting)
+    raise ArgumentError, "tried to flatten recursive Set" if visiting.key?(self)
+
+    visiting[self] = true
+    begin
+      each do |object|
+        if object.is_a?(Set)
+          object.send(:flatten_into, result, visiting)
+        else
+          result.add(object)
+        end
+      end
+    ensure
+      visiting.delete(self)
+    end
+    result
+  end
 
   def each_from(enum, &block)
     if enum.respond_to?(:each_entry)

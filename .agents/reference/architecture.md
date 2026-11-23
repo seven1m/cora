@@ -258,3 +258,13 @@ lookahead, and feed state. Arithmetic sequences store native bounds, increment,
 exclusion, and original arguments for reflection and inspection. Product and Lazy
 classes are canonical VM-owned classes; Lazy's basic wrapper forwards each yields
 without repacking them. Transformation support is tracked separately in spec/TODO.
+
+## Set
+
+Set's Ruby implementation owns its backing Hash and preserves its identity mode
+when constructing classified, flattened, intersected, or symmetric-difference
+sets. Binary `divide` computes strongly connected components of the supplied
+relation; graph bookkeeping compares nodes by identity. Flattening tracks the
+active ancestry by identity and rejects cycles before modifying the receiver.
+After `set` is required, native `inspect`/`to_s` share a MethodEntry and the VM's
+per-context recursion guard, reusing Array inspection and String encoding helpers.

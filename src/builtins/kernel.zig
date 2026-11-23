@@ -15,6 +15,7 @@ const rational_builtin = @import("rational.zig");
 const complex_builtin = @import("complex.zig");
 const date_builtin = @import("date.zig");
 const stringio_builtin = @import("stringio.zig");
+const set_builtin = @import("set.zig");
 const warning_builtin = @import("warning.zig");
 const zlib_builtin = @import("zlib.zig");
 const process_builtin = @import("process.zig");
@@ -744,6 +745,8 @@ pub fn builtinKernelRequire(vm: *VM, _: Value, args: []Value, _: ?Block) VMError
 
     if (std.mem.eql(u8, feature, "stringio") or std.mem.eql(u8, feature, "stringio.rb")) {
         stringio_builtin.register(vm) catch return error.Fatal;
+    } else if (std.mem.eql(u8, feature, "set") or std.mem.eql(u8, feature, "set.rb")) {
+        set_builtin.register(vm) catch return error.Fatal;
     }
 
     try vm.syncLoadedFeaturesGlobals();

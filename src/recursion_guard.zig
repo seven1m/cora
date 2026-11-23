@@ -8,6 +8,7 @@ pub const Kind = enum {
     error_description,
     string_compare_fallback,
     array_inspect,
+    set_inspect,
     enumerator_inspect,
     object_inspect,
     data_inspect,

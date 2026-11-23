@@ -1860,65 +1860,65 @@ Source baseline: ../ruby_spec compared to local spec/
 ### core/set
 - [x] core/set/add_spec.rb
 - [x] core/set/append_spec.rb
-- [ ] core/set/case_compare_spec.rb
-- [ ] core/set/classify_spec.rb
+- [x] core/set/case_compare_spec.rb
+- [x] core/set/classify_spec.rb
 - [x] core/set/clear_spec.rb
 - [x] core/set/collect_spec.rb
 - [x] core/set/compare_by_identity_spec.rb
 - [x] core/set/comparison_spec.rb
-- [ ] core/set/constructor_spec.rb
+- [x] core/set/constructor_spec.rb
 - [x] core/set/delete_if_spec.rb
 - [x] core/set/delete_spec.rb
 - [x] core/set/difference_spec.rb
 - [x] core/set/disjoint_spec.rb
-- [ ] core/set/divide_spec.rb
+- [x] core/set/divide_spec.rb
 - [x] core/set/each_spec.rb
-- [ ] core/set/empty_spec.rb
+- [x] core/set/empty_spec.rb
 - [x] core/set/eql_spec.rb
-- [ ] core/set/equal_value_spec.rb
-- [ ] core/set/exclusion_spec.rb
-- [ ] core/set/filter_spec.rb
-- [ ] core/set/flatten_merge_spec.rb
-- [ ] core/set/flatten_spec.rb
+- [x] core/set/equal_value_spec.rb
+- [x] core/set/exclusion_spec.rb
+- [x] core/set/filter_spec.rb
+- [x] core/set/flatten_merge_spec.rb
+- [x] core/set/flatten_spec.rb
 - [x] core/set/gt_spec.rb
 - [x] core/set/gte_spec.rb
 - [x] core/set/hash_spec.rb
-- [ ] core/set/include_spec.rb
+- [x] core/set/include_spec.rb
 - [x] core/set/initialize_clone_spec.rb
 - [x] core/set/initialize_spec.rb
-- [ ] core/set/inspect_spec.rb
+- [x] core/set/inspect_spec.rb
 - [x] core/set/intersect_spec.rb
-- [ ] core/set/intersection_spec.rb
-- [ ] core/set/join_spec.rb
+- [x] core/set/intersection_spec.rb
+- [x] core/set/join_spec.rb
 - [x] core/set/keep_if_spec.rb
 - [x] core/set/length_spec.rb
 - [x] core/set/lt_spec.rb
 - [x] core/set/lte_spec.rb
 - [x] core/set/map_spec.rb
-- [ ] core/set/member_spec.rb
+- [x] core/set/member_spec.rb
 - [x] core/set/merge_spec.rb
 - [x] core/set/minus_spec.rb
 - [x] core/set/plus_spec.rb
-- [ ] core/set/pretty_print_cycle_spec.rb
+- [x] core/set/pretty_print_cycle_spec.rb
 - [x] core/set/proper_subset_spec.rb
 - [x] core/set/proper_superset_spec.rb
 - [x] core/set/reject_spec.rb
 - [x] core/set/replace_spec.rb
-- [ ] core/set/select_spec.rb
+- [x] core/set/select_spec.rb
 - [x] core/set/set_spec.rb
-- [ ] core/set/size_spec.rb
+- [x] core/set/size_spec.rb
 - [x] core/set/subset_spec.rb
 - [x] core/set/subtract_spec.rb
 - [x] core/set/superset_spec.rb
-- [ ] core/set/to_a_spec.rb
-- [ ] core/set/to_s_spec.rb
+- [x] core/set/to_a_spec.rb
+- [x] core/set/to_s_spec.rb
 - [x] core/set/union_spec.rb
 
 ### core/set/enumerable
-- [ ] core/set/enumerable/to_set_spec.rb
+- [x] core/set/enumerable/to_set_spec.rb
 
 ### core/set/sortedset
-- [ ] core/set/sortedset/sortedset_spec.rb
+- [x] core/set/sortedset/sortedset_spec.rb
 
 ### core/signal
 - [x] core/signal/list_spec.rb
