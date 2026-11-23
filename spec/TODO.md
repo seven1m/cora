@@ -117,7 +117,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] core/array/equal_value_spec.rb
 - [x] core/array/fetch_spec.rb
 - [x] core/array/fetch_values_spec.rb
-- [-] core/array/fill_spec.rb
+- [x] core/array/fill_spec.rb
 - [x] core/array/filter_spec.rb
 - [x] core/array/find_index_spec.rb
 - [x] core/array/find_spec.rb
@@ -127,7 +127,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] core/array/hash_spec.rb
 - [x] core/array/include_spec.rb
 - [x] core/array/index_spec.rb
-- [-] core/array/initialize_spec.rb
+- [x] core/array/initialize_spec.rb
 - [x] core/array/insert_spec.rb
 - [x] core/array/inspect_spec.rb
 - [x] core/array/intersect_spec.rb
@@ -142,7 +142,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] core/array/minmax_spec.rb
 - [x] core/array/minus_spec.rb
 - [x] core/array/multiply_spec.rb
-- [-] core/array/new_spec.rb
+- [x] core/array/new_spec.rb
 - [x] core/array/none_spec.rb
 - [x] core/array/one_spec.rb
 - [x] core/array/partition_spec.rb
