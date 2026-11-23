@@ -12893,7 +12893,13 @@ pub const VM = struct {
 
     pub fn coerceToMethodNameString(self: *VM, arg: Value) VMError![]const u8 {
         if (arg.isSymbol()) return arg.toSymbolObject().name;
-        const name_value = try arg.coerceToStringValue(self, "is not a symbol nor a string");
+        const name_value = switch (try self.probeToStringValue(arg)) {
+            .string => |string| string,
+            .missing, .nil_result => {
+                const inspected = try arg.inspect(self);
+                return self.raiseExceptionFmt(self.type_error_class, "{s} is not a symbol nor a string", .{inspected.toStringObject().str});
+            },
+        };
         const name_string = name_value.toStringObject();
         if (!name_string.encoding.isValid(name_string.str)) {
             const inspected = inspect_util.inspectStringBytes(self.allocator, name_string.str, name_string.encoding, self.inspectTargetEncoding()) catch return error.Fatal;

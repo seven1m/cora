@@ -3,6 +3,7 @@ const vm_mod = @import("../vm.zig");
 const value = @import("../value.zig");
 const class_builtin = @import("class.zig");
 const kernel_builtin = @import("kernel.zig");
+const module_builtin = @import("module.zig");
 
 const VM = vm_mod.VM;
 const VMError = vm_mod.VMError;
@@ -94,8 +95,6 @@ fn builtinDataReader(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError
 }
 
 pub fn builtinDataDefine(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
-    _ = receiver;
-
     var members_list: std.ArrayList([]const u8) = .empty;
     defer members_list.deinit(vm.allocator);
     for (args) |arg| {
@@ -103,7 +102,7 @@ pub fn builtinDataDefine(vm: *VM, receiver: Value, args: []Value, block: ?Block)
         members_list.append(vm.allocator, sym_val.toSymbolObject().name) catch return error.Fatal;
     }
 
-    const subclass = try vm.newClass(try vm.intern("Data"), vm.data_class);
+    const subclass = try vm.newClass(try vm.intern("<anonymous>"), receiver.toClassObject());
 
     const arr = try vm.createArray();
     const subclass_value = Value.fromObject(&subclass.toClassObject().module.object);
@@ -186,12 +185,41 @@ pub fn builtinDataInitialize(vm: *VM, receiver: Value, args: []Value, _: ?Block)
         }
         try vm.validateKeywordArgsConsumed();
     } else {
-        for (members) |name| {
-            const val = (try vm.consumeKeywordArg(name)) orelse
-                return vm.raiseExceptionFmt(vm.argument_error_class, "missing keyword: :{s}", .{name});
-            values.elements.append(vm.gc_allocator, val) catch return error.Fatal;
+        const found = vm.allocator.alloc(bool, members.len) catch return error.Fatal;
+        defer vm.allocator.free(found);
+        @memset(found, false);
+        values.elements.appendNTimes(vm.gc_allocator, Value.nil(), members.len) catch return error.Fatal;
+        var unknown: std.Io.Writer.Allocating = .init(vm.allocator);
+        defer unknown.deinit();
+        var unknown_count: usize = 0;
+        if (try vm.consumeKeywordArgHash()) |keywords| {
+            for (keywords.toHashObject().entries.items) |entry| {
+                const name = try vm.coerceToMethodNameString(entry.key);
+                if (memberIndex(members, name)) |index| {
+                    values.elements.items[index] = entry.value;
+                    found[index] = true;
+                } else {
+                    const key = if (entry.key.isSymbol()) entry.key else try vm.newString(name, false);
+                    const inspected = try key.inspect(vm);
+                    if (unknown_count > 0) unknown.writer.writeAll(", ") catch return error.Fatal;
+                    unknown.writer.writeAll(inspected.toStringObject().str) catch return error.Fatal;
+                    unknown_count += 1;
+                }
+            }
         }
-        try vm.validateKeywordArgsConsumed();
+        var missing: std.Io.Writer.Allocating = .init(vm.allocator);
+        defer missing.deinit();
+        var missing_count: usize = 0;
+        for (members, found) |name, present| {
+            if (present) continue;
+            if (missing_count > 0) missing.writer.writeAll(", ") catch return error.Fatal;
+            const symbol = try vm.intern(name);
+            const inspected = try Value.fromObject(&symbol.object).inspect(vm);
+            missing.writer.writeAll(inspected.toStringObject().str) catch return error.Fatal;
+            missing_count += 1;
+        }
+        if (missing_count > 0) return vm.raiseExceptionFmt(vm.argument_error_class, "missing keyword{s}: {s}", .{ if (missing_count == 1) "" else "s", missing.written() });
+        if (unknown_count > 0) return vm.raiseExceptionFmt(vm.argument_error_class, "unknown keyword{s}: {s}", .{ if (unknown_count == 1) "" else "s", unknown.written() });
     }
 
     if (members.len == 0) {
@@ -286,23 +314,29 @@ pub fn builtinDataToH(vm: *VM, receiver: Value, args: []Value, block: ?Block) VM
 
 pub fn builtinDataInspect(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
+    const receiver_class = vm.getClass(receiver);
+    if (try vm.enterRecursionGuard(.data_inspect, receiver, Value.nil())) {
+        const name = try module_builtin.builtinModuleToS(vm, Value.fromObject(&receiver_class.module.object), &.{}, null);
+        const text = std.fmt.allocPrint(vm.gc_allocator, "#<data {s}:...>", .{name.toStringObject().str}) catch return error.Fatal;
+        return vm.newString(text, false);
+    }
+    defer vm.leaveRecursionGuard(.data_inspect, receiver, Value.nil());
     const members = try memberNames(vm, receiver);
+    defer vm.allocator.free(members);
     const vals = try memberValues(vm, receiver, members);
     defer vm.allocator.free(vals);
 
     var buf: std.ArrayList(u8) = .empty;
     defer buf.deinit(vm.allocator);
-    buf.appendSlice(vm.allocator, "#<data ") catch return error.Fatal;
-
-    const class_name = vm.className(receiver);
-    buf.appendSlice(vm.allocator, class_name) catch return error.Fatal;
-
-    for (members, 0..) |name, i| {
-        if (i == 0) {
+    buf.appendSlice(vm.allocator, "#<data") catch return error.Fatal;
+    if (receiver_class.module.classpath) |classpath| {
+        if (std.mem.indexOf(u8, classpath.str, "#<") == null) {
             buf.appendSlice(vm.allocator, " ") catch return error.Fatal;
-        } else {
-            buf.appendSlice(vm.allocator, ", ") catch return error.Fatal;
+            buf.appendSlice(vm.allocator, classpath.str) catch return error.Fatal;
         }
+    }
+    for (members, 0..) |name, i| {
+        buf.appendSlice(vm.allocator, if (i == 0) " " else ", ") catch return error.Fatal;
         buf.appendSlice(vm.allocator, name) catch return error.Fatal;
         buf.appendSlice(vm.allocator, "=") catch return error.Fatal;
         const inspected = try vals[i].inspect(vm);

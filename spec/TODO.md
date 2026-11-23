@@ -321,15 +321,15 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] core/data/constants_spec.rb
 - [x] core/data/deconstruct_keys_spec.rb
 - [x] core/data/deconstruct_spec.rb
-- [-] core/data/define_spec.rb
+- [x] core/data/define_spec.rb
 - [x] core/data/eql_spec.rb
 - [x] core/data/equal_value_spec.rb
 - [x] core/data/hash_spec.rb
-- [ ] core/data/initialize_spec.rb
+- [x] core/data/initialize_spec.rb
 - [x] core/data/inspect_spec.rb
 - [x] core/data/members_spec.rb
 - [x] core/data/to_h_spec.rb
-- [ ] core/data/to_s_spec.rb
+- [x] core/data/to_s_spec.rb
 - [x] core/data/with_spec.rb
 
 ### core/dir
