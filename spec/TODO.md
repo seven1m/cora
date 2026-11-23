@@ -1703,10 +1703,10 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/process/sys/setuid_spec.rb
 
 ### core/process/tms
-- [ ] core/process/tms/cstime_spec.rb
-- [ ] core/process/tms/cutime_spec.rb
-- [ ] core/process/tms/stime_spec.rb
-- [ ] core/process/tms/utime_spec.rb
+- [x] core/process/tms/cstime_spec.rb
+- [x] core/process/tms/cutime_spec.rb
+- [x] core/process/tms/stime_spec.rb
+- [x] core/process/tms/utime_spec.rb
 
 ### core/process/uid
 - [ ] core/process/uid/change_privilege_spec.rb

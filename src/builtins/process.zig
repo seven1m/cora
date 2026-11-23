@@ -3,6 +3,7 @@ const builtin = @import("builtin");
 const signal_support = @import("../signal_support.zig");
 const vm_mod = @import("../vm.zig");
 const value = @import("../value.zig");
+const struct_builtin = @import("struct.zig");
 
 const VM = vm_mod.VM;
 const VMError = vm_mod.VMError;
@@ -24,6 +25,13 @@ extern "c" fn execve(path: [*:0]const u8, argv: [*]const ?[*:0]const u8, envp: [
 pub fn register(vm: *VM) !void {
     const process_obj = Value.fromObject(&vm.process_module.object);
     const process_singleton = try vm.getOrCreateSingletonClass(process_obj);
+
+    var tms_members: [4]Value = undefined;
+    for ([_][]const u8{ "utime", "stime", "cutime", "cstime" }, 0..) |name, index| {
+        tms_members[index] = Value.fromObject(&(try vm.intern(name)).object);
+    }
+    const tms_class = try struct_builtin.builtinStructNew(vm, Value.fromObject(&vm.struct_class.module.object), &tms_members, null);
+    try vm.setConstant(vm.process_module, try vm.intern("Tms"), tms_class);
 
     const uid_sym = try vm.intern("uid");
     try process_singleton.module.methods.put(uid_sym, value.MethodEntry.builtin(&builtinProcessUid, .{ .exact = 0 }));
