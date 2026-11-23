@@ -165,32 +165,32 @@ fn printHelp() void {
         \\Run Ruby code with the Cora interpreter.
         \\
         \\Input:
-        \\  -e CODE                Evaluate CODE instead of reading a file
-        \\  FILE                   Run Ruby source from FILE
+        \\  -e CODE                          Evaluate CODE instead of reading a file
+        \\  FILE                             Run Ruby source from FILE
         \\
         \\Inspection:
-        \\  --ast                  Parse and print Prism AST, then exit
-        \\  --dump-bytecode        Compile and print bytecode disassembly, then exit
-        \\  --dump-jit-source      Print TinyCC JIT source for compiled methods
+        \\  --ast                            Parse and print Prism AST, then exit
+        \\  --dump-bytecode                  Compile and print bytecode disassembly, then exit
+        \\  --dump-jit-source                Print TinyCC JIT source for compiled methods
         \\
         \\Load path and requires:
-        \\  -I PATH[:PATH...]      Add directories to $LOAD_PATH
-        \\  -r LIBRARY             Require LIBRARY before running the script
+        \\  -I PATH[:PATH...]                Add directories to $LOAD_PATH
+        \\  -r LIBRARY                       Require LIBRARY before running the script
         \\
         \\Runtime:
-        \\  --jit                  Enable the experimental TinyCC JIT
-        \\  --enable-frozen-string-literal  Freeze and intern string literals
-        \\  --disable-frozen-string-literal Keep string literals mutable
-        \\  --disable-gems         Skip RubyGems setup
-        \\  --pack                 Package ENTRYPOINT into a self-contained executable
-        \\  -o FILE                Output path used with --pack
-        \\  --pack-root DIR        Project root used with --pack
-        \\  --backtrace-limit=N    Limit printed backtrace frames
-        \\  -0[OCTAL]              Set input record separator ($/) from octal byte
-        \\  -x                     Skip leading text before a Ruby shebang line
+        \\  --jit                            Enable the experimental TinyCC JIT
+        \\  --enable-frozen-string-literal   Freeze and intern string literals
+        \\  --disable-frozen-string-literal  Keep string literals mutable
+        \\  --disable-gems                   Skip RubyGems setup
+        \\  --pack                           Package ENTRYPOINT into a self-contained executable
+        \\  -o FILE                          Output path used with --pack
+        \\  --pack-root DIR                  Project root used with --pack
+        \\  --backtrace-limit=N              Limit printed backtrace frames
+        \\  -0[OCTAL]                        Set input record separator ($/) from octal byte
+        \\  -x                               Skip leading text before a Ruby shebang line
         \\
         \\Help:
-        \\  -h, --help             Show this help and exit
+        \\  -h, --help                       Show this help and exit
         \\
         \\Notes:
         \\  - Script arguments after FILE are available to Ruby via ARGV
