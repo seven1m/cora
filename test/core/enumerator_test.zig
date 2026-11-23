@@ -463,3 +463,12 @@ test "Integer#upto enumerator next" {
     try std.testing.expect(result.err == null);
     try std.testing.expectEqualStrings("1\n2\n3\n", result.stdout);
 }
+
+test "Chain rewind tolerates reinitialization during iteration" {
+    const result = try evalCode(
+        \\chain = Enumerator::Chain.new([1], [2])
+        \\chain.each { |item| chain.send(:initialize) if item == 1 }
+        \\chain.rewind.equal?(chain) && chain.inspect == "#<Enumerator::Chain: []>"
+    );
+    try std.testing.expectEqual(true, result.toBool());
+}

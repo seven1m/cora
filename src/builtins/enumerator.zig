@@ -1,6 +1,7 @@
 const std = @import("std");
 const vm_mod = @import("../vm.zig");
 const value = @import("../value.zig");
+const class_builtin = @import("class.zig");
 
 const VM = vm_mod.VM;
 const VMError = vm_mod.VMError;
@@ -62,6 +63,11 @@ pub fn register(vm: *VM) !void {
     const with_object_sym = try vm.intern("with_object");
     try vm.enumerator_class.module.methods.put(with_object_sym, each_with_object_entry);
 
+    vm.enumerator_chain_class.builtin_alloc_func = &builtinChainAllocate;
+    const chain_singleton = try vm.getOrCreateSingletonClass(Value.fromObject(&vm.enumerator_chain_class.module.object));
+    try chain_singleton.module.methods.put(new_sym, MethodEntry.keywordBuiltin(&class_builtin.builtinClassNew, .{ .variadic = 0 }));
+    try vm.enumerator_chain_class.module.methods.put(try vm.intern("initialize"), MethodEntry.builtinWithVisibility(&builtinChainInitialize, .{ .variadic = 0 }, .private));
+
     // Yielder instance methods
     const yield_push_sym = try vm.intern("<<");
     try vm.yielder_class.module.methods.put(yield_push_sym, MethodEntry.builtin(&builtinYielderPush, .{ .exact = 1 }));
@@ -80,6 +86,32 @@ fn builtinEnumeratorNew(vm: *VM, _: Value, args: []Value, block: ?Block) VMError
     // Wrap the block as a ProcObject
     const proc_val = try vm.newProc(blk);
     return vm.newEnumerator(.{ .generator = .{ .proc = proc_val.toProcObject() } }, null, null, null);
+}
+
+fn builtinChainAllocate(vm: *VM, receiver: Value, _: []Value, _: ?Block) VMError!Value {
+    return vm.newEnumeratorOfClass(receiver.toClassObject(), .{ .chain = .{ .sources = null } }, null, null, null);
+}
+
+fn builtinChainInitialize(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.guardNotFrozen(receiver);
+    const sources = try vm.createArray();
+    sources.elements.appendSlice(vm.gc_allocator, args) catch return error.Fatal;
+    receiver.toEnumeratorObject().kind = .{ .chain = .{ .sources = sources } };
+    return receiver;
+}
+
+fn chainSources(vm: *VM, receiver: Value) VMError!*value.ArrayObject {
+    return receiver.toEnumeratorObject().kind.chain.sources orelse
+        vm.raiseExceptionFmt(vm.argument_error_class, "uninitialized chain", .{});
+}
+
+fn enumerateChain(vm: *VM, receiver: Value, args: []Value, block: Block) VMError!Value {
+    const sources = try chainSources(vm, receiver);
+    for (sources.elements.items, 0..) |source, index| {
+        receiver.toEnumeratorObject().kind.chain.iterated_count = index + 1;
+        _ = try vm.callMethodByName(source, "each", args, block);
+    }
+    return receiver;
 }
 
 // --- Enumerator instance methods ---
@@ -140,12 +172,7 @@ fn builtinEnumeratorEach(vm: *VM, receiver: Value, args: []Value, block: ?Block)
             var proc_args = [_]Value{yielder_val};
             return vm.callProcObject(g.proc, &proc_args, null, null, null, null);
         },
-        .chain => |chain| {
-            for (chain.sources.elements.items) |source| {
-                _ = try vm.callMethodByName(source, "each", &.{}, blk);
-            }
-            return receiver;
-        },
+        .chain => return enumerateChain(vm, receiver, args, blk),
         .chunk_while => |chunk_while| return enumerateChunkWhile(vm, receiver, chunk_while.receiver, chunk_while.predicate, blk),
     }
 }
@@ -246,6 +273,14 @@ fn builtinEnumeratorPeekValues(vm: *VM, receiver: Value, args: []Value, _: ?Bloc
 fn builtinEnumeratorRewind(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
     const enum_obj = receiver.toEnumeratorObject();
+    if (enum_obj.kind == .chain) {
+        const sources = try chainSources(vm, receiver);
+        while (enum_obj.kind.chain.iterated_count > 0 and enum_obj.kind.chain.iterated_count <= sources.elements.items.len) {
+            const index = enum_obj.kind.chain.iterated_count - 1;
+            _ = try vm.checkCallMethodByName(sources.elements.items[index], "rewind", false, &.{}, null);
+            enum_obj.kind.chain.iterated_count = index;
+        }
+    }
     enum_obj.fiber = null;
     enum_obj.has_lookahead_values = false;
     enum_obj.lookahead_values = null;
@@ -322,13 +357,16 @@ fn builtinEnumeratorInspect(vm: *VM, receiver: Value, args: []Value, _: ?Block) 
             ) catch return error.Fatal;
             return try vm.newString(msg, false);
         },
-        .chain => {
-            const msg = std.fmt.allocPrint(
-                vm.gc_allocator,
-                "#<Enumerator::Chain:0x{x}>",
-                .{@intFromPtr(enum_obj)},
-            ) catch return error.Fatal;
-            return try vm.newString(msg, false);
+        .chain => |chain| {
+            const class_name = vm.className(receiver);
+            const description = if (chain.sources) |sources| blk: {
+                if (try vm.enterRecursionGuard(.enumerator_inspect, receiver, Value.nil())) break :blk "...";
+                defer vm.leaveRecursionGuard(.enumerator_inspect, receiver, Value.nil());
+                const inspected = try Value.fromObject(&sources.object).inspect(vm);
+                break :blk inspected.toStringObject().str;
+            } else "uninitialized";
+            const msg = std.fmt.allocPrint(vm.gc_allocator, "#<{s}: {s}>", .{ class_name, description }) catch return error.Fatal;
+            return vm.newString(msg, false);
         },
         .chunk_while => {
             const msg = std.fmt.allocPrint(
@@ -344,6 +382,19 @@ fn builtinEnumeratorInspect(vm: *VM, receiver: Value, args: []Value, _: ?Block) 
 fn builtinEnumeratorSize(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
     const enum_obj = receiver.toEnumeratorObject();
+
+    if (enum_obj.kind == .chain) {
+        const sources = try chainSources(vm, receiver);
+        var total = Value.integer(0);
+        for (sources.elements.items) |source| {
+            const size = (try vm.checkCallMethodByName(source, "size", false, &.{}, null)) orelse return Value.nil();
+            if (size.isNil() or (size.isFloat() and std.math.isInf(size.toFloatObject().val))) return size;
+            if (!size.isInteger() and !size.isBigInteger()) return Value.nil();
+            var sum_args = [_]Value{size};
+            total = try vm.callMethodByName(total, "+", &sum_args, null);
+        }
+        return total;
+    }
 
     if (enum_obj.size) |size| {
         if (size.isProc()) {
@@ -446,12 +497,7 @@ fn enumeratorFiberBody(vm: *VM, args: []Value) VMError!Value {
             var proc_args = [_]Value{yielder_val};
             return vm.callProcObject(g.proc, &proc_args, null, null, null, null);
         },
-        .chain => |chain| {
-            for (chain.sources.elements.items) |source| {
-                _ = try vm.callMethodByName(source, "each", &.{}, yield_block);
-            }
-            return enum_val;
-        },
+        .chain => return enumerateChain(vm, enum_val, &.{}, yield_block),
         .chunk_while => |chunk_while| return enumerateChunkWhile(vm, enum_val, chunk_while.receiver, chunk_while.predicate, yield_block),
     }
 }

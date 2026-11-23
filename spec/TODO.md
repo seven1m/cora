@@ -521,11 +521,11 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/enumerator/arithmetic_sequence/step_spec.rb
 
 ### core/enumerator/chain
-- [ ] core/enumerator/chain/each_spec.rb
-- [ ] core/enumerator/chain/initialize_spec.rb
-- [ ] core/enumerator/chain/inspect_spec.rb
-- [ ] core/enumerator/chain/rewind_spec.rb
-- [ ] core/enumerator/chain/size_spec.rb
+- [x] core/enumerator/chain/each_spec.rb
+- [x] core/enumerator/chain/initialize_spec.rb
+- [x] core/enumerator/chain/inspect_spec.rb
+- [x] core/enumerator/chain/rewind_spec.rb
+- [x] core/enumerator/chain/size_spec.rb
 
 ### core/enumerator/lazy
 - [ ] core/enumerator/lazy/chunk_spec.rb
