@@ -531,22 +531,6 @@ pub fn builtinRationalTruncate(vm: *VM, receiver: Value, args: []Value, _: ?Bloc
     return vm.newRationalValues(truncated, factor);
 }
 
-fn rationalRoundHalfMode(vm: *VM, half_val: ?Value) VMError![]const u8 {
-    const half = half_val orelse return "up";
-    if (half.isNil()) return "up";
-    if (!half.isSymbol()) {
-        return vm.raiseExceptionFmt(vm.argument_error_class, "invalid rounding mode: {s}", .{vm.className(half)});
-    }
-    const name = half.toSymbolObject().name;
-    if (!std.mem.eql(u8, name, "up") and
-        !std.mem.eql(u8, name, "down") and
-        !std.mem.eql(u8, name, "even"))
-    {
-        return vm.raiseExceptionFmt(vm.argument_error_class, "invalid rounding mode: {s}", .{name});
-    }
-    return name;
-}
-
 fn rationalRoundQuotient(vm: *VM, numerator: Value, denominator: Value, half_mode: []const u8) VMError!Value {
     const zero = Value.integer(0);
     const one = Value.integer(1);
@@ -619,13 +603,17 @@ fn rationalPowerOfTenDivisible(vm: *VM, denominator: Value, ndigits: u64) VMErro
 
 pub fn builtinRationalRound(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCountRange(args, 0, 1);
-    const half_mode = try rationalRoundHalfMode(vm, try vm.consumeKeywordArg("half"));
+    const half_mode = try vm.roundingModeName(try vm.consumeKeywordArg("half"));
     try vm.validateKeywordArgsConsumed();
-    const rational = receiver.toRationalObject();
     const ndigits: i64 = if (args.len == 0)
         0
     else
         try args[0].integerArgToI64(vm, "not an integer", "ndigits is too large");
+    return roundRational(vm, receiver, ndigits, half_mode);
+}
+
+pub fn roundRational(vm: *VM, receiver: Value, ndigits: i64, half_mode: []const u8) VMError!Value {
+    const rational = receiver.toRationalObject();
     if (ndigits == 0) {
         return rationalRoundQuotient(vm, rational.numerator, rational.denominator, half_mode);
     }

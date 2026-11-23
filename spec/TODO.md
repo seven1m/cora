@@ -831,11 +831,11 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] core/float/abs_spec.rb
 - [x] core/float/angle_spec.rb
 - [x] core/float/arg_spec.rb
-- [-] core/float/case_compare_spec.rb
+- [x] core/float/case_compare_spec.rb
 - [x] core/float/ceil_spec.rb
 - [x] core/float/coerce_spec.rb
 - [x] core/float/comparison_spec.rb
-- [-] core/float/constants_spec.rb
+- [x] core/float/constants_spec.rb
 - [x] core/float/denominator_spec.rb
 - [x] core/float/divide_spec.rb
 - [x] core/float/divmod_spec.rb
@@ -851,7 +851,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] core/float/gte_spec.rb
 - [x] core/float/hash_spec.rb
 - [x] core/float/infinite_spec.rb
-- [-] core/float/inspect_spec.rb
+- [x] core/float/inspect_spec.rb
 - [x] core/float/lt_spec.rb
 - [x] core/float/lte_spec.rb
 - [x] core/float/magnitude_spec.rb
@@ -868,7 +868,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] core/float/prev_float_spec.rb
 - [x] core/float/quo_spec.rb
 - [x] core/float/rationalize_spec.rb
-- [ ] core/float/round_spec.rb
+- [x] core/float/round_spec.rb
 - [x] core/float/to_f_spec.rb
 - [x] core/float/to_i_spec.rb
 - [x] core/float/to_int_spec.rb

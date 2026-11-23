@@ -1851,23 +1851,8 @@ pub fn builtinIntegerRound(vm: *VM, receiver: Value, args: []Value, _: ?Block) V
 
     if (args.len == 0) return receiver;
 
-    const half_sym = try vm.consumeKeywordArg("half");
+    const half_mode = try vm.roundingModeName(try vm.consumeKeywordArg("half"));
     try vm.validateKeywordArgsConsumed();
-
-    const half_mode = if (half_sym) |half_val| blk: {
-        if (half_val.isNil()) break :blk @as([]const u8, "up");
-        if (!half_val.isSymbol()) {
-            return vm.raiseExceptionFmt(vm.argument_error_class, "invalid rounding mode: {s}", .{vm.className(half_val)});
-        }
-        const name = half_val.toSymbolObject().name;
-        if (!std.mem.eql(u8, name, "up") and
-            !std.mem.eql(u8, name, "down") and
-            !std.mem.eql(u8, name, "even"))
-        {
-            return vm.raiseExceptionFmt(vm.argument_error_class, "invalid rounding mode: {s}", .{name});
-        }
-        break :blk name;
-    } else @as([]const u8, "up");
 
     const ndigits_val = try args[0].coerceToIntegerValue(vm, "no implicit conversion into Integer", "no implicit conversion into Integer");
     const ndigits = try ndigits_val.integerToI64(vm, "ndigits is too large");
@@ -1876,6 +1861,10 @@ pub fn builtinIntegerRound(vm: *VM, receiver: Value, args: []Value, _: ?Block) V
         return vm.raiseExceptionFmt(vm.range_error_class, "ndigits is too large", .{});
     }
 
+    return roundInteger(vm, receiver, ndigits, half_mode);
+}
+
+pub fn roundInteger(vm: *VM, receiver: Value, ndigits: i64, half_mode: []const u8) VMError!Value {
     if (ndigits >= 0) return receiver;
 
     const abs_ndigits: u64 = @intCast(-ndigits);

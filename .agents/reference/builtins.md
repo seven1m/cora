@@ -52,6 +52,9 @@
   Bignum results and FloatDomainError for nonfinite inputs. Use
   `VM.compareIntegerToFloat` for exact mixed numeric comparisons; it preserves
   integer bits beyond Float precision and returns null for NaN.
+- Use `VM.roundingModeName` to validate the shared `half:` rounding modes.
+  `integer.roundInteger` and `rational.roundRational` accept an already
+  validated mode and precision for native callers such as `Float#round`.
 - Regexp predicates use the capture-free `onigmo.searchAt` path. Share source coercion, encoding validation, and character-offset normalization through `prepareRegexpSearch` in `src/builtins/regexp.zig`; only paths needing match details or updating Ruby backreferences should construct capture arrays and MatchData.
 
 ## Array And String Coercion Helpers

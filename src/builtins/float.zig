@@ -3,6 +3,7 @@ const enc = @import("../encoding.zig");
 const vm_mod = @import("../vm.zig");
 const value = @import("../value.zig");
 const rational_builtin = @import("rational.zig");
+const integer_builtin = @import("integer.zig");
 
 const VM = vm_mod.VM;
 const VMError = vm_mod.VMError;
@@ -100,7 +101,8 @@ fn compareFloatRelational(vm: *VM, receiver: Value, arg: Value, comparison: Floa
 }
 
 fn coercePrecisionArgToCInt(vm: *VM, arg: Value) VMError!c_int {
-    const digits = try arg.integerToI64(vm, "invalid precision");
+    const precision = try arg.coerceToIntegerValue(vm, "no implicit conversion into Integer", "no implicit conversion into Integer");
+    const digits = try precision.integerToI64(vm, "invalid precision");
     if (digits < std.math.minInt(c_int)) {
         return vm.raiseExceptionFmt(vm.range_error_class, "integer {d} too small to convert to 'int'", .{digits});
     }
@@ -220,7 +222,9 @@ pub fn register(vm: *VM) !void {
     try vm.float_class.module.methods.put(compare_sym, value.MethodEntry.builtin(&builtinFloatCompare, .{ .exact = 1 }));
 
     const equal_sym = try vm.intern("==");
-    try vm.float_class.module.methods.put(equal_sym, value.MethodEntry.builtin(&builtinFloatEqual, .{ .exact = 1 }));
+    const equal_entry = value.MethodEntry.builtin(&builtinFloatEqual, .{ .exact = 1 });
+    try vm.float_class.module.methods.put(equal_sym, equal_entry);
+    try vm.float_class.module.methods.put(try vm.intern("==="), equal_entry);
 
     const eql_sym = try vm.intern("eql?");
     try vm.float_class.module.methods.put(eql_sym, value.MethodEntry.builtin(&builtinFloatEql, .{ .exact = 1 }));
@@ -292,7 +296,7 @@ pub fn register(vm: *VM) !void {
     try vm.float_class.module.methods.put(numerator_sym, value.MethodEntry.builtin(&builtinFloatNumerator, .{ .exact = 0 }));
 
     const inspect_sym = try vm.intern("inspect");
-    try vm.float_class.module.methods.put(inspect_sym, value.MethodEntry.builtin(&builtinFloatInspect, .{ .exact = 0 }));
+    try vm.float_class.module.methods.put(inspect_sym, value.MethodEntry.builtin(&builtinFloatToS, .{ .exact = 0 }));
 
     const ceil_sym = try vm.intern("ceil");
     try vm.float_class.module.methods.put(ceil_sym, value.MethodEntry.builtin(&builtinFloatCeil, .{ .variadic = 0 }));
@@ -301,7 +305,7 @@ pub fn register(vm: *VM) !void {
     try vm.float_class.module.methods.put(floor_sym, value.MethodEntry.builtin(&builtinFloatFloor, .{ .variadic = 0 }));
 
     const round_sym = try vm.intern("round");
-    try vm.float_class.module.methods.put(round_sym, value.MethodEntry.builtin(&builtinFloatRound, .{ .variadic = 0 }));
+    try vm.float_class.module.methods.put(round_sym, value.MethodEntry.keywordBuiltin(&builtinFloatRound, .{ .variadic = 0 }));
 
     const truncate_sym = try vm.intern("truncate");
     try vm.float_class.module.methods.put(truncate_sym, value.MethodEntry.builtin(&builtinFloatTruncate, .{ .variadic = 0 }));
@@ -745,10 +749,6 @@ pub fn builtinFloatToS(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMErr
     return floatToString(vm, f);
 }
 
-pub fn builtinFloatInspect(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
-    return builtinFloatToS(vm, receiver, args, null);
-}
-
 fn scaleIntegralFloatByDecimalFactor(vm: *VM, quotient: f64, digits: c_int) VMError!Value {
     const quotient_value = try vm.integerFromFloat(quotient);
     var power_args = [_]Value{Value.integer(-@as(i64, digits))};
@@ -793,18 +793,64 @@ pub fn builtinFloatFloor(vm: *VM, receiver: Value, args: []Value, _: ?Block) VME
     return scaleIntegralFloatByDecimalFactor(vm, @floor(f / factor), digits);
 }
 
+fn roundScaled(number: f64, scale: f64, mode: []const u8) f64 {
+    if (std.mem.eql(u8, mode, "even")) {
+        const integral = @trunc(number);
+        const fraction = number - integral;
+        const scaled_integral = integral * scale;
+        const scaled_fraction = fraction * scale;
+        if (number == 0) return number;
+        const base = if (number > 0) @floor(scaled_fraction) else @ceil(scaled_fraction);
+        const whole = scaled_integral + base;
+        const distance = @abs(scaled_fraction - base);
+        const boundary = (whole + (if (number > 0) @as(f64, 0.5) else -0.5)) / scale;
+        const tie = distance == 0.5 or (if (number > 0) boundary <= number else boundary >= number);
+        const step = if (distance > 0.5) @as(f64, 1) else if (tie) @rem(@abs(whole), 2) else 0;
+        return scaled_integral + (base + (if (number > 0) step else -step));
+    }
+    var rounded = @round(number * scale);
+    if (std.mem.eql(u8, mode, "down")) {
+        if (number > 0 and (rounded - 0.5) / scale >= number) rounded -= 1;
+        if (number < 0 and (rounded + 0.5) / scale <= number) rounded += 1;
+    } else if (scale != 1) {
+        if (number > 0 and (rounded + 0.5) / scale <= number) rounded += 1;
+        if (number < 0 and (rounded - 0.5) / scale >= number) rounded -= 1;
+    }
+    return rounded;
+}
+
 pub fn builtinFloatRound(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCountRange(args, 0, 1);
-    const f = receiver.toFloatObject().val;
-    if (args.len == 0) {
-        return vm.integerFromFloat(@round(f));
+    const digits: i64 = if (args.len == 0) 0 else blk: {
+        const precision = try args[0].coerceToIntegerValue(vm, "no implicit conversion into Integer", "no implicit conversion into Integer");
+        break :blk try precision.integerToI64(vm, "invalid precision");
+    };
+    if (digits < std.math.minInt(c_int) or digits > std.math.maxInt(c_int)) {
+        return vm.raiseExceptionFmt(vm.range_error_class, "integer out of range of int", .{});
     }
-    const digits = try args[0].integerToI64(vm, "invalid precision");
-    if (digits >= 0) {
-        return try vm.newFloat(f);
+    const mode = try vm.roundingModeName(try vm.consumeKeywordArg("half"));
+    try vm.validateKeywordArgsConsumed();
+    const number = receiver.toFloatObject().val;
+    if (number == 0) return if (digits > 0) receiver else Value.integer(0);
+    if (digits < 0) {
+        const integer = try vm.integerFromFloat(number);
+        // No finite double can reach the halfway point at this precision.
+        if (digits < -309) return Value.integer(0);
+        return integer_builtin.roundInteger(vm, integer, digits, mode);
     }
-    const factor = std.math.pow(f64, 10, @as(f64, @floatFromInt(-digits)));
-    return try vm.newFloat(@round(f / factor) * factor);
+    if (digits == 0) return vm.integerFromFloat(roundScaled(number, 1, mode));
+    if (!std.math.isFinite(number)) return receiver;
+    const binary_exp = std.math.frexp(number).exponent;
+    if (digits >= 17 - (if (binary_exp > 0) @divTrunc(binary_exp, 4) else @divTrunc(binary_exp, 3) - 1)) return receiver;
+    if (digits < -(if (binary_exp > 0) @divTrunc(binary_exp, 3) + 1 else @divTrunc(binary_exp, 4))) return vm.newFloat(0);
+    if (digits >= 15) {
+        const parts = try rational_builtin.floatToRationalParts(vm, number);
+        const rational = try vm.newRationalValues(parts.numerator, parts.denominator);
+        const rounded = try rational_builtin.roundRational(vm, rational, digits, mode);
+        return rational_builtin.builtinRationalToF(vm, rounded, &.{}, null);
+    }
+    const scale = std.math.pow(f64, 10, @as(f64, @floatFromInt(digits)));
+    return vm.newFloat(roundScaled(number, scale, mode) / scale);
 }
 
 pub fn builtinFloatTruncate(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {

@@ -3983,6 +3983,22 @@ pub const VM = struct {
         return self.valueFromManagedInteger(&out);
     }
 
+    pub fn roundingModeName(self: *VM, half_val: ?Value) VMError![]const u8 {
+        const half = half_val orelse return "up";
+        if (half.isNil()) return "up";
+        if (!half.isSymbol()) {
+            return self.raiseExceptionFmt(self.argument_error_class, "invalid rounding mode: {s}", .{self.className(half)});
+        }
+        const name = half.toSymbolObject().name;
+        if (!std.mem.eql(u8, name, "up") and
+            !std.mem.eql(u8, name, "down") and
+            !std.mem.eql(u8, name, "even"))
+        {
+            return self.raiseExceptionFmt(self.argument_error_class, "invalid rounding mode: {s}", .{name});
+        }
+        return name;
+    }
+
     /// Convert a Float to an Integer with truncation, without Ruby dispatch.
     pub fn integerFromFloat(self: *VM, f: f64) VMError!Value {
         if (std.math.isNan(f) or std.math.isInf(f)) {
