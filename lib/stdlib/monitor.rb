@@ -61,14 +61,15 @@ module MonitorMixin
   end
 
   def mon_enter
-    if @mon_owner != Thread.current
+    if @mon_owner != Fiber.current
       @mon_mutex.lock
-      @mon_owner = Thread.current
+      @mon_owner = Fiber.current
     end
     @mon_count += 1
   end
 
   def mon_exit
+    mon_check_owner
     @mon_count -= 1
     if @mon_count == 0
       @mon_owner = nil
@@ -77,7 +78,7 @@ module MonitorMixin
   end
 
   def mon_check_owner
-    unless @mon_owner == Thread.current
+    unless @mon_owner == Fiber.current
       raise ThreadError, "current thread not owner"
     end
   end
@@ -90,7 +91,7 @@ module MonitorMixin
     begin
       cond.wait(@mon_mutex, timeout)
     ensure
-      @mon_owner = Thread.current
+      @mon_owner = Fiber.current
       @mon_count = count
     end
   end
@@ -124,7 +125,7 @@ class Monitor
   end
 
   def enter
-    current = Thread.current
+    current = Fiber.current
     if @owner == current
       @depth += 1
       return self
@@ -136,8 +137,29 @@ class Monitor
     self
   end
 
+  def try_enter
+    current = Fiber.current
+    if @owner == current
+      @depth += 1
+      return true
+    end
+    return false unless @mutex.try_lock
+
+    @owner = current
+    @depth = 1
+    true
+  end
+
+  def mon_locked?
+    @mutex.locked?
+  end
+
+  def mon_owned?
+    @owner == Fiber.current
+  end
+
   def exit
-    raise ThreadError, "current thread not owner" unless @owner == Thread.current
+    raise ThreadError, "current thread not owner" unless @owner == Fiber.current
 
     @depth -= 1
     return self unless @depth == 0
@@ -148,7 +170,7 @@ class Monitor
   end
 
   def mon_check_owner
-    unless @owner == Thread.current
+    unless @owner == Fiber.current
       raise ThreadError, "current thread not owner"
     end
   end
@@ -161,7 +183,7 @@ class Monitor
     begin
       cond.wait(@mutex, timeout)
     ensure
-      @owner = Thread.current
+      @owner = Fiber.current
       @depth = count
     end
   end

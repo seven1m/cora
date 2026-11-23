@@ -3184,12 +3184,12 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] library/mkmf/mkmf_spec.rb
 
 ### library/monitor
-- [ ] library/monitor/enter_spec.rb
+- [x] library/monitor/enter_spec.rb
 - [x] library/monitor/exit_spec.rb
 - [x] library/monitor/mon_initialize_spec.rb
 - [x] library/monitor/new_cond_spec.rb
-- [ ] library/monitor/synchronize_spec.rb
-- [ ] library/monitor/try_enter_spec.rb
+- [x] library/monitor/synchronize_spec.rb
+- [x] library/monitor/try_enter_spec.rb
 
 ### library/net-ftp
 - [ ] library/net-ftp/FTPError_spec.rb

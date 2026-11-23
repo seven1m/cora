@@ -331,3 +331,41 @@ test "stdlib require loads thread condition variable" {
     try std.testing.expect(result.term == .exited and result.term.exited == 0);
     try std.testing.expectEqualSlices(u8, "true\n", result.stdout);
 }
+
+test "Monitor try_enter recursion is owned by the current fiber" {
+    const result = try evalCode(
+        \\require "monitor"
+        \\monitor = Monitor.new
+        \\monitor.enter
+        \\recursive = monitor.try_enter
+        \\foreign = Fiber.new { [monitor.try_enter, monitor.mon_owned?] }.resume
+        \\monitor.exit
+        \\nested = monitor.mon_locked? && monitor.mon_owned?
+        \\monitor.exit
+        \\released = !monitor.mon_locked? && !monitor.mon_owned?
+        \\reentered = monitor.try_enter
+        \\monitor.exit
+        \\recursive && foreign == [false, false] && nested && released && reentered && !monitor.mon_locked?
+    );
+    try std.testing.expect(result.isTrue());
+}
+
+test "MonitorMixin rejects foreign exits without damaging the owner's lock" {
+    const result = try evalCode(
+        \\require "monitor"
+        \\object = Object.new.extend(MonitorMixin)
+        \\object.mon_enter
+        \\outsider = Thread.new do
+        \\  begin
+        \\    object.mon_exit
+        \\    false
+        \\  rescue ThreadError
+        \\    true
+        \\  end
+        \\end
+        \\rejected = outsider.value
+        \\object.mon_exit
+        \\rejected && object.synchronize { 42 } == 42
+    );
+    try std.testing.expect(result.isTrue());
+}
