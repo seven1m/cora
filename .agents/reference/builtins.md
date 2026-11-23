@@ -48,6 +48,9 @@
   `VM.yieldToBlock` for ordinary raw argument lists; the distinction matters for
   `sort_by` versus `filter_map`, and for zero/multiple yielded values.
 - Use `VM.copyObjectInstanceVariables` for dup/clone-style shallow ivar copying.
+- Use `VM.newEnvString` for environment names and values returned to Ruby. It
+  uses the captured locale, honors default_internal, preserves raw bytes on
+  failed conversion, and freezes the returned String.
 - Use `VM.integerFromFloat` for native Float-to-Integer truncation, including
   Bignum results and FloatDomainError for nonfinite inputs. Use
   `VM.compareIntegerToFloat` for exact mixed numeric comparisons; it preserves

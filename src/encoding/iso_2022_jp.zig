@@ -64,7 +64,7 @@ pub const Iso2022JpEncoding = struct {
     }
 
     pub fn isAsciiCompatible(_: Iso2022JpEncoding) bool {
-        return true;
+        return false;
     }
 
     pub fn isDummy(_: Iso2022JpEncoding) bool {

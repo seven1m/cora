@@ -817,6 +817,8 @@ pub const VM = struct {
     encoding_utf32le: *value.EncodingObject,
     encoding_utf32be: *value.EncodingObject,
     encoding_legacy: [enc.legacy_encoding_count]*value.EncodingObject,
+    locale_charmap: []const u8,
+    locale_encoding: *value.EncodingObject,
     default_external_encoding: *value.EncodingObject,
     default_internal_encoding: ?*value.EncodingObject = null,
 
@@ -1057,6 +1059,8 @@ pub const VM = struct {
             .encoding_utf32le = undefined,
             .encoding_utf32be = undefined,
             .encoding_legacy = undefined,
+            .locale_charmap = undefined,
+            .locale_encoding = undefined,
             .default_external_encoding = undefined,
             .default_internal_encoding = null,
             .main_self = undefined,
@@ -3012,9 +3016,26 @@ pub const VM = struct {
         return self.allocator.dupe(u8, bytes_z[0..bytes_z.len]) catch return error.Fatal;
     }
 
+    /// Encode and freeze bytes returned by ENV using the startup locale.
+    pub fn newEnvString(self: *VM, bytes: []const u8) VMError!Value {
+        const source = self.locale_encoding.encoding;
+        if (source == .ascii_8bit or (source == .us_ascii and !enc.isAsciiOnly(bytes))) {
+            return self.newStringWithEncoding(bytes, true, .{ .ascii_8bit = .{} });
+        }
+        const target = if (self.default_internal_encoding) |internal| internal.encoding else return self.newStringWithEncoding(bytes, true, source);
+        if (source.eql(target) or (source.isAsciiCompatible() and enc.isAsciiOnly(bytes))) {
+            return self.newStringWithEncoding(bytes, true, target);
+        }
+        const transcoded = enc.transcode(self.gc_allocator_atomic, bytes, source, target) catch |err| switch (err) {
+            error.OutOfMemory => return error.Fatal,
+            error.InvalidByteSequence, error.UndefinedConversion => return self.newStringWithEncoding(bytes, true, source),
+        };
+        return self.newStringWithEncoding(transcoded, true, target);
+    }
+
     pub fn envGet(self: *VM, key: []const u8) VMError!Value {
         const value_str = self.env_map.get(key) orelse return Value.nil();
-        return self.newString(value_str, false);
+        return self.newEnvString(value_str);
     }
 
     pub fn syncHostEnvSet(self: *VM, key: []const u8, value_str: []const u8) VMError!void {
@@ -3065,8 +3086,8 @@ pub const VM = struct {
         const hash_obj = try self.createHash();
         var iter = self.env_map.iterator();
         while (iter.next()) |entry| {
-            const key_val = try self.newString(entry.key_ptr.*, false);
-            const value_val = try self.newString(entry.value_ptr.*, false);
+            const key_val = try self.newEnvString(entry.key_ptr.*);
+            const value_val = try self.newEnvString(entry.value_ptr.*);
             try self.hashSetEntry(hash_obj, key_val, value_val);
         }
 
@@ -3078,8 +3099,8 @@ pub const VM = struct {
         var iter = self.env_map.iterator();
         while (iter.next()) |entry| {
             const pair = try self.createArray();
-            const key_val = try self.newString(entry.key_ptr.*, false);
-            const value_val = try self.newString(entry.value_ptr.*, false);
+            const key_val = try self.newEnvString(entry.key_ptr.*);
+            const value_val = try self.newEnvString(entry.value_ptr.*);
             pair.elements.append(self.gc_allocator, key_val) catch return error.Fatal;
             pair.elements.append(self.gc_allocator, value_val) catch return error.Fatal;
             array_obj.elements.append(self.gc_allocator, Value.fromObject(&pair.object)) catch return error.Fatal;

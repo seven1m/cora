@@ -81,6 +81,12 @@ that introspection operation into execution lookup.
 
 ## Semantic Defaults and Optional Results
 
+Encoding registration captures the environment's locale charmap with a private
+libc locale object before Ruby execution. If the environment names an unavailable
+locale, registration retries with the C locale, matching Ruby startup behavior;
+allocation failure remains fatal. The captured charmap and encoding are required
+VM state. Changing ENV or the default external encoding does not recapture them.
+
 These reviewed alternatives represent Ruby inputs/results or lazy resources,
 not partially initialized interpreter metadata:
 

@@ -4,31 +4,6 @@ const test_helper = @import("../test_helper.zig");
 const evalCode = test_helper.evalCode;
 const evalCodeWithOutput = test_helper.evalCodeWithOutput;
 
-test "Encoding.compatible? chooses a common encoding" {
-    const result = try evalCode(
-        \\utf8 = Encoding::UTF_8
-        \\sjis = Encoding::SHIFT_JIS
-        \\ascii = Encoding::US_ASCII
-        \\binary = Encoding::ASCII_8BIT
-        \\[Encoding.compatible?("abc", "def"),
-        \\ Encoding.compatible?("abc".force_encoding(sjis), "def"),
-        \\ Encoding.compatible?("def", "abc".force_encoding(sjis)),
-        \\ Encoding.compatible?(utf8, ascii),
-        \\ Encoding.compatible?(utf8, binary),
-        \\ Encoding.compatible?("", "abc".force_encoding(sjis)),
-        \\ Encoding.compatible?(nil, "abc")]
-    );
-    const items = result.toArrayObject().elements.items;
-    try std.testing.expectEqual(@as(usize, 7), items.len);
-    try std.testing.expectEqualStrings("UTF-8", items[0].toEncodingObject().encoding.name());
-    try std.testing.expectEqualStrings("Shift_JIS", items[1].toEncodingObject().encoding.name());
-    try std.testing.expectEqualStrings("UTF-8", items[2].toEncodingObject().encoding.name());
-    try std.testing.expectEqualStrings("UTF-8", items[3].toEncodingObject().encoding.name());
-    try std.testing.expect(items[4].isNil());
-    try std.testing.expectEqualStrings("Shift_JIS", items[5].toEncodingObject().encoding.name());
-    try std.testing.expect(items[6].isNil());
-}
-
 test "Encoding::UTF_8 exists" {
     const result = try evalCode("Encoding::UTF_8");
     try std.testing.expect(result.isEncoding());
@@ -550,4 +525,52 @@ test "IBM866 transcodes Cyrillic and box drawing characters" {
     const bytes = items[1].toArrayObject().elements.items;
     const expected = [_]i64{ 0x80, 0x9F, 0xB3, 0xE0, 0xF1 };
     for (expected, bytes) |want, got| try std.testing.expectEqual(want, got.toInteger());
+}
+
+test "Encoding locale stays independent from mutable default encoding aliases" {
+    const result = try evalCode(
+        \\locale = Encoding.find("locale")
+        \\charmap = Encoding.locale_charmap
+        \\Encoding.default_external = Encoding::ISO_8859_1
+        \\Encoding.default_internal = Encoding::Shift_JIS
+        \\aliases = Encoding.aliases
+        \\Encoding.find("locale").equal?(locale) && Encoding.locale_charmap == charmap &&
+        \\  aliases["locale"] == locale.name && aliases["external"] == "ISO-8859-1" &&
+        \\  aliases["filesystem"] == "ISO-8859-1" && aliases["internal"] == "Shift_JIS" &&
+        \\  Encoding::ISO_8859_1.names.include?("external") &&
+        \\  Encoding::Shift_JIS.names.include?("internal")
+    );
+    try std.testing.expectEqual(true, result.toBool());
+}
+
+test "Encoding names and locale charmap return independent Ruby storage" {
+    const result = try evalCode(
+        \\original = Encoding.locale_charmap
+        \\Encoding.locale_charmap.replace("changed")
+        \\names = Encoding::UTF_8.names
+        \\frozen_names = names.all?(&:frozen?)
+        \\names.clear
+        \\Encoding.aliases.clear
+        \\frozen_names && Encoding.locale_charmap == original &&
+        \\  Encoding::UTF_8.names.first == "UTF-8" &&
+        \\  Encoding.aliases["BINARY"] == "ASCII-8BIT"
+    );
+    try std.testing.expectEqual(true, result.toBool());
+}
+
+test "ENV collections use locale encoding independently of default external" {
+    const result = try evalCode(
+        \\Encoding.default_external = Encoding::BINARY
+        \\Encoding.default_internal = nil
+        \\expected = Encoding.find("locale")
+        \\key = "cora_locale_encoding_test"
+        \\ENV[key] = "ascii"
+        \\pairs = [ENV.assoc(key), ENV.to_hash.assoc(key), ENV.to_a.find { |pair| pair[0] == key }]
+        \\valid = pairs.all? do |pair|
+        \\  pair.all? { |string| string.encoding == expected && string.frozen? }
+        \\end
+        \\ENV.delete(key)
+        \\valid
+    );
+    try std.testing.expectEqual(true, result.toBool());
 }

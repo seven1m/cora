@@ -49,6 +49,7 @@ pub const Id = enum {
     mac_turkish,
     mac_ukraine,
     euc_kr,
+    cp50221,
 };
 
 pub const count = @typeInfo(Id).@"enum".field_names.len;
@@ -131,6 +132,7 @@ pub const LegacyEncoding = struct {
             .mac_turkish => "MAC-TURKISH",
             .mac_ukraine => "MAC-UKRAINE",
             .euc_kr => "EUC-KR",
+            .cp50221 => "CP50221",
         };
     }
 
@@ -183,6 +185,7 @@ pub const LegacyEncoding = struct {
             .mac_turkish => "MacTurkish",
             .mac_ukraine => "MacUkraine",
             .euc_kr => "EUC_KR",
+            .cp50221 => "CP50221",
         };
     }
 
@@ -214,12 +217,12 @@ pub const LegacyEncoding = struct {
         return true;
     }
 
-    pub fn isAsciiCompatible(_: LegacyEncoding) bool {
-        return true;
+    pub fn isAsciiCompatible(self: LegacyEncoding) bool {
+        return !self.isDummy();
     }
 
-    pub fn isDummy(_: LegacyEncoding) bool {
-        return false;
+    pub fn isDummy(self: LegacyEncoding) bool {
+        return self.id == .cp50221;
     }
 
     pub fn isUnicode(_: LegacyEncoding) bool {

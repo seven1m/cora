@@ -22,7 +22,7 @@ pub const Utf7Encoding = struct {
     }
 
     pub fn isAsciiCompatible(_: Utf7Encoding) bool {
-        return true;
+        return false;
     }
 
     pub fn isDummy(_: Utf7Encoding) bool {

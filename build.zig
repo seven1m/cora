@@ -610,6 +610,7 @@ fn buildCBindings(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std
         .{ .name = "tcc_c", .header = "#define _GNU_SOURCE 1\n#include <libtcc.h>\n#ifdef __linux__\n#include <dlfcn.h>\n#include <stdlib.h>\n#endif\n" },
         .{ .name = "openssl_c", .header = "#include <openssl/err.h>\n#include <openssl/evp.h>\n#include <openssl/pem.h>\n#include <openssl/rand.h>\n#include <openssl/ssl.h>\n#include <openssl/x509_vfy.h>\n", .libs = &.{ .{ .name = "ssl" }, .{ .name = "crypto" } } },
         .{ .name = "zlib_c", .header = "#include <zlib.h>\n", .libs = &.{.{ .name = "z" }} },
+        .{ .name = "locale_c", .header = "#define _GNU_SOURCE 1\n#include <locale.h>\n#include <langinfo.h>\n#ifdef __APPLE__\n#include <xlocale.h>\n#endif\n" },
         .{ .name = "stat_c", .header = "#include <sys/stat.h>\n" },
     };
     const imports = b.allocator.alloc(std.Build.Module.Import, bindings.len) catch @panic("OOM");

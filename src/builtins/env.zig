@@ -1,5 +1,4 @@
 const std = @import("std");
-const enc = @import("../encoding.zig");
 const vm_mod = @import("../vm.zig");
 const value = @import("../value.zig");
 
@@ -167,11 +166,7 @@ pub fn register(vm: *VM) !void {
 pub fn builtinEnvBracket(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 1);
     const key = try args[0].coerceToStr(vm, "no implicit conversion of Object into String");
-    const raw = try vm.envGet(key);
-    if (raw.isNil()) return Value.nil();
-    const result = try newEnvString(vm, raw.toStringObject().str);
-    result.freeze();
-    return result;
+    return vm.envGet(key);
 }
 
 pub fn builtinEnvBracketSet(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
@@ -236,8 +231,8 @@ pub fn builtinEnvToH(vm: *VM, _: Value, args: []Value, block: ?Block) VMError!Va
 
         var iter = env_map.iterator();
         while (iter.next()) |entry| {
-            const key_val = try vm.newString(entry.key_ptr.*, false);
-            const value_val = try vm.newString(entry.value_ptr.*, false);
+            const key_val = try vm.newEnvString(entry.key_ptr.*);
+            const value_val = try vm.newEnvString(entry.value_ptr.*);
 
             const yield_args = [_]Value{ key_val, value_val };
             const yielded = try vm.yieldToBlock(blk, &yield_args);
@@ -293,7 +288,7 @@ pub fn builtinEnvKey(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value 
     var iter = env_map.iterator();
     while (iter.next()) |entry| {
         if (std.mem.eql(u8, entry.value_ptr.*, value_to_find)) {
-            return vm.newString(entry.key_ptr.*, false);
+            return vm.newEnvString(entry.key_ptr.*);
         }
     }
     return Value.nil();
@@ -314,8 +309,8 @@ pub fn builtinEnvReject(vm: *VM, _: Value, args: []Value, block: ?Block) VMError
 
     var iter = env_map.iterator();
     while (iter.next()) |entry| {
-        const key_val = try vm.newString(entry.key_ptr.*, false);
-        const value_val = try vm.newString(entry.value_ptr.*, false);
+        const key_val = try vm.newEnvString(entry.key_ptr.*);
+        const value_val = try vm.newEnvString(entry.value_ptr.*);
 
         const yield_args = [_]Value{ key_val, value_val };
         const yielded = try vm.yieldToBlock(block.?, &yield_args);
@@ -347,8 +342,8 @@ pub fn builtinEnvRejectBang(vm: *VM, env_receiver: Value, args: []Value, block: 
 
     var iter = env_map.iterator();
     while (iter.next()) |entry| {
-        const key_val = try vm.newString(entry.key_ptr.*, false);
-        const value_val = try vm.newString(entry.value_ptr.*, false);
+        const key_val = try vm.newEnvString(entry.key_ptr.*);
+        const value_val = try vm.newEnvString(entry.value_ptr.*);
 
         const yield_args = [_]Value{ key_val, value_val };
         const yielded = try vm.yieldToBlock(blk, &yield_args);
@@ -389,8 +384,8 @@ pub fn builtinEnvDeleteIf(vm: *VM, env_receiver: Value, args: []Value, block: ?B
 
     var iter = env_map.iterator();
     while (iter.next()) |entry| {
-        const key_val = try vm.newString(entry.key_ptr.*, false);
-        const value_val = try vm.newString(entry.value_ptr.*, false);
+        const key_val = try vm.newEnvString(entry.key_ptr.*);
+        const value_val = try vm.newEnvString(entry.value_ptr.*);
 
         const yield_args = [_]Value{ key_val, value_val };
         const yielded = try vm.yieldToBlock(blk, &yield_args);
@@ -428,8 +423,8 @@ pub fn builtinEnvKeepIf(vm: *VM, env_receiver: Value, args: []Value, block: ?Blo
 
     var iter = env_map.iterator();
     while (iter.next()) |entry| {
-        const key_val = try vm.newString(entry.key_ptr.*, false);
-        const value_val = try vm.newString(entry.value_ptr.*, false);
+        const key_val = try vm.newEnvString(entry.key_ptr.*);
+        const value_val = try vm.newEnvString(entry.value_ptr.*);
 
         const yield_args = [_]Value{ key_val, value_val };
         const yielded = try vm.yieldToBlock(blk, &yield_args);
@@ -476,8 +471,8 @@ pub fn builtinEnvSelect(vm: *VM, _: Value, args: []Value, block: ?Block) VMError
 
     var iter = env_map.iterator();
     while (iter.next()) |entry| {
-        const key_val = try vm.newString(entry.key_ptr.*, false);
-        const value_val = try vm.newString(entry.value_ptr.*, false);
+        const key_val = try vm.newEnvString(entry.key_ptr.*);
+        const value_val = try vm.newEnvString(entry.value_ptr.*);
 
         const yield_args = [_]Value{ key_val, value_val };
         const yielded = try vm.yieldToBlock(blk, &yield_args);
@@ -509,8 +504,8 @@ pub fn builtinEnvSelectBang(vm: *VM, env_receiver: Value, args: []Value, block: 
 
     var iter = env_map.iterator();
     while (iter.next()) |entry| {
-        const key_val = try vm.newString(entry.key_ptr.*, false);
-        const value_val = try vm.newString(entry.value_ptr.*, false);
+        const key_val = try vm.newEnvString(entry.key_ptr.*);
+        const value_val = try vm.newEnvString(entry.value_ptr.*);
 
         const yield_args = [_]Value{ key_val, value_val };
         const yielded = try vm.yieldToBlock(blk, &yield_args);
@@ -537,8 +532,8 @@ pub fn builtinEnvMerge(vm: *VM, _: Value, args: []Value, block: ?Block) VMError!
 
     var iter = env_map.iterator();
     while (iter.next()) |entry| {
-        const key_val = try vm.newString(entry.key_ptr.*, false);
-        const value_val = try vm.newString(entry.value_ptr.*, false);
+        const key_val = try vm.newEnvString(entry.key_ptr.*);
+        const value_val = try vm.newEnvString(entry.value_ptr.*);
         try vm.hashSetEntry(result, key_val, value_val);
     }
 
@@ -582,7 +577,7 @@ pub fn builtinEnvMergeBang(vm: *VM, env_receiver: Value, args: []Value, block: ?
             const old_value = try vm.envGet(key_str);
             const value_to_set: Value = if (!old_value.isNil()) blk: {
                 if (block) |blk| {
-                    const key_val = try vm.newString(key_str, false);
+                    const key_val = try vm.newEnvString(key_str);
                     const yield_args = [_]Value{ key_val, old_value, entry.value };
                     break :blk try vm.yieldToBlock(blk, &yield_args);
                 } else break :blk entry.value;
@@ -602,8 +597,8 @@ pub fn builtinEnvExcept(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Val
 
     var iter = env_map.iterator();
     while (iter.next()) |entry| {
-        const key_val = try vm.newString(entry.key_ptr.*, false);
-        const value_val = try vm.newString(entry.value_ptr.*, false);
+        const key_val = try vm.newEnvString(entry.key_ptr.*);
+        const value_val = try vm.newEnvString(entry.value_ptr.*);
 
         try vm.hashSetEntry(result, key_val, value_val);
     }
@@ -660,7 +655,7 @@ pub fn builtinEnvKeys(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value
 
     var iter = env_map.iterator();
     while (iter.next()) |entry| {
-        const key_val = try vm.newString(entry.key_ptr.*, false);
+        const key_val = try vm.newEnvString(entry.key_ptr.*);
         result.elements.append(vm.gc_allocator, key_val) catch return error.Fatal;
     }
     return Value.fromObject(&result.object);
@@ -674,7 +669,7 @@ pub fn builtinEnvValues(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Val
 
     var iter = env_map.iterator();
     while (iter.next()) |entry| {
-        const value_val = try vm.newString(entry.value_ptr.*, false);
+        const value_val = try vm.newEnvString(entry.value_ptr.*);
         result.elements.append(vm.gc_allocator, value_val) catch return error.Fatal;
     }
     return Value.fromObject(&result.object);
@@ -695,7 +690,7 @@ pub fn builtinEnvEachKey(vm: *VM, env_receiver: Value, args: []Value, block: ?Bl
 
     var iter = env_map.iterator();
     while (iter.next()) |entry| {
-        const key_val = try vm.newString(entry.key_ptr.*, false);
+        const key_val = try vm.newEnvString(entry.key_ptr.*);
         const yield_args = [_]Value{key_val};
         _ = try vm.yieldToBlock(blk, &yield_args);
     }
@@ -718,7 +713,7 @@ pub fn builtinEnvEachValue(vm: *VM, env_receiver: Value, args: []Value, block: ?
 
     var iter = env_map.iterator();
     while (iter.next()) |entry| {
-        const value_val = try vm.newString(entry.value_ptr.*, false);
+        const value_val = try vm.newEnvString(entry.value_ptr.*);
         const yield_args = [_]Value{value_val};
         _ = try vm.yieldToBlock(blk, &yield_args);
     }
@@ -741,8 +736,8 @@ pub fn builtinEnvEachPair(vm: *VM, env_receiver: Value, args: []Value, block: ?B
 
     var iter = env_map.iterator();
     while (iter.next()) |entry| {
-        const key_val = try newEnvString(vm, entry.key_ptr.*);
-        const value_val = try newEnvString(vm, entry.value_ptr.*);
+        const key_val = try vm.newEnvString(entry.key_ptr.*);
+        const value_val = try vm.newEnvString(entry.value_ptr.*);
         const yield_args = [_]Value{ key_val, value_val };
         _ = try vm.yieldToBlock(blk, &yield_args);
     }
@@ -755,7 +750,7 @@ pub fn builtinEnvAssoc(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Valu
     const key = try args[0].coerceToStr(vm, "no implicit conversion of Object into String");
     const value_opt = try vm.envGet(key);
     if (value_opt.isNil()) return Value.nil();
-    const key_val = try vm.newString(key, false);
+    const key_val = try vm.newEnvString(key);
     const result = try vm.createArray();
     result.elements.append(vm.gc_allocator, key_val) catch return error.Fatal;
     result.elements.append(vm.gc_allocator, value_opt) catch return error.Fatal;
@@ -778,8 +773,8 @@ pub fn builtinEnvRassoc(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Val
     var iter = env_map.iterator();
     while (iter.next()) |entry| {
         if (std.mem.eql(u8, entry.value_ptr.*, value_to_find)) {
-            const key_val = try vm.newString(entry.key_ptr.*, false);
-            const value_val = try vm.newString(entry.value_ptr.*, false);
+            const key_val = try vm.newEnvString(entry.key_ptr.*);
+            const value_val = try vm.newEnvString(entry.value_ptr.*);
             const result = try vm.createArray();
             result.elements.append(vm.gc_allocator, key_val) catch return error.Fatal;
             result.elements.append(vm.gc_allocator, value_val) catch return error.Fatal;
@@ -894,8 +889,8 @@ pub fn builtinEnvInvert(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Val
 
     var iter = env_map.iterator();
     while (iter.next()) |entry| {
-        const key_val = try vm.newString(entry.key_ptr.*, false);
-        const value_val = try vm.newString(entry.value_ptr.*, false);
+        const key_val = try vm.newEnvString(entry.key_ptr.*);
+        const value_val = try vm.newEnvString(entry.value_ptr.*);
 
         try vm.hashSetEntry(result, value_val, key_val);
     }
@@ -954,27 +949,14 @@ pub fn builtinEnvShift(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Valu
 
     var iter = env_map.iterator();
     const entry = iter.next() orelse return Value.nil();
-    const key_val = try newEnvString(vm, entry.key_ptr.*);
-    const value_val = try newEnvString(vm, entry.value_ptr.*);
+    const key_val = try vm.newEnvString(entry.key_ptr.*);
+    const value_val = try vm.newEnvString(entry.value_ptr.*);
     _ = try vm.envUnset(entry.key_ptr.*, true);
 
     const result = try vm.createArray();
     result.elements.append(vm.gc_allocator, key_val) catch return error.Fatal;
     result.elements.append(vm.gc_allocator, value_val) catch return error.Fatal;
     return Value.fromObject(&result.object);
-}
-
-fn newEnvString(vm: *VM, bytes: []const u8) VMError!Value {
-    const external_encoding = vm.default_external_encoding.encoding;
-    const internal_encoding = if (vm.default_internal_encoding) |internal| internal.encoding else return vm.newStringWithEncoding(bytes, false, external_encoding);
-    if (internal_encoding.eql(external_encoding) or (external_encoding.isAsciiCompatible() and enc.isAsciiOnly(bytes))) {
-        return vm.newStringWithEncoding(bytes, false, internal_encoding);
-    }
-
-    const transcoded = enc.transcode(vm.gc_allocator_atomic, bytes, external_encoding, internal_encoding) catch {
-        return vm.newStringWithEncoding(bytes, false, external_encoding);
-    };
-    return vm.newStringWithEncoding(transcoded, false, internal_encoding);
 }
 
 pub fn builtinEnvInspect(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {

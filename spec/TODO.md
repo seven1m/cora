@@ -369,21 +369,21 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] core/dir/unlink_spec.rb
 
 ### core/encoding
-- [ ] core/encoding/_dump_spec.rb
-- [ ] core/encoding/_load_spec.rb
-- [ ] core/encoding/aliases_spec.rb
+- [x] core/encoding/_dump_spec.rb
+- [x] core/encoding/_load_spec.rb
+- [x] core/encoding/aliases_spec.rb
 - [x] core/encoding/ascii_compatible_spec.rb
-- [ ] core/encoding/compatible_spec.rb
+- [x] core/encoding/compatible_spec.rb
 - [x] core/encoding/default_external_spec.rb
 - [x] core/encoding/default_internal_spec.rb
-- [ ] core/encoding/dummy_spec.rb
+- [x] core/encoding/dummy_spec.rb
 - [x] core/encoding/find_spec.rb
 - [x] core/encoding/inspect_spec.rb
-- [ ] core/encoding/list_spec.rb
-- [ ] core/encoding/locale_charmap_spec.rb
+- [x] core/encoding/list_spec.rb
+- [x] core/encoding/locale_charmap_spec.rb
 - [x] core/encoding/name_list_spec.rb
 - [x] core/encoding/name_spec.rb
-- [ ] core/encoding/names_spec.rb
+- [x] core/encoding/names_spec.rb
 - [x] core/encoding/replicate_spec.rb
 - [x] core/encoding/to_s_spec.rb
 

@@ -2807,7 +2807,7 @@ pub fn builtinStringEncode(vm: *VM, receiver: Value, args: []Value, _: ?Block) V
         .available => {},
         .ascii_only_passthrough => {
             if (enc.isAsciiOnly(source_bytes)) {
-                return try vm.newStringWithEncoding(source_bytes, false, from_encoding);
+                return try vm.newStringWithEncoding(source_bytes, false, target_encoding);
             }
             return vm.raiseExceptionFmt(vm.encoding_converter_not_found_error_class, "code converter not found", .{});
         },

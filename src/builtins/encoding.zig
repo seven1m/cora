@@ -3,6 +3,7 @@ const vm_mod = @import("../vm.zig");
 const value = @import("../value.zig");
 const enc = @import("../encoding.zig");
 const converter = @import("encoding/converter.zig");
+const locale_c = @import("locale_c");
 
 const VM = vm_mod.VM;
 const VMError = vm_mod.VMError;
@@ -39,6 +40,7 @@ const EncodingLookup = enum {
 const LegacyEncodingId = enc.LegacyEncodingId;
 
 const legacy_encoding_name_map = std.StaticStringMap(LegacyEncodingId).initComptime(.{
+    .{ "CP50221", .cp50221 },
     .{ "ISO_8859_2", .iso_8859_2 },
     .{ "ISO8859_2", .iso_8859_2 },
     .{ "ISO_8859_3", .iso_8859_3 },
@@ -105,6 +107,8 @@ const legacy_encoding_name_map = std.StaticStringMap(LegacyEncodingId).initCompt
 });
 
 const encoding_name_map = std.StaticStringMap(EncodingLookup).initComptime(.{
+    .{ "ANSI_X3.4_1968", .us_ascii },
+    .{ "646", .us_ascii },
     .{ "UTF_8", .utf8 },
     .{ "UTF8", .utf8 },
     .{ "CESU_8", .cesu8 },
@@ -183,7 +187,6 @@ const encoding_name_map = std.StaticStringMap(EncodingLookup).initComptime(.{
     .{ "MACTURKISH", .iso_8859_15 },
     .{ "MACUKRAINE", .iso_8859_15 },
     .{ "ISO_2022_JP_2", .iso_8859_15 },
-    .{ "CP50221", .iso_8859_15 },
     .{ "WINDOWS_1252", .windows_1252 },
     .{ "CP1252", .windows_1252 },
     .{ "WINDOWS_1250", .iso_8859_15 },
@@ -268,6 +271,18 @@ pub fn lookupEncoding(name: []const u8) ?enc.Encoding {
 }
 
 pub fn register(vm: *VM) !void {
+    // An invalid environment locale leaves MRI in the C locale as well.
+    const locale = locale_c.newlocale(locale_c.LC_CTYPE_MASK, "", null) orelse blk: {
+        if (std.posix.errno(-1) == .NOMEM) return error.Fatal;
+        break :blk locale_c.newlocale(locale_c.LC_CTYPE_MASK, "C", null) orelse return error.Fatal;
+    };
+    defer _ = locale_c.freelocale(locale);
+    const charmap = std.mem.span(locale_c.nl_langinfo_l(locale_c.CODESET, locale));
+    vm.locale_charmap = vm.gc_allocator_atomic.dupe(u8, charmap) catch return error.Fatal;
+    var locale_args = [_]Value{try vm.newString(vm.locale_charmap, false)};
+    vm.locale_encoding = (try builtinEncodingFind(vm, Value.nil(), &locale_args, null)).toEncodingObject();
+    try vm.encoding_class.module.methods.put(try vm.intern("names"), value.MethodEntry.builtin(&builtinEncodingNames, .{ .exact = 0 }));
+
     const name_sym = try vm.intern("name");
     try vm.encoding_class.module.methods.put(name_sym, value.MethodEntry.builtin(&builtinEncodingName, .{ .exact = 0 }));
 
@@ -293,6 +308,8 @@ pub fn register(vm: *VM) !void {
 
     const list_sym = try vm.intern("list");
     try encoding_singleton.module.methods.put(list_sym, value.MethodEntry.builtin(&builtinEncodingList, .{ .exact = 0 }));
+
+    try encoding_singleton.module.methods.put(try vm.intern("locale_charmap"), value.MethodEntry.builtin(&builtinEncodingLocaleCharmap, .{ .exact = 0 }));
 
     const aliases_sym = try vm.intern("aliases");
     try encoding_singleton.module.methods.put(aliases_sym, value.MethodEntry.builtin(&builtinEncodingAliases, .{ .exact = 0 }));
@@ -360,6 +377,7 @@ const CompatibilityInput = struct {
     encoding: enc.Encoding,
     empty: bool = false,
     ascii_only: bool = false,
+    is_string: bool = false,
 };
 
 fn compatibilityInput(input: Value) ?CompatibilityInput {
@@ -367,8 +385,9 @@ fn compatibilityInput(input: Value) ?CompatibilityInput {
         const string = input.toStringObject();
         return .{
             .encoding = string.encoding,
+            .is_string = true,
             .empty = string.str.len == 0,
-            .ascii_only = string.encoding.isAsciiOnlyString(string.str),
+            .ascii_only = string.encoding.isAsciiCompatible() and enc.isAsciiOnly(string.str),
         };
     }
     if (input.isEncoding()) return .{ .encoding = input.toEncodingObject().encoding };
@@ -382,15 +401,23 @@ pub fn builtinEncodingCompatible(vm: *VM, _: Value, args: []Value, _: ?Block) VM
     const left = compatibilityInput(args[0]) orelse return Value.nil();
     const right = compatibilityInput(args[1]) orelse return Value.nil();
     if (left.encoding.eql(right.encoding)) return vm.encodingToValue(left.encoding);
-    if (left.empty) return vm.encodingToValue(right.encoding);
-    if (right.empty) return vm.encodingToValue(left.encoding);
-    if (left.encoding.isDummy() or right.encoding.isDummy()) return Value.nil();
+    if (right.is_string and right.empty) return vm.encodingToValue(left.encoding);
+    if (left.is_string and right.is_string and left.empty) {
+        return vm.encodingToValue(if (left.encoding.isAsciiCompatible() and right.ascii_only) left.encoding else right.encoding);
+    }
     if (!left.encoding.isAsciiCompatible() or !right.encoding.isAsciiCompatible()) return Value.nil();
-    if (left.encoding == .us_ascii) return vm.encodingToValue(right.encoding);
-    if (right.encoding == .us_ascii) return vm.encodingToValue(left.encoding);
-    if (left.ascii_only and !right.ascii_only) return vm.encodingToValue(right.encoding);
-    if (right.ascii_only and !left.ascii_only) return vm.encodingToValue(left.encoding);
-    if (left.ascii_only and right.ascii_only) return vm.encodingToValue(left.encoding);
+    if (!right.is_string and right.encoding == .us_ascii) return vm.encodingToValue(left.encoding);
+    if (!left.is_string and left.encoding == .us_ascii) return vm.encodingToValue(right.encoding);
+    if (!left.is_string) {
+        return if (right.is_string and right.ascii_only) vm.encodingToValue(right.encoding) else Value.nil();
+    }
+    if (left.is_string) {
+        if (right.is_string) {
+            if (left.ascii_only != right.ascii_only) return vm.encodingToValue(if (left.ascii_only) right.encoding else left.encoding);
+            if (right.ascii_only) return vm.encodingToValue(left.encoding);
+        }
+        if (left.ascii_only) return vm.encodingToValue(right.encoding);
+    }
     return Value.nil();
 }
 
@@ -432,7 +459,9 @@ pub fn builtinEncodingFind(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!
         return Value.nil();
     }
 
-    if (std.mem.eql(u8, lookup, "EXTERNAL") or std.mem.eql(u8, lookup, "FILESYSTEM") or std.mem.eql(u8, lookup, "LOCALE")) {
+    if (std.mem.eql(u8, lookup, "LOCALE")) return Value.fromObject(&vm.locale_encoding.object);
+
+    if (std.mem.eql(u8, lookup, "EXTERNAL") or std.mem.eql(u8, lookup, "FILESYSTEM")) {
         return Value.fromObject(&vm.default_external_encoding.object);
     }
 
@@ -445,16 +474,22 @@ pub fn builtinEncodingAliases(vm: *VM, _: Value, args: []Value, _: ?Block) VMErr
     try vm.requireArgCount(args, 0);
     const aliases = try vm.createHash();
     for (encoding_name_map.keys()) |name| {
-        var find_args = [_]Value{try vm.newString(name, false)};
+        var find_args = [_]Value{try vm.newString(name, true)};
         const encoding_value = try builtinEncodingFind(vm, Value.nil(), &find_args, null);
         const canonical_name = encoding_value.toEncodingObject().encoding.name();
-        try vm.hashSetEntry(aliases, try vm.newString(name, false), try vm.newString(canonical_name, false));
+        try vm.hashSetEntry(aliases, try vm.newString(name, true), try vm.newString(canonical_name, true));
     }
     for (legacy_encoding_name_map.keys()) |name| {
-        var find_args = [_]Value{try vm.newString(name, false)};
+        var find_args = [_]Value{try vm.newString(name, true)};
         const encoding_value = try builtinEncodingFind(vm, Value.nil(), &find_args, null);
         const canonical_name = encoding_value.toEncodingObject().encoding.name();
-        try vm.hashSetEntry(aliases, try vm.newString(name, false), try vm.newString(canonical_name, false));
+        try vm.hashSetEntry(aliases, try vm.newString(name, true), try vm.newString(canonical_name, true));
+    }
+    try vm.hashSetEntry(aliases, try vm.newString("external", false), try vm.newString(vm.default_external_encoding.encoding.name(), true));
+    try vm.hashSetEntry(aliases, try vm.newString("filesystem", false), try vm.newString(vm.default_external_encoding.encoding.name(), true));
+    try vm.hashSetEntry(aliases, try vm.newString("locale", false), try vm.newString(vm.locale_encoding.encoding.name(), true));
+    if (vm.default_internal_encoding) |internal| {
+        try vm.hashSetEntry(aliases, try vm.newString("internal", false), try vm.newString(internal.encoding.name(), true));
     }
     return Value.fromObject(&aliases.object);
 }
@@ -554,4 +589,23 @@ pub fn builtinEncodingSetDefaultExternal(vm: *VM, _: Value, args: []Value, _: ?B
 
     vm.default_external_encoding = resolved.toEncodingObject();
     return resolved;
+}
+
+pub fn builtinEncodingLocaleCharmap(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    return vm.newString(vm.locale_charmap, false);
+}
+
+pub fn builtinEncodingNames(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    const name = receiver.toEncodingObject().encoding.name();
+    const names = try vm.createArray();
+    names.elements.append(vm.gc_allocator, try builtinEncodingName(vm, receiver, &.{}, null)) catch return error.Fatal;
+    const aliases = try builtinEncodingAliases(vm, Value.nil(), &.{}, null);
+    for (aliases.toHashObject().entries.items) |entry| {
+        if (std.mem.eql(u8, entry.value.toStringObject().str, name) and !std.mem.eql(u8, entry.key.toStringObject().str, name)) {
+            names.elements.append(vm.gc_allocator, entry.key) catch return error.Fatal;
+        }
+    }
+    return Value.fromObject(&names.object);
 }
