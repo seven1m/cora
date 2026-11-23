@@ -39,7 +39,7 @@ Some gems that are known to work, though I haven't tested each thoroughly:
 - webrick
 - zeitwerk
 
-Cora passes over 15,000 ruby/spec examples, about 43% of the 34,724 passing in a [recent CRuby run](https://eregon.me/rubyspec-stats/).
+Cora passes over 20,000 ruby/spec examples, about 58% of the 34,724 passing in a [recent CRuby run](https://eregon.me/rubyspec-stats/).
 
 ## Prerequisites
 
