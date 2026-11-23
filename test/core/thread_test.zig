@@ -567,25 +567,32 @@ test "ConditionVariable is available without requiring thread" {
     try std.testing.expectEqual(true, elems[2].toBool());
 }
 
-test "ConditionVariable wait and signal coordinate threads" {
+test "ConditionVariable interrupted reacquisition preserves another thread's lock" {
     const result = try evalCode(
-        \\mutex = Thread::Mutex.new
+        \\mutex = Mutex.new
         \\cv = ConditionVariable.new
         \\ready = false
-        \\waiting = false
-        \\t = Thread.new do
+        \\owned_on_exit = false
+        \\waiter = Thread.new do
         \\  mutex.synchronize do
-        \\    waiting = true
-        \\    cv.wait(mutex, 1.0)
-        \\    ready
+        \\    ready = true
+        \\    begin
+        \\      cv.wait(mutex)
+        \\    ensure
+        \\      owned_on_exit = mutex.owned?
+        \\    end
         \\  end
         \\end
-        \\Thread.pass until waiting
-        \\mutex.synchronize do
-        \\  ready = true
-        \\  cv.signal
-        \\end
-        \\t.value
+        \\Thread.pass until ready && waiter.stop?
+        \\mutex.lock
+        \\cv.signal
+        \\Thread.pass until waiter.stop?
+        \\waiter.kill
+        \\Thread.pass
+        \\held_until_release = mutex.owned? && waiter.alive?
+        \\mutex.unlock
+        \\waiter.join
+        \\held_until_release && owned_on_exit
     );
     try std.testing.expectEqual(true, result.toBool());
 }

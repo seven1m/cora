@@ -8,8 +8,6 @@ const VMError = vm_mod.VMError;
 const Block = vm_mod.Block;
 const Value = value.Value;
 
-extern "c" fn clock_gettime(clk_id: std.posix.CLOCK, tp: *std.posix.timespec) c_int;
-
 pub fn register(vm: *VM) !void {
     const cv_class_val = Value.fromObject(&vm.condition_variable_class.module.object);
     const cv_singleton = try vm.getOrCreateSingletonClass(cv_class_val);
@@ -25,6 +23,9 @@ pub fn register(vm: *VM) !void {
 
     const signal_sym = try vm.intern("signal");
     try vm.condition_variable_class.module.methods.put(signal_sym, value.MethodEntry.builtin(&builtinConditionVariableSignal, .{ .exact = 0 }));
+
+    const marshal_dump_sym = try vm.intern("marshal_dump");
+    try vm.condition_variable_class.module.methods.put(marshal_dump_sym, value.MethodEntry.builtin(&builtinConditionVariableMarshalDump, .{ .exact = 0 }));
 
     const broadcast_sym = try vm.intern("broadcast");
     try vm.condition_variable_class.module.methods.put(broadcast_sym, value.MethodEntry.builtin(&builtinConditionVariableBroadcast, .{ .exact = 0 }));
@@ -46,11 +47,16 @@ fn builtinConditionVariableInitialize(vm: *VM, receiver: Value, args: []Value, _
 
 fn builtinConditionVariableWait(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCountRange(args, 1, 2);
-    try vm.requireArgType(args, 0, .mutex, "Mutex");
+    const current_thread = vm.current_thread orelse return error.Fatal;
+    const cv = receiver.toConditionVariableObject();
+    try appendWaiter(vm, cv, current_thread);
+    defer removeWaiter(cv, current_thread);
 
-    const current_thread = vm.current_thread orelse {
-        return vm.raiseExceptionFmt(vm.thread_error_class, "no current thread", .{});
-    };
+    if (!args[0].isMutex()) {
+        var sleep_args = [_]Value{if (args.len == 2) args[1] else Value.nil()};
+        _ = try vm.callMethodByName(args[0], "sleep", &sleep_args, null);
+        return receiver;
+    }
     const mutex = args[0].toMutexObject();
     if (mutex.state != .locked or !mutex_builtin.isOwnedByCurrentFiber(vm, mutex)) {
         return vm.raiseExceptionFmt(vm.thread_error_class, "Attempt to unlock a mutex which is not locked", .{});
@@ -69,35 +75,27 @@ fn builtinConditionVariableWait(vm: *VM, receiver: Value, args: []Value, _: ?Blo
         }
     }
 
-    const cv = receiver.toConditionVariableObject();
-    appendWaiter(vm, cv, current_thread);
     mutex_builtin.releaseMutex(vm, mutex);
-    defer {
-        removeWaiter(cv, current_thread);
-        if (mutex.state == .locked) {
-            mutex_builtin.waitForMutex(vm, mutex) catch {};
-        }
-        mutex_builtin.acquireMutex(vm, mutex) catch {};
-    }
-
-    if (timeout_ms) |limit| {
-        const deadline = monotonicMilliseconds() + limit;
-        while (containsWaiter(cv, current_thread) and monotonicMilliseconds() < deadline) {
-            try vm.threadYield();
-        }
-    } else {
-        const was_deadlockable = current_thread.deadlockable_wait;
-        current_thread.deadlockable_wait = true;
-        defer {
-            current_thread.deadlockable_wait = was_deadlockable;
-            if (current_thread.state != .terminated) current_thread.state = .running;
-        }
-        while (containsWaiter(cv, current_thread)) {
+    const wait_result: VMError!void = wait: {
+        if (timeout_ms) |limit| {
+            vm.timedSleepCurrentThread(limit) catch |err| break :wait err;
+        } else {
+            const was_deadlockable = current_thread.deadlockable_wait;
+            current_thread.deadlockable_wait = true;
+            defer {
+                current_thread.deadlockable_wait = was_deadlockable;
+                if (current_thread.state != .terminated) current_thread.state = .running;
+            }
             current_thread.state = .sleeping;
-            try vm.threadYield();
+            while (current_thread.state == .sleeping) {
+                vm.threadYield() catch |err| break :wait err;
+            }
         }
-    }
 
+        break :wait;
+    };
+    try mutex_builtin.reacquireMutex(vm, mutex);
+    try wait_result;
     return receiver;
 }
 
@@ -128,27 +126,16 @@ fn builtinConditionVariableBroadcast(vm: *VM, receiver: Value, args: []Value, _:
     return receiver;
 }
 
-fn monotonicMilliseconds() i64 {
-    var timespec: std.posix.timespec = undefined;
-    if (clock_gettime(std.posix.CLOCK.MONOTONIC, &timespec) != 0) return 0;
-
-    const seconds: i64 = @intCast(timespec.sec);
-    const nanoseconds: i64 = @intCast(timespec.nsec);
-    return seconds * 1_000 + @divTrunc(nanoseconds, 1_000_000);
+fn builtinConditionVariableMarshalDump(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    return vm.raiseExceptionFmt(vm.type_error_class, "can't dump ConditionVariable", .{});
 }
 
-fn appendWaiter(vm: *VM, cv: *value.ConditionVariableObject, thread: *value.ThreadObject) void {
+fn appendWaiter(vm: *VM, cv: *value.ConditionVariableObject, thread: *value.ThreadObject) VMError!void {
     for (cv.waiters.items) |waiter| {
         if (waiter == thread) return;
     }
-    cv.waiters.append(vm.gc_allocator, thread) catch {};
-}
-
-fn containsWaiter(cv: *value.ConditionVariableObject, thread: *value.ThreadObject) bool {
-    for (cv.waiters.items) |waiter| {
-        if (waiter == thread) return true;
-    }
-    return false;
+    cv.waiters.append(vm.gc_allocator, thread) catch return error.Fatal;
 }
 
 fn removeWaiter(cv: *value.ConditionVariableObject, thread: *value.ThreadObject) void {

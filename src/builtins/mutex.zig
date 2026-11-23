@@ -241,6 +241,27 @@ pub fn releaseMutex(vm: *VM, mutex: *value.MutexObject) void {
     vm.wakeNextMutexWaiter(mutex);
 }
 
+// A sleeping waiter must own the lock again before an interrupt reaches Ruby.
+// Keep waiting after interrupts, preserving their unwind until acquisition.
+pub fn reacquireMutex(vm: *VM, mutex: *value.MutexObject) VMError!void {
+    var pending_unwind = vm.pending_unwind;
+    vm.pending_unwind = null;
+    defer vm.pending_unwind = pending_unwind;
+    var interrupted = false;
+    while (mutex.state == .locked) {
+        waitForMutex(vm, mutex) catch |err| switch (err) {
+            error.Unwind => {
+                pending_unwind = vm.pending_unwind;
+                vm.pending_unwind = null;
+                interrupted = true;
+            },
+            else => return err,
+        };
+    }
+    try acquireMutex(vm, mutex);
+    if (interrupted) return error.Unwind;
+}
+
 pub fn waitForMutex(vm: *VM, mutex: *value.MutexObject) VMError!void {
     const thread = vm.current_thread orelse return error.Fatal;
     const was_deadlockable = thread.deadlockable_wait;

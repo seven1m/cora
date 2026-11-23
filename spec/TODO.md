@@ -312,10 +312,10 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] core/complex/uminus_spec.rb
 
 ### core/conditionvariable
-- [ ] core/conditionvariable/broadcast_spec.rb
-- [ ] core/conditionvariable/marshal_dump_spec.rb
-- [ ] core/conditionvariable/signal_spec.rb
-- [ ] core/conditionvariable/wait_spec.rb
+- [x] core/conditionvariable/broadcast_spec.rb
+- [x] core/conditionvariable/marshal_dump_spec.rb
+- [x] core/conditionvariable/signal_spec.rb
+- [x] core/conditionvariable/wait_spec.rb
 
 ### core/data
 - [x] core/data/constants_spec.rb
