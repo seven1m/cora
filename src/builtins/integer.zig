@@ -1,6 +1,7 @@
 const std = @import("std");
 const vm_mod = @import("../vm.zig");
 const value = @import("../value.zig");
+const float_builtin = @import("float.zig");
 const enc = @import("../encoding.zig");
 const encoding_builtin = @import("encoding.zig");
 
@@ -68,16 +69,7 @@ fn compareIntegerRelational(vm: *VM, receiver: Value, arg: Value, op_name: []con
                 unreachable;
             },
             .float => |f| {
-                const lhs = receiver.integerToF64();
-                if (lhs != f) {
-                    if (std.mem.eql(u8, op_name, "<")) return Value.boolean(lhs < f);
-                    if (std.mem.eql(u8, op_name, "<=")) return Value.boolean(lhs <= f);
-                    if (std.mem.eql(u8, op_name, ">")) return Value.boolean(lhs > f);
-                    if (std.mem.eql(u8, op_name, ">=")) return Value.boolean(lhs >= f);
-                    unreachable;
-                }
-                const float_as_int = try vm.callMethodByName(arg, "to_i", &.{}, null);
-                const ord = try compareIntegers(vm, receiver, float_as_int);
+                const ord = (try vm.compareIntegerToFloat(receiver, f)) orelse return Value.boolean(false);
                 if (std.mem.eql(u8, op_name, "<")) return Value.boolean(ord == .lt);
                 if (std.mem.eql(u8, op_name, "<=")) return Value.boolean(ord == .lt or ord == .eq);
                 if (std.mem.eql(u8, op_name, ">")) return Value.boolean(ord == .gt);
@@ -567,7 +559,9 @@ pub fn register(vm: *VM) !void {
     try vm.integer_class.module.methods.put(pow_sym, value.MethodEntry.builtin(&builtinIntegerPow, .{ .variadic = 1 }));
 
     const equal_sym = try vm.intern("==");
-    try vm.integer_class.module.methods.put(equal_sym, value.MethodEntry.builtin(&builtinIntegerEqual, .{ .exact = 1 }));
+    const equal_entry = value.MethodEntry.builtin(&builtinIntegerEqual, .{ .exact = 1 });
+    try vm.integer_class.module.methods.put(equal_sym, equal_entry);
+    try vm.integer_class.module.methods.put(try vm.intern("==="), equal_entry);
 
     const eql_sym = try vm.intern("eql?");
     try vm.integer_class.module.methods.put(eql_sym, value.MethodEntry.builtin(&builtinIntegerEql, .{ .exact = 1 }));
@@ -1180,41 +1174,7 @@ pub fn builtinIntegerDivmod(vm: *VM, receiver: Value, args: []Value, _: ?Block) 
     }
 
     if (arg.isFloat()) {
-        const arg_f = arg.toFloatObject().val;
-        if (arg_f == 0.0) {
-            return vm.raiseExceptionFmt(vm.zero_division_error_class, "divided by 0", .{});
-        }
-        if (std.math.isNan(arg_f)) {
-            return vm.raiseExceptionFmt(vm.float_domain_error_class, "Computation results to 'NaN'(Not a Number)", .{});
-        }
-
-        const receiver_f = receiver.integerToF64();
-        const f = @floor(receiver_f / arg_f);
-        const mod = receiver_f - f * arg_f;
-
-        const i64_max_f = @as(f64, @floatFromInt(std.math.maxInt(i64)));
-        const i64_min_f = @as(f64, @floatFromInt(std.math.minInt(i64)));
-
-        const quot = if (f >= i64_min_f and f < i64_max_f) blk: {
-            const i = @as(i64, @intFromFloat(f));
-            if (i >= -4611686018427387904 and i <= 4611686018427387903) {
-                break :blk Value.integer(i);
-            }
-            var managed = BigInt.init(vm.allocator) catch return error.Fatal;
-            defer managed.deinit();
-            managed.set(i) catch return error.Fatal;
-            break :blk try vm.valueFromManagedInteger(&managed);
-        } else blk: {
-            var managed = BigInt.init(vm.allocator) catch return error.Fatal;
-            defer managed.deinit();
-            managed.set(@as(i64, @intFromFloat(f))) catch return error.Fatal;
-            break :blk try vm.valueFromManagedInteger(&managed);
-        };
-
-        const result = try vm.createArray();
-        result.elements.append(vm.gc_allocator, quot) catch return error.Fatal;
-        result.elements.append(vm.gc_allocator, try vm.newFloat(mod)) catch return error.Fatal;
-        return Value.fromObject(&result.object);
+        return float_builtin.builtinFloatDivmod(vm, try vm.newFloat(receiver.integerToF64()), args, null);
     }
 
     return vm.raiseExceptionFmt(vm.type_error_class, "argument is not numeric", .{});
@@ -1381,18 +1341,12 @@ pub fn builtinIntegerCompare(vm: *VM, receiver: Value, args: []Value, _: ?Block)
     const rhs = args[0];
 
     if (rhs.isFloat()) {
-        const rhs_f = rhs.toFloatObject().val;
-        if (std.math.isNan(rhs_f)) return Value.nil();
-        if (std.math.isInf(rhs_f)) {
-            return if (rhs_f > 0) Value.integer(-1) else Value.integer(1);
-        }
-        const lhs_f = receiver.integerToF64();
-        if (std.math.isInf(lhs_f)) {
-            return if (lhs_f > 0) Value.integer(1) else Value.integer(-1);
-        }
-        if (lhs_f < rhs_f) return Value.integer(-1);
-        if (lhs_f > rhs_f) return Value.integer(1);
-        return Value.integer(0);
+        const order = (try vm.compareIntegerToFloat(receiver, rhs.toFloatObject().val)) orelse return Value.nil();
+        return Value.integer(switch (order) {
+            .lt => -1,
+            .eq => 0,
+            .gt => 1,
+        });
     }
 
     if (rhs.isInteger() or rhs.isBigInteger()) {
@@ -1609,7 +1563,7 @@ pub fn builtinIntegerEqual(vm: *VM, receiver: Value, args: []Value, _: ?Block) V
     try receiver.ensureInteger(vm);
 
     if (args[0].isFloat()) {
-        return Value.boolean(receiver.integerToF64() == args[0].toFloatObject().val);
+        return Value.boolean((try vm.compareIntegerToFloat(receiver, args[0].toFloatObject().val)) == .eq);
     }
     if (args[0].isInteger() or args[0].isBigInteger()) {
         return Value.boolean((try compareIntegers(vm, receiver, args[0])) == .eq);

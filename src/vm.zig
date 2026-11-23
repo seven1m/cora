@@ -3983,6 +3983,52 @@ pub const VM = struct {
         return self.valueFromManagedInteger(&out);
     }
 
+    /// Convert a Float to an Integer with truncation, without Ruby dispatch.
+    pub fn integerFromFloat(self: *VM, f: f64) VMError!Value {
+        if (std.math.isNan(f) or std.math.isInf(f)) {
+            return self.raiseExceptionFmt(self.float_domain_error_class, "float out of range of integer", .{});
+        }
+
+        const bits: u64 = @bitCast(f);
+        const sign = (bits >> 63) != 0;
+        const exponent_bits: u16 = @intCast((bits >> 52) & 0x7ff);
+        const fraction_bits = bits & 0x000f_ffff_ffff_ffff;
+
+        if (exponent_bits == 0) {
+            return Value.integer(0);
+        }
+
+        const exponent: i32 = @as(i32, exponent_bits) - 1023;
+        if (exponent < 0) {
+            return Value.integer(0);
+        }
+
+        const significand: u64 = fraction_bits | (@as(u64, 1) << 52);
+        if (exponent <= 52) {
+            const shift: u6 = @intCast(52 - exponent);
+            const magnitude: i64 = @intCast(significand >> shift);
+            return Value.integer(if (sign) -magnitude else magnitude);
+        }
+
+        var managed = std.math.big.int.Managed.initSet(self.allocator, @as(i64, @intCast(significand))) catch return error.Fatal;
+        defer managed.deinit();
+        managed.shiftLeft(&managed, @intCast(exponent - 52)) catch return error.Fatal;
+        if (sign) managed.negate();
+        return self.valueFromManagedInteger(&managed);
+    }
+
+    /// Compare an exact Integer against a Float; NaN has no ordering.
+    pub fn compareIntegerToFloat(self: *VM, lhs: Value, rhs: f64) VMError!?std.math.Order {
+        if (std.math.isNan(rhs)) return null;
+        if (std.math.isInf(rhs)) return if (rhs > 0) .lt else .gt;
+        const rounded = lhs.integerToF64();
+        if (rounded < rhs) return .lt;
+        if (rounded > rhs) return .gt;
+        // Equal rounded values can hide integer bits beyond Float precision.
+        // Here rhs is integral because it equals an Integer converted to Float.
+        return try self.compareIntegerValues(lhs, try self.integerFromFloat(rhs));
+    }
+
     pub fn compareIntegerValues(self: *VM, lhs: Value, rhs: Value) VMError!std.math.Order {
         if (lhs.isInteger() and rhs.isInteger()) {
             return std.math.order(lhs.toInteger(), rhs.toInteger());

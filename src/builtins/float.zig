@@ -65,9 +65,18 @@ const FloatComparison = enum {
 };
 
 fn compareFloatRelational(vm: *VM, receiver: Value, arg: Value, comparison: FloatComparison) VMError!Value {
-    if (arg.isFloat() or arg.isInteger() or arg.isBigInteger()) {
+    if (arg.isInteger() or arg.isBigInteger()) {
+        const order = (try vm.compareIntegerToFloat(arg, receiver.toFloatObject().val)) orelse return Value.boolean(false);
+        return Value.boolean(switch (comparison) {
+            .less_than => order == .gt,
+            .less_than_or_equal => order != .lt,
+            .greater_than => order == .lt,
+            .greater_than_or_equal => order != .gt,
+        });
+    }
+    if (arg.isFloat()) {
         const lhs = receiver.toFloatObject().val;
-        const rhs = try coerceNumericArg(vm, arg);
+        const rhs = arg.toFloatObject().val;
         return Value.boolean(switch (comparison) {
             .less_than => lhs < rhs,
             .less_than_or_equal => lhs <= rhs,
@@ -434,22 +443,25 @@ pub fn builtinFloatModulo(vm: *VM, receiver: Value, args: []Value, _: ?Block) VM
 pub fn builtinFloatDivmod(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 1);
     const lhs = receiver.toFloatObject().val;
-    if (std.math.isNan(lhs)) {
+    const rhs = try coerceNumericArg(vm, args[0]);
+    if (rhs == 0.0) {
+        return vm.raiseExceptionFmt(vm.zero_division_error_class, "divided by 0", .{});
+    }
+    if (std.math.isNan(lhs) or std.math.isNan(rhs)) {
         return vm.raiseExceptionFmt(vm.float_domain_error_class, "Computation results to 'NaN'(Not a Number)", .{});
     }
     if (std.math.isInf(lhs)) {
         return vm.raiseExceptionFmt(vm.float_domain_error_class, "Computation results to 'Infinity'", .{});
     }
-    const rhs = try coerceNumericArg(vm, args[0]);
-    if (std.math.isNan(rhs)) {
-        return vm.raiseExceptionFmt(vm.float_domain_error_class, "Computation results to 'NaN'(Not a Number)", .{});
+    var mod = if (lhs == 0.0 or std.math.isInf(rhs)) lhs else @rem(lhs, rhs);
+    // Derive the quotient from the remainder to avoid rounding the ratio
+    // across an integer boundary, following MRI's flodivmod.
+    var div = @round((lhs - mod) / rhs);
+    if (mod != 0.0 and (mod < 0.0) != (rhs < 0.0)) {
+        mod += rhs;
+        div -= 1.0;
     }
-    if (rhs == 0.0) {
-        return vm.raiseExceptionFmt(vm.zero_division_error_class, "divided by 0", .{});
-    }
-    const quot = try floatToIntegerValue(vm, @floor(lhs / rhs));
-    var mod = @rem(lhs, rhs);
-    if (mod != 0.0 and (mod < 0.0) != (rhs < 0.0)) mod += rhs;
+    const quot = try vm.integerFromFloat(div);
     const result = try vm.createArray();
     result.elements.append(vm.gc_allocator, quot) catch return error.Fatal;
     result.elements.append(vm.gc_allocator, try vm.newFloat(mod)) catch return error.Fatal;
@@ -462,8 +474,8 @@ pub fn builtinFloatEqual(vm: *VM, receiver: Value, args: []Value, _: ?Block) VME
     if (args[0].isFloat()) {
         return Value.boolean(lhs == args[0].toFloatObject().val);
     }
-    if (args[0].isInteger()) {
-        return Value.boolean(lhs == @as(f64, @floatFromInt(args[0].toInteger())));
+    if (args[0].isInteger() or args[0].isBigInteger()) {
+        return Value.boolean((try vm.compareIntegerToFloat(args[0], lhs)) == .eq);
     }
 
     var reverse_args = [_]Value{receiver};
@@ -500,7 +512,12 @@ pub fn builtinFloatCompare(vm: *VM, receiver: Value, args: []Value, _: ?Block) V
     if (rhs_arg.isFloat()) {
         rhs_f = rhs_arg.toFloatObject().val;
     } else if (rhs_arg.isInteger() or rhs_arg.isBigInteger()) {
-        rhs_f = rhs_arg.integerToF64();
+        const order = (try vm.compareIntegerToFloat(rhs_arg, lhs)) orelse return Value.nil();
+        return Value.integer(switch (order) {
+            .lt => 1,
+            .eq => 0,
+            .gt => -1,
+        });
     } else {
         // MRI `flo_cmp`: an infinite receiver first probes `other.infinite?`
         // before attempting coercion.
@@ -534,13 +551,6 @@ pub fn builtinFloatCompare(vm: *VM, receiver: Value, args: []Value, _: ?Block) V
     }
 
     if (std.math.isNan(lhs) or std.math.isNan(rhs_f)) return Value.nil();
-
-    if (std.math.isInf(rhs_f) and args[0].isBigInteger()) {
-        if (std.math.isInf(lhs)) {
-            return if (lhs > 0) Value.integer(1) else Value.integer(-1);
-        }
-        return if (rhs_f > 0) Value.integer(-1) else Value.integer(1);
-    }
 
     if (lhs < rhs_f) return Value.integer(-1);
     if (lhs > rhs_f) return Value.integer(1);
@@ -621,36 +631,7 @@ fn builtinFloatArg(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!V
 pub fn builtinFloatToInt(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
     const f = receiver.toFloatObject().val;
-    if (std.math.isNan(f) or std.math.isInf(f)) {
-        return vm.raiseExceptionFmt(vm.float_domain_error_class, "float out of range of integer", .{});
-    }
-
-    const bits: u64 = @bitCast(f);
-    const sign = (bits >> 63) != 0;
-    const exponent_bits: u16 = @intCast((bits >> 52) & 0x7ff);
-    const fraction_bits = bits & 0x000f_ffff_ffff_ffff;
-
-    if (exponent_bits == 0) {
-        return Value.integer(0);
-    }
-
-    const exponent: i32 = @as(i32, exponent_bits) - 1023;
-    if (exponent < 0) {
-        return Value.integer(0);
-    }
-
-    const significand: u64 = fraction_bits | (@as(u64, 1) << 52);
-    if (exponent <= 52) {
-        const shift: u6 = @intCast(52 - exponent);
-        const magnitude: i64 = @intCast(significand >> shift);
-        return Value.integer(if (sign) -magnitude else magnitude);
-    }
-
-    var managed = std.math.big.int.Managed.initSet(vm.allocator, @as(i64, @intCast(significand))) catch return error.Fatal;
-    defer managed.deinit();
-    managed.shiftLeft(&managed, @intCast(exponent - 52)) catch return error.Fatal;
-    if (sign) managed.negate();
-    return vm.valueFromManagedInteger(&managed);
+    return vm.integerFromFloat(f);
 }
 
 pub fn builtinFloatToF(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
@@ -768,27 +749,8 @@ pub fn builtinFloatInspect(vm: *VM, receiver: Value, args: []Value, _: ?Block) V
     return builtinFloatToS(vm, receiver, args, null);
 }
 
-fn floatToIntegerValue(vm: *VM, f: f64) VMError!Value {
-    if (std.math.isNan(f) or std.math.isInf(f)) {
-        return vm.raiseExceptionFmt(vm.range_error_class, "float out of range of integer", .{});
-    }
-    const max_exact_f64: f64 = 9007199254740992.0; // 2^53
-    if (f >= -max_exact_f64 and f <= max_exact_f64) {
-        return Value.integer(@as(i64, @intFromFloat(f)));
-    }
-    var managed = std.math.big.int.Managed.init(vm.gc_allocator) catch return error.Fatal;
-    defer managed.deinit();
-    managed.ensureCapacity(32) catch return error.Fatal;
-    {
-        var mut = managed.toMutable();
-        _ = mut.setFloat(f, .nearest_even);
-        managed.setMetadata(mut.positive, mut.len);
-    }
-    return vm.valueFromManagedInteger(&managed);
-}
-
 fn scaleIntegralFloatByDecimalFactor(vm: *VM, quotient: f64, digits: c_int) VMError!Value {
-    const quotient_value = try floatToIntegerValue(vm, quotient);
+    const quotient_value = try vm.integerFromFloat(quotient);
     var power_args = [_]Value{Value.integer(-@as(i64, digits))};
     const factor = try vm.callMethodByName(Value.integer(10), "**", power_args[0..], null);
     var multiply_args = [_]Value{factor};
@@ -799,7 +761,7 @@ pub fn builtinFloatCeil(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMEr
     try vm.requireArgCountRange(args, 0, 1);
     const f = receiver.toFloatObject().val;
     if (args.len == 0) {
-        return floatToIntegerValue(vm, @ceil(f));
+        return vm.integerFromFloat(@ceil(f));
     }
     const digits = try coercePrecisionArgToCInt(vm, args[0]);
     if (digits > 0) {
@@ -807,7 +769,7 @@ pub fn builtinFloatCeil(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMEr
         return try vm.newFloat(@ceil(f * factor) / factor);
     }
     if (digits == 0) {
-        return floatToIntegerValue(vm, @ceil(f));
+        return vm.integerFromFloat(@ceil(f));
     }
     const factor = std.math.pow(f64, 10, @as(f64, @floatFromInt(-digits)));
     return scaleIntegralFloatByDecimalFactor(vm, @ceil(f / factor), digits);
@@ -817,7 +779,7 @@ pub fn builtinFloatFloor(vm: *VM, receiver: Value, args: []Value, _: ?Block) VME
     try vm.requireArgCountRange(args, 0, 1);
     const f = receiver.toFloatObject().val;
     if (args.len == 0) {
-        return floatToIntegerValue(vm, @floor(f));
+        return vm.integerFromFloat(@floor(f));
     }
     const digits = try coercePrecisionArgToCInt(vm, args[0]);
     if (digits > 0) {
@@ -825,7 +787,7 @@ pub fn builtinFloatFloor(vm: *VM, receiver: Value, args: []Value, _: ?Block) VME
         return try vm.newFloat(@floor(f * factor) / factor);
     }
     if (digits == 0) {
-        return floatToIntegerValue(vm, @floor(f));
+        return vm.integerFromFloat(@floor(f));
     }
     const factor = std.math.pow(f64, 10, @as(f64, @floatFromInt(-digits)));
     return scaleIntegralFloatByDecimalFactor(vm, @floor(f / factor), digits);
@@ -835,7 +797,7 @@ pub fn builtinFloatRound(vm: *VM, receiver: Value, args: []Value, _: ?Block) VME
     try vm.requireArgCountRange(args, 0, 1);
     const f = receiver.toFloatObject().val;
     if (args.len == 0) {
-        return floatToIntegerValue(vm, @round(f));
+        return vm.integerFromFloat(@round(f));
     }
     const digits = try args[0].integerToI64(vm, "invalid precision");
     if (digits >= 0) {
@@ -867,7 +829,7 @@ pub fn builtinFloatTruncate(vm: *VM, receiver: Value, args: []Value, _: ?Block) 
     }
     const factor = std.math.pow(f64, 10, @as(f64, @floatFromInt(-digits)));
     if (!std.math.isFinite(factor)) return Value.integer(0);
-    return floatToIntegerValue(vm, @trunc(f / factor) * factor);
+    return vm.integerFromFloat(@trunc(f / factor) * factor);
 }
 
 pub fn builtinFloatNextFloat(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {

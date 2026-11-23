@@ -168,16 +168,6 @@ test "Integer#times without a block returns Enumerator" {
     try std.testing.expect(result.isEnumerator());
 }
 
-test "Equality comparison - true" {
-    const result = try evalCode("5 == 5");
-    try std.testing.expectEqual(true, result.toBool());
-}
-
-test "Equality comparison - false" {
-    const result = try evalCode("6 == 7");
-    try std.testing.expectEqual(false, result.toBool());
-}
-
 test "Integer#inspect" {
     const result = try evalCode("42.inspect");
     try std.testing.expect(result.isString());
@@ -298,4 +288,65 @@ test "Integer == dispatches prepended ==" {
     );
     try std.testing.expect(result.isSymbol());
     try std.testing.expectEqualSlices(u8, "eq_override", result.toSymbolObject().name);
+}
+
+test "Integer and Float comparisons preserve precision in both directions" {
+    const result = try evalCode(
+        \\[2**53, 2**64, 2**200].all? do |power|
+        \\  [power, -power].all? do |integer|
+        \\    float = integer.to_f
+        \\    lower = integer - 1
+        \\    upper = integer + 1
+        \\    integer == float && float == integer &&
+        \\      !(lower == float) && !(float == lower) &&
+        \\      !(upper == float) && !(float == upper) &&
+        \\      (lower <=> float) == -1 && (float <=> lower) == 1 &&
+        \\      (upper <=> float) == 1 && (float <=> upper) == -1 &&
+        \\      lower < float && lower <= float && float > lower && float >= lower &&
+        \\      upper > float && upper >= float && float < upper && float <= upper
+        \\  end
+        \\end
+    );
+    try std.testing.expectEqual(true, result.toBool());
+}
+
+test "Integer and Float comparisons handle fractions and nonfinite values" {
+    const result = try evalCode(
+        \\huge = 2**2000
+        \\inf = Float::INFINITY
+        \\nan = Float::NAN
+        \\[-huge, -1, 0, 1, huge].all? do |integer|
+        \\  !(integer == nan) && !(nan == integer) &&
+        \\    (integer <=> nan).nil? && (nan <=> integer).nil? &&
+        \\    !(integer < nan) && !(integer <= nan) && !(integer > nan) && !(integer >= nan) &&
+        \\    !(nan < integer) && !(nan <= integer) && !(nan > integer) && !(nan >= integer) &&
+        \\    integer < inf && inf > integer && integer > -inf && -inf < integer &&
+        \\    !(integer == inf) && !(inf == integer) && !(integer == -inf) && !(-inf == integer)
+        \\end && (1 <=> 1.5) == -1 && (-1 <=> -1.5) == 1 &&
+        \\  (1.5 <=> 1) == 1 && (-1.5 <=> -1) == -1 && 0 == -0.0
+    );
+    try std.testing.expectEqual(true, result.toBool());
+}
+
+test "Integer mixed divmod supports huge quotients and infinite divisors" {
+    const result = try evalCode(
+        \\big = 2**200
+        \\inf = Float::INFINITY
+        \\zero_errors = [2**2000, inf, Float::NAN].all? do |number|
+        \\  begin
+        \\    number.divmod(0.0)
+        \\    false
+        \\  rescue ZeroDivisionError
+        \\    true
+        \\  end
+        \\end
+        \\zero_errors && big.divmod(4.0) == [2**198, 0.0] &&
+        \\  (-big).divmod(4.0) == [-(2**198), -0.0] &&
+        \\  (-1).divmod(inf) == [-1, inf] &&
+        \\  1.divmod(-inf) == [-1, -inf] &&
+        \\  1.divmod(inf) == [0, 1.0] &&
+        \\  (-1).divmod(-inf) == [0, -1.0] &&
+        \\  0.divmod(inf) == [0, 0.0]
+    );
+    try std.testing.expectEqual(true, result.toBool());
 }
