@@ -569,17 +569,17 @@ Source baseline: ../ruby_spec compared to local spec/
 
 ### core/env
 - [x] core/env/assoc_spec.rb
-- [-] core/env/clear_spec.rb
+- [x] core/env/clear_spec.rb
 - [x] core/env/clone_spec.rb
-- [-] core/env/delete_if_spec.rb
-- [-] core/env/delete_spec.rb
+- [x] core/env/delete_if_spec.rb
+- [x] core/env/delete_spec.rb
 - [x] core/env/dup_spec.rb
-- [-] core/env/each_key_spec.rb
+- [x] core/env/each_key_spec.rb
 - [x] core/env/each_pair_spec.rb
 - [x] core/env/each_spec.rb
 - [x] core/env/each_value_spec.rb
 - [x] core/env/element_reference_spec.rb
-- [-] core/env/element_set_spec.rb
+- [x] core/env/element_set_spec.rb
 - [x] core/env/empty_spec.rb
 - [x] core/env/except_spec.rb
 - [x] core/env/fetch_spec.rb
@@ -592,16 +592,16 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] core/env/invert_spec.rb
 - [x] core/env/keep_if_spec.rb
 - [x] core/env/key_spec.rb
-- [-] core/env/keys_spec.rb
+- [x] core/env/keys_spec.rb
 - [x] core/env/length_spec.rb
 - [x] core/env/member_spec.rb
 - [x] core/env/merge_spec.rb
 - [x] core/env/rassoc_spec.rb
 - [x] core/env/rehash_spec.rb
 - [x] core/env/reject_spec.rb
-- [-] core/env/replace_spec.rb
+- [x] core/env/replace_spec.rb
 - [x] core/env/select_spec.rb
-- [-] core/env/shift_spec.rb
+- [x] core/env/shift_spec.rb
 - [x] core/env/size_spec.rb
 - [x] core/env/slice_spec.rb
 - [x] core/env/store_spec.rb

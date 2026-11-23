@@ -48,6 +48,10 @@
   `VM.yieldToBlock` for ordinary raw argument lists; the distinction matters for
   `sort_by` versus `filter_map`, and for zero/multiple yielded values.
 - Use `VM.copyObjectInstanceVariables` for dup/clone-style shallow ivar copying.
+- Native Hash traversals that call Ruby can share `hash.hashIterationSnapshot`
+  and `hash.hashIterationEntry`. Hold `iteration_depth` for the traversal so new
+  keys are rejected, and resolve each snapshot entry again to observe deletions
+  and updated values. `ENV.replace` uses this path during coercion.
 - Use `VM.newEnvString` for environment names and values returned to Ruby. It
   uses the captured locale, honors default_internal, preserves raw bytes on
   failed conversion, and freezes the returned String.

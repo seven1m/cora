@@ -1190,13 +1190,13 @@ pub fn builtinHashEmpty(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMEr
     return Value.boolean(receiver.toHashObject().entries.items.len == 0);
 }
 
-fn hashIterationSnapshot(vm: *VM, hash_obj: *value.HashObject) VMError![]value.HashEntry {
+pub fn hashIterationSnapshot(vm: *VM, hash_obj: *value.HashObject) VMError![]value.HashEntry {
     const snapshot = vm.gc_allocator.alloc(value.HashEntry, hash_obj.entries.items.len) catch return error.Fatal;
     @memcpy(snapshot, hash_obj.entries.items);
     return snapshot;
 }
 
-fn hashIterationEntry(hash_obj: *value.HashObject, key: Value, index: usize) ?value.HashEntry {
+pub fn hashIterationEntry(hash_obj: *value.HashObject, key: Value, index: usize) ?value.HashEntry {
     if (index < hash_obj.entries.items.len and hash_obj.entries.items[index].key.raw == key.raw) {
         return hash_obj.entries.items[index];
     }

@@ -7,6 +7,7 @@ const VMError = vm_mod.VMError;
 const Block = vm_mod.Block;
 const Value = value.Value;
 const warning_builtin = @import("warning.zig");
+const hash_builtin = @import("hash.zig");
 
 pub fn register(vm: *VM) !void {
     const env_obj = vm.env_object orelse return error.Fatal;
@@ -818,9 +819,14 @@ pub fn builtinEnvEmpty(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Valu
     return Value.boolean(env_map.count() == 0);
 }
 
-pub fn builtinEnvReplace(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+pub fn builtinEnvReplace(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 1);
+    if (receiver.raw == args[0].raw) return receiver;
 
+    // Only remove original names after all replacement pairs have succeeded.
+    // Coercion callbacks may add other variables, which must survive replace.
+    var remaining = try vm.currentEnvMap();
+    defer remaining.deinit();
     const probe = try vm.probeToHash(args[0]);
     const source_val = switch (probe) {
         .hash => |h| h,
@@ -840,35 +846,23 @@ pub fn builtinEnvReplace(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Va
             .{ vm.className(args[0]), vm.className(args[0]), vm.className(coerced) },
         ),
     };
-    const source_hash = source_val.toHashObject();
-
-    // Validate and coerce everything before mutating so a failed
-    // replace leaves ENV unchanged.
-    const Pair = struct { key: []const u8, value: []const u8 };
-    var pairs = @as(std.ArrayListUnmanaged(Pair), .empty);
-    defer {
-        for (pairs.items) |pair| {
-            vm.allocator.free(pair.key);
-            vm.allocator.free(pair.value);
-        }
-        pairs.deinit(vm.allocator);
+    const source = source_val.toHashObject();
+    const snapshot = try hash_builtin.hashIterationSnapshot(vm, source);
+    source.iteration_depth += 1;
+    defer source.iteration_depth -= 1;
+    for (snapshot, 0..) |original, index| {
+        const entry = hash_builtin.hashIterationEntry(source, original.key, index) orelse continue;
+        const key = try entry.key.coerceToStringValue(vm, "no implicit conversion of Object into String");
+        var set_args = [_]Value{ key, entry.value };
+        _ = try builtinEnvBracketSet(vm, receiver, &set_args, null);
+        _ = remaining.orderedRemove(key.toStringObject().str);
     }
 
-    for (source_hash.entries.items) |entry| {
-        const key_str = try entry.key.coerceToStr(vm, "no implicit conversion of Object into String");
-        try validateEnvKey(vm, key_str);
-        const value_str = try entry.value.coerceToStr(vm, "no implicit conversion of Object into String");
-        const key_copy = vm.allocator.dupe(u8, key_str) catch return error.Fatal;
-        const value_copy = vm.allocator.dupe(u8, value_str) catch return error.Fatal;
-        pairs.append(vm.allocator, .{ .key = key_copy, .value = value_copy }) catch return error.Fatal;
+    var iterator = remaining.iterator();
+    while (iterator.next()) |entry| {
+        _ = try vm.envUnset(entry.key_ptr.*, true);
     }
-
-    try clearCurrentEnv(vm);
-    for (pairs.items) |pair| {
-        _ = try vm.envSetString(pair.key, pair.value, true);
-    }
-
-    return vm.env_object.?;
+    return receiver;
 }
 
 pub fn builtinEnvRehash(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
