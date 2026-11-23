@@ -9,6 +9,7 @@ const Value = value.Value;
 const ClassObject = value.ClassObject;
 
 pub fn register(vm: *VM) !void {
+    vm.class_class.allocation_policy = .unavailable;
     vm.integer_class.allocation_policy = .unavailable;
     vm.float_class.allocation_policy = .unavailable;
     vm.symbol_class.allocation_policy = .unavailable;
@@ -47,9 +48,6 @@ pub fn register(vm: *VM) !void {
 
     const subclasses_sym = try vm.intern("subclasses");
     try vm.class_class.module.methods.put(subclasses_sym, value.MethodEntry.builtin(&builtinClassSubclasses, .{ .exact = 0 }));
-
-    const initialize_sym = try vm.intern("initialize");
-    try vm.class_class.module.methods.put(initialize_sym, value.MethodEntry.builtinWithVisibility(&builtinClassInitialize, .{ .variadic = 0 }, .private));
 }
 
 fn isUninitializedClass(vm: *VM, class_ptr: *ClassObject) bool {
@@ -189,55 +187,6 @@ pub fn builtinClassSubclasses(vm: *VM, receiver: Value, args: []Value, _: ?Block
     return Value.fromObject(&result.object);
 }
 
-pub fn builtinClassInitialize(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
-    try vm.requireArgCountRange(args, 0, 1);
-    std.debug.assert(receiver.isClass());
-
-    const class_ptr = receiver.toClassObject();
-    if (!isUninitializedClass(vm, class_ptr)) {
-        return vm.raiseExceptionFmt(vm.type_error_class, "already initialized class", .{});
-    }
-
-    var superclass = vm.object_class;
-    if (args.len == 1) {
-        if (!args[0].isClass()) {
-            return vm.raiseExceptionFmt(vm.type_error_class, "superclass must be an instance of Class", .{});
-        }
-        superclass = args[0].toClassObject();
-        if (superclass == vm.class_class) {
-            return vm.raiseExceptionFmt(vm.type_error_class, "can't make subclass of Class", .{});
-        }
-    }
-
-    class_ptr.superclass = superclass;
-    class_ptr.module.super = &superclass.module;
-    class_ptr.object_type = superclass.object_type;
-    class_ptr.allocation_policy = superclass.allocation_policy;
-    superclass.module.subclasses.append(vm.gc_allocator, &class_ptr.module) catch return error.Fatal;
-
-    var inherited_args = [_]Value{receiver};
-    _ = try vm.callMethodByName(Value.fromObject(&superclass.module.object), "inherited", inherited_args[0..], null);
-
-    if (block) |blk| {
-        _ = switch (blk.kind) {
-            .chunk => |chunk_blk| chunk_blk_result: {
-                chunk_blk.chunk.lexical_scope = try vm.createLexicalScope(receiver, vm.current_lexical_scope);
-                const class_body_block = Block{
-                    .kind = .{ .chunk = .{
-                        .chunk = chunk_blk.chunk,
-                        .defining_ep = chunk_blk.defining_ep,
-                        .defining_self = receiver,
-                    } },
-                };
-                break :chunk_blk_result try vm.yieldToBlock(class_body_block, &[_]Value{});
-            },
-            .receiver_builtin, .symbol, .builtin, .callable => try vm.yieldToBlock(blk, &[_]Value{}),
-        };
-    }
-
-    return receiver;
-}
-
 pub fn builtinClassAllocate(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
     std.debug.assert(receiver.isClass());
@@ -245,10 +194,6 @@ pub fn builtinClassAllocate(vm: *VM, receiver: Value, args: []Value, _: ?Block) 
     const class_ptr = receiver.toClassObject();
     if (class_ptr.allocation_policy != .normal) {
         return vm.raiseExceptionFmt(vm.type_error_class, "allocator undefined for {s}", .{class_ptr.module.name.name});
-    }
-    if (class_ptr == vm.class_class) {
-        const anonymous_name = try vm.intern("<anonymous>");
-        return vm.newClass(anonymous_name, null);
     }
     if (class_ptr.object_type == .string) {
         return vm.newStringForClassWithEncoding(class_ptr, "", false, .{ .ascii_8bit = .{} });
