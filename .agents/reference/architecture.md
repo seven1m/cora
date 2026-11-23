@@ -177,6 +177,15 @@ scheduler's `block` hook with the target and remaining timeout. Thread completio
 calls `unblock` with the waiting thread and fiber. Waiter cleanup handles timeout,
 unwind, and thread retirement. Finishing workers stay runnable while callbacks
 execute so preemption cannot retire a live native stack.
+Queue and SizedQueue waits in nonblocking fibers likewise call `block` with the
+queue and remaining timeout, then `unblock` with the queue and waiting fiber.
+`FiberSchedulerWaiter` captures the owner thread, fiber, and scheduler for both
+join and queue waits. Queue thread and fiber registrations share FIFO lists; each
+registration is removed on wakeup or unwind. Native timed waits park with the
+VM sleep helper; both native and fiber paths retain a monotonic deadline across
+spurious wakeups and register again when the queue is still unavailable.
+Wake-all callbacks operate on a snapshot of registrations so callbacks may
+yield, cancel, or register new waits.
 Sleep and I/O waits still use the native thread scheduler; dispatch to Ruby
 Fiber scheduler sleep and I/O wait hooks is not connected yet.
 

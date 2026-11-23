@@ -513,7 +513,7 @@ pub const ThreadInterrupt = union(enum) {
     },
 };
 
-pub const ThreadJoinWaiter = struct {
+pub const FiberSchedulerWaiter = struct {
     thread: *ThreadObject,
     fiber: *FiberObject,
     scheduler: Value,
@@ -563,7 +563,7 @@ pub const ThreadObject = struct {
     exception: ?*ExceptionObject = null,
     pending_interrupts: std.ArrayList(ThreadInterrupt) = .empty,
     interrupt_masks: std.ArrayList(*HashObject) = .empty,
-    fiber_join_waiters: std.ArrayList(*ThreadJoinWaiter) = .empty,
+    fiber_join_waiters: std.ArrayList(*FiberSchedulerWaiter) = .empty,
     delivering_interrupt: bool = false,
     terminating: bool = false,
     finishing: bool = false,
@@ -618,12 +618,17 @@ pub const ConditionVariableObject = struct {
     waiters: std.ArrayList(*ThreadObject) = .empty,
 };
 
+pub const QueueWaiter = union(enum) {
+    thread: *ThreadObject,
+    fiber: *FiberSchedulerWaiter,
+};
+
 pub const QueueObject = struct {
     object: Object,
     items: std.ArrayList(Value) = .empty,
     read_index: usize = 0,
-    dequeue_waiters: std.ArrayList(*ThreadObject) = .empty,
-    enqueue_waiters: std.ArrayList(*ThreadObject) = .empty,
+    dequeue_waiters: std.ArrayList(*QueueWaiter) = .empty,
+    enqueue_waiters: std.ArrayList(*QueueWaiter) = .empty,
     closed: bool = false,
     max_size: ?usize = null,
 };

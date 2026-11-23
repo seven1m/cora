@@ -122,7 +122,7 @@ fn builtinQueuePush(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!
     }
 
     queue.items.append(vm.gc_allocator, args[0]) catch return error.Fatal;
-    wakeNextDequeueWaiter(vm, queue);
+    try wakeNextDequeueWaiter(vm, queue);
     return receiver;
 }
 
@@ -131,7 +131,7 @@ fn builtinQueueClear(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError
     const queue = receiver.toQueueObject();
     queue.items.clearRetainingCapacity();
     queue.read_index = 0;
-    wakeAllEnqueueWaiters(vm, queue);
+    try wakeAllEnqueueWaiters(vm, queue);
     return receiver;
 }
 
@@ -173,7 +173,7 @@ fn builtinSizedQueuePush(vm: *VM, receiver: Value, args: []Value, _: ?Block) VME
     }
     if (queueHasCapacity(queue)) {
         queue.items.append(vm.gc_allocator, args[0]) catch return error.Fatal;
-        wakeNextDequeueWaiter(vm, queue);
+        try wakeNextDequeueWaiter(vm, queue);
         return receiver;
     }
     if (non_block) {
@@ -183,70 +183,7 @@ fn builtinSizedQueuePush(vm: *VM, receiver: Value, args: []Value, _: ?Block) VME
         if (seconds <= 0) return Value.nil();
     }
 
-    const current_thread = vm.current_thread orelse {
-        if (timeout) |seconds| {
-            var spin_budget: u32 = @intFromFloat(@min(seconds * 1000.0, 1000.0));
-            if (spin_budget == 0) spin_budget = 1;
-            while (spin_budget > 0) : (spin_budget -= 1) {
-                try vm.threadYield();
-                if (queue.closed) return vm.raiseExceptionFmt(vm.closed_queue_error_class, "queue closed", .{});
-                if (queueHasCapacity(queue)) {
-                    queue.items.append(vm.gc_allocator, args[0]) catch return error.Fatal;
-                    wakeNextDequeueWaiter(vm, queue);
-                    return receiver;
-                }
-            }
-            return Value.nil();
-        }
-
-        while (true) {
-            try vm.threadYield();
-            if (queue.closed) return vm.raiseExceptionFmt(vm.closed_queue_error_class, "queue closed", .{});
-            if (queueHasCapacity(queue)) {
-                queue.items.append(vm.gc_allocator, args[0]) catch return error.Fatal;
-                wakeNextDequeueWaiter(vm, queue);
-                return receiver;
-            }
-        }
-    };
-
-    addEnqueueWaiter(queue, current_thread);
-    defer removeEnqueueWaiter(queue, current_thread);
-
-    if (timeout) |seconds| {
-        current_thread.waiting_on_queue = true;
-        defer current_thread.waiting_on_queue = false;
-        var spin_budget: u32 = @intFromFloat(@min(seconds * 1000.0, 1000.0));
-        if (spin_budget == 0) spin_budget = 1;
-        while (spin_budget > 0) : (spin_budget -= 1) {
-            try vm.threadYield();
-            if (queue.closed) return vm.raiseExceptionFmt(vm.closed_queue_error_class, "queue closed", .{});
-            if (queueHasCapacity(queue)) {
-                queue.items.append(vm.gc_allocator, args[0]) catch return error.Fatal;
-                wakeNextDequeueWaiter(vm, queue);
-                return receiver;
-            }
-        }
-        return Value.nil();
-    }
-
-    const was_deadlockable = current_thread.deadlockable_wait;
-    current_thread.deadlockable_wait = true;
-    defer current_thread.deadlockable_wait = was_deadlockable;
-    current_thread.state = .sleeping;
-    defer {
-        if (current_thread.state != .terminated) current_thread.state = .running;
-    }
-
-    while (true) {
-        try vm.threadYield();
-        if (queue.closed) return vm.raiseExceptionFmt(vm.closed_queue_error_class, "queue closed", .{});
-        if (queueHasCapacity(queue)) {
-            queue.items.append(vm.gc_allocator, args[0]) catch return error.Fatal;
-            wakeNextDequeueWaiter(vm, queue);
-            return receiver;
-        }
-    }
+    return waitForQueue(vm, receiver, queue, .enqueue, args[0], timeout);
 }
 
 fn builtinSizedQueueMax(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
@@ -259,7 +196,7 @@ fn builtinSizedQueueMaxSet(vm: *VM, receiver: Value, args: []Value, _: ?Block) V
     try vm.requireArgCount(args, 1);
     const queue = receiver.toQueueObject();
     queue.max_size = try sizedQueueCapacity(vm, args[0]);
-    wakeAllEnqueueWaiters(vm, queue);
+    try wakeAllEnqueueWaiters(vm, queue);
     return receiver;
 }
 
@@ -279,7 +216,7 @@ fn builtinQueuePop(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!V
     }
 
     if (dequeueAvailable(queue)) |item| {
-        if (queue.max_size != null) wakeNextEnqueueWaiter(vm, queue);
+        if (queue.max_size != null) try wakeNextEnqueueWaiter(vm, queue);
         return item;
     }
 
@@ -296,52 +233,7 @@ fn builtinQueuePop(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!V
         if (seconds <= 0) return Value.nil();
     }
 
-    const current_thread = vm.current_thread orelse {
-        while (true) {
-            try vm.threadYield();
-            if (dequeueAvailable(queue)) |item| {
-                if (queue.max_size != null) wakeNextEnqueueWaiter(vm, queue);
-                return item;
-            }
-            if (queue.closed) return Value.nil();
-        }
-    };
-
-    addDequeueWaiter(queue, current_thread);
-    defer removeDequeueWaiter(queue, current_thread);
-
-    if (timeout) |seconds| {
-        current_thread.waiting_on_queue = true;
-        defer current_thread.waiting_on_queue = false;
-        var spin_budget: u32 = @intFromFloat(@min(seconds * 1000.0, 1000.0));
-        if (spin_budget == 0) spin_budget = 1;
-        while (spin_budget > 0) : (spin_budget -= 1) {
-            try vm.threadYield();
-            if (dequeueAvailable(queue)) |item| {
-                if (queue.max_size != null) wakeNextEnqueueWaiter(vm, queue);
-                return item;
-            }
-            if (queue.closed) return Value.nil();
-        }
-        return Value.nil();
-    }
-
-    const was_deadlockable = current_thread.deadlockable_wait;
-    current_thread.deadlockable_wait = true;
-    defer current_thread.deadlockable_wait = was_deadlockable;
-    current_thread.state = .sleeping;
-    defer {
-        if (current_thread.state != .terminated) current_thread.state = .running;
-    }
-
-    while (true) {
-        try vm.threadYield();
-        if (dequeueAvailable(queue)) |item| {
-            if (queue.max_size != null) wakeNextEnqueueWaiter(vm, queue);
-            return item;
-        }
-        if (queue.closed) return Value.nil();
-    }
+    return waitForQueue(vm, receiver, queue, .dequeue, Value.nil(), timeout);
 }
 
 fn builtinQueueSize(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
@@ -360,8 +252,8 @@ fn builtinQueueClose(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError
     try vm.requireArgCount(args, 0);
     const queue = receiver.toQueueObject();
     queue.closed = true;
-    wakeAllDequeueWaiters(vm, queue);
-    wakeAllEnqueueWaiters(vm, queue);
+    try wakeAllDequeueWaiters(vm, queue);
+    try wakeAllEnqueueWaiters(vm, queue);
     return receiver;
 }
 
@@ -393,11 +285,11 @@ fn timeoutFromKeyword(vm: *VM, timeout: ?Value) VMError!?f64 {
     if (raw.isNil()) return null;
     if (raw.isInteger()) return raw.integerToF64();
     if (raw.isFloat()) return raw.toFloatObject().val;
-    return vm.raiseExceptionFmt(vm.type_error_class, "no implicit conversion to float from {s}", .{timeoutTypeName(raw)});
+    return vm.raiseExceptionFmt(vm.type_error_class, "no implicit conversion of {s} into Float", .{timeoutTypeName(raw)});
 }
 
 fn timeoutTypeName(raw: Value) []const u8 {
-    if (raw.isString()) return "string";
+    if (raw.isString()) return "String";
     if (raw.isTrue()) return "true";
     if (raw.isFalse()) return "false";
     if (raw.isNil()) return "nil";
@@ -418,8 +310,8 @@ fn dequeueAvailable(queue: *value.QueueObject) ?Value {
 fn resetQueue(queue: *value.QueueObject) void {
     queue.items.clearRetainingCapacity();
     queue.read_index = 0;
-    VM.clearThreadList(&queue.dequeue_waiters);
-    VM.clearThreadList(&queue.enqueue_waiters);
+    clearWaiters(&queue.dequeue_waiters);
+    clearWaiters(&queue.enqueue_waiters);
     queue.closed = false;
 }
 
@@ -432,95 +324,179 @@ fn queueHasCapacity(queue: *value.QueueObject) bool {
     return queueLength(queue) < max_size;
 }
 
-fn addDequeueWaiter(queue: *value.QueueObject, thread: *value.ThreadObject) void {
-    for (queue.dequeue_waiters.items) |waiter| {
-        if (waiter == thread) return;
-    }
-    queue.dequeue_waiters.append(thread.owner_vm.gc_allocator, thread) catch {};
+const Waiters = std.ArrayList(*value.QueueWaiter);
+
+fn removeWaiter(waiters: *Waiters, index: usize) *value.QueueWaiter {
+    const waiter = waiters.orderedRemove(index);
+    @memset(std.mem.asBytes(&waiters.unusedCapacitySlice()[0]), 0);
+    return waiter;
 }
 
-fn removeDequeueWaiter(queue: *value.QueueObject, thread: *value.ThreadObject) void {
-    var i: usize = 0;
-    while (i < queue.dequeue_waiters.items.len) {
-        if (queue.dequeue_waiters.items[i] == thread) {
-            _ = VM.removeThreadListEntry(&queue.dequeue_waiters, i);
-        } else {
-            i += 1;
+fn removeWaiterIfPresent(waiters: *Waiters, waiter: *value.QueueWaiter) void {
+    for (waiters.items, 0..) |entry, index| {
+        if (entry == waiter) {
+            _ = removeWaiter(waiters, index);
+            return;
         }
     }
 }
 
-fn addEnqueueWaiter(queue: *value.QueueObject, thread: *value.ThreadObject) void {
-    for (queue.enqueue_waiters.items) |waiter| {
-        if (waiter == thread) return;
-    }
-    queue.enqueue_waiters.append(thread.owner_vm.gc_allocator, thread) catch {};
+fn clearWaiters(waiters: *Waiters) void {
+    @memset(std.mem.sliceAsBytes(waiters.items), 0);
+    waiters.clearRetainingCapacity();
 }
 
-fn removeEnqueueWaiter(queue: *value.QueueObject, thread: *value.ThreadObject) void {
-    var i: usize = 0;
-    while (i < queue.enqueue_waiters.items.len) {
-        if (queue.enqueue_waiters.items[i] == thread) {
-            _ = VM.removeThreadListEntry(&queue.enqueue_waiters, i);
-        } else {
-            i += 1;
-        }
+fn addThreadWaiter(vm: *VM, waiters: *Waiters, thread: *value.ThreadObject) VMError!*value.QueueWaiter {
+    const waiter = vm.gc_allocator.create(value.QueueWaiter) catch return error.Fatal;
+    waiter.* = .{ .thread = thread };
+    waiters.append(vm.gc_allocator, waiter) catch return error.Fatal;
+    return waiter;
+}
+
+fn waiterIsLive(waiter: *value.QueueWaiter) bool {
+    return switch (waiter.*) {
+        .thread => |thread| thread.state != .terminated,
+        .fiber => |fiber_waiter| fiber_waiter.thread.state != .terminated and fiber_waiter.fiber.state != .terminated,
+    };
+}
+
+fn wakeWaiter(vm: *VM, queue: *value.QueueObject, waiter: *value.QueueWaiter) VMError!void {
+    switch (waiter.*) {
+        .thread => |thread| {
+            thread.state = .running;
+            addToRunnableIfAbsent(vm, thread);
+        },
+        .fiber => |fiber_waiter| try vm.notifyFiberSchedulerWaiter(fiber_waiter, Value.fromObject(&queue.object)),
     }
 }
 
-fn wakeNextDequeueWaiter(vm: *VM, queue: *value.QueueObject) void {
-    while (queue.dequeue_waiters.items.len > 0) {
-        const waiter = VM.removeThreadListEntry(&queue.dequeue_waiters, 0);
-        if (waiter.state == .terminated) {
-            continue;
-        }
-        waiter.state = .running;
-        addToRunnableIfAbsent(vm, waiter);
+fn wakeNextWaiter(vm: *VM, queue: *value.QueueObject, waiters: *Waiters) VMError!void {
+    while (waiters.items.len > 0) {
+        const waiter = removeWaiter(waiters, 0);
+        if (!waiterIsLive(waiter)) continue;
+        try wakeWaiter(vm, queue, waiter);
         return;
     }
 }
 
-fn wakeAllDequeueWaiters(vm: *VM, queue: *value.QueueObject) void {
-    for (queue.dequeue_waiters.items) |waiter| {
-        if (waiter.state != .terminated) {
-            waiter.state = .running;
-            addToRunnableIfAbsent(vm, waiter);
+fn wakeAllWaiters(vm: *VM, queue: *value.QueueObject, waiters: *Waiters) VMError!void {
+    // Unblock callbacks can yield, cancel waits, or register new waits. Only
+    // notify the registrations that existed when this wakeup began.
+    const snapshot = vm.gc_allocator.dupe(*value.QueueWaiter, waiters.items) catch return error.Fatal;
+    for (snapshot) |waiter| {
+        for (waiters.items, 0..) |entry, index| {
+            if (entry == waiter) {
+                _ = removeWaiter(waiters, index);
+                if (waiterIsLive(waiter)) try wakeWaiter(vm, queue, waiter);
+                break;
+            }
         }
-    }
-    VM.clearThreadList(&queue.dequeue_waiters);
-}
-
-fn wakeNextEnqueueWaiter(vm: *VM, queue: *value.QueueObject) void {
-    while (queue.enqueue_waiters.items.len > 0) {
-        const waiter = VM.removeThreadListEntry(&queue.enqueue_waiters, 0);
-        if (waiter.state == .terminated) {
-            continue;
-        }
-        waiter.state = .running;
-        addToRunnableIfAbsent(vm, waiter);
-        return;
     }
 }
 
-fn wakeAllEnqueueWaiters(vm: *VM, queue: *value.QueueObject) void {
-    for (queue.enqueue_waiters.items) |waiter| {
-        if (waiter.state != .terminated) {
-            waiter.state = .running;
-            addToRunnableIfAbsent(vm, waiter);
-        }
-    }
-    VM.clearThreadList(&queue.enqueue_waiters);
+fn wakeNextDequeueWaiter(vm: *VM, queue: *value.QueueObject) VMError!void {
+    try wakeNextWaiter(vm, queue, &queue.dequeue_waiters);
+}
+
+fn wakeAllDequeueWaiters(vm: *VM, queue: *value.QueueObject) VMError!void {
+    try wakeAllWaiters(vm, queue, &queue.dequeue_waiters);
+}
+
+fn wakeNextEnqueueWaiter(vm: *VM, queue: *value.QueueObject) VMError!void {
+    try wakeNextWaiter(vm, queue, &queue.enqueue_waiters);
+}
+
+fn wakeAllEnqueueWaiters(vm: *VM, queue: *value.QueueObject) VMError!void {
+    try wakeAllWaiters(vm, queue, &queue.enqueue_waiters);
 }
 
 fn countWaiting(queue: *value.QueueObject) usize {
     var count: usize = 0;
-    for (queue.dequeue_waiters.items) |waiter| {
-        if (waiter.state == .sleeping or waiter.waiting_on_queue) count += 1;
-    }
-    for (queue.enqueue_waiters.items) |waiter| {
-        if (waiter.state == .sleeping or waiter.waiting_on_queue) count += 1;
+    for ([_][]*value.QueueWaiter{ queue.dequeue_waiters.items, queue.enqueue_waiters.items }) |waiters| {
+        for (waiters) |waiter| {
+            switch (waiter.*) {
+                .thread => |thread| if (thread.state == .sleeping or thread.waiting_on_queue) {
+                    count += 1;
+                },
+                .fiber => if (waiterIsLive(waiter)) {
+                    count += 1;
+                },
+            }
+        }
     }
     return count;
+}
+
+fn blockThreadOnQueue(vm: *VM, waiters: *Waiters, timeout: ?f64) VMError!void {
+    try vm.deliverThreadInterrupt(true);
+    const thread = vm.current_thread orelse return error.Fatal;
+    const waiter = try addThreadWaiter(vm, waiters, thread);
+    defer removeWaiterIfPresent(waiters, waiter);
+    const was_deadlockable = thread.deadlockable_wait;
+    thread.deadlockable_wait = timeout == null;
+    thread.waiting_on_queue = true;
+    defer {
+        thread.deadlockable_wait = was_deadlockable;
+        thread.waiting_on_queue = false;
+        if (thread.state != .terminated) thread.state = .running;
+    }
+    if (timeout) |seconds| {
+        // Short sleeps bound the native deadline conversion for very large
+        // timeouts. The caller retains the absolute deadline across wakeups.
+        try vm.timedSleepCurrentThread(@intFromFloat(@ceil(@min(seconds * 1000, 100))));
+    } else {
+        thread.state = .sleeping;
+        while (thread.state == .sleeping) try vm.threadYield();
+    }
+}
+
+fn blockFiberOnQueue(vm: *VM, receiver: Value, waiters: *Waiters, scheduler: Value, timeout: ?f64) VMError!void {
+    try vm.deliverThreadInterrupt(true);
+    const fiber_waiter = vm.gc_allocator.create(value.FiberSchedulerWaiter) catch return error.Fatal;
+    fiber_waiter.* = .{ .thread = vm.current_thread orelse return error.Fatal, .fiber = vm.current_fiber, .scheduler = scheduler };
+    const waiter = vm.gc_allocator.create(value.QueueWaiter) catch return error.Fatal;
+    waiter.* = .{ .fiber = fiber_waiter };
+    waiters.append(vm.gc_allocator, waiter) catch return error.Fatal;
+    defer removeWaiterIfPresent(waiters, waiter);
+    var args = [_]Value{ receiver, if (timeout) |seconds| try vm.newFloat(seconds) else Value.nil() };
+    _ = try vm.callMethodByName(scheduler, "block", &args, null);
+    try vm.deliverThreadInterrupt(true);
+}
+
+fn waitForQueue(vm: *VM, receiver: Value, queue: *value.QueueObject, mode: enum { enqueue, dequeue }, item: Value, timeout: ?f64) VMError!Value {
+    const scheduler = vm.currentFiberScheduler();
+    const deadline: ?f64 = if (timeout) |seconds| @as(f64, @floatFromInt(vm_mod.monotonicMilliseconds())) + seconds * 1000 else null;
+    while (true) {
+        if (mode == .dequeue) {
+            if (dequeueAvailable(queue)) |available| {
+                if (queue.max_size != null) try wakeNextEnqueueWaiter(vm, queue);
+                return available;
+            }
+            if (queue.closed) return Value.nil();
+        } else {
+            if (queue.closed) return vm.raiseExceptionFmt(vm.closed_queue_error_class, "queue closed", .{});
+            if (queueHasCapacity(queue)) {
+                queue.items.append(vm.gc_allocator, item) catch return error.Fatal;
+                try wakeNextDequeueWaiter(vm, queue);
+                return receiver;
+            }
+        }
+        const remaining: ?f64 = if (deadline) |end| (end - @as(f64, @floatFromInt(vm_mod.monotonicMilliseconds()))) / 1000 else null;
+        if (remaining) |seconds| {
+            if (seconds <= 0) return Value.nil();
+        }
+        const waiters = if (mode == .enqueue) &queue.enqueue_waiters else &queue.dequeue_waiters;
+        if (scheduler) |fiber_scheduler| {
+            try blockFiberOnQueue(vm, receiver, waiters, fiber_scheduler, remaining);
+        } else {
+            try blockThreadOnQueue(vm, waiters, remaining);
+        }
+        if (mode == .enqueue) {
+            if (deadline) |end| {
+                if (@as(f64, @floatFromInt(vm_mod.monotonicMilliseconds())) >= end) return Value.nil();
+            }
+        }
+    }
 }
 
 fn addToRunnableIfAbsent(vm: *VM, thread: *value.ThreadObject) void {

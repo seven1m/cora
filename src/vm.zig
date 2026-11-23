@@ -5478,7 +5478,7 @@ pub const VM = struct {
         try self.writeStderr(message);
     }
 
-    fn removeFiberJoinWaiter(target: *ThreadObject, index: usize) *value.ThreadJoinWaiter {
+    fn removeFiberJoinWaiter(target: *ThreadObject, index: usize) *value.FiberSchedulerWaiter {
         const waiter = target.fiber_join_waiters.orderedRemove(index);
         @memset(std.mem.asBytes(&target.fiber_join_waiters.unusedCapacitySlice()[0]), 0);
         return waiter;
@@ -5496,9 +5496,14 @@ pub const VM = struct {
         defer if (succeeded) {
             self.pending_unwind = pending;
         };
-        var args = [_]Value{ Value.fromObject(&waiter.thread.object), Value.fromObject(&waiter.fiber.object) };
-        _ = try self.callMethodByName(waiter.scheduler, "unblock", &args, null);
+        try self.notifyFiberSchedulerWaiter(waiter, Value.fromObject(&waiter.thread.object));
         succeeded = true;
+    }
+
+    pub fn notifyFiberSchedulerWaiter(self: *VM, waiter: *value.FiberSchedulerWaiter, blocker: Value) VMError!void {
+        if (waiter.thread.state == .terminated or waiter.fiber.state == .terminated) return;
+        var args = [_]Value{ blocker, Value.fromObject(&waiter.fiber.object) };
+        _ = try self.callMethodByName(waiter.scheduler, "unblock", &args, null);
     }
 
     pub fn currentFiberScheduler(self: *VM) ?Value {
@@ -5822,7 +5827,7 @@ pub const VM = struct {
         const thread = self.current_thread orelse return error.Fatal;
         if (self.currentFiberScheduler()) |scheduler| {
             try self.deliverThreadInterrupt(true);
-            const waiter = self.gc_allocator.create(value.ThreadJoinWaiter) catch return error.Fatal;
+            const waiter = self.gc_allocator.create(value.FiberSchedulerWaiter) catch return error.Fatal;
             waiter.* = .{ .thread = thread, .fiber = self.current_fiber, .scheduler = scheduler };
             target.fiber_join_waiters.append(self.gc_allocator, waiter) catch return error.Fatal;
             defer {

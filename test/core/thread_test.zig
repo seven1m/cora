@@ -1036,3 +1036,125 @@ test "Enclosed ThreadGroups retain native membership across child creation and r
     );
     try std.testing.expect(result.isTruthy());
 }
+
+test "Queue scheduler waits clean up after spurious wakeups cancellation and timeouts" {
+    const result = try evalCode(
+        \\class QueueScheduler
+        \\  attr_reader :blocks, :wakeups
+        \\  def initialize
+        \\    @blocks, @wakeups = [], []
+        \\  end
+        \\  def block(queue, timeout)
+        \\    @blocks << [queue, Fiber.current, timeout]
+        \\    Fiber.yield
+        \\  end
+        \\  def unblock(queue, fiber)
+        \\    GC.start
+        \\    @wakeups << [queue, fiber]
+        \\  end
+        \\  def kernel_sleep(*args); end
+        \\  def io_wait(*args); end
+        \\  def fiber_interrupt(*args); end
+        \\end
+        \\scheduler = QueueScheduler.new
+        \\Fiber.set_scheduler(scheduler)
+        \\q = Queue.new
+        \\cancelled = Fiber.new(blocking: false) do
+        \\  begin
+        \\    q.pop
+        \\  rescue RuntimeError => error
+        \\    error.message
+        \\  end
+        \\end
+        \\cancelled.resume
+        \\cancelled.resume
+        \\raise "spurious wake lost waiter" unless q.num_waiting == 1 && scheduler.blocks.size == 2
+        \\raise "cancellation" unless cancelled.raise("cancelled") == "cancelled" && q.num_waiting == 0
+        \\q << 1
+        \\raise "stale waiter" unless scheduler.wakeups.empty? && q.pop == 1
+        \\[Queue.new, SizedQueue.new(1)].each do |queue|
+        \\  queue << 1 if queue.is_a?(SizedQueue)
+        \\  timed = Fiber.new(blocking: false) do
+        \\    queue.is_a?(SizedQueue) ? queue.push(2, timeout: 0.01) : queue.pop(timeout: 0.01)
+        \\  end
+        \\  timed.resume
+        \\  timeout = scheduler.blocks.last.last
+        \\  raise "timeout forwarding" unless timeout > 0 && timeout <= 0.01
+        \\  sleep 0.02
+        \\  raise "timeout cleanup" unless timed.resume.nil? && queue.num_waiting == 0
+        \\end
+        \\# Thread and fiber waits share FIFO order; wakeups use the captured scheduler,
+        \\# including when the producer runs in another thread without a scheduler.
+        \\thread = Thread.new { q.pop }
+        \\Thread.pass until q.num_waiting == 1
+        \\fiber = Fiber.new(blocking: false) { q.pop }
+        \\fiber.resume
+        \\q << 3
+        \\raise "thread order" unless thread.value == 3 && scheduler.wakeups.empty?
+        \\Thread.new { q << 4 }.join
+        \\raise "scheduler ownership" unless scheduler.wakeups == [[q, fiber]]
+        \\raise "fiber order" unless fiber.resume == 4 && q.num_waiting == 0
+        \\Fiber.set_scheduler(nil)
+        \\true
+    );
+    try std.testing.expect(result.isTruthy());
+}
+
+test "SizedQueue scheduler wake all preserves waits registered during callbacks" {
+    const result = try evalCode(
+        \\scheduler = Object.new
+        \\scheduler.define_singleton_method(:block) { |queue, timeout| Fiber.yield }
+        \\scheduler.define_singleton_method(:unblock) do |queue, fiber|
+        \\  GC.start
+        \\  fiber.resume
+        \\end
+        \\[:kernel_sleep, :io_wait, :fiber_interrupt].each do |name|
+        \\  scheduler.define_singleton_method(name) {}
+        \\end
+        \\Fiber.set_scheduler(scheduler)
+        \\q = SizedQueue.new(1)
+        \\q << 0
+        \\first = Fiber.new(blocking: false) { q << 1 }
+        \\second = Fiber.new(blocking: false) { q << 2 }
+        \\first.resume
+        \\second.resume
+        \\raise "wait count" unless q.num_waiting == 2
+        \\q.clear
+        \\raise "reentrant wake" unless !first.alive? && second.alive? && q.num_waiting == 1
+        \\q.clear
+        \\raise "new registration lost" unless !second.alive? && q.num_waiting == 0 && q.pop == 2
+        \\# A larger capacity wakes every producer through the same callback path.
+        \\q << 0
+        \\third = Fiber.new(blocking: false) { q << 3 }
+        \\fourth = Fiber.new(blocking: false) { q << 4 }
+        \\third.resume
+        \\fourth.resume
+        \\q.max = 3
+        \\raise "capacity wake" unless !third.alive? && !fourth.alive? && q.num_waiting == 0
+        \\raise "items" unless [q.pop, q.pop, q.pop] == [0, 3, 4]
+        \\Fiber.set_scheduler(nil)
+        \\true
+    );
+    try std.testing.expect(result.isTruthy());
+}
+
+test "Queue native timeouts retain their deadline and registration after wakeup" {
+    const result = try evalCode(
+        \\[Queue.new, SizedQueue.new(1)].each do |q|
+        \\  q << 1 if q.is_a?(SizedQueue)
+        \\  worker = Thread.new do
+        \\    started = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+        \\    result = q.is_a?(SizedQueue) ? q.push(2, timeout: 0.05) : q.pop(timeout: 0.05)
+        \\    [result, Process.clock_gettime(Process::CLOCK_MONOTONIC) - started]
+        \\  end
+        \\  Thread.pass until q.num_waiting == 1
+        \\  worker.wakeup
+        \\  Thread.pass
+        \\  raise "lost registration" unless q.num_waiting == 1 && worker.status == "sleep"
+        \\  result, elapsed = worker.value
+        \\  raise "elapsed timeout" unless result.nil? && elapsed >= 0.04 && q.num_waiting == 0
+        \\end
+        \\true
+    );
+    try std.testing.expect(result.isTruthy());
+}

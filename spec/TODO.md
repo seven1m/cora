@@ -1730,7 +1730,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] core/queue/initialize_spec.rb
 - [x] core/queue/length_spec.rb
 - [x] core/queue/num_waiting_spec.rb
-- [-] core/queue/pop_spec.rb
+- [x] core/queue/pop_spec.rb
 - [x] core/queue/push_spec.rb
 - [x] core/queue/shift_spec.rb
 - [x] core/queue/size_spec.rb
@@ -1939,7 +1939,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] core/sizedqueue/new_spec.rb
 - [x] core/sizedqueue/num_waiting_spec.rb
 - [x] core/sizedqueue/pop_spec.rb
-- [-] core/sizedqueue/push_spec.rb
+- [x] core/sizedqueue/push_spec.rb
 - [x] core/sizedqueue/shift_spec.rb
 - [x] core/sizedqueue/size_spec.rb
 
